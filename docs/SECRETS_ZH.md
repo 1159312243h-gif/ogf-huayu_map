@@ -11,6 +11,8 @@
 
 建议在 GitHub `Environments` 中建立 `production` 环境，并把上述密钥放在该环境内。可以为生产环境启用人工批准。
 
+若这两个 Secret 尚未配置，`Deploy production` 会完成项目校验，随后显示警告并跳过 Cloudflare 上传。它不会把当前线上版本清空，也不会把凭据缺失记成代码故障。配置完成后重新手动运行工作流即可正式部署。
+
 ## 禁止提交的文件
 
 - `.wrangler/config/default.toml`
@@ -19,4 +21,3 @@
 - 个人浏览器配置与登录 Cookie
 
 密钥失效时，只需在 GitHub 中替换 Secret，不需要修改源代码。人员变更后应立即轮换 Token。
-

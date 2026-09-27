@@ -46,11 +46,22 @@ assert.ok(index.includes(release.entryScript), "index.html 未引用 release.jso
 assert.ok(app.includes(`\"huayu:model-version\": \"${release.expectedBuildingModel}\"`), "建筑模型版本不一致");
 assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildingMinZoom}`), "建筑起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedBuildingTileZooms.join(", ")}])`), "Worker 建筑分片级别不一致");
+assert.ok(app.includes(`HUAYU_LIVE_BASEMAP_MIN_ZOOM = ${release.expectedLiveBasemapMinZoom}`),
+  "实时底图起始缩放级别不一致");
+assert.ok(worker.includes(`new Set([${release.expectedLiveBasemapTileZooms.join(", ")}])`),
+  "Worker 实时底图分片级别不一致");
+assert.ok(worker.includes("live-basemap") && worker.includes("fetchLiveBasemapTile"),
+  "Worker 缺少实时底图接口");
 
 for (const script of ["app.js", "_worker.js"]) {
   const result = spawnSync(process.execPath, ["--check", path.join(site, script)], { encoding: "utf8" });
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
+
+const workerTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-worker.mjs")], {
+  encoding: "utf8",
+});
+assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
 
 console.log(JSON.stringify({
   status: "passed",
@@ -58,4 +69,3 @@ console.log(JSON.stringify({
   productionFiles: files.length,
   manifestEntries: manifest.size,
 }, null, 2));
-

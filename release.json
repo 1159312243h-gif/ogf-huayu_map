@@ -1,11 +1,13 @@
 {
-  "releaseVersion": "4.0.1-huayu-building-model-v9",
+  "releaseVersion": "5.0-huayu-live-basemap-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=4.0.1-huayu-building-model-v9",
+  "entryScript": "app.js?v=5.0-huayu-live-basemap-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
+  "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
   "expectedBuildingModel": "9",
   "expectedBuildingMinZoom": 10,
-  "expectedBuildingTileZooms": [11, 12, 13, 14]
+  "expectedBuildingTileZooms": [11, 12, 13, 14],
+  "expectedLiveBasemapMinZoom": 12.5,
+  "expectedLiveBasemapTileZooms": [13, 14, 15]
 }
-
