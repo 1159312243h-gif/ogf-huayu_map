@@ -1,0 +1,11 @@
+{
+  "releaseVersion": "4.0.1-huayu-building-model-v9",
+  "projectName": "ogf-atlas",
+  "productionUrl": "https://ogf-atlas.pages.dev",
+  "entryScript": "app.js?v=4.0.1-huayu-building-model-v9",
+  "buildingProbe": "/api/buildings/11/1893/939.json",
+  "expectedBuildingModel": "9",
+  "expectedBuildingMinZoom": 10,
+  "expectedBuildingTileZooms": [11, 12, 13, 14]
+}
+

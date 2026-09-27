@@ -1,0 +1,12 @@
+{
+  "name": "ogf-atlas-maintenance",
+  "private": true,
+  "version": "4.0.1",
+  "type": "module",
+  "scripts": {
+    "manifest:update": "node scripts/update-manifest.mjs",
+    "verify": "node scripts/verify-package.mjs",
+    "verify:online": "node scripts/verify-online.mjs"
+  }
+}
+
