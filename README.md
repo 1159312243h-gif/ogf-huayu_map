@@ -1,6 +1,6 @@
 # 华域地图维护项目
 
-这是华域地图 `4.0.1-huayu-building-model-v9` 的独立交接项目，不依赖 Codex 运行。
+这是华域地图 `4.5-huayu-building-model-v9` 的独立交接项目，不依赖 Codex 运行。
 
 维护电脑只需安装 Git 与 Node.js 20 或更高版本。Node.js 官方安装包会同时提供 `npm`；生产部署由 GitHub Actions 执行，本地不需要保存 Cloudflare Token。
 
