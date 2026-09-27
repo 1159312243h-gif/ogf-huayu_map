@@ -1,0 +1,47 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "release.json"
+      - "release/SHA256.txt"
+      - "scripts/verify-package.mjs"
+      - ".github/workflows/deploy.yml"
+
+concurrency:
+  group: ogf-atlas-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm run verify
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=ogf-atlas --branch=main --no-bundle --commit-dirty=true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify production
+        env:
+          VERIFY_ATTEMPTS: "12"
+          VERIFY_DELAY_MS: "10000"
+        run: npm run verify:online
+
