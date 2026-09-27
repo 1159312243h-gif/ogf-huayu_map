@@ -104,7 +104,7 @@ npm run verify:online
 
 **5.0** 是当前项目版本，代表华域地图网站、样式、交通导航、动态建筑、自动化脚本、运维文档和历史发布包已经作为一个完整项目统一维护。
 
-当前 5.0 构建标识为 `5.0-huayu-live-basemap-v1`。`4.0.1-huayu-building-model-v9` 作为上一份完整稳定发布继续保存在 `releases/` 中，可用于对照和回退。
+当前 5.0 构建标识为 `5.0-huayu-live-basemap-v2`。`5.0-huayu-live-basemap-v1` 和 `4.0.1-huayu-building-model-v9` 作为完整历史发布继续保存在 `releases/` 中，可用于对照和回退。
 
 ## 数据说明
 
