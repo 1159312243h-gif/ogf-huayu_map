@@ -1,0 +1,45 @@
+name: Import latest Huayu project package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: huayu-project-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify and unpack project package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find . -maxdepth 1 -name 'huayu-sync-7e21f0d.zip.chunk*' | wc -l)" -eq 9
+          cat huayu-sync-7e21f0d.zip.chunk* > "$RUNNER_TEMP/huayu-sync.zip"
+          echo "7fb9cb7369e1178ac63b0af7c53c934aab2dd78b04fca5308a6a95b83b6025f7  $RUNNER_TEMP/huayu-sync.zip" | sha256sum --check
+          unzip -oq "$RUNNER_TEMP/huayu-sync.zip" -d "$GITHUB_WORKSPACE"
+
+      - name: Commit restored project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f huayu-sync-7e21f0d.zip.chunk*
+          rm -f .github/workflows/import-latest.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Project already matches the uploaded package."
+            exit 0
+          fi
+          git commit -m "Sync latest Huayu 5.0 production project"
+          git push origin HEAD:main
