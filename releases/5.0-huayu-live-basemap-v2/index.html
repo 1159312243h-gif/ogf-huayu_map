@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" href="data:," />
+    <meta name="description" content="华域地图：在同一页面搜索 OpenGeofiction 地名、规划道路路线并查看公共交通线路。" />
+    <title>华域地图</title>
+    <link rel="preconnect" href="https://tiles05.opengeofiction.net" crossorigin />
+    <link rel="preconnect" href="https://tiles04.opengeofiction.net" crossorigin />
+    <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
+    <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
+    <link rel="stylesheet" href="./leaflet-base.css" />
+    <link rel="stylesheet" href="./styles.css?v=4.0-huayu-view-v18" />
+  </head>
+  <body>
+    <main class="app-shell" data-app-version="5.0">
+      <div id="map" class="map" aria-label="华域地图交互地图"></div>
+
+      <nav class="side-rail" aria-label="地图主导航">
+        <button class="brand-mark" type="button" data-action="home" aria-label="华域地图" data-tooltip="华域地图"><span>华</span></button>
+        <div class="rail-actions">
+          <button id="map-view-button" class="rail-button is-active" type="button" data-action="map-view" aria-expanded="false" aria-controls="map-view-menu"><i data-lucide="layers-3" aria-hidden="true"></i><span>视图</span></button>
+          <button class="rail-button" type="button" data-action="search"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
+          <button class="rail-button" type="button" data-action="directions"><i data-lucide="route" aria-hidden="true"></i><span>导航</span></button>
+          <button class="rail-button" type="button" data-action="transit"><i data-lucide="train-front" aria-hidden="true"></i><span>线路</span></button>
+          <button class="rail-button" type="button" data-action="measure"><i data-lucide="ruler" aria-hidden="true"></i><span>测量</span></button>
+          <button class="rail-button" type="button" data-action="favorites"><i data-lucide="bookmark" aria-hidden="true"></i><span>收藏</span></button>
+          <button class="rail-button" type="button" data-action="download"><i data-lucide="download" aria-hidden="true"></i><span>下载</span></button>
+        </div>
+        <button class="rail-button rail-about" type="button" data-action="about"><i data-lucide="info" aria-hidden="true"></i><span>关于</span></button>
+      </nav>
+
+      <div id="map-view-menu" class="map-view-menu" role="dialog" aria-label="选择地图视图" hidden>
+        <header class="map-view-heading">
+          <strong>地图视图</strong>
+          <button id="close-map-view" class="icon-button" type="button" aria-label="关闭视图选择" data-tooltip="关闭"><i data-lucide="x" aria-hidden="true"></i></button>
+        </header>
+        <button class="map-view-option is-active" type="button" data-map-view="normal" aria-pressed="true">
+          <span class="map-view-icon"><i data-lucide="map" aria-hidden="true"></i></span>
+          <span class="map-view-copy"><strong>普通视图</strong><small>标准 OGF 地图</small></span>
+          <i class="map-view-check" data-lucide="check" aria-hidden="true"></i>
+        </button>
+        <button class="map-view-option" type="button" data-map-view="transit" aria-pressed="false">
+          <span class="map-view-icon is-transit"><i data-lucide="train-front" aria-hidden="true"></i></span>
+          <span class="map-view-copy"><strong>交通视图</strong><small>轨道线路与公共交通站点</small></span>
+          <i class="map-view-check" data-lucide="check" aria-hidden="true"></i>
+        </button>
+        <section id="vector-camera-controls" class="vector-camera-controls" aria-labelledby="vector-camera-heading" hidden>
+          <header class="vector-camera-heading">
+            <strong id="vector-camera-heading">矢量视角</strong>
+            <div class="vector-camera-actions">
+              <button id="vector-perspective-preset" class="small-icon-button" type="button" aria-label="使用倾斜视角" data-tooltip="倾斜视角"><i data-lucide="axis-3d" aria-hidden="true"></i></button>
+              <button id="vector-camera-reset" class="small-icon-button" type="button" aria-label="恢复俯视" data-tooltip="恢复俯视" disabled><i data-lucide="undo-2" aria-hidden="true"></i></button>
+            </div>
+          </header>
+          <label class="vector-camera-slider" for="vector-pitch">
+            <span>倾斜角</span><output id="vector-pitch-value" for="vector-pitch">0°</output>
+            <input id="vector-pitch" type="range" min="0" max="60" step="1" value="0" />
+          </label>
+          <label class="vector-camera-slider" for="vector-bearing">
+            <span>旋转角</span><output id="vector-bearing-value" for="vector-bearing">0°</output>
+            <input id="vector-bearing" type="range" min="-180" max="180" step="1" value="0" />
+          </label>
+        </section>
+        <fieldset class="basemap-choices">
+          <legend>底图图层</legend>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="huayu" checked /><img class="basemap-sample" src="./huayu-basemap-sample.png?v=1" loading="lazy" alt="" /><span>华域标准</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="huayu-night" /><img class="basemap-sample" src="./huayu-night-basemap-sample.png?v=1" loading="lazy" alt="" /><span>华域深夜</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="carto" /><img class="basemap-sample" src="https://tiles04.opengeofiction.net/ogf-carto/10/947/469.png" loading="lazy" alt="" /><span>OGF-Carto US</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="carto-gb" /><img class="basemap-sample" src="https://tiles05.opengeofiction.net/ogf-carto/10/947/469.png" loading="lazy" alt="" /><span>OGF-Carto GB</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="topo" /><img class="basemap-sample" src="https://tiles07.opengeofiction.net/ttopo/10/947/469.png" loading="lazy" alt="" /><span>Tracestrack Topo</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="cycle" /><img class="basemap-sample" src="https://tiles06.opengeofiction.net/cyclogf/10/947/469.png" loading="lazy" alt="" /><span>CyclOGF</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="6ma" /><img class="basemap-sample" src="https://tiles05.opengeofiction.net/6ma/10/947/469.png" loading="lazy" alt="" /><span>OGF-Carto 6ma</span></label>
+          <label class="basemap-option"><input type="radio" name="basemap-style" value="vector" /><img class="basemap-sample" src="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app/styles/OGFBright/10/947/469.png" loading="lazy" alt="" /><span>Vector</span></label>
+        </fieldset>
+      </div>
+
+      <header class="topbar" aria-label="地图工具栏">
+        <form id="search-form" class="search-form" role="search">
+          <label class="sr-only" for="search-input">搜索 OGF 地名或坐标</label>
+          <input id="search-input" name="query" type="search" autocomplete="off" placeholder="搜索 OGF 地名或输入纬度,经度" />
+          <button class="icon-button search-button" type="submit" aria-label="搜索地名" data-tooltip="搜索地名"><i data-lucide="search" aria-hidden="true"></i></button>
+          <div id="search-history-menu" class="search-history-menu" role="listbox" aria-label="搜索历史" hidden>
+            <div class="search-history-heading">
+              <span>最近搜索</span>
+              <button id="search-history-clear" class="small-icon-button" type="button" aria-label="清空搜索历史" data-tooltip="清空搜索历史"><i data-lucide="trash-2" aria-hidden="true"></i></button>
+            </div>
+            <div id="search-history-items" class="search-history-items"></div>
+          </div>
+        </form>
+        <div class="map-chips" aria-label="地图功能">
+          <button class="map-chip is-active" type="button" data-action="home"><i data-lucide="landmark" aria-hidden="true"></i>上京都</button>
+          <button class="map-chip" type="button" data-action="search"><i data-lucide="search" aria-hidden="true"></i>地名搜索</button>
+          <button class="map-chip" type="button" data-action="directions"><i data-lucide="route" aria-hidden="true"></i>道路导航</button>
+          <button class="map-chip" type="button" data-action="transit"><i data-lucide="train-front" aria-hidden="true"></i>公共交通</button>
+          <button class="map-chip" type="button" data-action="favorites"><i data-lucide="bookmark" aria-hidden="true"></i>收藏地点</button>
+        </div>
+      </header>
+
+      <aside id="tool-panel" class="place-panel is-hidden" aria-label="地图功能面板">
+        <div class="panel-handle" aria-hidden="true"></div>
+        <header class="place-heading">
+          <div class="panel-title-wrap">
+            <p id="panel-source" class="eyebrow">华域地图 · OPEN GEOFICTION</p>
+            <h1 id="panel-title">上京都</h1>
+            <p id="panel-subtitle" class="coordinates">12.5000, 148.3600</p>
+          </div>
+          <button id="close-panel" class="icon-button panel-close" type="button" aria-label="关闭面板" data-tooltip="关闭"><i data-lucide="x" aria-hidden="true"></i></button>
+        </header>
+
+        <section id="place-view" class="panel-view" data-view="place">
+          <div class="place-actions" aria-label="地点操作">
+            <button id="save-button" class="place-action" type="button" aria-pressed="false"><span class="action-icon"><i data-lucide="bookmark" aria-hidden="true"></i></span><span>收藏</span></button>
+            <button id="route-here-button" class="place-action" type="button"><span class="action-icon"><i data-lucide="navigation" aria-hidden="true"></i></span><span>到这里</span></button>
+            <button id="share-button" class="place-action" type="button"><span class="action-icon"><i data-lucide="share-2" aria-hidden="true"></i></span><span>分享</span></button>
+          </div>
+          <div class="panel-section location-section">
+            <i data-lucide="map-pin" aria-hidden="true"></i>
+            <div><h2 id="location-heading">已选择地点</h2><p id="location-description">点击地图任意位置可查看坐标，并生成可分享的视图链接。</p></div>
+          </div>
+          <section id="feature-details" class="panel-section feature-details" aria-labelledby="feature-details-heading" hidden>
+            <div class="section-heading">
+              <h2 id="feature-details-heading">要素属性</h2>
+              <span id="feature-type"></span>
+            </div>
+            <dl id="feature-properties" class="feature-property-list"></dl>
+          </section>
+          <section id="boundary-export-section" class="panel-section boundary-export-section" aria-labelledby="boundary-export-heading" hidden>
+            <div class="boundary-export-heading">
+              <div>
+                <h2 id="boundary-export-heading">行政区划边界</h2>
+                <p id="boundary-export-summary">当前行政区边界将始终包含在导出文件中。</p>
+              </div>
+              <i data-lucide="map" aria-hidden="true"></i>
+            </div>
+            <div class="boundary-selection-actions">
+              <button id="boundary-select-area" class="secondary-button" type="button" hidden><i data-lucide="search" aria-hidden="true"></i>选择行政区</button>
+              <button id="boundary-add-selection" class="secondary-button" type="button"><i data-lucide="list-plus" aria-hidden="true"></i>加入下载清单</button>
+              <button id="boundary-clear-selections" class="text-button" type="button" hidden>清空多选</button>
+            </div>
+            <div id="boundary-selection-list" class="boundary-selection-list" aria-live="polite"></div>
+            <p id="boundary-level-status" class="boundary-level-status" aria-live="polite">可按需读取并加载该行政区内实际存在的下级区划。</p>
+            <button id="boundary-levels-button" class="secondary-button boundary-full-button" type="button"><i data-lucide="list-tree" aria-hidden="true"></i>查看下级行政层级</button>
+            <fieldset id="boundary-level-fieldset" class="boundary-level-fieldset" hidden>
+              <legend>选择需要加载的下级行政区</legend>
+              <div id="boundary-level-options" class="boundary-level-options"></div>
+              <button id="boundary-load-button" class="secondary-button boundary-full-button" type="button" disabled><i data-lucide="layers-3" aria-hidden="true"></i>在地图上加载所选边界</button>
+            </fieldset>
+            <div id="boundary-area-table" class="boundary-area-table-wrap" hidden>
+              <table class="boundary-area-table">
+                <caption id="boundary-area-table-caption">下级行政区面积</caption>
+                <thead>
+                  <tr><th scope="col">行政区</th><th scope="col">层级</th><th scope="col">面积</th></tr>
+                </thead>
+                <tbody id="boundary-area-table-body"></tbody>
+              </table>
+            </div>
+            <fieldset class="boundary-content-options">
+              <legend>导出内容</legend>
+              <label class="boundary-toggle-option"><input id="boundary-include-coordinates" type="checkbox" checked /><span><strong>地理坐标信息</strong><small>图片显示经纬网；TIF 写入空间参考</small></span></label>
+              <label class="boundary-toggle-option"><input id="boundary-include-basemap" type="checkbox" /><span><strong>同步下载 OGF 底图</strong><small>位图同图合成；矢量 ZIP 附栅格底图</small></span></label>
+            </fieldset>
+            <fieldset id="boundary-extent-fieldset" class="boundary-extent-fieldset" hidden>
+              <legend>底图范围</legend>
+              <div class="boundary-extent-modes" role="radiogroup" aria-label="选择底图范围">
+                <label><input type="radio" name="boundary-extent" value="administrative" checked />行政区联合范围</label>
+                <label><input type="radio" name="boundary-extent" value="coordinates" />坐标范围</label>
+              </div>
+              <div id="boundary-coordinate-fields" class="boundary-coordinate-fields" hidden>
+                <label>西经度<input id="boundary-west" type="number" step="any" min="-180" max="180" placeholder="例如 152.7" /></label>
+                <label>南纬度<input id="boundary-south" type="number" step="any" min="-90" max="90" placeholder="例如 14.4" /></label>
+                <label>东经度<input id="boundary-east" type="number" step="any" min="-180" max="180" placeholder="例如 153.1" /></label>
+                <label>北纬度<input id="boundary-north" type="number" step="any" min="-90" max="90" placeholder="例如 14.9" /></label>
+                <button id="boundary-apply-coordinates" class="secondary-button" type="button"><i data-lucide="square-dashed" aria-hidden="true"></i>应用坐标范围</button>
+                <button id="boundary-draw-box" class="secondary-button" type="button"><i data-lucide="scan" aria-hidden="true"></i>在地图上框选</button>
+                <button id="boundary-use-view" class="secondary-button boundary-full-button" type="button"><i data-lucide="focus" aria-hidden="true"></i>当前地图范围</button>
+              </div>
+              <p id="boundary-extent-status" class="boundary-extent-status" aria-live="polite">将使用下载清单内所有行政区的联合范围。</p>
+            </fieldset>
+            <div class="boundary-download-row">
+              <label for="boundary-format">下载格式</label>
+              <select id="boundary-format">
+                <option value="png">PNG 高清图</option>
+                <option value="jpg">JPG 高清图</option>
+                <option value="tif">TIF（WGS84）</option>
+                <option value="shp">SHP（ZIP）</option>
+                <option value="osm">OSM XML</option>
+              </select>
+              <button id="boundary-download-button" class="primary-button" type="button"><i data-lucide="download" aria-hidden="true"></i>下载</button>
+            </div>
+            <p id="boundary-format-note" class="boundary-export-note">下载包含所选边界与已确认的行政中心。数据来自 OpenGeofiction。</p>
+          </section>
+        </section>
+
+        <section id="download-view" class="panel-view" data-view="download" hidden></section>
+
+        <section id="search-view" class="panel-view" data-view="search" hidden>
+          <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>地名搜索 · OGF Nominatim</span></div>
+          <p id="search-status" class="view-status" aria-live="polite">在上方输入地名，结果会直接显示在这里。</p>
+          <div id="search-results" class="result-list" aria-live="polite"></div>
+        </section>
+
+        <section id="measure-view" class="panel-view" data-view="measure" hidden>
+          <div class="source-note"><i data-lucide="ruler" aria-hidden="true"></i><span>地图量算 · WGS 84</span></div>
+          <div class="measure-modes" role="group" aria-label="测量类型">
+            <button class="measure-mode is-active" type="button" data-measure-mode="distance" aria-pressed="true"><i data-lucide="route" aria-hidden="true"></i>测距</button>
+            <button class="measure-mode" type="button" data-measure-mode="area" aria-pressed="false"><i data-lucide="pentagon" aria-hidden="true"></i>测面积</button>
+          </div>
+          <p id="measure-status" class="view-status measure-status" aria-live="polite">点击地图添加测量点。</p>
+          <div class="measure-results" aria-live="polite">
+            <div class="measure-result measure-result-primary">
+              <span id="measure-primary-label">总距离</span>
+              <strong id="measure-primary-value">0 米</strong>
+            </div>
+            <div class="measure-result">
+              <span>测量点</span>
+              <strong id="measure-point-count">0</strong>
+            </div>
+            <div id="measure-perimeter-result" class="measure-result" hidden>
+              <span>周长</span>
+              <strong id="measure-perimeter-value">0 米</strong>
+            </div>
+            <div id="measure-angle-result" class="measure-result measure-angle-result">
+              <span>角度（正北为 0°，顺时针）</span>
+              <div class="measure-angle-values">
+                <span><small>末段方位角</small><strong id="measure-bearing-value">—</strong></span>
+                <span><small>最近夹角</small><strong id="measure-angle-value">—</strong></span>
+              </div>
+            </div>
+          </div>
+          <div class="measure-actions">
+            <button id="measure-undo" class="secondary-button" type="button" disabled><i data-lucide="undo-2" aria-hidden="true"></i>撤销</button>
+            <button id="measure-finish" class="primary-button" type="button" disabled><i data-lucide="check" aria-hidden="true"></i>完成</button>
+            <button id="measure-clear" class="secondary-button" type="button" disabled><i data-lucide="trash-2" aria-hidden="true"></i>清除</button>
+          </div>
+          <p class="measure-note">点击地图依次添加点；测距时移动鼠标可预览末段方位角和最近夹角，完成后仍可撤销并继续调整。</p>
+        </section>
+
+        <section id="directions-view" class="panel-view" data-view="directions" hidden>
+          <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>组合导航 · OGF 道路与交通关系</span></div>
+          <form id="route-form" class="route-form">
+            <div class="travel-modes" role="group" aria-label="出行方式">
+              <button class="mode-button is-active" type="button" data-mode="driving" aria-pressed="true"><i data-lucide="car-front" aria-hidden="true"></i>驾车</button>
+              <button class="mode-button" type="button" data-mode="walking" aria-pressed="false"><i data-lucide="person-standing" aria-hidden="true"></i>步行</button>
+              <button class="mode-button" type="button" data-mode="cycling" aria-pressed="false"><i data-lucide="bike" aria-hidden="true"></i>骑行</button>
+              <button class="mode-button" type="button" data-mode="transit" aria-pressed="false"><i data-lucide="bus-front" aria-hidden="true"></i>公交地铁</button>
+              <button class="mode-button" type="button" data-mode="rail" aria-pressed="false"><i data-lucide="train-front" aria-hidden="true"></i>铁路</button>
+              <button class="mode-button" type="button" data-mode="airport" aria-pressed="false"><i data-lucide="plane" aria-hidden="true"></i>机场接驳</button>
+            </div>
+            <div id="multimodal-options" class="multimodal-options" role="group" aria-label="路线偏好" hidden>
+              <button class="route-preference is-active" type="button" data-route-preference="recommended" aria-pressed="true">推荐</button>
+              <button class="route-preference" type="button" data-route-preference="fastest" aria-pressed="false">最快</button>
+              <button class="route-preference" type="button" data-route-preference="cheapest" aria-pressed="false" title="按统一费用模型比较，非运营方报价">省钱（估算）</button>
+              <button class="route-preference" type="button" data-route-preference="few-transfers" aria-pressed="false">换乘最少</button>
+              <button class="route-preference" type="button" data-route-preference="less-walking" aria-pressed="false">步行最少</button>
+            </div>
+            <div id="connector-options" class="connector-options" hidden>
+              <span class="connector-options-label">接驳</span>
+              <div class="connector-modes" role="group" aria-label="接驳方式">
+                <button class="route-preference is-active" type="button" data-connector-mode="auto" aria-pressed="true">自动</button>
+                <button class="route-preference" type="button" data-connector-mode="walking" aria-pressed="false"><i data-lucide="person-standing" aria-hidden="true"></i>步行</button>
+                <button class="route-preference" type="button" data-connector-mode="cycling" aria-pressed="false"><i data-lucide="bike" aria-hidden="true"></i>骑行</button>
+                <button class="route-preference" type="button" data-connector-mode="taxi" aria-pressed="false"><i data-lucide="car-front" aria-hidden="true"></i>打车</button>
+              </div>
+            </div>
+            <label id="rail-inference-option" class="rail-inference-option" hidden title="仅在本站连接短断点及落花规划段；未确认列车运营。关闭后仅使用真实 OGF 路网。">
+              <input type="checkbox" data-inferred-rail checked />推定铁路连接（含规划段）
+            </label>
+            <label id="rail-local-transit-option" class="rail-inference-option" hidden title="默认铁路方案只使用铁路和所选接驳方式；勾选后才允许公交、地铁、轻轨、有轨电车或单轨连接铁路。">
+              <input type="checkbox" data-rail-local-transit />允许公交地铁接驳
+            </label>
+            <div class="route-fields">
+              <div class="route-field-row">
+                <span class="endpoint-dot start-dot" aria-hidden="true"></span>
+                <label class="sr-only" for="route-origin">起点</label>
+                <input id="route-origin" type="text" autocomplete="off" placeholder="起点：地名或坐标" required />
+                <button class="field-icon-button" type="button" data-pick="origin" aria-label="在地图上选择起点" data-tooltip="地图选起点"><i data-lucide="crosshair" aria-hidden="true"></i></button>
+              </div>
+              <button id="swap-route" class="swap-button" type="button" aria-label="交换起点和终点" data-tooltip="交换起终点"><i data-lucide="arrow-up-down" aria-hidden="true"></i></button>
+              <div class="route-field-row">
+                <span class="endpoint-dot end-dot" aria-hidden="true"></span>
+                <label class="sr-only" for="route-destination">终点</label>
+                <input id="route-destination" type="text" autocomplete="off" placeholder="终点：地名或坐标" required />
+                <button class="field-icon-button" type="button" data-pick="destination" aria-label="在地图上选择终点" data-tooltip="地图选终点"><i data-lucide="crosshair" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div id="route-suggestions" class="route-suggestions" role="listbox" aria-label="起终点搜索结果" hidden></div>
+            <button id="route-submit" class="primary-button" type="submit"><i data-lucide="route" aria-hidden="true"></i>开始规划</button>
+          </form>
+          <p id="route-status" class="view-status" aria-live="polite">输入地名，或使用准星按钮在地图上选择起终点。</p>
+          <div id="route-options" class="route-options" aria-live="polite" hidden></div>
+          <div id="route-summary" class="route-summary" hidden></div>
+          <ol id="route-steps" class="route-steps" aria-label="导航步骤"></ol>
+        </section>
+
+        <section id="transit-view" class="panel-view" data-view="transit" hidden>
+          <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>公共交通线路 · OGF Overpass</span></div>
+          <section class="transit-atlas" aria-labelledby="transit-atlas-heading">
+            <div class="transit-atlas-heading">
+              <div>
+                <p class="eyebrow">CITY RAIL ATLAS</p>
+                <h2 id="transit-atlas-heading">城市铁路与轨道交通网</h2>
+              </div>
+              <i data-lucide="map" aria-hidden="true"></i>
+            </div>
+            <form id="transit-atlas-form" class="transit-search transit-atlas-search">
+              <label class="sr-only" for="transit-atlas-query">搜索城市行政区</label>
+              <input id="transit-atlas-query" type="search" autocomplete="off" placeholder="城市简称、全名或拼音" />
+              <button class="field-icon-button" type="submit" aria-label="搜索城市" data-tooltip="搜索城市"><i data-lucide="search" aria-hidden="true"></i></button>
+            </form>
+            <div id="transit-atlas-results" class="transit-atlas-results" role="listbox" aria-label="城市搜索结果" hidden></div>
+            <p id="transit-atlas-status" class="view-status transit-atlas-status" aria-live="polite">选择城市后，可查看按真实经纬度绘制的铁路与轨道交通网络并下载。</p>
+            <div id="transit-atlas-workspace" class="transit-atlas-workspace" hidden>
+              <fieldset class="transit-atlas-filters">
+                <legend>网络范围</legend>
+                <label><input type="checkbox" data-transit-atlas-mode="metro" checked /><span>地铁</span></label>
+                <label><input type="checkbox" data-transit-atlas-mode="light" checked /><span>轻轨 / 单轨</span></label>
+                <label><input type="checkbox" data-transit-atlas-mode="tram" checked /><span>有轨电车</span></label>
+                <label><input type="checkbox" data-transit-atlas-mode="commuter" checked /><span>市域铁路</span></label>
+                <label><input type="checkbox" data-transit-atlas-mode="railway" checked /><span>普通铁路 / 城际</span></label>
+              </fieldset>
+              <label class="transit-atlas-buffer" for="transit-atlas-buffer">
+                <span>边界外缓冲</span>
+                <select id="transit-atlas-buffer">
+                  <option value="0">不保留</option>
+                  <option value="5">5 公里</option>
+                  <option value="10" selected>10 公里</option>
+                  <option value="20">20 公里</option>
+                </select>
+              </label>
+              <button id="transit-atlas-preview" class="transit-atlas-preview" type="button" aria-label="放大查看城市铁路与轨道交通真实方位图">
+                <canvas id="transit-atlas-canvas" aria-label="城市铁路与轨道交通真实方位缩略图"></canvas>
+                <span><i data-lucide="maximize-2" aria-hidden="true"></i>放大查看</span>
+              </button>
+              <div id="transit-atlas-legend" class="transit-atlas-legend" aria-label="铁路与轨道交通线路显示开关"></div>
+              <div class="transit-atlas-download">
+                <label for="transit-atlas-format">下载格式</label>
+                <select id="transit-atlas-format">
+                  <option value="png">PNG 高清图</option>
+                  <option value="svg">SVG 矢量图</option>
+                  <option value="geojson">GeoJSON 数据</option>
+                </select>
+                <button id="transit-atlas-download" class="primary-button" type="button"><i data-lucide="download" aria-hidden="true"></i>下载</button>
+              </div>
+            </div>
+          </section>
+          <div class="transit-toolbar">
+            <form id="transit-form" class="transit-search">
+              <label class="sr-only" for="transit-query">搜索公共交通线路名称</label>
+              <input id="transit-query" type="search" autocomplete="off" placeholder="线路名称，例如：津川轨道交通1号线" />
+              <button class="field-icon-button" type="submit" aria-label="搜索线路" data-tooltip="搜索线路"><i data-lucide="search" aria-hidden="true"></i></button>
+            </form>
+            <div class="transit-filters" role="group" aria-label="线路类型">
+              <button class="filter-button is-active" type="button" data-transit-filter="all" aria-pressed="true">全部</button>
+              <button class="filter-button" type="button" data-transit-filter="bus" aria-pressed="false">公交</button>
+              <button class="filter-button" type="button" data-transit-filter="rail" aria-pressed="false">轨道</button>
+            </div>
+            <div class="transit-actions">
+              <button id="load-transit" class="primary-button" type="button"><i data-lucide="scan-search" aria-hidden="true"></i>查看当前范围</button>
+              <button id="clear-transit-focus" class="secondary-button" type="button" hidden><i data-lucide="layers-3" aria-hidden="true"></i>返回交通视图</button>
+            </div>
+          </div>
+          <p id="transit-status" class="view-status" aria-live="polite">输入线路名称，或查看当前范围内的公交、地铁、电车和铁路关系。选择线路后会标出沿线站名。</p>
+          <label id="transit-segment-control" class="transit-segment-control" for="transit-segment-select" hidden>
+            <span>显示线路分段</span>
+            <select id="transit-segment-select"></select>
+          </label>
+          <section id="transit-line-guide" class="transit-line-guide" aria-live="polite" hidden>
+            <div class="transit-guide-heading">
+              <div>
+                <p class="eyebrow">LINE GUIDE</p>
+                <h2 id="transit-guide-title">线路导视</h2>
+              </div>
+              <button id="transit-guide-direction" class="guide-direction-button" type="button" aria-label="切换线路方向" data-tooltip="切换方向"><i data-lucide="arrow-left-right" aria-hidden="true"></i><span>换向</span></button>
+            </div>
+            <div class="transit-guide-endpoints">
+              <strong id="transit-guide-start">起点</strong>
+              <span aria-hidden="true">→</span>
+              <strong id="transit-guide-end">终点</strong>
+            </div>
+            <div class="transit-guide-meta">
+              <span id="transit-guide-stats">0 个站点</span>
+              <span class="transit-guide-note">班次与票价未在 OGF 数据中提供</span>
+            </div>
+            <div id="transit-guide-stops" class="transit-guide-stops" role="list" aria-label="线路站点"></div>
+          </section>
+          <div id="transit-results" class="result-list" aria-live="polite"></div>
+        </section>
+
+        <section id="favorites-view" class="panel-view" data-view="favorites" hidden>
+          <p id="favorites-status" class="view-status" aria-live="polite"></p>
+          <div id="saved-list" class="saved-list"></div>
+        </section>
+
+        <section id="about-view" class="panel-view" data-view="about" hidden>
+          <div class="source-note"><i data-lucide="info" aria-hidden="true"></i><span>关于华域地图</span></div>
+          <div class="about-copy">
+            <p>华域地图的底图与地名来自 OpenGeofiction。搜索、道路路线和公共交通数据均在本页面内加载与绘制。</p>
+            <p>步行和骑行使用 OGF 道路几何，并按本地设定速度估算时间，不代表专用步行或骑行路线。</p>
+          </div>
+        </section>
+
+        <footer class="panel-footer">
+          <span>默认位置：上京都</span>
+          <a href="https://wiki.opengeofiction.net/index.php/OpenGeofiction:Copyright" target="_blank" rel="noopener noreferrer">OGF 数据许可</a>
+        </footer>
+      </aside>
+
+      <section id="transit-atlas-dialog" class="transit-atlas-dialog" role="dialog" aria-modal="true" aria-labelledby="transit-atlas-dialog-title" hidden>
+        <canvas id="transit-atlas-dialog-canvas" aria-label="城市铁路与轨道交通真实方位图"></canvas>
+        <header class="transit-atlas-dialog-toolbar">
+          <div>
+            <p id="transit-atlas-dialog-kicker" class="eyebrow">REAL-WORLD ORIENTATION</p>
+            <h2 id="transit-atlas-dialog-title">城市铁路与轨道交通网</h2>
+            <p id="transit-atlas-dialog-meta"></p>
+          </div>
+          <div class="transit-atlas-dialog-actions" aria-label="方位图工具">
+            <button id="transit-atlas-zoom-out" class="icon-button" type="button" aria-label="缩小" data-tooltip="缩小"><i data-lucide="zoom-out" aria-hidden="true"></i></button>
+            <button id="transit-atlas-reset" class="icon-button" type="button" aria-label="适合窗口" data-tooltip="适合窗口"><i data-lucide="scan" aria-hidden="true"></i></button>
+            <button id="transit-atlas-zoom-in" class="icon-button" type="button" aria-label="放大" data-tooltip="放大"><i data-lucide="zoom-in" aria-hidden="true"></i></button>
+            <button id="transit-atlas-dialog-download" class="icon-button" type="button" aria-label="下载 PNG" data-tooltip="下载 PNG"><i data-lucide="download" aria-hidden="true"></i></button>
+            <button id="transit-atlas-dialog-close" class="icon-button" type="button" aria-label="关闭方位图" data-tooltip="关闭"><i data-lucide="x" aria-hidden="true"></i></button>
+          </div>
+        </header>
+        <div id="transit-atlas-dialog-legend" class="transit-atlas-dialog-legend" aria-label="铁路与轨道交通线路显示开关"></div>
+      </section>
+
+      <aside id="transit-map-panel" class="transit-map-panel" aria-label="交通视图状态" hidden>
+        <header class="transit-map-heading">
+          <div>
+            <p class="eyebrow">OGF TRANSIT VIEW</p>
+            <h2>交通视图</h2>
+          </div>
+          <button id="close-transit-map" class="icon-button" type="button" aria-label="关闭交通视图" data-tooltip="关闭交通视图"><i data-lucide="x" aria-hidden="true"></i></button>
+        </header>
+        <div class="transit-network-control">
+          <div class="transit-network-copy">
+            <span class="transit-network-title"><i data-lucide="layers-3" aria-hidden="true"></i>轨道网络</span>
+            <span id="transit-network-status" class="transit-network-status" aria-live="polite">正在预载全国轨道网络…</span>
+          </div>
+          <button id="refresh-transit-network" class="icon-button transit-refresh" type="button" aria-label="更新当前位置的交通视图" data-tooltip="更新当前位置"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+        </div>
+        <fieldset class="transit-layer-options">
+          <legend>显示图层</legend>
+          <label class="transit-layer-option">
+            <input type="checkbox" data-transit-layer="metro" checked />
+            <span class="transit-layer-switch" aria-hidden="true"></span>
+            <span>地铁</span>
+          </label>
+          <label class="transit-layer-option">
+            <input type="checkbox" data-transit-layer="tram" checked />
+            <span class="transit-layer-switch" aria-hidden="true"></span>
+            <span>有轨电车</span>
+          </label>
+          <label class="transit-layer-option">
+            <input type="checkbox" data-transit-layer="railway" />
+            <span class="transit-layer-switch" aria-hidden="true"></span>
+            <span>铁路</span>
+          </label>
+          <label class="transit-layer-option">
+            <input type="checkbox" data-transit-layer="bus" />
+            <span class="transit-layer-switch" aria-hidden="true"></span>
+            <span>公交站</span>
+          </label>
+        </fieldset>
+        <label class="rail-inference-option" title="灰褐虚线为推定／规划铁路连接，非 OGF 真实轨道，未确认运营。">
+          <input type="checkbox" data-inferred-rail checked />推定铁路连接（含规划段）
+        </label>
+        <div class="transit-legend" aria-label="交通视图图例">
+          <span><i class="legend-line" aria-hidden="true"></i>轨道线路</span>
+          <span><i class="legend-rail-stop" aria-hidden="true"></i>轨道站</span>
+          <span><i class="legend-bus-stop" aria-hidden="true">B</i>公交站</span>
+        </div>
+        <section id="transit-station-detail" class="transit-station-detail" aria-live="polite" hidden>
+          <div class="station-detail-heading">
+            <span class="station-detail-icon"><i data-lucide="train-front" aria-hidden="true"></i></span>
+            <div>
+              <p id="transit-station-type">轨道交通站</p>
+              <h2 id="transit-station-name">车站</h2>
+            </div>
+          </div>
+          <div id="transit-station-routes" class="station-route-list"></div>
+        </section>
+      </aside>
+
+      <div class="map-tools" aria-label="地图视图工具">
+        <button id="reset-view" class="icon-button map-tool" type="button" aria-label="恢复上京都默认视图" data-tooltip="恢复上京都默认视图"><i data-lucide="focus" aria-hidden="true"></i></button>
+        <a id="open-ogf-editor" class="icon-button map-tool" href="https://opengeofiction.net/edit#map=13/12.50000/148.36000" target="_blank" rel="noopener noreferrer" aria-label="在 OGF 编辑模式中绘制当前区域（新标签页）" data-tooltip="在 OGF 编辑模式中绘图"><i data-lucide="pencil" aria-hidden="true"></i></a>
+        <button id="toggle-panel" class="icon-button map-tool" type="button" aria-label="显示功能面板" data-tooltip="显示功能面板"><i data-lucide="panel-left" aria-hidden="true"></i></button>
+      </div>
+
+      <div id="pick-banner" class="pick-banner" role="status" aria-live="polite" hidden>
+        <i data-lucide="crosshair" aria-hidden="true"></i><span id="pick-message">请在地图上选择位置</span><button id="cancel-pick" type="button">取消</button>
+      </div>
+
+      <div class="map-status" aria-label="地图数据状态"><span class="status-dot" aria-hidden="true"></span><span>上京都</span><span class="status-separator" aria-hidden="true"></span><span id="basemap-status">华域标准</span></div>
+      <div id="map-coordinates" class="map-coordinates" role="group" aria-label="鼠标位置，WGS 84 经纬度" title="鼠标位置 · WGS 84 (EPSG:4326)">
+        <span id="coordinate-source" class="coordinate-source">鼠标</span>
+        <span class="coordinate-field"><span>经度</span><span id="coordinate-longitude" class="coordinate-value">—</span></span>
+        <span class="coordinate-field"><span>纬度</span><span id="coordinate-latitude" class="coordinate-value">—</span></span>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <noscript>此地图需要启用 JavaScript。</noscript>
+    <script src="./leaflet.js"></script>
+    <script src="./lucide.min.js"></script>
+    <script src="./app.js?v=5.0-huayu-live-basemap-v2"></script>
+  </body>
+</html>

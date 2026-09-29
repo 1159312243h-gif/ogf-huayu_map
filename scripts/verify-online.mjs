@@ -35,12 +35,22 @@ async function verify() {
   assert.equal(buildingResponse.status, 200, "生产建筑 API 未返回 200");
   assert.ok(Array.isArray(building.elements) && building.elements.length > 0, "生产建筑 API 没有返回 OGF 要素");
 
+  const basemapResponse = await fetch(`${baseUrl}${release.liveBasemapProbe}?verify=${encodeURIComponent(cacheKey)}`, {
+    signal: AbortSignal.timeout(60000),
+  });
+  const basemap = await basemapResponse.json();
+  assert.equal(basemapResponse.status, 200, "生产实时底图 API 未返回 200");
+  assert.ok(Array.isArray(basemap.elements) && basemap.elements.some((element) => element.tags?.highway
+    || element.tags?.landuse || element.tags?.natural || element.tags?.railway), "生产实时底图 API 没有返回底图要素");
+
   return {
     status: "passed",
     url: baseUrl,
     release: release.releaseVersion,
     buildingElements: building.elements.length,
     buildingCache: buildingResponse.headers.get("x-ogf-building-cache"),
+    liveBasemapElements: basemap.elements.length,
+    liveBasemapCache: basemapResponse.headers.get("x-ogf-basemap-cache"),
   };
 }
 
@@ -55,4 +65,3 @@ for (let attempt = 1; attempt <= attempts; attempt += 1) {
   }
 }
 throw lastError;
-

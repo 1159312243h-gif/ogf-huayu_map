@@ -1,12 +1,21 @@
 {
   "name": "ogf-atlas-maintenance",
   "private": true,
-  "version": "4.0.1",
+  "version": "5.0.0",
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "archive:project": "pwsh ./scripts/create-project-archive.ps1",
     "manifest:update": "node scripts/update-manifest.mjs",
     "verify": "node scripts/verify-package.mjs",
-    "verify:online": "node scripts/verify-online.mjs"
+    "verify:online": "node scripts/verify-online.mjs",
+    "test:worker": "node scripts/test-worker.mjs",
+    "check:data": "node scripts/check-data-freshness.mjs",
+    "probe:live": "node scripts/probe-live-basemap.mjs",
+    "data:update": "node scripts/update-all-data.mjs",
+    "data:update:dry": "node scripts/update-all-data.mjs --dry-run",
+    "data:update:resume": "node scripts/update-all-data.mjs --resume",
+    "data:update:check": "node scripts/update-all-data.mjs --check",
+    "test:data-update": "node scripts/test-data-updater.mjs"
   }
 }
-

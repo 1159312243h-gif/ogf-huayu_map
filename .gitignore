@@ -1,4 +1,6 @@
 node_modules/
+data-freshness-report.json
+.data-update/
 .wrangler/
 .env
 .env.*
