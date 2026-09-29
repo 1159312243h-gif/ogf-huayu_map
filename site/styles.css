@@ -253,6 +253,76 @@ select:focus-visible {
   opacity: 1;
 }
 
+.map-selection-option {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+  padding: 7px 10px;
+  color: var(--text);
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.map-selection-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: #4c5a60;
+}
+
+.map-selection-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.map-selection-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.map-selection-switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: #aab3b7;
+  border-radius: 9px;
+  transition: background 140ms ease;
+}
+
+.map-selection-switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  content: "";
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px #0000002e;
+  transition: transform 140ms ease;
+}
+
+.map-selection-option input:checked + .map-selection-switch {
+  background: #1769e0;
+}
+
+.map-selection-option input:checked + .map-selection-switch::after {
+  transform: translateX(14px);
+}
+
+.map-selection-option:focus-within {
+  outline: 2px solid #1769e0;
+  outline-offset: -2px;
+}
+
 .basemap-choices {
   min-width: 0;
   margin: 7px 0 0;

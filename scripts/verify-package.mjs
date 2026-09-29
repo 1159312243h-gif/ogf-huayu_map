@@ -122,6 +122,17 @@ assert.ok(app.includes("const TRANSIT_RENDER_DELAY_MS = 220")
 assert.ok(app.includes("const shouldShowLabel = Boolean(stop.name)")
   && app.includes("if (shouldShowLabel && !entry.labelMarker)"),
 "公共交通站点标签应按缩放级别延迟创建，避免远景一次性创建全部隐藏标签");
+assert.ok(index.includes('id="map-feature-selection"')
+  && app.includes('MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection"')
+  && app.includes("if (!mapFeatureSelectionEnabled) return;")
+  && app.includes("preservePerspective: vectorPerspectiveActive"),
+"地图必须提供持久化要素选择开关，交通视图普通选点和透视选点不得被旧拦截逻辑阻断");
+assert.ok(app.includes("function currentVectorCameraSnapshot()")
+  && app.includes('BASEMAP_STYLES[previousBasemapId]?.kind === "vector"')
+  && app.includes("center: perspectiveSnapshot.center")
+  && app.includes("zoom: perspectiveSnapshot.zoom")
+  && app.includes("silent: true"),
+"华域标准、深夜与 Vector 图层切换必须保留完整透视相机状态");
 assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
   && app.includes("explicitly tagged stop/platform members are the authoritative order")
   && app.includes('if (transitRelationRouteType(relation) !== "bus") return null')

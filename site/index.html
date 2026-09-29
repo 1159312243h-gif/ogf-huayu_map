@@ -12,10 +12,10 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=4.0-huayu-view-v18" />
+    <link rel="stylesheet" href="./styles.css?v=5.5-huayu-selection-camera-v1" />
   </head>
   <body>
-    <main class="app-shell" data-app-version="5.4">
+    <main class="app-shell" data-app-version="5.5">
       <div id="map" class="map" aria-label="华域地图交互地图"></div>
 
       <nav class="side-rail" aria-label="地图主导航">
@@ -47,6 +47,12 @@
           <span class="map-view-copy"><strong>交通视图</strong><small>轨道线路与公共交通站点</small></span>
           <i class="map-view-check" data-lucide="check" aria-hidden="true"></i>
         </button>
+        <label class="map-selection-option" for="map-feature-selection">
+          <span class="map-selection-icon"><i data-lucide="mouse-pointer-click" aria-hidden="true"></i></span>
+          <span>点击选择要素</span>
+          <input id="map-feature-selection" type="checkbox" checked aria-label="允许点击地图选择地点、站点和线路" />
+          <span class="map-selection-switch" aria-hidden="true"></span>
+        </label>
         <section id="vector-camera-controls" class="vector-camera-controls" aria-labelledby="vector-camera-heading" hidden>
           <header class="vector-camera-heading">
             <strong id="vector-camera-heading">矢量视角</strong>
@@ -507,6 +513,6 @@
     <noscript>此地图需要启用 JavaScript。</noscript>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
-    <script src="./app.js?v=5.4-huayu-sports-live-handoff-v1"></script>
+    <script src="./app.js?v=5.5-huayu-selection-camera-v1"></script>
   </body>
 </html>

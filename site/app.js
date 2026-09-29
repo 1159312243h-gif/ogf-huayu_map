@@ -5,6 +5,7 @@
   const TILE_FALLBACK_URL = "https://tiles05.opengeofiction.net/ogf-carto/{z}/{x}/{y}.png";
   const BASEMAP_TILE_TIMEOUT_MS = 1800;
   const BASEMAP_STORAGE_KEY = "ogf-atlas-basemap";
+  const MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection";
   let vectorBasemapLibraryPromise = null;
   const OGF_VECTOR_STYLE_URL = "https://openmaptiles.opengeofiction.net/styles/OGFBright/style.json";
   const BASEMAP_STYLES = {
@@ -431,6 +432,7 @@
     mapViewOptions: [...document.querySelectorAll("[data-map-view]")],
     basemapOptions: [...document.querySelectorAll('input[name="basemap-style"]')],
     basemapStatus: document.getElementById("basemap-status"),
+    mapFeatureSelection: document.getElementById("map-feature-selection"),
     vectorCameraControls: document.getElementById("vector-camera-controls"),
     vectorPerspectivePreset: document.getElementById("vector-perspective-preset"),
     vectorCameraReset: document.getElementById("vector-camera-reset"),
@@ -572,6 +574,7 @@
   let transitAtlasDrag = null;
   let mapViewMode = "normal";
   let selectedBasemapId = "huayu";
+  let mapFeatureSelectionEnabled = true;
   let vectorPerspectiveActive = false;
   let vectorPerspectiveMap = null;
   const leafletPerspectiveHandlerStates = new Map();
@@ -830,6 +833,10 @@
   try {
     const storedBasemapId = window.localStorage.getItem(BASEMAP_STORAGE_KEY);
     if (Object.hasOwn(BASEMAP_STYLES, storedBasemapId)) selectedBasemapId = storedBasemapId;
+  } catch {}
+  try {
+    const storedFeatureSelection = window.localStorage.getItem(MAP_FEATURE_SELECTION_STORAGE_KEY);
+    if (storedFeatureSelection !== null) mapFeatureSelectionEnabled = storedFeatureSelection !== "false";
   } catch {}
   if (BASEMAP_STYLES[selectedBasemapId]?.kind === "vector") {
     try {
@@ -1313,7 +1320,7 @@
         placeSubdivisionLayer.eachLayer((divisionLayer) => divisionLayer.bringToFront());
       });
       layer.on("click", (event) => {
-        if (mapPickTarget || administrativeBoxPicking) return;
+        if (!mapFeatureSelectionEnabled || mapPickTarget || administrativeBoxPicking) return;
         if (event?.originalEvent) window.L.DomEvent.stopPropagation(event.originalEvent);
         focusAdministrativeDivision(feature, layer);
       });
@@ -1383,12 +1390,13 @@
       showToast("请使用起点或终点旁的准星按钮选点");
       return;
     }
-    if (currentView === "transit" || (mapViewMode === "transit" && !selectedTransitId)) {
-      showToast("请选择交通站点查看所属线路");
-      return;
-    }
+    if (!mapFeatureSelectionEnabled) return;
 
-    setSelectedPlace({ ...point, zoom: map.getZoom(), label: "地图选点" }, { move: false, popup: true });
+    setSelectedPlace({ ...point, zoom: map.getZoom(), label: "地图选点" }, {
+      move: false,
+      popup: true,
+      preservePerspective: vectorPerspectiveActive,
+    });
     enrichSelectedPlace(point);
   });
 
@@ -1556,6 +1564,14 @@
     input.addEventListener("change", () => {
       if (input.checked) setBasemapStyle(input.value);
     });
+  });
+  elements.mapFeatureSelection.addEventListener("change", () => {
+    mapFeatureSelectionEnabled = elements.mapFeatureSelection.checked;
+    try {
+      window.localStorage.setItem(MAP_FEATURE_SELECTION_STORAGE_KEY, String(mapFeatureSelectionEnabled));
+    } catch {}
+    updateMapFeatureSelectionControl();
+    showToast(mapFeatureSelectionEnabled ? "已开启地图要素选择" : "已关闭地图要素选择");
   });
   elements.vectorPerspectivePreset.addEventListener("click", () => {
     elements.vectorPitch.value = String(VECTOR_PERSPECTIVE_PRESET_PITCH);
@@ -9762,7 +9778,9 @@
         && shouldShowLabel
         ? createTransitStopLabel(stop, displayIsRail ? "rail-stop-name" : "bus-stop-name")
         : null;
-      marker.on("click", () => showTransitStation(stop, marker));
+      marker.on("click", () => {
+        if (mapFeatureSelectionEnabled) showTransitStation(stop, marker);
+      });
       networkTransitStopMarkers.push({ marker, labelMarker, stop, displayIsRail, displayIsBus });
     });
     transitRenderedBounds = renderBounds;
@@ -12428,7 +12446,9 @@
         className: "transit-stop-label focused-stop-label",
       });
       const labelMarker = station.name ? createTransitStopLabel(station, "focused-stop-name") : null;
-      marker.on("click", () => showTransitStation(station, marker));
+      marker.on("click", () => {
+        if (mapFeatureSelectionEnabled) showTransitStation(station, marker);
+      });
       focusedTransitStopMarkers.push({ marker, labelMarker, stop: station, hasName: Boolean(station.name), index });
       stopLayers.push(marker);
     });
@@ -13061,8 +13081,8 @@
     if (action === "about") showView("about");
   }
 
-  function showView(view) {
-    exitVectorPerspectiveMode({ silent: true });
+  function showView(view, options = {}) {
+    if (!options.preservePerspective) exitVectorPerspectiveMode({ silent: true });
     if (currentView === "measure" && view !== "measure") setMeasurementActive(false);
     if (view !== "place") {
       clearRoadSearchHighlight();
@@ -13446,7 +13466,9 @@
     if (boundaryShown) updateSelectedPlaceBoundaryDescription();
     elements.searchInput.value = selectedPlace.label === "地图选点" ? coordinatesText : selectedPlace.label;
     updateFavoriteState();
-    if (options.view !== false) showView("place");
+    if (options.view !== false) showView("place", {
+      preservePerspective: options.preservePerspective ?? vectorPerspectiveActive,
+    });
     else if (currentView === "place") updatePlaceHeader();
     if (options.panel === false) hidePanel();
 
@@ -16462,6 +16484,7 @@
 
   function hidePanel() {
     elements.panel.classList.add("is-hidden");
+    if (mapViewMode === "transit" && currentView === "place" && !selectedTransitId) showTransitMapPanel();
     window.setTimeout(() => map.invalidateSize(), 200);
   }
 
@@ -22464,6 +22487,7 @@
   }
 
   function handleVectorTransitStationClick(event) {
+    if (!mapFeatureSelectionEnabled) return;
     const stopId = String(event.features?.[0]?.properties?.stopId ?? "");
     const stop = transitNetworkData?.stops?.find((item) => String(item.id) === stopId);
     if (stop) showTransitStation(stop, null);
@@ -22471,7 +22495,7 @@
 
   function handleVectorTransitStationEnter() {
     const canvas = vectorPerspectiveMap?.getCanvas?.();
-    if (canvas) canvas.style.cursor = "pointer";
+    if (canvas) canvas.style.cursor = mapFeatureSelectionEnabled ? "pointer" : "grab";
   }
 
   function handleVectorTransitLineMove(event) {
@@ -22593,7 +22617,20 @@
     }
   }
 
-  function enterVectorPerspectiveMode(pitch, bearing) {
+  function currentVectorCameraSnapshot() {
+    if (!vectorPerspectiveActive || !vectorPerspectiveMap) return null;
+    const center = vectorPerspectiveMap.getCenter?.();
+    const zoom = vectorPerspectiveMap.getZoom?.();
+    if (!center || !Number.isFinite(zoom)) return null;
+    return {
+      center: [center.lng, center.lat],
+      zoom,
+      pitch: clamp(Number(vectorPerspectiveMap.getPitch?.()) || 0, 0, VECTOR_MAX_PITCH),
+      bearing: normalizedVectorBearing(vectorPerspectiveMap.getBearing?.()),
+    };
+  }
+
+  function enterVectorPerspectiveMode(pitch, bearing, options = {}) {
     const glMap = currentVectorBasemap();
     if (!glMap) {
       showToast("矢量底图尚未就绪");
@@ -22609,13 +22646,17 @@
       glMap.on("pitch", syncVectorCameraFromMap);
       glMap.on("rotate", syncVectorCameraFromMap);
       glMap.on("moveend", handleVectorPerspectiveMoveEnd);
-      showToast(`已进入${BASEMAP_STYLES[selectedBasemapId].label}透视视角`);
+      if (!options.silent) showToast(`已进入${BASEMAP_STYLES[selectedBasemapId].label}透视视角`);
     }
     glMap.setMaxPitch?.(VECTOR_MAX_PITCH);
-    const center = map.getCenter();
+    const leafletCenter = map.getCenter();
+    const center = Array.isArray(options.center)
+      ? options.center
+      : [leafletCenter.lng, leafletCenter.lat];
+    const zoom = Number.isFinite(options.zoom) ? options.zoom : map.getZoom() - 1;
     glMap.jumpTo({
-      center: [center.lng, center.lat],
-      zoom: map.getZoom() - 1,
+      center,
+      zoom,
       pitch,
       bearing,
     });
@@ -22679,7 +22720,11 @@
 
   async function setBasemapStyle(id) {
     if (!Object.hasOwn(BASEMAP_STYLES, id) || id === selectedBasemapId) return;
-    if (vectorPerspectiveActive) exitVectorPerspectiveMode({ silent: true });
+    const previousBasemapId = selectedBasemapId;
+    const perspectiveSnapshot = BASEMAP_STYLES[previousBasemapId]?.kind === "vector"
+      && BASEMAP_STYLES[id]?.kind === "vector"
+      ? currentVectorCameraSnapshot()
+      : null;
     const requestId = ++basemapStyleRequestId;
     let nextLayer;
     try {
@@ -22687,6 +22732,10 @@
       if (requestId !== basemapStyleRequestId) return;
       nextLayer = createBasemapTileLayer(id);
       nextLayer.addTo(map);
+      if (requestId !== basemapStyleRequestId) {
+        try { map.removeLayer(nextLayer); } catch {}
+        return;
+      }
     } catch {
       if (nextLayer && map.hasLayer(nextLayer)) {
         try { map.removeLayer(nextLayer); } catch {}
@@ -22696,11 +22745,19 @@
       updateMapViewControls();
       return;
     }
+    if (vectorPerspectiveActive) exitVectorPerspectiveMode({ silent: true });
     const previousLayer = baseTileLayer;
     baseTileLayer = nextLayer;
     selectedBasemapId = id;
     try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, id); } catch {}
     try { map.removeLayer(previousLayer); } catch {}
+    if (perspectiveSnapshot) {
+      enterVectorPerspectiveMode(perspectiveSnapshot.pitch, perspectiveSnapshot.bearing, {
+        center: perspectiveSnapshot.center,
+        zoom: perspectiveSnapshot.zoom,
+        silent: true,
+      });
+    }
     updateMapViewControls();
   }
 
@@ -22748,7 +22805,13 @@
     elements.mapViewButton.querySelector("span").textContent = mapViewMode === "transit" ? "交通图" : "视图";
     elements.basemapOptions.forEach((input) => { input.checked = input.value === selectedBasemapId; });
     elements.basemapStatus.textContent = BASEMAP_STYLES[selectedBasemapId].label;
+    updateMapFeatureSelectionControl();
     syncVectorCameraControls();
+  }
+
+  function updateMapFeatureSelectionControl() {
+    elements.mapFeatureSelection.checked = mapFeatureSelectionEnabled;
+    elements.appShell.classList.toggle("is-map-selection-disabled", !mapFeatureSelectionEnabled);
   }
 
   function updateActiveAction(action) {
