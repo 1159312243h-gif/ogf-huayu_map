@@ -46,12 +46,104 @@ assert.ok(index.includes(release.entryScript), "index.html 未引用 release.jso
 assert.ok(app.includes(`\"huayu:model-version\": \"${release.expectedBuildingModel}\"`), "建筑模型版本不一致");
 assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildingMinZoom}`), "建筑起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedBuildingTileZooms.join(", ")}])`), "Worker 建筑分片级别不一致");
+assert.ok(worker.includes(`BUILDING_CACHE_SECONDS = ${release.expectedBuildingCacheSeconds}`),
+  "Worker 建筑缓存周期不一致");
 assert.ok(app.includes(`HUAYU_LIVE_BASEMAP_MIN_ZOOM = ${release.expectedLiveBasemapMinZoom}`),
   "实时底图起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedLiveBasemapTileZooms.join(", ")}])`),
   "Worker 实时底图分片级别不一致");
+assert.ok(worker.includes(`new Set([${release.expectedLiveBasemapSnapshotZooms.join(", ")}])`),
+  "Worker 稳定快照分片级别不一致");
+assert.ok(worker.includes(`LIVE_BASEMAP_SNAPSHOT_REFRESH_SECONDS = ${release.expectedLiveBasemapSnapshotRefreshSeconds}`),
+  "Worker 稳定快照刷新周期不一致");
+assert.ok(worker.includes(`LIVE_BASEMAP_DETAIL_REFRESH_SECONDS = ${release.expectedLiveBasemapDetailRefreshSeconds}`),
+  "Worker 近景实时刷新周期不一致");
 assert.ok(worker.includes("live-basemap") && worker.includes("fetchLiveBasemapTile"),
   "Worker 缺少实时底图接口");
+assert.equal((app.match(/state\.timer && state\.timerRunAt <= nextRunAt/g) || []).length, 2,
+  "客户端实时底图和建筑必须保留更早的刷新任务");
+assert.ok(app.includes("const readyKeys = keys.filter((key) => state.tileCache.has(key))")
+  && app.includes('state.status = complete ? (idle ? "ready" : "refreshing") : "partial"')
+  && app.includes("[...state.visibleTileKeys].every((key) => state.tileCache.has(key))")
+  && app.includes("scheduleHuayuLiveBuildingCoverageFinalize(state)"),
+"建筑分片必须渐进显示，并在完整覆盖前保留矢量兜底");
+assert.ok(app.includes("return clamp(Math.floor(glMap.getZoom()) + 1"),
+  "建筑必须保留比底图细一级的分片，避免密集城区大分片阻塞");
+assert.ok(app.includes("visibleTileSignature")
+  && app.includes("const visibleTilesChanged = nextVisibleTileSignature !== state.visibleTileSignature")
+  && app.includes("if (visibleTilesChanged) mergeHuayuLiveBuildingTiles(state)"),
+"建筑倾斜视角必须复用未变化的可视瓦片集合，避免滚轮每步重复合并");
+assert.ok(app.includes("Do not invalidate the displayed model")
+  && app.includes("if (!state.dataReady) {")
+  && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, true);"),
+"建筑新覆盖加载期间必须保留上一帧模型，不得清空实时源造成闪烁");
+assert.ok(app.includes('ancientKind,')
+  && app.includes('HUAYU_ANCIENT_BUILDING_LAYERS')
+  && app.includes('"huayu:component": "ancient-building-roof-cap"')
+  && app.includes('"huayu:component": "ancient-building-outline"')
+  && app.includes('building:architecture')
+  && worker.includes('ancientWays')
+  && worker.includes('ancientArchitectureWays'),
+"古建筑必须从当前 OGF 标签查询并使用独立屋顶压檐和轮廓层");
+assert.ok(app.includes("source: HUAYU_LIVE_BASEMAP_SOURCE")
+  && app.includes("function huayuLiveBasemapPolygonSignature"),
+  "体育场详细面和嵌套子场地必须使用实时底图主数据源");
+assert.ok(app.includes('runningOverview: "ogf-atlas-huayu-sports-running-overview"')
+  && app.includes('["==", ["get", "sportsArea"], "running"]')
+  && app.includes('maxzoom: 15.25'),
+  "跑道必须在小比例尺体育层交接时保留独立实时兜底");
+const primaryVectorStart = app.indexOf("const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [");
+const primaryVectorEnd = app.indexOf("];", primaryVectorStart);
+assert.ok(primaryVectorStart >= 0 && primaryVectorEnd > primaryVectorStart
+  && app.slice(primaryVectorStart, primaryVectorEnd).includes('"landuse-sports"')
+  && app.includes("if (liveBasemapState?.primaryActive) {")
+  && app.includes("syncHuayuLiveBasemapPrimaryLayers(glMap, liveBasemapState, true);"),
+"完整实时体育数据接管后必须同步隐藏发布层，加载期间仍由统一接管状态保留兜底");
+assert.ok(worker.includes("pitch|track|stadium|sports_centre"),
+  "Worker 实时底图查询必须包含跑道和体育场");
+assert.ok(app.includes("function huayuPoiLabelTextField()")
+  && app.includes('["index-of", "（", ["var", "label"]]')
+  && app.includes('["poi-level-1", "poi-level-2", "poi-level-3", "huayu-poi-facilities", "huayu-poi-toilets"]'),
+"POI 注记必须保留全角括号兼容和长后缀成组换行规则");
+assert.ok(app.includes('leisure === "park" && ["Polygon", "MultiPolygon"].includes(geometry?.type)')
+  && app.includes('importantParkLarge: "ogf-atlas-huayu-important-park-large"')
+  && app.includes('["!=", "subclass", "park"], ["!=", "class", "park"]')
+  && app.includes('[HUAYU_LIVE_BASEMAP_LAYERS.importantParkLarge, 14, 0]')
+  && app.includes('publishedParkLayout["text-variable-anchor"] = ["top", "right", "bottom", "left"]'),
+"命名公园必须使用实时面内部点，并按面积分级替换旧瓦片代表点");
+assert.ok(app.includes("const TRANSIT_RENDER_DELAY_MS = 220")
+  && app.includes("function vectorTransitFeatureSignature")
+  && app.includes("vectorTransitOverlaySignature")
+  && app.includes("if (vectorTransitOverlayMap === glMap && vectorTransitOverlaySignature === signature)")
+  && app.includes("const hasUsableNetwork = Boolean(transitNetworkData?.lines?.length)")
+  && app.includes("function findPreloadedTransitRelationsInBounds")
+  && app.includes("实时公共交通查询暂时不可用，已使用本地预载索引"),
+"公共交通连续移动必须合并重绘，并避免向 MapLibre 重复提交未变化的交通数据");
+assert.ok(app.includes("const shouldShowLabel = Boolean(stop.name)")
+  && app.includes("if (shouldShowLabel && !entry.labelMarker)"),
+"公共交通站点标签应按缩放级别延迟创建，避免远景一次性创建全部隐藏标签");
+assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
+  && app.includes("explicitly tagged stop/platform members are the authoritative order")
+  && app.includes('if (transitRelationRouteType(relation) !== "bus") return null')
+  && app.includes("const requestedFrom = normalizeTransitStopName(relation?.tags?.from || \"\")")
+  && app.includes("const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation)"),
+"公交线路图必须优先使用关系中的 stop/platform 成员顺序，并按 from/to 校正方向");
+assert.ok(app.includes("let transitBusRetryTimer = null")
+  && app.includes("let transitBusRetryAt = 0")
+  && app.includes("function getTransitBusCoverageBounds")
+  && app.includes("const latitudeSpan = clamp(Math.max(viewport.getNorth() - viewport.getSouth(), 0.03) * 1.12, 0.03, 0.08)")
+  && app.includes("const longitudeSpan = clamp(Math.max(viewport.getEast() - viewport.getWest(), 0.05) * 1.12, 0.05, 0.12)")
+  && app.includes("function splitTransitBusCoverageBounds")
+  && app.includes("const responses = await Promise.all(requestBounds.map")
+  && app.includes("const successfulResponses = responses.filter(Boolean)")
+  && app.includes("The map traffic view needs both stop markers and their route identities")
+  && app.includes("[out:json][timeout:12];(node[\"highway\"=\"bus_stop\"]")
+  && app.includes('rel(bn.busStops)["type"="route"]["route"="bus"]->.busRoutes')
+  && app.includes('rel(br.busRoutes)["type"="route_master"]->.busMasters')
+  && app.includes("enrichTransitRelationTypes(busElements)")
+  && app.includes("transitBusRetryAt = Date.now() + 8000")
+  && app.includes("正在追加公交站"),
+"地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
 for (const script of ["app.js", "_worker.js"]) {
   const result = spawnSync(process.execPath, ["--check", path.join(site, script)], { encoding: "utf8" });

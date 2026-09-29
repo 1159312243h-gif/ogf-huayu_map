@@ -11,6 +11,11 @@
     "verify:online": "node scripts/verify-online.mjs",
     "test:worker": "node scripts/test-worker.mjs",
     "check:data": "node scripts/check-data-freshness.mjs",
-    "probe:live": "node scripts/probe-live-basemap.mjs"
+    "probe:live": "node scripts/probe-live-basemap.mjs",
+    "data:update": "node scripts/update-all-data.mjs",
+    "data:update:dry": "node scripts/update-all-data.mjs --dry-run",
+    "data:update:resume": "node scripts/update-all-data.mjs --resume",
+    "data:update:check": "node scripts/update-all-data.mjs --check",
+    "test:data-update": "node scripts/test-data-updater.mjs"
   }
 }

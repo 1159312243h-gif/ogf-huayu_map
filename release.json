@@ -1,13 +1,17 @@
 {
-  "releaseVersion": "5.0-huayu-live-basemap-v2",
+  "releaseVersion": "5.0-huayu-sports-live-handoff-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=5.0-huayu-live-basemap-v2",
+  "entryScript": "app.js?v=5.0-huayu-sports-live-handoff-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
-  "expectedBuildingModel": "9",
+  "expectedBuildingModel": "10",
   "expectedBuildingMinZoom": 10,
-  "expectedBuildingTileZooms": [11, 12, 13, 14],
+  "expectedBuildingTileZooms": [11, 12, 13, 14, 15],
+  "expectedBuildingCacheSeconds": 10800,
   "expectedLiveBasemapMinZoom": 12.5,
-  "expectedLiveBasemapTileZooms": [13, 14, 15]
+  "expectedLiveBasemapTileZooms": [13, 14, 15],
+  "expectedLiveBasemapSnapshotZooms": [13, 14],
+  "expectedLiveBasemapSnapshotRefreshSeconds": 10800,
+  "expectedLiveBasemapDetailRefreshSeconds": 120
 }

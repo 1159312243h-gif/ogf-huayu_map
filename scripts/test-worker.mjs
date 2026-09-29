@@ -13,6 +13,7 @@ globalThis.caches = {
 };
 
 const upstreamQueries = [];
+let failNextUpstream = false;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options = {}) => {
   if (String(url) !== "https://overpass.opengeofiction.net/api/interpreter") {
@@ -21,6 +22,10 @@ globalThis.fetch = async (url, options = {}) => {
   const body = String(options.body || "");
   const query = decodeURIComponent(body.replace(/^data=/u, ""));
   upstreamQueries.push(query);
+  if (failNextUpstream) {
+    failNextUpstream = false;
+    return new Response("temporary overload", { status: 502 });
+  }
   return new Response(JSON.stringify({
     version: 0.6,
     elements: [{ type: "node", id: 1, lat: 14.6, lon: 152.9, tags: { place: "town", name: "测试镇" } }],
@@ -43,12 +48,19 @@ try {
   assert.equal(first.status, 200);
   assert.equal(first.headers.get("x-ogf-basemap-cache"), "MISS");
   assert.equal(first.headers.get("x-ogf-building-cache"), null);
-  assert.match(first.headers.get("cache-control") || "", /max-age=120/u);
+  assert.equal(first.headers.get("x-ogf-basemap-policy"), "snapshot-3h");
+  assert.match(first.headers.get("cache-control") || "", /max-age=60/u);
+  assert.ok(Number(first.headers.get("x-ogf-basemap-refresh-after")) > 10000);
   assert.equal((await first.json()).elements.length, 1);
   assert.equal(upstreamQueries.length, 1);
-  assert.match(upstreamQueries[0], /way\["highway"\]/u);
+  assert.match(upstreamQueries[0], /way\["highway"/u);
+  assert.match(upstreamQueries[0], /motorway\|trunk\|primary\|secondary\|tertiary/u);
   assert.match(upstreamQueries[0], /basemapRelations/u);
   assert.match(upstreamQueries[0], /basemapPlaces/u);
+  assert.match(upstreamQueries[0], /basemapImportantLabels/u);
+  assert.match(upstreamQueries[0], /natural"~"\^\(peak\|volcano\)\$"/u);
+  assert.match(upstreamQueries[0], /pitch\|track\|stadium\|sports_centre/u,
+    "live basemap tiles should carry detailed sports geometry");
   await Promise.all(waitUntilPromises.splice(0));
 
   const second = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
@@ -56,21 +68,64 @@ try {
   assert.equal(second.headers.get("x-ogf-basemap-cache"), "HIT");
   assert.equal(upstreamQueries.length, 1, "cache hit should not request Overpass again");
 
+  const liveCacheKey = [...cache.keys()].find((key) => key.includes("huayu-live-basemap-v6"));
+  assert.ok(liveCacheKey, "live basemap tile should be retained in the edge snapshot cache");
+  const retained = cache.get(liveCacheKey);
+  const retainedHeaders = new Headers(retained.headers);
+  retainedHeaders.set("X-OGF-Basemap-Fetched-At", new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString());
+  cache.set(liveCacheKey, new Response(await retained.clone().text(), {
+    status: retained.status,
+    headers: retainedHeaders,
+  }));
+  const stale = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
+  assert.equal(stale.status, 200);
+  assert.equal(stale.headers.get("x-ogf-basemap-cache"), "STALE");
+  assert.ok(waitUntilPromises.length > 0, "stale snapshot should schedule a background refresh");
+  await Promise.all(waitUntilPromises.splice(0));
+  assert.equal(upstreamQueries.length, 2, "stale snapshot should refresh in the background");
+  const refreshed = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
+  assert.equal(refreshed.headers.get("x-ogf-basemap-cache"), "HIT");
+
+  const detail = await worker.fetch(new Request("https://example.test/api/live-basemap/15/30304/15040.json"),
+    { ASSETS: assets }, context);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.headers.get("x-ogf-basemap-policy"), "live-2m");
+  assert.match(detail.headers.get("cache-control") || "", /max-age=15/u);
+
+  failNextUpstream = true;
+  const beforeRetry = upstreamQueries.length;
+  const retriedSnapshot = await worker.fetch(
+    new Request("https://example.test/api/live-basemap/14/15152/7519.json"),
+    { ASSETS: assets }, context);
+  assert.equal(retriedSnapshot.status, 200);
+  assert.equal(upstreamQueries.length, beforeRetry + 2, "snapshot cold load should retry one transient upstream failure");
+
   const building = await worker.fetch(new Request("https://example.test/api/buildings/11/1893/939.json"),
     { ASSETS: assets }, context);
   assert.equal(building.status, 200);
   assert.equal(building.headers.get("x-ogf-building-cache"), "MISS");
   assert.equal(building.headers.get("x-ogf-basemap-cache"), null);
+  assert.match(building.headers.get("cache-control") || "", /max-age=10800/u);
   assert.match(upstreamQueries.at(-1), /buildingWays/u);
+
+  const detailedBuilding = await worker.fetch(
+    new Request("https://example.test/api/buildings/15/29822/14884.json"), { ASSETS: assets }, context);
+  assert.equal(detailedBuilding.status, 200, "z15 building tiles should support close-range modeling");
+  const invalidBuilding = await worker.fetch(
+    new Request("https://example.test/api/buildings/16/59644/29768.json"), { ASSETS: assets }, context);
+  assert.equal(invalidBuilding.status, 400);
+  assert.deepEqual((await invalidBuilding.json()).requiredZooms, [11, 12, 13, 14, 15]);
 
   const asset = await worker.fetch(new Request("https://example.test/index.html"), { ASSETS: assets }, context);
   assert.equal(await asset.text(), "asset");
 
   console.log(JSON.stringify({
     status: "passed",
-    liveBasemapCache: "MISS/HIT",
+    liveBasemapCache: "MISS/HIT/STALE/background-refresh",
     liveBasemapZooms: [13, 14, 15],
-    buildingRoutePreserved: true,
+    liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
+    buildingZooms: [11, 12, 13, 14, 15],
+    buildingCache: "3h",
   }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;
