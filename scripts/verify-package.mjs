@@ -125,7 +125,11 @@ assert.ok(app.includes("const shouldShowLabel = Boolean(stop.name)")
 assert.ok(index.includes('id="map-feature-selection"')
   && app.includes('MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection"')
   && app.includes("if (!mapFeatureSelectionEnabled) return;")
-  && app.includes("preservePerspective: vectorPerspectiveActive"),
+  && app.includes("preservePerspective: vectorPerspectiveActive")
+  && app.includes("function clearActiveMapFeatureSelection()")
+  && app.includes("if (!mapFeatureSelectionEnabled) clearActiveMapFeatureSelection()")
+  && app.includes("placeMarker.remove()")
+  && app.includes("hideTransitStationDetail()"),
 "地图必须提供持久化要素选择开关，交通视图普通选点和透视选点不得被旧拦截逻辑阻断");
 assert.ok(app.includes("function currentVectorCameraSnapshot()")
   && app.includes('BASEMAP_STYLES[previousBasemapId]?.kind === "vector"')

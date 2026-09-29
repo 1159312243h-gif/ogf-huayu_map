@@ -1570,6 +1570,7 @@
     try {
       window.localStorage.setItem(MAP_FEATURE_SELECTION_STORAGE_KEY, String(mapFeatureSelectionEnabled));
     } catch {}
+    if (!mapFeatureSelectionEnabled) clearActiveMapFeatureSelection();
     updateMapFeatureSelectionControl();
     showToast(mapFeatureSelectionEnabled ? "已开启地图要素选择" : "已关闭地图要素选择");
   });
@@ -22812,6 +22813,25 @@
   function updateMapFeatureSelectionControl() {
     elements.mapFeatureSelection.checked = mapFeatureSelectionEnabled;
     elements.appShell.classList.toggle("is-map-selection-disabled", !mapFeatureSelectionEnabled);
+  }
+
+  function clearActiveMapFeatureSelection() {
+    map.closePopup();
+    if (placeMarker) {
+      placeMarker.remove();
+      placeMarker = null;
+    }
+    clearRoadSearchHighlight();
+    clearSelectedPlaceFeature();
+    clearAdministrativeBoundary();
+    selectedNetworkStationId = null;
+    document.querySelectorAll(".rail-stop-symbol.is-selected, .bus-stop-symbol.is-selected")
+      .forEach((item) => item.classList.remove("is-selected"));
+    hideTransitStationDetail();
+    updateFocusedTransitLabels();
+    updateTransitNetworkLabels();
+    syncVectorTransitOverlay();
+    if (currentView === "place") hidePanel();
   }
 
   function updateActiveAction(action) {
