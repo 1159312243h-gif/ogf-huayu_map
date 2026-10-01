@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-25",
+  "source": "User-confirmed operating information and OGF-verified relation road supplements; original OGF elements remain unchanged.",
+  "publicTransitRailSystems": [
+    {
+      "id": "jinchuan-city-rail",
+      "label": "津川城铁",
+      "lineNamePrefixes": ["津川城铁"],
+      "operatorPrefixes": ["津川城铁"],
+      "allowInfrastructure": true,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-wangtie",
+      "label": "北沪—新沪望铁",
+      "lineNamePrefixes": ["望铁"],
+      "operatorPrefixes": ["望铁"],
+      "allowInfrastructure": true,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "gaoyang-shentie",
+      "label": "高阳申铁",
+      "lineNamePrefixes": ["副中心线", "海沧机场线"],
+      "operatorPrefixes": ["申通铁路"],
+      "allowInfrastructure": false,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "gaoyang-jintie",
+      "label": "高阳都市圈金铁",
+      "lineNamePrefixes": ["金铁", "JZ 金铁"],
+      "operatorPrefixes": ["金沙铁路交通"],
+      "allowInfrastructure": true,
+      "inferStationMemberships": true,
+      "source": "user_confirmed"
+    }
+  ],
+  "publicTransitRailStationNetworks": [
+    {
+      "id": "jinchuan-city-rail-interchange-network",
+      "systemId": "jinchuan-city-rail",
+      "label": "津川城铁互通",
+      "color": "#4e5e66",
+      "speedKmh": 90,
+      "stationIds": [403358828, 414793566, 414793613, 416327117, 416327087, 416540734, 416540716, 416540699, 416326934, 416540792, 413069572, 416540531, 416540682, 416540665, 416540648],
+      "source": "user_confirmed"
+    }
+  ],
+  "stationTransferAliases": [
+    {
+      "id": "beihu-wangtie-north-station-complex",
+      "stationNames": ["望铁北沪", "北沪车站"],
+      "maxMeters": 220,
+      "source": "user_confirmed"
+    }
+  ],
+  "busRouteWaySupplements": [
+    {
+      "relationId": 542359,
+      "wayIds": [42660732, 39796249],
+      "source": "ogf_verified"
+    },
+    {
+      "relationId": 542360,
+      "wayIds": [42660733, 42660711, 42660707, 42660732],
+      "source": "ogf_verified"
+    }
+  ],
+  "busRouteStopProjectionRules": [
+    {
+      "relationId": 491305,
+      "maxCandidates": 1,
+      "source": "ogf_verified"
+    }
+  ],
+  "stationDisplayMergeOverrides": [
+    {
+      "id": "jinchuan-mingjin-avenue-interchange",
+      "stationNames": ["铭金大街"],
+      "maxMeters": 260,
+      "anchorStationId": 432847690,
+      "source": "user_confirmed"
+    }
+  ],
+  "stationInterchangeOverrides": [
+    {
+      "id": "beihu-north-station-three-line",
+      "stationNames": ["北沪车站"],
+      "routeRefs": ["R", "I", "M"],
+      "routeNames": [],
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-erchong-interchange",
+      "stationNames": ["二重"],
+      "routeRefs": ["M", "CY"],
+      "routeNames": [],
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-yujiaqiao-interchange",
+      "stationNames": ["郁家桥"],
+      "routeRefs": ["CY"],
+      "routeNames": ["捷运纵贯线"],
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-zhongshan-xinde-interchange",
+      "stationNames": ["中山信德"],
+      "routeRefs": ["BL"],
+      "routeNames": [],
+      "displayRoutes": [
+        {
+          "id": "beihu-zhongshan-xinde-railway",
+          "type": "train",
+          "ref": "",
+          "label": "铁路换乘",
+          "color": "#4e5e66",
+          "identity": "train:station-display:beihu-zhongshan-xinde"
+        }
+      ],
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-southeast-corner-three-line",
+      "stationNames": ["东南角"],
+      "routeRefs": ["R", "I", "P"],
+      "routeNames": [],
+      "displayOnly": true,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-aiguo-road-interchange",
+      "stationNames": ["爱国路"],
+      "routeRefs": ["R", "P"],
+      "routeNames": [],
+      "mainline": false,
+      "displayOnly": true,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "beihu-ximending-interchange",
+      "stationNames": ["西门町"],
+      "routeRefs": ["P", "BL"],
+      "routeNames": [],
+      "displayOnly": true,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "xinhu-jinsu-arena-interchange",
+      "stationNames": ["近宿·新沪巨蛋"],
+      "routeRefs": ["P", "O"],
+      "routeNames": [],
+      "source": "user_confirmed"
+    }
+  ],
+  "transitAtlasDirectionAnchors": [
+    {
+      "routeNames": ["镇治高铁"],
+      "anchors": [
+        { "name": "镇海", "lat": 15.4430912, "lon": 153.2676884 }
+      ],
+      "source": "user_confirmed"
+    }
+  ],
+  "refCorrections": [
+    { "relationId": 548738, "sourceRef": "JS13", "displayRef": "JS11" },
+    { "relationId": 548739, "sourceRef": "JS13", "displayRef": "JS11" },
+    { "relationId": 548740, "sourceRef": "JS13", "displayRef": "JS11" }
+  ],
+  "fareRules": [
+    {
+      "id": "linchuan-university-campus-bus",
+      "routeTypes": ["bus"],
+      "systemAliases": ["临川大学校园巴士"],
+      "baseFare": 1,
+      "distanceModel": "flat",
+      "fareLabel": "校内免费 / 校外 ¥1.0",
+      "source": "user_confirmed"
+    },
+    {
+      "id": "gaoyang-metro",
+      "routeTypes": ["subway", "light_rail", "monorail"],
+      "cityAliases": ["高阳", "高阳市", "高陽", "高陽市"],
+      "systemPrefixes": ["高阳地铁", "高阳轨道交通", "高陽地鐵", "高陽軌道交通"],
+      "lineNamePrefixes": ["高阳地铁", "高阳轨道交通", "高陽地鐵", "高陽軌道交通"],
+      "baseFare": 4,
+      "distanceModel": "metro",
+      "source": "user_confirmed"
+    },
+    {
+      "id": "hr-regional-rail",
+      "routeTypes": ["train", "subway", "light_rail", "monorail"],
+      "systemAliases": ["HR"],
+      "systemPrefixes": ["HR市域铁路", "HR市域鐵路"],
+      "lineNamePrefixes": ["HR市域铁路", "HR市域鐵路"],
+      "baseFare": 5,
+      "distanceModel": "rail",
+      "source": "user_confirmed"
+    },
+    {
+      "id": "urban-rail-commuter",
+      "routeTypes": ["train"],
+      "systemPrefixes": ["金沙铁路交通股份有限公司", "市域铁路", "城铁", "通勤铁路", "区域铁路"],
+      "lineNamePrefixes": ["金铁", "市域铁路", "市域", "城铁", "城际铁路", "通勤", "机场线", "副中心线"],
+      "urbanRail": true,
+      "baseFare": 5,
+      "distanceModel": "rail",
+      "source": "user_confirmed"
+    },
+    {
+      "id": "longchuan-metro",
+      "routeTypes": ["subway", "light_rail", "monorail"],
+      "cityAliases": ["龙川", "龙川市", "龍川", "龍川市"],
+      "systemPrefixes": ["龙川地铁", "龙川轨道交通", "龍川地鐵", "龍川軌道交通"],
+      "lineNamePrefixes": ["龙川地铁", "龙川轨道交通", "龍川地鐵", "龍川軌道交通"],
+      "baseFare": 3,
+      "distanceModel": "metro",
+      "source": "user_confirmed"
+    }
+  ],
+  "throughServices": [
+    {
+      "lineRelationIds": [546913, 548740],
+      "stationNodeRefs": [432388809, 432388811],
+      "bidirectional": true,
+      "source": "user_confirmed"
+    },
+    {
+      "lineRelationIds": [545464, 548737],
+      "stationNodeRefs": [431757691, 431757693],
+      "bidirectional": true,
+      "source": "user_confirmed"
+    }
+  ],
+  "railOperatingRules": [
+    {
+      "id": "jinchuan-passenger-rail",
+      "nonPassengerStationIds": [446869821],
+      "passengerWaypointStationIds": [404677559],
+      "waypointMaxTrackOffsetMeters": 100,
+      "requiredTransferJourneys": [
+        {
+          "fromStationIds": [414737786],
+          "toStationIds": [416540560, 416540792],
+          "viaStationIds": [403358828],
+          "bidirectional": true
+        }
+      ],
+      "preferredAlternativeJourneys": [
+        {
+          "fromStationIds": [414737786],
+          "toStationIds": [416540560],
+          "bidirectional": true
+        }
+      ],
+      "source": "user_confirmed"
+    }
+  ]
+}

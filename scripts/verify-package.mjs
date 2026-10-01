@@ -196,11 +196,22 @@ assert.ok(app.includes("return normalizedB - normalizedA;")
 assert.ok(app.includes('map.createPane("admin-subdivision-hit")')
   && app.includes('const placeSubdivisionHitLayer = window.L.geoJSON(null, {')
   && app.includes('pane: "admin-subdivision-hit"')
-  && app.includes('setLayerPresence(placeSubdivisionHitLayer, boundaryView')
+  && app.includes('setLayerPresence(placeSubdivisionHitLayer, administrativeBoundaryView')
   && (app.match(/placeSubdivisionHitLayer\.clearLayers\(\)/g) || []).length >= 2
   && (app.match(/placeSubdivisionHitLayer\.addData\(/g) || []).length === 2
   && app.includes('const placeSubdivisionLayer = window.L.geoJSON(null, {\n    pane: "admin-subdivision",\n    interactive: false,'),
 "行政区可见边界必须与下级优先的透明命中层分离，并覆盖加载、清空和显隐生命周期");
+assert.ok(app.includes('const panelVisible = !elements.panel.classList.contains("is-hidden")')
+  && app.includes('const administrativeSearchView = panelVisible')
+  && app.includes('&& view === "place"')
+  && app.includes('&& Boolean(selectedAdministrativeBoundary)')
+  && app.includes('const downloadView = panelVisible && view === "download"')
+  && app.includes('const administrativeBoundaryView = administrativeSearchView || downloadView')
+  && app.includes('setLayerPresence(placeExportSelectionLayer, downloadView')
+  && app.includes('setLayerPresence(administrativeExportBoxLayer, downloadView')
+  && /function showPanel\(\)[\s\S]*?classList\.remove\("is-hidden"\);\s*syncMapLayers\(currentView\);/.test(app)
+  && /function hidePanel\(\)[\s\S]*?classList\.add\("is-hidden"\);\s*cancelAdministrativeBoxPick\(\);\s*syncMapLayers\(currentView\);/.test(app),
+"行政区覆盖层必须只在打开的行政区搜索或地图下载面板显示，下载清单与范围框不得影响其他功能");
 assert.ok(app.includes("function administrativeExportRenderOrder(features, parentKeys)")
   && app.includes("return Number(parentA) - Number(parentB);")
   && (app.match(/administrativeExportRenderOrder\(features, parentKeys\)\.forEach/g) || []).length === 2,

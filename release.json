@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "5.5-huayu-wall-perspective-v1",
+  "releaseVersion": "5.5-huayu-admin-overlay-scope-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=5.5-huayu-wall-perspective-v1",
+  "entryScript": "app.js?v=5.5-huayu-admin-overlay-scope-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
   "expectedBuildingModel": "10",
