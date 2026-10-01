@@ -105,6 +105,17 @@ assert.ok(app.includes('runningOverview: "ogf-atlas-huayu-sports-running-overvie
   && app.includes('["==", ["get", "sportsArea"], "running"]')
   && app.includes('maxzoom: 15.25'),
   "跑道必须在小比例尺体育层交接时保留独立实时兜底");
+assert.ok(app.includes("function positionHuayuSportsBelowBuildings(glMap)")
+  && app.includes('const HUAYU_SPORTS_SOURCE = "ogf-atlas-huayu-sports"')
+  && app.includes("function applyHuayuSportsSnapshot(glMap, state)")
+  && app.includes('state.activeTier === "fallback"')
+  && app.includes("state.sportsRenderSignature === state.renderSignature")
+  && app.includes("function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap))")
+  && app.includes("const liveVisible = Boolean(state?.sportsDataReady)")
+  && app.includes('state?.primaryActive ? "live" : "retained-live"')
+  && app.includes("syncHuayuSportsSnapshotLayers(glMap, state)")
+  && app.includes("syncHuayuSportsSnapshotLayers(glMap)"),
+"实时操场必须只接收完整快照，透视扩大视野时保留最后完整体育数据并保持在建筑层下方");
 const primaryVectorStart = app.indexOf("const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [");
 const primaryVectorEnd = app.indexOf("];", primaryVectorStart);
 assert.ok(primaryVectorStart >= 0 && primaryVectorEnd > primaryVectorStart
