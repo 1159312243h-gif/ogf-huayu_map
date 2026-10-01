@@ -188,6 +188,44 @@ assert.ok(app.includes("Rail route masters may group stops by direction or const
   && app.includes("? ordered : geometryOrder")
   && app.includes("return orientTransitGuideOrder(continuousOrder, relation)"),
 "轨道交通总关系的合并站序与连续几何冲突时必须回退到实际线路顺序");
+assert.ok(app.includes("function transitGuideDirectRoundtripInfo(relation)")
+  && app.includes("function transitGuideRoundtripInfo(relation, items = selectedTransitItems)")
+  && app.includes('String(relation?.tags?.type || "") !== "route_master"')
+  && app.includes("const childInfo = children.map(transitGuideDirectRoundtripInfo)")
+  && app.includes("anchor: normalizedAnchors.size === 1 ? anchors[0] : \"\"")
+  && app.includes("renderTransitLineGuide({ label, color: lineColor, lengthMeters, relation: selectedRelation })")
+  && app.includes("? orientTransitGuideOrder(directionalStops, guideRelation)")
+  && app.includes("const end = roundtripInfo.roundtrip ? start")
+  && app.includes('roundtripInfo.roundtrip ? " · 环线" : ""'),
+"环线线路向导必须从闭环子关系继承共同锚点，正向与换向均显示同一站为起终点");
+const transitGuideDirectRoundtripInfoSource = app.match(/function transitGuideDirectRoundtripInfo\(relation\) \{[\s\S]*?\n  \}/)?.[0];
+const transitGuideRoundtripInfoSource = app.match(/function transitGuideRoundtripInfo\(relation, items = selectedTransitItems\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(transitGuideDirectRoundtripInfoSource && transitGuideRoundtripInfoSource,
+  "无法读取环线向导识别函数");
+const normalizeGuideStopName = (value) => String(value || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
+const transitGuideDirectRoundtripInfo = Function("normalizeTransitStopName",
+  `"use strict"; return (${transitGuideDirectRoundtripInfoSource});`)(normalizeGuideStopName);
+const transitGuideRoundtripInfo = Function(
+  "transitGuideDirectRoundtripInfo", "normalizeTransitStopName", "transitRelationRouteType",
+  `"use strict"; return (${transitGuideRoundtripInfoSource});`,
+)(transitGuideDirectRoundtripInfo, normalizeGuideStopName,
+  (relation) => String(relation?.tags?.route || relation?.tags?.route_master || ""));
+const ringMasterFixture = {
+  type: "relation",
+  id: 547550,
+  tags: { type: "route_master", route_master: "subway", name: "津川轨道交通4号线", ref: "JS04" },
+  members: [{ type: "relation", ref: 547548 }, { type: "relation", ref: 547549 }],
+};
+const ringChildrenFixture = [547548, 547549].map((id, index) => ({
+  type: "relation",
+  id,
+  tags: { type: "route", route: "subway", name: `津川轨道交通4号线${index ? "外圈" : "内圈"}`, from: "虚谷", to: "虚谷" },
+}));
+assert.deepEqual(transitGuideRoundtripInfo(ringMasterFixture, [ringMasterFixture, ...ringChildrenFixture]),
+  { roundtrip: true, anchor: "虚谷" }, "津川4号线总关系未继承内外环共同起终站");
+assert.deepEqual(transitGuideRoundtripInfo({
+  type: "relation", tags: { type: "route", route: "subway", from: "长宁湖", to: "石木" },
+}, []), { roundtrip: false, anchor: "" }, "普通线路被错误识别为环线");
 assert.ok(app.includes("return normalizedB - normalizedA;")
   && app.includes("every higher-level boundary remains visible")
   && app.includes('[8, "#2f7d4a"]')
