@@ -137,6 +137,14 @@ assert.ok(app.includes("function currentVectorCameraSnapshot()")
   && app.includes("zoom: perspectiveSnapshot.zoom")
   && app.includes("silent: true"),
 "华域标准、深夜与 Vector 图层切换必须保留完整透视相机状态");
+assert.ok(app.includes('const FUZZY_ADMINISTRATIVE_SUFFIXES = ["市", "区", "县"]')
+  && app.includes("function fuzzyAdministrativeSearchQueries(query)")
+  && app.includes("async function searchFuzzyAdministrativePlaces(query)")
+  && app.includes("await Promise.all(queries.map")
+  && app.includes("function fuzzyAdministrativeDisplayResults(results)")
+  && app.includes("? fuzzyAdministrativeDisplayResults(results) : []")
+  && !app.includes("if (pointOfInterestCollectionResults(combinedResults, query).length)"),
+"无后缀中文行政区搜索必须补查市区县，并在同名普通地点存在时仍保留行政区结果");
 assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
   && app.includes("explicitly tagged stop/platform members are the authoritative order")
   && app.includes('if (transitRelationRouteType(relation) !== "bus") return null')

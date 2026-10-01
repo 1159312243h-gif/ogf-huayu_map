@@ -2336,6 +2336,8 @@
     );
     const namedPointOfInterestCollection = pointOfInterestResults.length && !options.pointOfInterestType;
     const exactGeneralResults = namedPointOfInterestCollection ? exactGeneralSearchResults(results, query) : [];
+    const administrativeResults = namedPointOfInterestCollection
+      ? fuzzyAdministrativeDisplayResults(results) : [];
     const classifiedPointOfInterestResults = namedPointOfInterestCollection
       ? pointOfInterestResults.map((result) => pointOfInterestResultHasBrand(result)
         ? { ...result, huayu_brand_result: true } : result)
@@ -2343,7 +2345,7 @@
     const brandResultCount = classifiedPointOfInterestResults
       .filter((result) => result.huayu_brand_result).length;
     const displayResults = pointOfInterestResults.length
-      ? [...exactGeneralResults, ...classifiedPointOfInterestResults]
+      ? [...administrativeResults, ...exactGeneralResults, ...classifiedPointOfInterestResults]
       : results.slice(0, 12);
     if (!displayResults.length) {
       setStatus(elements.searchStatus, `未找到“${query}”。可以尝试完整地名或直接输入坐标。`, true);
@@ -2353,9 +2355,11 @@
 
     if (pointOfInterestResults.length) {
       const typeLabel = options.pointOfInterestType?.label;
+      const administrativeStatus = administrativeResults.length
+        ? `，另有 ${administrativeResults.length} 个同名行政区` : "";
       const collectionStatus = brandResultCount === pointOfInterestResults.length
-        ? `找到 ${brandResultCount} 个匹配品牌${exactGeneralResults.length ? `，另有 ${exactGeneralResults.length} 个同名地点` : ""}；当前视图内结果优先。`
-        : `找到 ${pointOfInterestResults.length} 个匹配地点${brandResultCount ? `（其中 ${brandResultCount} 个品牌）` : ""}${exactGeneralResults.length ? `，另有 ${exactGeneralResults.length} 个同名地点` : ""}；当前视图内结果优先。`;
+        ? `找到 ${brandResultCount} 个匹配品牌${administrativeStatus}${exactGeneralResults.length ? `，另有 ${exactGeneralResults.length} 个同名地点` : ""}；当前视图内结果优先。`
+        : `找到 ${pointOfInterestResults.length} 个匹配地点${brandResultCount ? `（其中 ${brandResultCount} 个品牌）` : ""}${administrativeStatus}${exactGeneralResults.length ? `，另有 ${exactGeneralResults.length} 个同名地点` : ""}；当前视图内结果优先。`;
       setStatus(elements.searchStatus, typeLabel
         ? `在当前视图内找到 ${displayResults.length} 个${typeLabel}，已用蓝色标注；指向列表可高亮对应位置。`
         : collectionStatus);
@@ -13993,6 +13997,26 @@
     return fuzzyAdministrativeNameKey(normalized) === normalized;
   }
 
+  const FUZZY_ADMINISTRATIVE_SUFFIXES = ["市", "区", "县"];
+
+  function fuzzyAdministrativeSearchQueries(query) {
+    const value = String(query || "").trim();
+    if (!shouldExpandAdministrativeSearch(value)) return [];
+    return [value, ...FUZZY_ADMINISTRATIVE_SUFFIXES.map((suffix) => `${value}${suffix}`)];
+  }
+
+  async function searchFuzzyAdministrativePlaces(query) {
+    const queries = fuzzyAdministrativeSearchQueries(query);
+    const resultGroups = await Promise.all(queries.map((candidate, index) => searchPlaces(candidate, 12, {
+      includeBoundary: true,
+      includeNameDetails: true,
+      featureType: index === 0 ? "city" : undefined,
+      dedupe: false,
+    }).catch(() => [])));
+    return [...new Map(resultGroups.flat()
+      .map((result) => [placeSearchResultKey(result), result])).values()];
+  }
+
   function isFuzzyAdministrativeCandidate(result, query) {
     if (!isAdministrativeBoundaryResult(result) && !isAdministrativeCenterResult(result)) return false;
     const queryKey = normalizePlaceSearchText(query);
@@ -14015,6 +14039,18 @@
     if (name.startsWith(queryText) || administrativeName.startsWith(queryText)) return 3;
     if (name.includes(queryText) || administrativeName.includes(queryText)) return 4;
     return 5;
+  }
+
+  function fuzzyAdministrativeDisplayResults(results) {
+    const preferredByName = new Map();
+    results.filter((result) => result.huayu_fuzzy_administrative).forEach((result) => {
+      const key = normalizePlaceSearchText(primaryPlaceName(result));
+      const existing = preferredByName.get(key);
+      if (!existing || (isAdministrativeBoundaryResult(result) && !isAdministrativeBoundaryResult(existing))) {
+        preferredByName.set(key, result);
+      }
+    });
+    return [...preferredByName.values()].slice(0, 4);
   }
 
   function withQueryMatchedPlaceName(result, query) {
@@ -14073,8 +14109,7 @@
         viewbox: currentNominatimViewbox(), dedupe: false }).catch(() => [])
       : Promise.resolve([]);
     const administrativePromise = shouldExpandAdministrativeSearch(query)
-      ? searchPlaces(query, Math.max(limit, 20), { includeBoundary: true, includeNameDetails: true,
-        featureType: "city", dedupe: false }).catch(() => [])
+      ? searchFuzzyAdministrativePlaces(query)
       : Promise.resolve([]);
     const [baseResults, canonicalResults, viewportResults] = await Promise.all([
       basePromise,
@@ -14082,9 +14117,6 @@
       viewportPromise,
     ]);
     const combinedResults = [...viewportResults, ...canonicalResults, ...baseResults];
-    if (pointOfInterestCollectionResults(combinedResults, query).length) {
-      return rankPlaceSearchResults(combinedResults, query, limit);
-    }
     const administrativeResults = await administrativePromise;
     const fuzzyAdministrativeResults = administrativeResults
       .filter((result) => isFuzzyAdministrativeCandidate(result, query))
