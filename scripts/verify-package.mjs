@@ -77,6 +77,19 @@ assert.ok(app.includes("Do not invalidate the displayed model")
   && app.includes("if (!state.dataReady) {")
   && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, true);"),
 "建筑新覆盖加载期间必须保留上一帧模型，不得清空实时源造成闪烁");
+assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM")
+  && (app.match(/minzoom: HUAYU_WALL_MIN_ZOOM/g) || []).length === 6
+  && app.includes('[[10, 0.45], [15, 1.1]')
+  && app.includes('[[10, 0.35], [16, 0.8]'),
+"普通墙与栅栏必须和建筑模型使用相同起始比例尺，并在远景使用克制线宽");
+assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
+  && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
+  && app.includes("wallData: huayuWallFeatureCollection(result.payload.elements)")
+  && app.includes("state.wallData = { type: \"FeatureCollection\", features: wallFeatures };")
+  && worker.includes('schema", "huayu-building-v5"')
+  && !app.includes("function refreshHuayuWalls")
+  && !app.includes("glMap.getZoom() < 14.75"),
+"墙和栅栏必须复用建筑分片与缓存，不得恢复近景独立大范围查询");
 assert.ok(app.includes('ancientKind,')
   && app.includes('HUAYU_ANCIENT_BUILDING_LAYERS')
   && app.includes('"huayu:component": "ancient-building-roof-cap"')

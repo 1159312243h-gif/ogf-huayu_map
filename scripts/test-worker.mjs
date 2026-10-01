@@ -107,6 +107,8 @@ try {
   assert.equal(building.headers.get("x-ogf-basemap-cache"), null);
   assert.match(building.headers.get("cache-control") || "", /max-age=10800/u);
   assert.match(upstreamQueries.at(-1), /buildingWays/u);
+  assert.match(upstreamQueries.at(-1), /barrierWays/u,
+    "building tiles should carry walls and fences at the same zooms");
 
   const detailedBuilding = await worker.fetch(
     new Request("https://example.test/api/buildings/15/29822/14884.json"), { ASSETS: assets }, context);
