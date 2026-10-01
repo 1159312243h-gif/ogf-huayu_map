@@ -85,11 +85,19 @@ assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM
 assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && app.includes("wallData: huayuWallFeatureCollection(result.payload.elements)")
-  && app.includes("state.wallData = { type: \"FeatureCollection\", features: wallFeatures };")
+  && app.includes("const nextWallData = { type: \"FeatureCollection\", features: wallFeatures };")
   && worker.includes('schema", "huayu-building-v5"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
 "墙和栅栏必须复用建筑分片与缓存，不得恢复近景独立大范围查询");
+assert.ok(app.includes("function positionHuayuWallsAboveBuildings(glMap)")
+  && app.includes("positionHuayuWallsAboveBuildings(glMap);")
+  && app.includes('glMap.setLayoutProperty(layerId, "visibility", "visible")')
+  && app.includes("huayuWallSegmentPolygons(coordinates, width, fence ? 0.12 : 0.2)")
+  && app.includes("if (complete || !state.wallDataReady)")
+  && app.includes('"retained-complete"')
+  && app.includes("wallRenderSignature"),
+"墙和栅栏在透视视角必须保留轮廓、位于建筑之上，并原子切换完整分片快照");
 assert.ok(app.includes('ancientKind,')
   && app.includes('HUAYU_ANCIENT_BUILDING_LAYERS')
   && app.includes('"huayu:component": "ancient-building-roof-cap"')
