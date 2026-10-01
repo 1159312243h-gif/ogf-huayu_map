@@ -124,6 +124,30 @@ assert.ok(app.includes("function positionHuayuSportsBelowBuildings(glMap)")
   && app.includes("syncHuayuSportsSnapshotLayers(glMap, state)")
   && app.includes("syncHuayuSportsSnapshotLayers(glMap)"),
 "实时操场必须只接收完整快照，透视扩大视野时保留最后完整体育数据并保持在建筑层下方");
+assert.ok(app.includes("function huayuLiveBasemapRenderPlan(state)")
+  && app.includes("...state.detailTileKeys")
+  && app.includes("...(snapshotReady ? state.snapshotTileKeys : [])")
+  && app.includes('return { activeTier: "snapshot", renderKeys: state.snapshotTileKeys }'),
+"近景实时底图必须在完整快照之上补充细节，不得因缩放切换丢失完整用地或透视远端要素");
+const liveBasemapRenderPlanSource = app.match(/function huayuLiveBasemapRenderPlan\(state\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(liveBasemapRenderPlanSource, "无法读取实时底图缩放衔接函数");
+const huayuLiveBasemapRenderPlan = Function("huayuLiveBasemapKeysReady",
+  `"use strict"; return (${liveBasemapRenderPlanSource});`)(
+  (state, keys) => Boolean(keys?.size) && [...keys].every((key) => state.tileCache.has(key)),
+);
+const combinedBasemapPlan = huayuLiveBasemapRenderPlan({
+  detailTileKeys: new Set(["15/detail-a", "15/detail-b"]),
+  snapshotTileKeys: new Set(["14/snapshot"]),
+  tileCache: new Map([["15/detail-a", {}], ["15/detail-b", {}], ["14/snapshot", {}]]),
+});
+assert.equal(combinedBasemapPlan.activeTier, "live", "完整近景分片未成为实时主层");
+assert.deepEqual([...combinedBasemapPlan.renderKeys], ["15/detail-a", "15/detail-b", "14/snapshot"],
+  "近景实时主层没有保留完整父级快照作为连续性补足");
+assert.ok(app.includes("state.applyTimer = window.setTimeout(() => {")
+  && app.includes("applyHuayuLiveBuildings(glMap, state);")
+  && app.includes("window.clearTimeout(state.applyTimer);")
+  && app.includes("applyTimer: null,"),
+"建筑完整分片在样式加载期间未能应用时必须自动重试，不能永久停留在部分覆盖状态");
 const primaryVectorStart = app.indexOf("const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [");
 const primaryVectorEnd = app.indexOf("];", primaryVectorStart);
 assert.ok(primaryVectorStart >= 0 && primaryVectorEnd > primaryVectorStart
