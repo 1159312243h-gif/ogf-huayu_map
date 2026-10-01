@@ -173,17 +173,28 @@ assert.ok(app.includes("return normalizedB - normalizedA;")
   && app.includes("every higher-level boundary remains visible")
   && app.includes('[8, "#2f7d4a"]')
   && app.includes('[6, "#1769e0"]'),
-"行政区下级边界必须先画乡镇、后画区县，并使用明确区分的层级颜色");
+  "行政区下级边界必须先画乡镇、后画区县，并使用明确区分的层级颜色");
+assert.ok(app.includes('map.createPane("admin-subdivision-hit")')
+  && app.includes('const placeSubdivisionHitLayer = window.L.geoJSON(null, {')
+  && app.includes('pane: "admin-subdivision-hit"')
+  && app.includes('setLayerPresence(placeSubdivisionHitLayer, boundaryView')
+  && (app.match(/placeSubdivisionHitLayer\.clearLayers\(\)/g) || []).length >= 2
+  && (app.match(/placeSubdivisionHitLayer\.addData\(/g) || []).length === 2
+  && app.includes('const placeSubdivisionLayer = window.L.geoJSON(null, {\n    pane: "admin-subdivision",\n    interactive: false,'),
+"行政区可见边界必须与下级优先的透明命中层分离，并覆盖加载、清空和显隐生命周期");
 assert.ok(app.includes("function administrativeExportRenderOrder(features, parentKeys)")
   && app.includes("return Number(parentA) - Number(parentB);")
   && (app.match(/administrativeExportRenderOrder\(features, parentKeys\)\.forEach/g) || []).length === 2,
 "行政区栅格导出必须按层级绘制，并将所选上级边界置于最上层");
 const administrativeOrderSource = app.match(/function administrativeDivisionRenderOrder\(features\) \{[\s\S]*?\n  \}/)?.[0];
+const administrativeInteractionOrderSource = app.match(/function administrativeDivisionInteractionOrder\(features\) \{[\s\S]*?\n  \}/)?.[0];
 const administrativeColorSource = app.match(/function administrativeLevelColor\(level\) \{[\s\S]*?\n  \}/)?.[0];
 const administrativeExportOrderSource = app.match(/function administrativeExportRenderOrder\(features, parentKeys\) \{[\s\S]*?\n  \}/)?.[0];
-assert.ok(administrativeOrderSource && administrativeColorSource && administrativeExportOrderSource,
+assert.ok(administrativeOrderSource && administrativeInteractionOrderSource
+  && administrativeColorSource && administrativeExportOrderSource,
   "无法读取行政边界层级函数");
 const administrativeOrder = Function(`"use strict"; return (${administrativeOrderSource});`)();
+const administrativeInteractionOrder = Function(`"use strict"; return (${administrativeInteractionOrderSource});`)();
 const administrativeColor = Function(`"use strict"; return (${administrativeColorSource});`)();
 const administrativeExportOrder = Function("administrativeDivisionRenderOrder", "administrativeBoundaryFeatureKey",
   `"use strict"; return (${administrativeExportOrderSource});`)(administrativeOrder, (feature) => feature.id);
@@ -194,6 +205,8 @@ const hierarchyFixtures = [
 ];
 assert.deepEqual(administrativeOrder(hierarchyFixtures).map((feature) => feature.id), ["township", "county", "city"],
   "地图行政边界层级顺序错误");
+assert.deepEqual(administrativeInteractionOrder(hierarchyFixtures).map((feature) => feature.id), ["city", "county", "township"],
+  "地图行政边界命中顺序没有优先更下级行政区");
 assert.deepEqual(administrativeExportOrder(hierarchyFixtures, new Set(["city"])).map((feature) => feature.id),
   ["township", "county", "city"], "栅格导出未将所选上级行政边界置顶");
 assert.equal(administrativeColor(6), "#1769e0", "区县级边界颜色错误");

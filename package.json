@@ -1,7 +1,7 @@
 {
   "name": "ogf-atlas-maintenance",
   "private": true,
-  "version": "5.5.5",
+  "version": "5.5.6",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
