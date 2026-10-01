@@ -12495,7 +12495,14 @@
       ordered = mergeTransitGuideOrders(ordered, alignedGeometry);
     }
 
-    return orientTransitGuideOrder(ordered, relation);
+    // Rail route masters may group stops by direction or construction phase
+    // instead of one continuous journey. Keep a coherent member sequence, but
+    // fall back to the physical line order when the merged list jumps between
+    // otherwise disconnected sections. Bus routes have already returned above.
+    const continuousOrder = isTransitGuideRoundtrip(relation)
+      || transitGuideOrderAgreement(ordered, geometryOrder) >= 0.9
+      ? ordered : geometryOrder;
+    return orientTransitGuideOrder(continuousOrder, relation);
   }
 
   function selectTransitBusGuideMemberOrder(stops, relation) {

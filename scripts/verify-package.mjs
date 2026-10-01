@@ -151,6 +151,11 @@ assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
   && app.includes("const requestedFrom = normalizeTransitStopName(relation?.tags?.from || \"\")")
   && app.includes("const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation)"),
 "公交线路图必须优先使用关系中的 stop/platform 成员顺序，并按 from/to 校正方向");
+assert.ok(app.includes("Rail route masters may group stops by direction or construction phase")
+  && app.includes("transitGuideOrderAgreement(ordered, geometryOrder) >= 0.9")
+  && app.includes("? ordered : geometryOrder")
+  && app.includes("return orientTransitGuideOrder(continuousOrder, relation)"),
+"轨道交通总关系的合并站序与连续几何冲突时必须回退到实际线路顺序");
 assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("let transitBusRetryAt = 0")
   && app.includes("function getTransitBusCoverageBounds")
