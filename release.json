@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "5.5-huayu-rail-guide-order-v1",
+  "releaseVersion": "5.5-huayu-admin-boundary-hierarchy-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=5.5-huayu-rail-guide-order-v1",
+  "entryScript": "app.js?v=5.5-huayu-admin-boundary-hierarchy-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
   "expectedBuildingModel": "10",

@@ -156,6 +156,35 @@ assert.ok(app.includes("Rail route masters may group stops by direction or const
   && app.includes("? ordered : geometryOrder")
   && app.includes("return orientTransitGuideOrder(continuousOrder, relation)"),
 "轨道交通总关系的合并站序与连续几何冲突时必须回退到实际线路顺序");
+assert.ok(app.includes("return normalizedB - normalizedA;")
+  && app.includes("every higher-level boundary remains visible")
+  && app.includes('[8, "#2f7d4a"]')
+  && app.includes('[6, "#1769e0"]'),
+"行政区下级边界必须先画乡镇、后画区县，并使用明确区分的层级颜色");
+assert.ok(app.includes("function administrativeExportRenderOrder(features, parentKeys)")
+  && app.includes("return Number(parentA) - Number(parentB);")
+  && (app.match(/administrativeExportRenderOrder\(features, parentKeys\)\.forEach/g) || []).length === 2,
+"行政区栅格导出必须按层级绘制，并将所选上级边界置于最上层");
+const administrativeOrderSource = app.match(/function administrativeDivisionRenderOrder\(features\) \{[\s\S]*?\n  \}/)?.[0];
+const administrativeColorSource = app.match(/function administrativeLevelColor\(level\) \{[\s\S]*?\n  \}/)?.[0];
+const administrativeExportOrderSource = app.match(/function administrativeExportRenderOrder\(features, parentKeys\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(administrativeOrderSource && administrativeColorSource && administrativeExportOrderSource,
+  "无法读取行政边界层级函数");
+const administrativeOrder = Function(`"use strict"; return (${administrativeOrderSource});`)();
+const administrativeColor = Function(`"use strict"; return (${administrativeColorSource});`)();
+const administrativeExportOrder = Function("administrativeDivisionRenderOrder", "administrativeBoundaryFeatureKey",
+  `"use strict"; return (${administrativeExportOrderSource});`)(administrativeOrder, (feature) => feature.id);
+const hierarchyFixtures = [
+  { id: "county", properties: { admin_level: 6 } },
+  { id: "township", properties: { admin_level: 8 } },
+  { id: "city", properties: { admin_level: 5 } },
+];
+assert.deepEqual(administrativeOrder(hierarchyFixtures).map((feature) => feature.id), ["township", "county", "city"],
+  "地图行政边界层级顺序错误");
+assert.deepEqual(administrativeExportOrder(hierarchyFixtures, new Set(["city"])).map((feature) => feature.id),
+  ["township", "county", "city"], "栅格导出未将所选上级行政边界置顶");
+assert.equal(administrativeColor(6), "#1769e0", "区县级边界颜色错误");
+assert.equal(administrativeColor(8), "#2f7d4a", "乡镇级边界颜色错误");
 assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("let transitBusRetryAt = 0")
   && app.includes("function getTransitBusCoverageBounds")
