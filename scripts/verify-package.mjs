@@ -109,6 +109,36 @@ assert.ok(app.includes('ancientKind,')
 assert.ok(app.includes("source: HUAYU_LIVE_BASEMAP_SOURCE")
   && app.includes("function huayuLiveBasemapPolygonSignature"),
   "体育场详细面和嵌套子场地必须使用实时底图主数据源");
+assert.ok(app.includes("function huayuLiveBasemapSportsRelationGeometry(relation, waysById, runningTrackOuterWayIds)")
+  && app.includes('huayuSportKind(relation?.tags) !== "soccer"')
+  && app.includes("sharedTrackOuters.length === outerMembers.length")
+  && app.includes("runningTrackOuterWayIds.has(String(member.ref))"),
+"复合足球场与跑道共用最外层轮廓时必须排除外围草地，仅保留跑道内侧球场");
+const sportsRelationGeometrySource = app.match(/function huayuLiveBasemapSportsRelationGeometry\(relation, waysById, runningTrackOuterWayIds\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(sportsRelationGeometrySource, "无法读取复合体育场几何修正函数");
+const huayuLiveBasemapSportsRelationGeometry = Function(
+  "huayuCityWallRelationGeometry", "huayuSportKind",
+  `"use strict"; return (${sportsRelationGeometrySource});`,
+)(
+  (relation) => ({ outerRefs: (relation.members || [])
+    .filter((member) => member.type === "way" && member.role !== "inner")
+    .map((member) => member.ref) }),
+  (tags) => String(tags?.sport || "") === "soccer" ? "soccer" : "",
+);
+const compositePitchFixture = {
+  tags: { leisure: "pitch", sport: "soccer" },
+  members: [
+    { type: "way", ref: 100, role: "outer" },
+    { type: "way", ref: 101, role: "inner" },
+    { type: "way", ref: 102, role: "outer" },
+  ],
+};
+assert.deepEqual(huayuLiveBasemapSportsRelationGeometry(
+  compositePitchFixture, new Map(), new Set(["100"]),
+), { outerRefs: [102] }, "跑道共用外围仍被错误渲染成足球场绿色");
+assert.deepEqual(huayuLiveBasemapSportsRelationGeometry(
+  compositePitchFixture, new Map(), new Set(),
+), { outerRefs: [100, 102] }, "无跑道共用边界的正常复合足球场被误裁剪");
 assert.ok(app.includes('runningOverview: "ogf-atlas-huayu-sports-running-overview"')
   && app.includes('["==", ["get", "sportsArea"], "running"]')
   && app.includes('maxzoom: 15.25'),
