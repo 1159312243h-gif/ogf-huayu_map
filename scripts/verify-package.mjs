@@ -90,9 +90,16 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;'
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
 "墙和栅栏必须复用建筑分片与缓存，不得恢复近景独立大范围查询");
+assert.ok(app.includes("const layersReady = ensureHuayuLiveBuildingLayer(glMap) && ensureHuayuWallLayers(glMap);")
+  && app.indexOf("glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData")
+    < app.indexOf("glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data"),
+"墙体源必须和建筑源原子提交，并在建筑源进入加载态前写入墙体数据");
 assert.ok(app.includes("function positionHuayuWallsAboveBuildings(glMap)")
   && app.includes("positionHuayuWallsAboveBuildings(glMap);")
+  && app.includes("function syncHuayuWallPerspectiveLayers(glMap) {\n    // Source requests can keep isStyleLoaded() false")
+  && app.includes("if (!glMap?.getStyle?.()) return;")
   && app.includes('glMap.setLayoutProperty(layerId, "visibility", "visible")')
+  && app.includes("polygons.push([huayuNormalizedWallRing(ring, false)])")
   && app.includes("huayuWallSegmentPolygons(coordinates, width, fence ? 0.12 : 0.2)")
   && app.includes("if (complete || !state.wallDataReady)")
   && app.includes('"retained-complete"')

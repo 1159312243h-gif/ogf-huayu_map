@@ -17247,13 +17247,14 @@
       if (length < 0.05) continue;
       const offsetLongitude = (-dy / length * halfWidth) / metersPerLongitudeDegree;
       const offsetLatitude = (dx / length * halfWidth) / metersPerLatitudeDegree;
-      polygons.push([[
+      const ring = [
         [first[0] + offsetLongitude, first[1] + offsetLatitude],
         [second[0] + offsetLongitude, second[1] + offsetLatitude],
         [second[0] - offsetLongitude, second[1] - offsetLatitude],
         [first[0] - offsetLongitude, first[1] - offsetLatitude],
         [first[0] + offsetLongitude, first[1] + offsetLatitude],
-      ]]);
+      ];
+      polygons.push([huayuNormalizedWallRing(ring, false)]);
     }
     return polygons;
   }
@@ -17757,7 +17758,10 @@
   }
 
   function syncHuayuWallPerspectiveLayers(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return;
+    // Source requests can keep isStyleLoaded() false while the style and these
+    // layers are already usable. Waiting for full idle left 3D walls hidden
+    // whenever perspective was entered during building or basemap loading.
+    if (!glMap?.getStyle?.()) return;
     const perspective = glMap.getPitch() > 0.5;
     [HUAYU_WALL_LAYERS.extrusion, HUAYU_WALL_LAYERS.fenceExtrusion].forEach((layerId) => {
       if (glMap.getLayer(layerId)) {
@@ -19824,7 +19828,8 @@
   }
 
   function applyHuayuLiveBuildings(glMap, state) {
-    if (!ensureHuayuLiveBuildingLayer(glMap)) {
+    const layersReady = ensureHuayuLiveBuildingLayer(glMap) && ensureHuayuWallLayers(glMap);
+    if (!layersReady) {
       if (state?.active) {
         window.clearTimeout(state.applyTimer);
         state.applyTimer = window.setTimeout(() => {
@@ -19837,12 +19842,12 @@
     window.clearTimeout(state.applyTimer);
     state.applyTimer = null;
     if (state.appliedRevision !== state.renderRevision) {
+      // Commit walls before building setData makes the style busy. Sharing one
+      // revision previously let the building source advance while walls stayed empty.
+      glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData
+        || { type: "FeatureCollection", features: [] });
       glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data
         || { type: "FeatureCollection", features: [] });
-      if (ensureHuayuWallLayers(glMap)) {
-        glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData
-          || { type: "FeatureCollection", features: [] });
-      }
       state.appliedRevision = state.renderRevision;
     }
     scheduleHuayuLiveBuildingPrimarySync(glMap, state);
