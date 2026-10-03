@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "5.5-huayu-transit-refresh-v1",
+  "releaseVersion": "5.5-huayu-render-dedup-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=5.5-huayu-transit-refresh-v1",
+  "entryScript": "app.js?v=5.5-huayu-render-dedup-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
   "transitProbe": "/api/transit/rail/10/947/469.json",

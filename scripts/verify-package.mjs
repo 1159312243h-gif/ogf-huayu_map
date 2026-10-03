@@ -182,7 +182,9 @@ assert.ok(app.includes("function positionHuayuSportsBelowBuildings(glMap)")
   && app.includes('state.activeTier === "fallback"')
   && app.includes("state.sportsRenderSignature === state.renderSignature")
   && app.includes("function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap))")
-  && app.includes("const liveVisible = Boolean(state?.sportsDataReady)")
+  && app.includes("const liveVisible = Boolean(state?.active && state?.sportsDataReady")
+  && app.includes("&& state?.sportsFeatureCount > 0)")
+  && app.includes('const publishedVisibility = hidden ? "none"')
   && app.includes('state?.primaryActive ? "live" : "retained-live"')
   && app.includes("syncHuayuSportsSnapshotLayers(glMap, state)")
   && app.includes("syncHuayuSportsSnapshotLayers(glMap)"),
@@ -214,10 +216,30 @@ assert.ok(app.includes("state.applyTimer = window.setTimeout(() => {")
 const primaryVectorStart = app.indexOf("const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [");
 const primaryVectorEnd = app.indexOf("];", primaryVectorStart);
 assert.ok(primaryVectorStart >= 0 && primaryVectorEnd > primaryVectorStart
-  && app.slice(primaryVectorStart, primaryVectorEnd).includes('"landuse-sports"')
+  && !app.slice(primaryVectorStart, primaryVectorEnd).includes('"landuse-sports"')
+  && app.includes('state.publishedLayerVisibility.has("landuse-sports")')
   && app.includes("if (liveBasemapState?.primaryActive) {")
   && app.includes("syncHuayuLiveBasemapPrimaryLayers(glMap, liveBasemapState, true);"),
-"完整实时体育数据接管后必须同步隐藏发布层，加载期间仍由统一接管状态保留兜底");
+"实时体育快照必须独立接管并隐藏发布体育层，不能与通用底图交接重复控制");
+assert.ok(app.includes("const HUAYU_LIVE_BASEMAP_PRIMARY_LAYERS = [")
+  && app.includes('syncPublishedLayers(true);\n      syncLiveLayers("visible");')
+  && app.includes('syncLiveLayers("none");\n      syncPublishedLayers(false);')
+  && app.includes('["!=", ["get", "featureClass"], "sports"]')
+  && app.includes('["==", ["get", "bridge"], 0]')
+  && app.includes('visibility: "none"'),
+"实时与发布基础层必须原子互斥，体育不能重复进入通用用地层，桥梁仍由发布桥梁层负责");
+assert.ok(app.includes("function syncHuayuLiveBuildingPrimaryLayers(glMap, state, enabled)")
+  && app.includes('syncPublishedLayers("none");\n      syncLiveLayers("visible");')
+  && app.includes('syncLiveLayers("none");\n      syncPublishedLayers("visible");')
+  && app.includes("if (!state.dataReady || !state.coverageReady)")
+  && app.includes("|| !state.coverageReady")
+  && app.includes("huayuLiveBuildingOwnerOverlap")
+  && app.includes("huayuLiveBasemapOwnerOverlap")
+  && app.includes("huayuSportsOwnerOverlap"),
+"基础层、建筑和体育层必须保留运行时互斥诊断，建筑仅可在完整视口覆盖后接管");
+assert.ok(app.includes('["!=", "subclass", "university"], ["!=", "class", "university"]')
+  && !app.includes('if (layerId === "poi-level-1") {\n          exclusions.push'),
+"大学替代注记必须从全部旧 POI 等级排除，不能与实时主校区注记叠加");
 assert.ok(worker.includes("pitch|track|stadium|sports_centre"),
   "Worker 实时底图查询必须包含跑道和体育场");
 assert.ok(app.includes("function huayuPoiLabelTextField()")
