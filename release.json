@@ -1,10 +1,11 @@
 {
-  "releaseVersion": "5.5-huayu-wall-source-sync-v2",
+  "releaseVersion": "5.5-huayu-transit-refresh-v1",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=5.5-huayu-wall-source-sync-v2",
+  "entryScript": "app.js?v=5.5-huayu-transit-refresh-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",
+  "transitProbe": "/api/transit/rail/10/947/469.json",
   "expectedBuildingModel": "10",
   "expectedBuildingMinZoom": 10,
   "expectedBuildingTileZooms": [11, 12, 13, 14, 15],
@@ -13,5 +14,8 @@
   "expectedLiveBasemapTileZooms": [13, 14, 15],
   "expectedLiveBasemapSnapshotZooms": [13, 14],
   "expectedLiveBasemapSnapshotRefreshSeconds": 10800,
-  "expectedLiveBasemapDetailRefreshSeconds": 120
+  "expectedLiveBasemapDetailRefreshSeconds": 120,
+  "expectedTransitRailTileZoom": 10,
+  "expectedTransitBusTileZoom": 12,
+  "expectedTransitRefreshSeconds": 10800
 }

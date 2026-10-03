@@ -67,18 +67,18 @@
   const NOMINATIM_URL = "https://ogfnominatim-api.infinatio.us";
   const ROUTING_URL = "https://ogfrouting-api.infinatio.us";
   const OVERPASS_URL = "https://overpass.opengeofiction.net/api/interpreter";
-  // The national packets are immutable at the CDN edge. Advance this key
-  // whenever a packet is rebuilt so a browser that cached an older/empty
-  // response cannot keep serving it after a release.
-  const TRANSIT_DATA_CACHE_KEY = "4.0.1";
+  // Keep one release key across the generated packets. Their response headers
+  // now revalidate after five minutes so the three-hour updater can publish
+  // new data without editing application code on every successful run.
+  const TRANSIT_DATA_CACHE_KEY = "5.5-transit-3h-v1";
   const TRANSIT_PRELOAD_URL = new URLSearchParams(window.location.search).get("build-transit-preload-source")
     || `./transit-preload.json?v=${TRANSIT_DATA_CACHE_KEY}`;
   const TRANSIT_RELATIONS_URL = `./transit-relations.json?v=${TRANSIT_DATA_CACHE_KEY}`;
-  const AIRPORTS_URL = "./airports.json?v=2.1.0";
-  const STATION_ACCESS_URL = "./station-access.json?v=2.1.0";
-  const RAILWAY_ROUTING_URL = "./railway-routing.json?v=4.0.1";
+  const AIRPORTS_URL = `./airports.json?v=${TRANSIT_DATA_CACHE_KEY}`;
+  const STATION_ACCESS_URL = `./station-access.json?v=${TRANSIT_DATA_CACHE_KEY}`;
+  const RAILWAY_ROUTING_URL = `./railway-routing.json?v=${TRANSIT_DATA_CACHE_KEY}`;
   const TRANSIT_SERVICES_URL = "./transit-services.json?v=4.0.2-price-fare-v1";
-  const RAILWAY_CONNECTIONS_URL = "./railway-connections.json?v=2.1.0";
+  const RAILWAY_CONNECTIONS_URL = `./railway-connections.json?v=${TRANSIT_DATA_CACHE_KEY}`;
   const FAVORITES_KEY = "ogf-atlas-favorites";
   const SEARCH_HISTORY_KEY = "ogf-atlas-search-history";
   const SEARCH_HISTORY_LIMIT = 10;
@@ -137,6 +137,7 @@
   // the car router turn that short station access into a large driving loop.
   const STATION_ACCESS_WALKING_MAX_METERS = 2000;
   const BUS_STOP_MIN_ZOOM = 15;
+  const TRANSIT_TILE_ZOOMS = Object.freeze({ rail: 10, bus: 12 });
   const TRANSIT_RENDER_PADDING = 0.28;
   // Wheel gestures can emit several settled move events in quick succession.
   // Keep the existing network visible while those events settle, then repaint
@@ -854,6 +855,7 @@
   let transitBusRequestId = 0;
   let transitNetworkData = null;
   let transitNetworkBounds = null;
+  let transitLiveCoverageBounds = null;
   let transitNetworkLoading = false;
   let transitPreloadPromise = null;
   let transitPreloadLoaded = false;
@@ -9098,6 +9100,7 @@
     activeTransitPreloadSnapshotId = snapshot.id;
     transitNetworkData = snapshot.network;
     transitNetworkBounds = snapshot.leafletBounds;
+    if (snapshotChanged) transitLiveCoverageBounds = null;
     elements.transitNetworkStatus.dataset.snapshotId = snapshot.id;
     if (mapViewMode === "transit" && transitDisplayFilters.railway && !railwayRoutingData) {
       ensureNationalRailwayDisplayLoaded();
@@ -9110,6 +9113,45 @@
       setStatus(elements.transitNetworkStatus, `${snapshot.network.routeCount} 条轨道线路预载数据已就绪，切换交通视图即可显示`);
     }
     return true;
+  }
+
+  function transitSnapshotTiles(kind, bounds) {
+    const zoom = TRANSIT_TILE_ZOOMS[kind];
+    if (!Number.isInteger(zoom) || !bounds) return [];
+    return huayuLiveBuildingVisibleTiles({
+      south: bounds.getSouth(),
+      west: bounds.getWest(),
+      north: bounds.getNorth(),
+      east: bounds.getEast(),
+    }, zoom);
+  }
+
+  function mergeTransitSnapshotElements(packets) {
+    const elements = new Map();
+    packets.forEach(({ payload }) => (payload?.elements || []).forEach((element) => {
+      const key = `${element.type}:${element.id}`;
+      const previous = elements.get(key);
+      // Prefer the copy carrying geometry when adjacent cached tiles return the
+      // same relation member with different Overpass output detail.
+      if (!previous || (!previous.geometry?.length && element.geometry?.length)) elements.set(key, element);
+    }));
+    return [...elements.values()];
+  }
+
+  async function fetchTransitSnapshotTiles(kind, bounds, timeoutMs) {
+    const tiles = transitSnapshotTiles(kind, bounds);
+    const responses = await Promise.all(tiles.map(async (tile) => {
+      try {
+        const payload = await fetchJson(`/api/transit/${kind}/${tile.z}/${tile.x}/${tile.y}.json`, timeoutMs);
+        if (!Array.isArray(payload?.elements)) throw new Error("INCOMPLETE_TRANSIT_TILE");
+        return { tile, payload };
+      } catch {
+        return null;
+      }
+    }));
+    const packets = responses.filter(Boolean);
+    return { packets, complete: packets.length === tiles.length && tiles.length > 0,
+      elements: mergeTransitSnapshotElements(packets) };
   }
 
   async function loadTransitNetwork(options = {}) {
@@ -9131,9 +9173,8 @@
       if (transitDisplayFilters.bus && map.getZoom() >= BUS_STOP_MIN_ZOOM) loadTransitBusStops();
       return;
     }
-    const needsCurrentCoverage = options.ensureCoverage
-      && transitNetworkBounds
-      && !transitNetworkBounds.contains(map.getCenter());
+    const needsCurrentCoverage = Boolean(options.ensureCoverage
+      && (!transitLiveCoverageBounds || !transitLiveCoverageBounds.contains(map.getCenter())));
     const force = Boolean(options.force || needsCurrentCoverage);
     if (transitNetworkData && !force) {
       scheduleTransitNetworkRender({ force: true, immediate: true });
@@ -9159,7 +9200,9 @@
     setTransitRefreshState(true);
     setStatus(elements.transitNetworkStatus, "正在加载当前城市的轨道交通网络…");
     try {
-      const payload = await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 30000);
+      const cached = await fetchTransitSnapshotTiles("rail", bounds, 45000);
+      const payload = cached.complete ? { elements: cached.elements }
+        : await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 30000);
       if (requestId !== transitNetworkRequestId || selectedTransitId) return;
       enrichTransitRelationTypes(payload.elements || []);
       const infrastructureWays = baseNetwork ? [] : (payload.elements || []).filter((item) => item.type === "way"
@@ -9170,6 +9213,7 @@
       network.source = "live";
       transitNetworkData = baseNetwork ? mergeTransitNetworks(baseNetwork, network) : network;
       transitNetworkBounds = baseNetwork && baseBounds ? baseBounds : bounds;
+      transitLiveCoverageBounds = bounds;
       invalidateTransitRoutingCaches();
       scheduleTransitNetworkRender({ force: true, immediate: true });
       if (transitDisplayFilters.bus && map.getZoom() >= BUS_STOP_MIN_ZOOM) loadTransitBusStops();
@@ -9218,7 +9262,12 @@
     transitBusLoading = true;
     setStatus(elements.transitNetworkStatus, `${transitNetworkData.routeCount} 条轨道关系已就绪，正在追加公交站…`);
     try {
-      const responses = await Promise.all(requestBounds.map((bounds) => fetchJson(
+      const cached = await fetchTransitSnapshotTiles("bus", busBounds, 25000);
+      const responses = cached.complete ? cached.packets.map(({ tile, payload }) => {
+        const tileBounds = huayuLiveBuildingTileBounds(tile);
+        return { bounds: window.L.latLngBounds(
+          [tileBounds.south, tileBounds.west], [tileBounds.north, tileBounds.east]), payload };
+      }) : await Promise.all(requestBounds.map((bounds) => fetchJson(
         `${OVERPASS_URL}?data=${encodeURIComponent(queryForBounds(bounds))}`, 15000,
       ).then((payload) => ({ bounds, payload })).catch(() => null)));
       if (requestId !== transitBusRequestId || transitNetworkData !== targetNetwork) return;
@@ -9230,7 +9279,7 @@
       transitNetworkData.stops = mergeTransitStops([...transitNetworkData.stops, ...busNetwork.stops]);
       transitNetworkData.includeBus = true;
       invalidateTransitRoutingCaches();
-      if (successfulResponses.length === requestBounds.length) {
+      if (cached.complete || successfulResponses.length === requestBounds.length) {
         transitBusCoverageBounds.push(busBounds);
         transitBusRetryAt = 0;
       } else {

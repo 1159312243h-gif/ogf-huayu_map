@@ -43,6 +43,15 @@ async function verify() {
   assert.ok(Array.isArray(basemap.elements) && basemap.elements.some((element) => element.tags?.highway
     || element.tags?.landuse || element.tags?.natural || element.tags?.railway), "生产实时底图 API 没有返回底图要素");
 
+  const transitResponse = await fetch(`${baseUrl}${release.transitProbe}?verify=${encodeURIComponent(cacheKey)}`, {
+    signal: AbortSignal.timeout(60000),
+  });
+  const transit = await transitResponse.json();
+  assert.equal(transitResponse.status, 200, "生产交通分片 API 未返回 200");
+  assert.ok(Array.isArray(transit.elements) && transit.elements.length > 0, "生产交通分片 API 没有返回 OGF 要素");
+  assert.equal(transitResponse.headers.get("x-ogf-transit-policy"), "snapshot-3h",
+    "生产交通分片没有使用三小时缓存策略");
+
   return {
     status: "passed",
     url: baseUrl,
@@ -51,6 +60,8 @@ async function verify() {
     buildingCache: buildingResponse.headers.get("x-ogf-building-cache"),
     liveBasemapElements: basemap.elements.length,
     liveBasemapCache: basemapResponse.headers.get("x-ogf-basemap-cache"),
+    transitElements: transit.elements.length,
+    transitCache: transitResponse.headers.get("x-ogf-transit-cache"),
   };
 }
 

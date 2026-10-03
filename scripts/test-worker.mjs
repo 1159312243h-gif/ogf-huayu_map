@@ -118,6 +118,46 @@ try {
   assert.equal(invalidBuilding.status, 400);
   assert.deepEqual((await invalidBuilding.json()).requiredZooms, [11, 12, 13, 14, 15]);
 
+  const invalidTransit = await worker.fetch(
+    new Request("https://example.test/api/transit/rail/11/1893/939.json"), { ASSETS: assets }, context);
+  assert.equal(invalidTransit.status, 400);
+  assert.deepEqual((await invalidTransit.json()).requiredZooms, { rail: 10, bus: 12 });
+
+  const railTransitUrl = "https://example.test/api/transit/rail/10/946/469.json?probe=1";
+  const railTransit = await worker.fetch(new Request(railTransitUrl), { ASSETS: assets }, context);
+  assert.equal(railTransit.status, 200);
+  assert.equal(railTransit.headers.get("x-ogf-transit-cache"), "MISS");
+  assert.equal(railTransit.headers.get("x-ogf-transit-policy"), "snapshot-3h");
+  assert.match(upstreamQueries.at(-1), /bboxRailRoutes/u);
+  assert.match(upstreamQueries.at(-1), /routeStopNodes/u);
+  const transitQueriesAfterMiss = upstreamQueries.length;
+  const railTransitHit = await worker.fetch(new Request(railTransitUrl), { ASSETS: assets }, context);
+  assert.equal(railTransitHit.headers.get("x-ogf-transit-cache"), "HIT");
+  assert.equal(upstreamQueries.length, transitQueriesAfterMiss);
+
+  const railTransitCacheKey = [...cache.keys()].find((key) => key.includes("huayu-transit-tile-v1")
+    && key.includes("/transit/rail/"));
+  assert.ok(railTransitCacheKey, "rail transit tile should be retained in the edge cache");
+  const retainedRailTransit = cache.get(railTransitCacheKey);
+  const retainedRailHeaders = new Headers(retainedRailTransit.headers);
+  retainedRailHeaders.set("X-OGF-Transit-Fetched-At", new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString());
+  cache.set(railTransitCacheKey, new Response(await retainedRailTransit.clone().text(), {
+    status: retainedRailTransit.status,
+    headers: retainedRailHeaders,
+  }));
+  const staleRailTransit = await worker.fetch(new Request(railTransitUrl), { ASSETS: assets }, context);
+  assert.equal(staleRailTransit.headers.get("x-ogf-transit-cache"), "STALE");
+  assert.ok(waitUntilPromises.length > 0, "stale transit tile should refresh in the background");
+  await Promise.all(waitUntilPromises.splice(0));
+  assert.equal(upstreamQueries.length, transitQueriesAfterMiss + 1);
+
+  const busTransit = await worker.fetch(
+    new Request("https://example.test/api/transit/bus/12/3787/1879.json"), { ASSETS: assets }, context);
+  assert.equal(busTransit.status, 200);
+  assert.equal(busTransit.headers.get("x-ogf-transit-cache"), "MISS");
+  assert.match(upstreamQueries.at(-1), /busStops/u);
+  assert.match(upstreamQueries.at(-1), /busMasters/u);
+
   const asset = await worker.fetch(new Request("https://example.test/index.html"), { ASSETS: assets }, context);
   assert.equal(await asset.text(), "asset");
 
@@ -128,6 +168,8 @@ try {
     liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
     buildingZooms: [11, 12, 13, 14, 15],
     buildingCache: "3h",
+    transitTileZooms: { rail: 10, bus: 12 },
+    transitCache: "MISS/HIT/STALE/background-refresh/3h",
   }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;

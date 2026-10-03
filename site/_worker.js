@@ -9,7 +9,12 @@ const LIVE_BASEMAP_SNAPSHOT_RETENTION_SECONDS = 604800;
 const LIVE_BASEMAP_DETAIL_REFRESH_SECONDS = 120;
 const LIVE_BASEMAP_DETAIL_RETENTION_SECONDS = 1800;
 const LIVE_BASEMAP_QUERY_TIMEOUT_MS = 30000;
+const TRANSIT_TILE_ZOOMS = Object.freeze({ rail: 10, bus: 12 });
+const TRANSIT_REFRESH_SECONDS = 10800;
+const TRANSIT_RETENTION_SECONDS = 604800;
+const TRANSIT_QUERY_TIMEOUT_MS = Object.freeze({ rail: 40000, bus: 20000 });
 const liveBasemapRefreshes = new Map();
+const transitTileRefreshes = new Map();
 
 function buildingTileBounds(z, x, y) {
   const scale = 2 ** z;
@@ -62,6 +67,29 @@ function liveBasemapOverpassQuery(bounds, zoom) {
     + `node["amenity"="university"]["name"](${bbox});)->.basemapImportantLabels;`
     + `(.basemapWays;.basemapRelations;.basemapPlaces;.basemapImportantLabels;`
     + `way(r.basemapRelations););out body geom;`;
+}
+
+function transitTileOverpassQuery(kind, bounds) {
+  const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
+  if (kind === "rail") {
+    return `[out:json][timeout:35];rel["type"="route"]["route"~"^(subway|light_rail|tram|monorail|train)$"](${bbox})->.bboxRailRoutes;`
+      + `rel(br.bboxRailRoutes)["type"="route_master"]->.railMasters;`
+      + `rel(r.railMasters)["type"="route"]["route"~"^(subway|light_rail|tram|monorail|train)$"]->.masterRailRoutes;`
+      + `(.bboxRailRoutes;.masterRailRoutes;)->.railRoutes;way(r.railRoutes)->.railWays;`
+      + `way["railway"~"^(rail|narrow_gauge)$"][!"service"](${bbox})->.railInfrastructure;`
+      + `node(r.railRoutes)->.routeStopNodes;`
+      + `(node["railway"~"^(station|halt|tram_stop)$"](${bbox});node["station"="subway"](${bbox});`
+      + `node["subway"="yes"](${bbox});node["public_transport"="station"](${bbox});)->.railStations;`
+      + `(.railMasters;.railRoutes;);out body;(.railWays;.railInfrastructure;);out body geom;`
+      + `(.routeStopNodes;.railStations;);out body;`;
+  }
+  return `[out:json][timeout:15];(node["highway"="bus_stop"](${bbox});node["amenity"="bus_station"](${bbox});`
+    + `node["public_transport"="station"]["bus"="yes"](${bbox});`
+    + `node["public_transport"="platform"]["bus"="yes"](${bbox});`
+    + `node["public_transport"="stop_position"]["bus"="yes"](${bbox});)->.busStops;`
+    + `rel(bn.busStops)["type"="route"]["route"="bus"]->.busRoutes;`
+    + `rel(br.busRoutes)["type"="route_master"]->.busMasters;`
+    + `(.busStops;.busRoutes;.busMasters;);out body;`;
 }
 
 function buildingJsonResponse(body, status, headers = {}) {
@@ -314,6 +342,126 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
   }
 }
 
+function transitTileClientResponse(response, cacheStatus) {
+  const headers = new Headers(response.headers);
+  const fetchedAt = Date.parse(headers.get("X-OGF-Transit-Fetched-At") || "");
+  const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : 0;
+  headers.set("X-OGF-Transit-Cache", cacheStatus);
+  headers.set("X-OGF-Transit-Policy", "snapshot-3h");
+  headers.set("X-OGF-Transit-Age", String(ageSeconds));
+  headers.set("X-OGF-Transit-Refresh-After", String(cacheStatus === "STALE"
+    ? 30 : Math.max(0, TRANSIT_REFRESH_SECONDS - ageSeconds)));
+  headers.set("Cache-Control", `public, max-age=${cacheStatus === "STALE" ? 0 : 60}, must-revalidate`);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function loadTransitTileOnce(cacheKey, kind, z, x, y) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TRANSIT_QUERY_TIMEOUT_MS[kind]);
+  try {
+    const query = transitTileOverpassQuery(kind, buildingTileBounds(z, x, y));
+    const upstream = await fetch(OGF_OVERPASS_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: controller.signal,
+    });
+    if (!upstream.ok) {
+      const error = new Error("overpass_error");
+      error.responseStatus = 502;
+      error.upstreamStatus = upstream.status;
+      throw error;
+    }
+    const body = await upstream.text();
+    let payload = null;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      const error = new Error("invalid_overpass_json");
+      error.responseStatus = 502;
+      throw error;
+    }
+    if (!Array.isArray(payload?.elements)) {
+      const error = new Error("invalid_overpass_payload");
+      error.responseStatus = 502;
+      throw error;
+    }
+    const response = buildingJsonResponse(body, 200, {
+      "Cache-Control": `public, max-age=0, s-maxage=${TRANSIT_RETENTION_SECONDS}`,
+      "X-OGF-Transit-Fetched-At": new Date().toISOString(),
+      "X-OGF-Transit-Tile": `${kind}/${z}/${x}/${y}`,
+      "X-OGF-Transit-Policy": "snapshot-3h",
+    });
+    await caches.default.put(cacheKey, response.clone());
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function refreshTransitTile(cacheKey, kind, z, x, y) {
+  const refreshKey = cacheKey.url;
+  if (transitTileRefreshes.has(refreshKey)) return transitTileRefreshes.get(refreshKey);
+  const refresh = loadTransitTileOnce(cacheKey, kind, z, x, y)
+    .finally(() => transitTileRefreshes.delete(refreshKey));
+  transitTileRefreshes.set(refreshKey, refresh);
+  return refresh;
+}
+
+async function fetchTransitTile(request, context, kind, z, x, y) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Accept",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+  if (request.method !== "GET") {
+    return buildingJsonResponse(JSON.stringify({ error: "method_not_allowed" }), 405, { Allow: "GET, OPTIONS" });
+  }
+  const requiredZoom = TRANSIT_TILE_ZOOMS[kind];
+  const scale = 2 ** z;
+  if (!Number.isInteger(requiredZoom) || z !== requiredZoom || x < 0 || y < 0 || x >= scale || y >= scale) {
+    return buildingJsonResponse(JSON.stringify({
+      error: "invalid_transit_tile",
+      requiredZooms: TRANSIT_TILE_ZOOMS,
+    }), 400);
+  }
+  const cacheUrl = new URL(request.url);
+  cacheUrl.search = "";
+  cacheUrl.searchParams.set("schema", "huayu-transit-tile-v1");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+  const cached = await caches.default.match(cacheKey);
+  if (cached) {
+    const fetchedAt = Date.parse(cached.headers.get("X-OGF-Transit-Fetched-At") || "");
+    const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : Infinity;
+    if (ageSeconds < TRANSIT_REFRESH_SECONDS) return transitTileClientResponse(cached, "HIT");
+    const refresh = refreshTransitTile(cacheKey, kind, z, x, y);
+    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
+    return transitTileClientResponse(cached, "STALE");
+  }
+  try {
+    const response = await refreshTransitTile(cacheKey, kind, z, x, y);
+    return transitTileClientResponse(response.clone(), "MISS");
+  } catch (error) {
+    return buildingJsonResponse(JSON.stringify({
+      error: error?.name === "AbortError" ? "overpass_timeout" : String(error?.message || "overpass_unavailable"),
+      ...(Number.isFinite(error?.upstreamStatus) ? { status: error.upstreamStatus } : {}),
+    }), error?.responseStatus || 504, { "Cache-Control": "no-store" });
+  }
+}
+
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
@@ -324,6 +472,10 @@ export default {
     const liveBasemapMatch = url.pathname.match(/^\/api\/live-basemap\/(\d+)\/(\d+)\/(\d+)\.json$/u);
     if (liveBasemapMatch) {
       return fetchLiveBasemapTile(request, context, ...liveBasemapMatch.slice(1).map(Number));
+    }
+    const transitMatch = url.pathname.match(/^\/api\/transit\/(rail|bus)\/(\d+)\/(\d+)\/(\d+)\.json$/u);
+    if (transitMatch) {
+      return fetchTransitTile(request, context, transitMatch[1], ...transitMatch.slice(2).map(Number));
     }
     return environment.ASSETS.fetch(request);
   },

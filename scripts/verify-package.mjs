@@ -42,6 +42,8 @@ for (const required of ["_headers", "_worker.js", "app.js", "index.html", "huayu
 const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
+const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
+const dataRefreshWorkflow = await fs.readFile(path.join(root, ".github", "workflows", "data-refresh.yml"), "utf8");
 assert.ok(index.includes(release.entryScript), "index.html 未引用 release.json 指定的应用版本");
 assert.ok(app.includes(`\"huayu:model-version\": \"${release.expectedBuildingModel}\"`), "建筑模型版本不一致");
 assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildingMinZoom}`), "建筑起始缩放级别不一致");
@@ -60,6 +62,30 @@ assert.ok(worker.includes(`LIVE_BASEMAP_DETAIL_REFRESH_SECONDS = ${release.expec
   "Worker 近景实时刷新周期不一致");
 assert.ok(worker.includes("live-basemap") && worker.includes("fetchLiveBasemapTile"),
   "Worker 缺少实时底图接口");
+assert.ok(worker.includes(`TRANSIT_TILE_ZOOMS = Object.freeze({ rail: ${release.expectedTransitRailTileZoom}, bus: ${release.expectedTransitBusTileZoom} })`)
+  && worker.includes(`TRANSIT_REFRESH_SECONDS = ${release.expectedTransitRefreshSeconds}`)
+  && worker.includes("fetchTransitTile")
+  && worker.includes("huayu-transit-tile-v1")
+  && worker.includes('"X-OGF-Transit-Policy": "snapshot-3h"'),
+"Worker 缺少轨道与公交三小时分片缓存");
+assert.ok(app.includes('fetchTransitSnapshotTiles("rail", bounds, 45000)')
+  && app.includes('fetchTransitSnapshotTiles("bus", busBounds, 25000)')
+  && app.includes("mergeTransitSnapshotElements")
+  && app.includes("TRANSIT_DATA_CACHE_KEY = \"5.5-transit-3h-v1\""),
+"交通视图必须优先使用三小时分片，同时保留预加载与直连兜底");
+for (const name of ["transit-preload.json", "transit-relations.json", "railway-routing.json",
+  "railway-connections.json", "station-access.json", "airports.json"]) {
+  assert.match(headers, new RegExp(`/${name.replace(".", "\\.")}\\r?\\n  Cache-Control: public, max-age=300, must-revalidate`, "u"),
+    `${name} 仍被浏览器长期锁定，定时更新无法生效`);
+}
+assert.ok(dataRefreshWorkflow.includes('cron: "17 */3 * * *"')
+  && dataRefreshWorkflow.includes("contents: write")
+  && dataRefreshWorkflow.includes("npm run data:update")
+  && dataRefreshWorkflow.includes("npm run test:data-update")
+  && dataRefreshWorkflow.includes('git commit -m "Refresh generated OGF data"')
+  && dataRefreshWorkflow.includes("pages deploy site --project-name=ogf-atlas")
+  && dataRefreshWorkflow.includes("npm run verify:online"),
+"全国交通数据必须每三小时重建、校验，仅在变化时提交并部署");
 assert.equal((app.match(/state\.timer && state\.timerRunAt <= nextRunAt/g) || []).length, 2,
   "客户端实时底图和建筑必须保留更早的刷新任务");
 assert.ok(app.includes("const readyKeys = keys.filter((key) => state.tileCache.has(key))")
@@ -346,7 +372,8 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("const latitudeSpan = clamp(Math.max(viewport.getNorth() - viewport.getSouth(), 0.03) * 1.12, 0.03, 0.08)")
   && app.includes("const longitudeSpan = clamp(Math.max(viewport.getEast() - viewport.getWest(), 0.05) * 1.12, 0.05, 0.12)")
   && app.includes("function splitTransitBusCoverageBounds")
-  && app.includes("const responses = await Promise.all(requestBounds.map")
+  && app.includes("const responses = cached.complete ? cached.packets.map")
+  && app.includes(": await Promise.all(requestBounds.map")
   && app.includes("const successfulResponses = responses.filter(Boolean)")
   && app.includes("The map traffic view needs both stop markers and their route identities")
   && app.includes("[out:json][timeout:12];(node[\"highway\"=\"bus_stop\"]")

@@ -1,0 +1,99 @@
+name: Refresh transit data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ogf-atlas-transit-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+      commit: ${{ steps.commit.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Rebuild and validate all generated data
+        run: npm run data:update
+      - name: Run updater regression checks
+        run: npm run test:data-update
+      - name: Commit changed data only
+        id: commit
+        shell: bash
+        run: |
+          git add -- \
+            site/transit-preload.json \
+            site/transit-relations.json \
+            site/railway-routing.json \
+            site/railway-connections.json \
+            site/station-access.json \
+            site/airports.json \
+            release/SHA256.txt
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh generated OGF data"
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Upload update diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transit-data-refresh-${{ github.run_id }}
+          path: |
+            .data-update/latest-report.json
+            .data-update/runs/*/report.json
+            .data-update/runs/*/logs/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  deploy:
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Cloudflare credentials are not configured
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        run: echo "::warning::Data was committed, but Cloudflare deployment was skipped because production credentials are missing."
+      - uses: actions/checkout@v4
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        with:
+          ref: ${{ needs.refresh.outputs.commit }}
+      - uses: cloudflare/wrangler-action@v3
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        with:
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=ogf-atlas --branch=main --no-bundle --commit-dirty=true
+      - uses: actions/setup-node@v4
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        with:
+          node-version: 24
+      - name: Verify production
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          VERIFY_ATTEMPTS: "12"
+          VERIFY_DELAY_MS: "10000"
+        run: npm run verify:online
