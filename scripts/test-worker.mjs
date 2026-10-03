@@ -130,12 +130,16 @@ try {
   assert.equal(railTransit.headers.get("x-ogf-transit-policy"), "snapshot-3h");
   assert.match(upstreamQueries.at(-1), /bboxRailRoutes/u);
   assert.match(upstreamQueries.at(-1), /routeStopNodes/u);
+  assert.match(upstreamQueries.at(-1), /nwr\["railway"/u,
+    "rail transit tiles should include stations mapped as areas or relations");
+  assert.match(upstreamQueries.at(-1), /railStations out body center/u,
+    "rail transit tiles should return center coordinates for non-node stations");
   const transitQueriesAfterMiss = upstreamQueries.length;
   const railTransitHit = await worker.fetch(new Request(railTransitUrl), { ASSETS: assets }, context);
   assert.equal(railTransitHit.headers.get("x-ogf-transit-cache"), "HIT");
   assert.equal(upstreamQueries.length, transitQueriesAfterMiss);
 
-  const railTransitCacheKey = [...cache.keys()].find((key) => key.includes("huayu-transit-tile-v1")
+  const railTransitCacheKey = [...cache.keys()].find((key) => key.includes("huayu-transit-tile-v2-area-stations")
     && key.includes("/transit/rail/"));
   assert.ok(railTransitCacheKey, "rail transit tile should be retained in the edge cache");
   const retainedRailTransit = cache.get(railTransitCacheKey);

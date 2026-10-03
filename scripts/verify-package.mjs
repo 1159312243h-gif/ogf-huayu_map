@@ -65,14 +65,24 @@ assert.ok(worker.includes("live-basemap") && worker.includes("fetchLiveBasemapTi
 assert.ok(worker.includes(`TRANSIT_TILE_ZOOMS = Object.freeze({ rail: ${release.expectedTransitRailTileZoom}, bus: ${release.expectedTransitBusTileZoom} })`)
   && worker.includes(`TRANSIT_REFRESH_SECONDS = ${release.expectedTransitRefreshSeconds}`)
   && worker.includes("fetchTransitTile")
-  && worker.includes("huayu-transit-tile-v1")
+  && worker.includes("huayu-transit-tile-v2-area-stations")
   && worker.includes('"X-OGF-Transit-Policy": "snapshot-3h"'),
 "Worker 缺少轨道与公交三小时分片缓存");
-assert.ok(app.includes('fetchTransitSnapshotTiles("rail", bounds, 45000)')
+assert.ok(app.includes('fetchTransitSnapshotTiles("rail", bounds, 18000)')
   && app.includes('fetchTransitSnapshotTiles("bus", busBounds, 25000)')
   && app.includes("mergeTransitSnapshotElements")
   && app.includes("TRANSIT_DATA_CACHE_KEY = \"5.5-transit-3h-v1\""),
 "交通视图必须优先使用三小时分片，同时保留预加载与直连兜底");
+assert.equal(release.expectedTransitPreloadRevalidateSeconds, 300, "预加载包重验证周期必须为五分钟");
+assert.ok(app.includes("const TRANSIT_PRELOAD_REVALIDATE_MS = 5 * 60 * 1000")
+  && app.includes("const TRANSIT_LIVE_COVERAGE_REFRESH_MS = 3 * 60 * 60 * 1000")
+  && app.includes("function scheduleTransitPreloadRefresh")
+  && app.includes("function refreshTransitPreloadPackage")
+  && app.includes('revalidate ? { cache: "no-cache" } : {}')
+  && app.includes('document.addEventListener("visibilitychange"')
+  && app.includes("entry.refreshAt > now")
+  && app.includes("scheduleTransitCoverageRefresh(transitLiveCoverageRefreshDelay(map.getCenter()))"),
+"全国交通预加载包必须热重验证，轨道与公交实时覆盖必须在三小时到期后自动更新");
 for (const name of ["transit-preload.json", "transit-relations.json", "railway-routing.json",
   "railway-connections.json", "station-access.json", "airports.json"]) {
   assert.match(headers, new RegExp(`/${name.replace(".", "\\.")}\\r?\\n  Cache-Control: public, max-age=300, must-revalidate`, "u"),
@@ -238,9 +248,56 @@ assert.ok(app.includes("const TRANSIT_RENDER_DELAY_MS = 220")
   && app.includes("function findPreloadedTransitRelationsInBounds")
   && app.includes("实时公共交通查询暂时不可用，已使用本地预载索引"),
 "公共交通连续移动必须合并重绘，并避免向 MapLibre 重复提交未变化的交通数据");
-assert.ok(app.includes("const shouldShowLabel = Boolean(stop.name)")
+assert.ok(app.includes("let transitLiveCoverageAreas = []")
+  && app.includes("const preserveLiveNetwork = !snapshotChanged")
+  && app.includes('["live", "hybrid"].includes(transitNetworkData?.source)')
+  && app.includes("scheduleTransitCoverageRefresh();")
+  && app.includes("loadTransitNetwork({ ensureCoverage: true, background: true })")
+  && !app.includes("loadTransitNetwork({ ensureCoverage: true });")
+  && app.includes("if (baseNetwork) {\n      scheduleTransitNetworkRender({ force: true, immediate: true });")
+  && app.includes("scheduleTransitCoverageRetry()")
+  && app.includes('setStatus(elements.transitNetworkStatus, "已保留现有交通数据；当前位置正在后台重试更新。", false)')
+  && app.includes("const infrastructureWays = (payload.elements || []).filter")
+  && !app.includes("const infrastructureWays = baseNetwork ? []")
+  && app.includes("const nextTransitNetworkLayer = window.L.layerGroup()")
+  && app.includes("nextTransitNetworkLayer.eachLayer((layer) => transitNetworkLayer.addLayer(layer))"),
+"交通实时数据必须在移动后持续保留，分片失败时后台重试，并使用原子图层换帧");
+assert.ok(app.includes("function shouldShowTransitStopLabel(stop, displayIsRail, zoom)")
+  && app.includes("if (zoom >= 13) return true")
+  && app.includes("if (zoom < 12) return false")
+  && app.includes("stop.isInterchange || stop.isMainline || hasMainlineRoute || markerRoutes.length >= 2")
+  && (app.match(/shouldShowTransitStopLabel\(stop, displayIsRail, zoom\)/g) || []).length === 4
+  && !app.includes("displayIsRail ? zoom >= 13 : zoom >= 16")
   && app.includes("if (shouldShowLabel && !entry.labelMarker)"),
-"公共交通站点标签应按缩放级别延迟创建，避免远景一次性创建全部隐藏标签");
+"公共交通站点标签必须在 z12 显示干线站、换乘站和多线路站，z13 起显示全部轨道站");
+const transitStopLabelSource = app.match(/function shouldShowTransitStopLabel\(stop, displayIsRail, zoom\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(transitStopLabelSource, "无法读取公共交通站名分级函数");
+const makeTransitStopLabelRule = Function(
+  "selectedNetworkStationId", "getVisibleTransitRoutes", "transitLayerCategory",
+  `"use strict"; return (${transitStopLabelSource});`,
+);
+const visibleFixtureRoutes = (routes) => routes;
+const fixtureRouteCategory = (route) => route?.type === "train" ? "railway" : "metro";
+const transitStopLabelRule = makeTransitStopLabelRule(null, visibleFixtureRoutes, fixtureRouteCategory);
+assert.equal(transitStopLabelRule({ name: "换乘站", isInterchange: true, routes: [] }, true, 11), false,
+  "z11 不应提前显示轨道站名");
+assert.equal(transitStopLabelRule({ name: "换乘站", isInterchange: true, routes: [] }, true, 12), true,
+  "z12 未显示换乘站名");
+assert.equal(transitStopLabelRule({ name: "干线站", isMainline: true, routes: [] }, true, 12), true,
+  "z12 未显示干线站名");
+assert.equal(transitStopLabelRule({ name: "多线路站", routes: [{ id: 1 }, { id: 2 }] }, true, 12), true,
+  "z12 未显示多线路站名");
+assert.equal(transitStopLabelRule({ name: "普通轨道站", routes: [{ id: 1 }] }, true, 12), false,
+  "z12 不应显示全部普通轨道站名");
+assert.equal(transitStopLabelRule({ name: "普通轨道站", routes: [{ id: 1 }] }, true, 13), true,
+  "z13 未显示普通轨道站名");
+assert.equal(transitStopLabelRule({ name: "公交站", routes: [{ id: 1 }] }, false, 15), false,
+  "公交站名不应在 z16 前出现");
+assert.equal(transitStopLabelRule({ name: "公交站", routes: [{ id: 1 }] }, false, 16), true,
+  "公交站名未在 z16 出现");
+const selectedTransitStopLabelRule = makeTransitStopLabelRule("7", visibleFixtureRoutes, fixtureRouteCategory);
+assert.equal(selectedTransitStopLabelRule({ id: 7, name: "已选站", routes: [] }, true, 10), true,
+  "已选站点应在任意交通缩放级别保留站名");
 assert.ok(index.includes('id="map-feature-selection"')
   && app.includes('MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection"')
   && app.includes("if (!mapFeatureSelectionEnabled) return;")
@@ -313,6 +370,60 @@ assert.deepEqual(transitGuideRoundtripInfo(ringMasterFixture, [ringMasterFixture
 assert.deepEqual(transitGuideRoundtripInfo({
   type: "relation", tags: { type: "route", route: "subway", from: "长宁湖", to: "石木" },
 }, []), { roundtrip: false, anchor: "" }, "普通线路被错误识别为环线");
+assert.ok(app.includes("function transitStationPointElement(item)")
+  && app.includes('id: `${item.type}:${item.id}`')
+  && app.includes("...items.filter((item) => item.type !== \"node\").map(transitStationPointElement).filter(Boolean)")
+  && app.includes('nwr["railway"~"^(station|halt|tram_stop)$"]')
+  && worker.includes('nwr["railway"~"^(station|halt|tram_stop)$"]')
+  && worker.includes(".railStations out body center;")
+  && worker.includes('huayu-transit-tile-v2-area-stations'),
+"交通实时分片必须查询并归一化以 way/relation 绘制的车站，并绕开旧节点专用缓存");
+const mergeTransitSnapshotElementsSource = app.match(/function mergeTransitSnapshotElements\(packets\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(mergeTransitSnapshotElementsSource, "无法读取交通分片要素合并函数");
+const mergeTransitSnapshotElements = Function(
+  `"use strict"; return (${mergeTransitSnapshotElementsSource});`,
+)();
+const mergedStationArea = mergeTransitSnapshotElements([{ payload: { elements: [{
+  type: "way", id: 45055830, geometry: [{ lat: 24.091, lon: 142.006 }],
+  tags: { railway: "station", name: "大仓山" },
+}, {
+  type: "way", id: 45055830, center: { lat: 24.0916621, lon: 142.006377 },
+  tags: { railway: "station", name: "大仓山" },
+}] } }])[0];
+assert.equal(mergedStationArea.geometry.length, 1, "车站面中心输出不得覆盖线路几何");
+assert.deepEqual(mergedStationArea.center, { lat: 24.0916621, lon: 142.006377 },
+  "同一车站面的 Overpass 几何与中心记录必须合并");
+const transitStationPointElementSource = app.match(/function transitStationPointElement\(item\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(transitStationPointElementSource, "无法读取面状车站中心点归一化函数");
+const transitStationPointElement = Function("isRailStationCandidate",
+  `"use strict"; return (${transitStationPointElementSource});`,
+)((item) => ["station", "halt", "tram_stop"].includes(item?.tags?.railway)
+  || item?.tags?.station === "subway" || item?.tags?.subway === "yes"
+  || item?.tags?.public_transport === "station");
+assert.deepEqual(transitStationPointElement({
+  type: "way", id: 45055830, center: { lat: 24.0916621, lon: 142.006377 },
+  tags: { railway: "station", station: "subway", name: "大仓山" },
+}), {
+  type: "node", id: "way:45055830", center: { lat: 24.0916621, lon: 142.006377 },
+  sourceElementType: "way", sourceElementId: 45055830,
+  lat: 24.0916621, lon: 142.006377,
+  tags: { railway: "station", station: "subway", name: "大仓山" },
+}, "北沪面状车站未转换为可吸附的站点中心");
+assert.equal(transitStationPointElement({
+  type: "way", id: 1, center: { lat: 24.09, lon: 142.01 }, tags: { railway: "rail" },
+}), null, "普通轨道 way 不得被误转换为车站");
+assert.ok(app.includes("if (node.sourceElementType)")
+  && app.includes("areaTrackNearest?.distance <= 60"),
+"未入线路关系的面状车站必须按严格轨道距离补充，且不得放宽普通点状车站规则");
+const transitLayerCategorySource = app.match(/function transitLayerCategory\(routeOrType\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(transitLayerCategorySource, "无法读取交通线路图层分类函数");
+const transitLayerCategory = Function("METRO_ROUTE_TYPES",
+  `"use strict"; return (${transitLayerCategorySource});`,
+)(new Set(["subway", "light_rail", "monorail"]));
+assert.equal(transitLayerCategory({ type: "train", publicTransitRailSystem: "beihu-wangtie" }), "metro",
+  "已登记公共交通铁路系统的望铁线路必须随城市轨道默认显示");
+assert.equal(transitLayerCategory({ type: "train" }), "railway",
+  "普通国铁线路不得被并入默认城市轨道图层");
 assert.ok(app.includes("return normalizedB - normalizedA;")
   && app.includes("every higher-level boundary remains visible")
   && app.includes('[8, "#2f7d4a"]')
