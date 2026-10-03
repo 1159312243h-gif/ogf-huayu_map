@@ -639,17 +639,6 @@
     importantPeak: "ogf-atlas-huayu-important-peak",
     place: "ogf-atlas-huayu-live-place",
   };
-  const HUAYU_LIVE_BASEMAP_PRIMARY_LAYERS = [
-    HUAYU_LIVE_BASEMAP_LAYERS.land,
-    HUAYU_LIVE_BASEMAP_LAYERS.facility,
-    HUAYU_LIVE_BASEMAP_LAYERS.water,
-    HUAYU_LIVE_BASEMAP_LAYERS.waterway,
-    HUAYU_LIVE_BASEMAP_LAYERS.roadCasing,
-    HUAYU_LIVE_BASEMAP_LAYERS.road,
-    HUAYU_LIVE_BASEMAP_LAYERS.railway,
-    HUAYU_LIVE_BASEMAP_LAYERS.railwayHatching,
-    HUAYU_LIVE_BASEMAP_LAYERS.place,
-  ];
   const HUAYU_LIVE_BASEMAP_MIN_ZOOM = 12.5;
   const HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM = 13;
   const HUAYU_LIVE_BASEMAP_MAX_TILE_ZOOM = 15;
@@ -662,7 +651,7 @@
   const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [
     "landcover-sand",
     "landuse-residential", "landuse-commercial", "landuse-retail", "landuse-industrial",
-    "landuse-cemetery", "landuse-hospital", "landuse-school", "landuse-railway",
+    "landuse-cemetery", "landuse-hospital", "landuse-school", "landuse-railway", "landuse-sports",
     "landcover-grass-park", "landcover-grass", "landcover-wood", "landcover-farmland",
     "waterway-other", "waterway-other-intermittent", "waterway-stream-canal",
     "waterway-stream-canal-intermittent", "waterway_river", "waterway-river-intermittent",
@@ -674,9 +663,6 @@
     "highway-trunk", "highway-motorway",
     "railway-transit", "railway-transit-hatching", "railway-service", "railway-service-hatching",
     "railway", "railway-hatching",
-    "place-other", "place-village", "place-town", "huayu-place-suburb",
-    "huayu-place-city-admin-level-6", "place-city", "huayu-place-city-admin-level-5",
-    "place-city-capital",
   ];
   const HUAYU_LIVE_BUILDING_SOURCE = "ogf-atlas-huayu-live-buildings";
   const HUAYU_LIVE_BUILDING_LAYER = "ogf-atlas-huayu-live-buildings";
@@ -18601,10 +18587,10 @@
         if (!layer) return;
         const originalFilter = JSON.parse(JSON.stringify(layer.filter || true));
         originalFilters.set(layerId, originalFilter);
-        const exclusions = [
-          ["!=", "subclass", "park"], ["!=", "class", "park"],
-          ["!=", "subclass", "university"], ["!=", "class", "university"],
-        ];
+        const exclusions = [["!=", "subclass", "park"], ["!=", "class", "park"]];
+        if (layerId === "poi-level-1") {
+          exclusions.push(["!=", "subclass", "university"], ["!=", "class", "university"]);
+        }
         glMap.setFilter(layerId, ["all", originalFilter, ...exclusions]);
       });
       huayuLiveBasemapPoiFilters.set(glMap, originalFilters);
@@ -18660,12 +18646,11 @@
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
       filter: ["all", ["==", ["get", "renderKind"], "land"],
-        ["!=", ["get", "featureClass"], "sports"],
         ["!=", ["get", "featureClass"], "fire"],
         ["!=", ["get", "featureClass"], "recycling"],
         ["!=", ["get", "featureClass"], "fuel"]],
       metadata: { "huayu:component": "live-basemap-primary", "huayu:schema": "1" },
-      layout: { "fill-sort-key": landSortKey, visibility: "none" },
+      layout: { "fill-sort-key": landSortKey },
       paint: {
         "fill-color": landColor,
         "fill-opacity": 1,
@@ -18677,7 +18662,7 @@
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
       filter: ["all", ["==", ["get", "renderKind"], "waterway"], ["==", ["get", "tunnel"], 0]],
-      layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+      layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": palette.liveWaterway,
         "line-opacity": ["case", ["==", ["get", "intermittent"], 1], palette.night ? 0.66 : 0.62,
@@ -18691,7 +18676,6 @@
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
       filter: ["==", ["get", "renderKind"], "water"],
-      layout: { visibility: "none" },
       paint: { "fill-color": palette.liveWater, "fill-opacity": 1 },
     }, waterBeforeId);
     addLayer({
@@ -18699,13 +18683,11 @@
       type: "fill",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
-      maxzoom: 15,
       filter: ["all", ["==", ["get", "renderKind"], "land"],
         ["any", ["==", ["get", "featureClass"], "fire"],
           ["==", ["get", "featureClass"], "recycling"],
           ["==", ["get", "featureClass"], "fuel"]]],
       metadata: { "huayu:component": "live-facility-area", "huayu:schema": "1" },
-      layout: { visibility: "none" },
       paint: { "fill-color": facilityColor, "fill-opacity": 1 },
     }, roadBeforeId);
     const overviewSportsFilter = ["all",
@@ -18837,9 +18819,8 @@
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
-      filter: ["all", ["==", ["get", "renderKind"], "road"],
-        ["==", ["get", "tunnel"], 0], ["==", ["get", "bridge"], 0]],
-      layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+      filter: ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 0]],
+      layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": roadCasingColor, "line-opacity": 1, "line-width": roadCasingWidth },
     }, roadBeforeId);
     addLayer({
@@ -18847,9 +18828,8 @@
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
-      filter: ["all", ["==", ["get", "renderKind"], "road"],
-        ["==", ["get", "tunnel"], 0], ["==", ["get", "bridge"], 0]],
-      layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+      filter: ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 0]],
+      layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": roadColor,
         "line-opacity": 1,
@@ -18878,9 +18858,7 @@
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
-      filter: ["all", ["==", ["get", "renderKind"], "railway"],
-        ["==", ["get", "underground"], 0], ["==", ["get", "bridge"], 0]],
-      layout: { visibility: "none" },
+      filter: ["all", ["==", ["get", "renderKind"], "railway"], ["==", ["get", "underground"], 0]],
       paint: {
         "line-color": palette.liveRailway,
         "line-opacity": ["case", ["==", ["get", "service"], 1], palette.night ? 0.72 : 0.68,
@@ -18893,9 +18871,7 @@
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: 14.5,
-      filter: ["all", ["==", ["get", "renderKind"], "railway"],
-        ["==", ["get", "underground"], 0], ["==", ["get", "bridge"], 0]],
-      layout: { visibility: "none" },
+      filter: ["all", ["==", ["get", "renderKind"], "railway"], ["==", ["get", "underground"], 0]],
       paint: {
         "line-color": palette.liveRailwayHatching,
         "line-opacity": ["case", ["==", ["get", "service"], 1], palette.night ? 0.72 : 0.68,
@@ -19081,7 +19057,6 @@
         "text-padding": 5,
         "text-max-width": 8,
         "text-allow-overlap": false,
-        visibility: "none",
       },
       paint: {
         "text-color": palette.livePlace,
@@ -19096,10 +19071,6 @@
   function updateHuayuLiveBasemapDiagnostics(state) {
     const mapElement = document.getElementById("map");
     if (!mapElement) return;
-    const layerVisible = (layerId) => Boolean(state.glMap.getLayer(layerId))
-      && state.glMap.getLayoutProperty(layerId, "visibility") !== "none";
-    const liveVisible = HUAYU_LIVE_BASEMAP_PRIMARY_LAYERS.filter(layerVisible);
-    const publishedVisible = HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS.filter(layerVisible);
     const visibleKeys = [...(state.visibleTileKeys || [])];
     const loaded = visibleKeys.filter((key) => state.tileCache.has(key));
     const pending = visibleKeys.filter((key) => state.pendingTiles.has(key));
@@ -19116,11 +19087,6 @@
     mapElement.dataset.huayuLiveBasemapTier = state.activeTier || "fallback";
     mapElement.dataset.huayuLiveBasemapSessionCache = String(state.tileCache.size);
     mapElement.dataset.huayuLiveBasemapPrimaryReady = String(huayuLiveBasemapPrimaryReady(state));
-    mapElement.dataset.huayuLiveBasemapLiveOwners = String(liveVisible.length);
-    mapElement.dataset.huayuLiveBasemapPublishedOwners = String(publishedVisible.length);
-    mapElement.dataset.huayuLiveBasemapOwnerOverlap = String(
-      liveVisible.length > 0 && publishedVisible.length > 0,
-    );
     mapElement.dataset.huayuLiveBasemapUpdatedAt = state.loadedAt
       ? new Date(state.loadedAt).toISOString() : "";
   }
@@ -19170,36 +19136,17 @@
   function syncHuayuLiveBasemapPrimaryLayers(glMap, state, enabled) {
     if (!glMap || !state) return;
     const nextEnabled = Boolean(enabled);
-    const syncLiveLayers = (visibility) => {
-      HUAYU_LIVE_BASEMAP_PRIMARY_LAYERS.forEach((layerId) => {
-        if (glMap.getLayer(layerId)
-          && glMap.getLayoutProperty(layerId, "visibility") !== visibility) {
-          glMap.setLayoutProperty(layerId, "visibility", visibility);
-        }
-      });
-    };
-    const syncPublishedLayers = (hidden) => {
-      HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS.forEach((layerId) => {
-        if (!glMap.getLayer(layerId)) return;
-        if (!state.publishedLayerVisibility.has(layerId)) {
-          state.publishedLayerVisibility.set(layerId,
-            glMap.getLayoutProperty(layerId, "visibility") || "visible");
-        }
-        const visibility = hidden ? "none" : state.publishedLayerVisibility.get(layerId);
-        if (glMap.getLayoutProperty(layerId, "visibility") !== visibility) {
-          glMap.setLayoutProperty(layerId, "visibility", visibility);
-        }
-      });
-    };
-    // A render frame must never contain both owners. Activate by removing the
-    // published owner first; fall back by removing the live owner first.
-    if (nextEnabled) {
-      syncPublishedLayers(true);
-      syncLiveLayers("visible");
-    } else {
-      syncLiveLayers("none");
-      syncPublishedLayers(false);
-    }
+    HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS.forEach((layerId) => {
+      if (!glMap.getLayer(layerId)) return;
+      if (!state.publishedLayerVisibility.has(layerId)) {
+        state.publishedLayerVisibility.set(layerId,
+          glMap.getLayoutProperty(layerId, "visibility") || "visible");
+      }
+      const visibility = nextEnabled ? "none" : state.publishedLayerVisibility.get(layerId);
+      if (glMap.getLayoutProperty(layerId, "visibility") !== visibility) {
+        glMap.setLayoutProperty(layerId, "visibility", visibility);
+      }
+    });
     state.primaryActive = nextEnabled;
     syncHuayuSportsSnapshotLayers(glMap, state);
   }
@@ -19650,9 +19597,6 @@
       delete mapElement.dataset.huayuLiveBasemapDetailTiles;
       delete mapElement.dataset.huayuLiveBasemapSessionCache;
       delete mapElement.dataset.huayuLiveBasemapPrimaryReady;
-      delete mapElement.dataset.huayuLiveBasemapLiveOwners;
-      delete mapElement.dataset.huayuLiveBasemapPublishedOwners;
-      delete mapElement.dataset.huayuLiveBasemapOwnerOverlap;
       delete mapElement.dataset.huayuLiveBasemapUpdatedAt;
     }
   }
@@ -19790,26 +19734,20 @@
   function syncHuayuLiveBuildingPrimaryLayers(glMap, state, enabled) {
     if (!glMap || !state) return;
     const nextEnabled = Boolean(enabled);
-    const syncPublishedLayers = (visibility) => {
-      HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
-        if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
-      });
-    };
-    const syncLiveLayers = (visibility) => {
-      [HUAYU_LIVE_BUILDING_LAYER, ...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS)]
-        .forEach((layerId) => {
-          if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
-        });
-    };
-    // Keep exactly one building owner visible. A partial live viewport remains
-    // behind the published fallback until every requested tile is available.
-    if (nextEnabled) {
-      syncPublishedLayers("none");
-      syncLiveLayers("visible");
-    } else {
-      syncLiveLayers("none");
-      syncPublishedLayers("visible");
+    const fallbackRequired = !nextEnabled || !state.coverageReady;
+    HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
+      if (glMap.getLayer(layerId)) {
+        glMap.setLayoutProperty(layerId, "visibility", fallbackRequired ? "visible" : "none");
+      }
+    });
+    if (glMap.getLayer(HUAYU_LIVE_BUILDING_LAYER)) {
+      glMap.setLayoutProperty(HUAYU_LIVE_BUILDING_LAYER, "visibility", nextEnabled ? "visible" : "none");
     }
+    Object.values(HUAYU_ANCIENT_BUILDING_LAYERS).forEach((layerId) => {
+      if (glMap.getLayer(layerId)) {
+        glMap.setLayoutProperty(layerId, "visibility", nextEnabled ? "visible" : "none");
+      }
+    });
     state.primaryActive = nextEnabled;
   }
 
@@ -19826,13 +19764,12 @@
   function scheduleHuayuLiveBuildingPrimarySync(glMap, state) {
     clearHuayuLiveBuildingPrimarySync(state);
     const revision = ++state.primaryRevision;
-    if (!state.dataReady || !state.coverageReady) {
+    if (!state.dataReady) {
       syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
       return;
     }
     const activate = () => {
       if (!state.active || revision !== state.primaryRevision || !state.dataReady
-        || !state.coverageReady
         || glMap.isSourceLoaded?.(HUAYU_LIVE_BUILDING_SOURCE) === false) return;
       clearHuayuLiveBuildingPrimarySync(state);
       syncHuayuLiveBuildingPrimaryLayers(glMap, state, true);
@@ -19921,7 +19858,7 @@
         source: HUAYU_LIVE_BUILDING_SOURCE,
         minzoom: 14,
         filter: ["has", "ancientKind"],
-        layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+        layout: { "line-cap": "round", "line-join": "round" },
         metadata: {
           "huayu:component": "ancient-building-outline",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
@@ -19969,11 +19906,6 @@
   function updateHuayuLiveBuildingDiagnostics(state) {
     const mapElement = document.getElementById("map");
     if (mapElement) {
-      const layerVisible = (layerId) => Boolean(state.glMap.getLayer(layerId))
-        && state.glMap.getLayoutProperty(layerId, "visibility") !== "none";
-      const liveVisible = [HUAYU_LIVE_BUILDING_LAYER, ...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS)]
-        .filter(layerVisible);
-      const publishedVisible = HUAYU_VECTOR_BUILDING_LAYER_IDS.filter(layerVisible);
       mapElement.dataset.huayuLiveBuildings = String(state.data?.features?.length || 0);
       mapElement.dataset.huayuLiveWalls = String(state.wallData?.features?.length || 0);
       mapElement.dataset.huayuWallSource = "ogf-overpass-building-tiles";
@@ -20002,11 +19934,6 @@
       mapElement.dataset.huayuLiveBuildingLastMerge = `${state.lastMergeReadyCount || 0}/${state.lastMergeKeyCount || 0}`;
       mapElement.dataset.huayuLiveBuildingStatus = state.status || "loading";
       mapElement.dataset.huayuLiveBuildingMode = state.primaryActive ? "primary" : "fallback";
-      mapElement.dataset.huayuLiveBuildingLiveOwners = String(liveVisible.length);
-      mapElement.dataset.huayuLiveBuildingPublishedOwners = String(publishedVisible.length);
-      mapElement.dataset.huayuLiveBuildingOwnerOverlap = String(
-        liveVisible.length > 0 && publishedVisible.length > 0,
-      );
       mapElement.dataset.huayuLiveBuildingUpdatedAt = state.loadedAt
         ? new Date(state.loadedAt).toISOString() : "";
     }
@@ -20469,9 +20396,6 @@
       delete mapElement.dataset.huayuLiveBuildingLastMerge;
       delete mapElement.dataset.huayuLiveBuildingStatus;
       delete mapElement.dataset.huayuLiveBuildingMode;
-      delete mapElement.dataset.huayuLiveBuildingLiveOwners;
-      delete mapElement.dataset.huayuLiveBuildingPublishedOwners;
-      delete mapElement.dataset.huayuLiveBuildingOwnerOverlap;
       delete mapElement.dataset.huayuLiveBuildingUpdatedAt;
     }
   }
@@ -21031,9 +20955,8 @@
 
   function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap)) {
     if (!glMap?.isStyleLoaded?.()) return;
-    const liveVisible = Boolean(state?.active && state?.sportsDataReady
-      && state?.sportsFeatureCount > 0);
-    const liveLayerIds = [
+    const liveVisible = Boolean(state?.sportsDataReady);
+    [
       HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewFill,
       HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewOutline,
       HUAYU_SPORTS_LAYERS.runningOverview,
@@ -21041,43 +20964,24 @@
       HUAYU_SPORTS_LAYERS.fill,
       HUAYU_SPORTS_LAYERS.markings,
       HUAYU_SPORTS_LAYERS.outline,
-    ];
-    const syncPublishedLayer = (hidden) => {
-      if (!glMap.getLayer("landuse-sports")) return;
-      if (state && !state.publishedLayerVisibility.has("landuse-sports")) {
-        state.publishedLayerVisibility.set("landuse-sports",
-          glMap.getLayoutProperty("landuse-sports", "visibility") || "visible");
-      }
-      const publishedVisibility = hidden ? "none"
-        : state?.publishedLayerVisibility.get("landuse-sports") || "visible";
-      glMap.setLayoutProperty("landuse-sports", "visibility", publishedVisibility);
-    };
-    const syncLiveLayers = (visibility) => liveLayerIds.forEach((layerId) => {
+    ].forEach((layerId) => {
       if (glMap.getLayer(layerId)) {
-        glMap.setLayoutProperty(layerId, "visibility", visibility);
+        glMap.setLayoutProperty(layerId, "visibility", liveVisible ? "visible" : "none");
       }
     });
-    if (liveVisible) {
-      syncPublishedLayer(true);
-      syncLiveLayers("visible");
-    } else {
-      syncLiveLayers("none");
-      syncPublishedLayer(false);
-    }
     const mapElement = document.getElementById("map");
     if (mapElement) {
-      const liveOwnerVisible = liveLayerIds.some((layerId) => glMap.getLayer(layerId)
-        && glMap.getLayoutProperty(layerId, "visibility") !== "none");
-      const publishedOwnerVisible = Boolean(glMap.getLayer("landuse-sports"))
-        && glMap.getLayoutProperty("landuse-sports", "visibility") !== "none";
       mapElement.dataset.huayuSportsSource = liveVisible
         ? (state?.primaryActive ? "live" : "retained-live") : "published-fallback";
       mapElement.dataset.huayuSportsFeatures = String(state?.sportsFeatureCount || 0);
-      mapElement.dataset.huayuSportsLayers = String(liveLayerIds
-        .filter((layerId) => glMap.getLayer(layerId)).length);
-      mapElement.dataset.huayuSportsOwnerOverlap = String(
-        liveOwnerVisible && publishedOwnerVisible,
-      );
+      mapElement.dataset.huayuSportsLayers = String([
+        HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewFill,
+        HUAYU_SPORTS_LAYERS.runningOverview,
+        HUAYU_SPORTS_LAYERS.infieldOverview,
+        HUAYU_SPORTS_LAYERS.fill,
+        HUAYU_SPORTS_LAYERS.markings,
+        HUAYU_SPORTS_LAYERS.outline,
+      ].filter((layerId) => glMap.getLayer(layerId)).length);
     }
     positionHuayuSportsBelowBuildings(glMap);
   }
