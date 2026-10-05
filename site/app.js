@@ -598,6 +598,9 @@
   const VECTOR_PERSPECTIVE_PRESET_BEARING = 342;
   const VECTOR_TRANSIT_LINE_SOURCE = "ogf-atlas-perspective-transit-lines";
   const VECTOR_TRANSIT_STOP_SOURCE = "ogf-atlas-perspective-transit-stops";
+  const PUBLISHED_TRANSIT_STATION_LAYER_IDS = ["poi-railway"];
+  const PUBLISHED_GENERAL_POI_LAYER_IDS = ["poi-level-1", "poi-level-2", "poi-level-3"];
+  const publishedTransitStationLayerStates = new WeakMap();
   const HUAYU_ADMIN_LABEL_SOURCE = "ogf-atlas-huayu-admin-labels";
   const HUAYU_ADMIN_ROAD_LABEL_LAYER = "ogf-atlas-huayu-road-labels";
   const HUAYU_ADMIN_PROVINCE_LABEL_LAYER = "ogf-atlas-huayu-province-labels";
@@ -671,6 +674,10 @@
   ];
   const HUAYU_LIVE_BUILDING_SOURCE = "ogf-atlas-huayu-live-buildings";
   const HUAYU_LIVE_BUILDING_LAYER = "ogf-atlas-huayu-live-buildings";
+  const HUAYU_PAVILION_SOURCE = "ogf-atlas-huayu-pavilions";
+  const HUAYU_PAVILION_LAYER = "ogf-atlas-huayu-pavilions";
+  const HUAYU_PAVILION_COLUMN_LAYER = "ogf-atlas-huayu-pavilion-columns";
+  const HUAYU_PAVILION_BASE_LAYER = "ogf-atlas-huayu-pavilion-bases";
   const HUAYU_ANCIENT_BUILDING_LAYERS = {
     roof: "ogf-atlas-huayu-ancient-building-roof",
     outline: "ogf-atlas-huayu-ancient-building-outline",
@@ -684,6 +691,9 @@
   const HUAYU_LIVE_BUILDING_TILE_CONCURRENCY = 3;
   const HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT = 72;
   const HUAYU_LIVE_BUILDING_CACHE_MS = 3 * 60 * 60 * 1000;
+  const HUAYU_STRUCTURE_TILE_CONCURRENCY = 3;
+  const HUAYU_STRUCTURE_TILE_CACHE_LIMIT = 72;
+  const HUAYU_STRUCTURE_CACHE_MS = 3 * 60 * 60 * 1000;
   const HUAYU_SUPPLEMENTAL_POI_SOURCE = "ogf-atlas-huayu-supplemental-pois";
   const HUAYU_SUPPLEMENTAL_POI_LAYER = "ogf-atlas-huayu-supplemental-pois";
   const HUAYU_SUPPLEMENTAL_TOILET_LAYER = "ogf-atlas-huayu-supplemental-toilets";
@@ -839,6 +849,9 @@
   const huayuLiveBuildingStates = new WeakMap();
   const huayuLiveBuildingSharedTileCache = new Map();
   let huayuLiveBuildingTileRevision = 0;
+  const huayuStructureStates = new WeakMap();
+  const huayuStructureSharedTileCache = new Map();
+  let huayuStructureTileRevision = 0;
   const huayuSupplementalPoiStates = new WeakMap();
   try {
     const storedBasemapId = window.localStorage.getItem(BASEMAP_STORAGE_KEY);
@@ -1034,12 +1047,14 @@
         glMap.once("load", () => {
           ready = true;
           if (timeout) window.clearTimeout(timeout);
+          syncPublishedTransitStationLayers(glMap);
           if (isHuayuBasemapId(id)) {
             ensureHuayuPoiImages(glMap);
             activateHuayuLiveBasemap(glMap);
             activateHuayuAdministrativeLabels(glMap);
             activateHuayuCityWalls(glMap);
             activateHuayuWalls(glMap);
+            activateHuayuStructures(glMap);
             activateHuayuLiveBuildings(glMap);
             activateHuayuElevatedGreen(glMap);
             activateHuayuSupplementalPois(glMap);
@@ -1051,7 +1066,7 @@
         if (isHuayuBasemapId(id)) {
           if (onStyleImageMissing) vectorMap?.off("styleimagemissing", onStyleImageMissing);
           [deactivateHuayuLiveBasemap, deactivateHuayuAdministrativeLabels,
-            deactivateHuayuCityWalls, deactivateHuayuWalls, deactivateHuayuElevatedGreen,
+            deactivateHuayuCityWalls, deactivateHuayuWalls, deactivateHuayuStructures, deactivateHuayuElevatedGreen,
             deactivateHuayuLiveBuildings, deactivateHuayuSupplementalPois].forEach((deactivate) => {
             try { deactivate(vectorMap); } catch {}
           });
@@ -3567,8 +3582,29 @@
 
   function mergeTransitStopsForDisplay(stops) {
     const overrides = transitServiceRules.stationDisplayMergeOverrides || [];
-    if (!overrides.length) return stops;
+    const unnamedMergeRules = (transitServiceRules.stationInterchangeOverrides || [])
+      .filter((rule) => rule.mergeNearbyUnnamedWithinMeters > 0);
+    if (!overrides.length && !unnamedMergeRules.length) return stops;
     const merged = [];
+    const mergeStopInto = (existing, stop) => {
+      existing.isRail ||= stop.isRail;
+      existing.isBus ||= stop.isBus;
+      existing.isMainline ||= stop.isMainline;
+      existing.isInterchange ||= stop.isInterchange;
+      existing.interchangeStationCount = Math.max(
+        Number(existing.interchangeStationCount) || 1,
+        Number(stop.interchangeStationCount) || 1,
+      );
+      existing.interchangeRouteRefs = [...new Set([
+        ...(existing.interchangeRouteRefs || []),
+        ...(stop.interchangeRouteRefs || []),
+      ])];
+      existing.routes = uniqueTransitRoutes([...(existing.routes || []), ...(stop.routes || [])]);
+      existing.displayRoutes = uniqueTransitRoutes([
+        ...(existing.displayRoutes || []),
+        ...(stop.displayRoutes || []),
+      ]);
+    };
     stops.forEach((stop) => {
       const key = transitStationComplexKey(stop.name);
       const override = overrides.find((item) => item.stationNames.includes(key));
@@ -3587,15 +3623,42 @@
         existing.sourceLat = stop.sourceLat;
         existing.sourceLon = stop.sourceLon;
       }
-      existing.isRail ||= stop.isRail;
-      existing.isBus ||= stop.isBus;
-      existing.isMainline ||= stop.isMainline;
       existing.isInterchange = true;
-      existing.routes = uniqueTransitRoutes([...(existing.routes || []), ...(stop.routes || [])]);
-      existing.displayRoutes = uniqueTransitRoutes([
-        ...(existing.displayRoutes || []),
-        ...(stop.displayRoutes || []),
-      ]);
+      mergeStopInto(existing, stop);
+    });
+
+    // Some OGF interchange station areas are members of their route but omit
+    // a name. Keep their route data, but fold an exactly co-located orphan
+    // marker into the confirmed named complex so it cannot cover the correct
+    // marker and open an incomplete "unnamed station" detail panel.
+    unnamedMergeRules.forEach((rule) => {
+      const anchors = merged.filter((stop) => rule.stationNames.includes(transitStationComplexKey(stop.name)));
+      if (!anchors.length) return;
+      [...merged].forEach((stop) => {
+        if (transitStationComplexKey(stop.name)) return;
+        const sourcePoint = {
+          lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
+          lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
+        };
+        const anchor = anchors
+          .map((candidate) => ({
+            candidate,
+            distance: distanceMeters({
+              lat: Number.isFinite(candidate.sourceLat) ? candidate.sourceLat : candidate.lat,
+              lon: Number.isFinite(candidate.sourceLon) ? candidate.sourceLon : candidate.lon,
+            }, sourcePoint),
+          }))
+          .filter((entry) => entry.distance <= rule.mergeNearbyUnnamedWithinMeters)
+          .sort((a, b) => a.distance - b.distance)[0]?.candidate;
+        if (!anchor) return;
+        const anchorRouteKeys = new Set([...(anchor.routes || []), ...(anchor.displayRoutes || [])]
+          .flatMap((route) => [route.identity, route.ref]).filter(Boolean));
+        const sharesConfirmedRoute = [...(stop.routes || []), ...(stop.displayRoutes || [])]
+          .some((route) => anchorRouteKeys.has(route.identity) || anchorRouteKeys.has(route.ref));
+        if (!sharesConfirmedRoute) return;
+        mergeStopInto(anchor, stop);
+        merged.splice(merged.indexOf(stop), 1);
+      });
     });
     return merged.map(({ displayMergeKey, ...stop }) => stop);
   }
@@ -8750,6 +8813,11 @@
             .filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim()))],
           mainline: typeof rule.mainline === "boolean" ? rule.mainline : null,
           displayOnly: rule.displayOnly === true,
+          symbolMode: rule.symbolMode === "single-ring" ? "single-ring" : "auto",
+          stationCount: Number.isInteger(rule.stationCount)
+            ? Math.min(4, Math.max(1, rule.stationCount)) : 1,
+          mergeNearbyUnnamedWithinMeters: Number.isFinite(rule.mergeNearbyUnnamedWithinMeters)
+            ? Math.min(180, Math.max(0, rule.mergeNearbyUnnamedWithinMeters)) : 0,
           displayRoutes: (Array.isArray(rule.displayRoutes) ? rule.displayRoutes : [])
             .filter((route) => route && typeof route.label === "string" && route.label.trim()
               && typeof route.color === "string" && /^#[0-9a-f]{6}$/iu.test(route.color.trim()))
@@ -9104,6 +9172,7 @@
         sourceId: stop[10] ?? undefined,
         displayRoutes: routesFor(stop[11]),
         nationalRailwayEligible: stop[12] !== 0,
+        isInterchange: stop[13] === 1,
       })),
       routeCount: meta.routeCount || 0,
       includeBus: Boolean(meta.includeBus),
@@ -9869,6 +9938,15 @@
       ]);
       stop.isRail = true;
       stop.isInterchange = true;
+      stop.interchangeSymbolMode = override.symbolMode;
+      stop.interchangeStationCount = Math.max(
+        Number(stop.interchangeStationCount) || 1,
+        override.stationCount || 1,
+      );
+      stop.interchangeRouteRefs = [...new Set([
+        ...(stop.interchangeRouteRefs || []),
+        ...(override.routeRefs || []),
+      ])];
     });
     return network;
   }
@@ -10176,7 +10254,14 @@
         iconAnchor: [7, 7],
       });
     }
-    const colors = visibleRoutes.filter((route) => route.type !== "bus").map((route) => route.color);
+    const configuredRouteOrder = new Map((stop.interchangeRouteRefs || [])
+      .map((ref, index) => [String(ref).trim().toLocaleLowerCase("zh-CN"), index]));
+    const orderedRoutes = visibleRoutes.filter((route) => route.type !== "bus").sort((a, b) => {
+      const first = configuredRouteOrder.get(String(a.ref || "").trim().toLocaleLowerCase("zh-CN"));
+      const second = configuredRouteOrder.get(String(b.ref || "").trim().toLocaleLowerCase("zh-CN"));
+      return (first ?? Number.MAX_SAFE_INTEGER) - (second ?? Number.MAX_SAFE_INTEGER);
+    });
+    const colors = orderedRoutes.map((route) => route.color);
     const uniqueColors = [...new Set(colors)].slice(0, 4);
     const fill = uniqueColors.length > 1
       ? `conic-gradient(${uniqueColors.map((color, index) => `${color} ${index / uniqueColors.length * 100}% ${(index + 1) / uniqueColors.length * 100}%`).join(",")})`
@@ -10185,7 +10270,24 @@
     const coreColor = "#ffffff";
     const isRailwayStation = stop.isMainline
       || visibleRoutes.some((route) => transitLayerCategory(route) === "railway");
-    const classes = ["rail-stop-symbol", isRailwayStation ? "is-mainline" : "", stop.id === selectedNetworkStationId ? "is-selected" : ""].filter(Boolean).join(" ");
+    const stationCount = Math.min(4, Math.max(1, Number(stop.interchangeStationCount) || 1));
+    const isStationComplex = stop.interchangeSymbolMode !== "single-ring"
+      && stationCount > 1 && uniqueColors.length > 1;
+    const classes = ["rail-stop-symbol", isRailwayStation ? "is-mainline" : "",
+      isStationComplex ? "is-station-complex" : "", stop.id === selectedNetworkStationId ? "is-selected" : ""]
+      .filter(Boolean).join(" ");
+    if (isStationComplex) {
+      const stationColors = Array.from({ length: stationCount }, (_, index) =>
+        uniqueColors[index % uniqueColors.length]);
+      const width = 10 + (stationCount - 1) * 7;
+      return window.L.divIcon({
+        className: "transit-stop-div-icon",
+        html: `<span class="${classes}" aria-hidden="true">${stationColors
+          .map((color) => `<i style="--station-lobe-color:${color}"></i>`).join("")}</span>`,
+        iconSize: [width, 14],
+        iconAnchor: [width / 2, 7],
+      });
+    }
     return window.L.divIcon({
       className: "transit-stop-div-icon",
       html: `<span class="${classes}" style="--station-color:${fill};--station-core:${coreColor}" aria-hidden="true"><span></span></span>`,
@@ -10218,11 +10320,20 @@
     updateTransitNetworkLabels();
     if (focusedTransitGuideStops.length) renderTransitLineGuide();
 
+    const configuredRouteOrder = new Map((stop.interchangeRouteRefs || [])
+      .map((ref, index) => [String(ref).trim().toLocaleLowerCase("zh-CN"), index]));
     const routes = preferAuthoritativeTransitRoutes(uniqueTransitRoutes([
       ...(stop.routes || []),
       ...(stop.displayRoutes || []),
     ]))
-      .sort((a, b) => a.label.localeCompare(b.label, "zh-CN", { numeric: true }));
+      .sort((a, b) => {
+        const first = configuredRouteOrder.get(String(a.ref || "").trim().toLocaleLowerCase("zh-CN"));
+        const second = configuredRouteOrder.get(String(b.ref || "").trim().toLocaleLowerCase("zh-CN"));
+        if (first !== undefined || second !== undefined) {
+          return (first ?? Number.MAX_SAFE_INTEGER) - (second ?? Number.MAX_SAFE_INTEGER);
+        }
+        return a.label.localeCompare(b.label, "zh-CN", { numeric: true });
+      });
     if (marker && currentView === "transit" && !elements.panel.classList.contains("is-hidden")) {
       const popupContent = document.createElement("div");
       popupContent.className = "transit-station-popup";
@@ -16952,6 +17063,35 @@
     return baseTileLayer.getMaplibreMap();
   }
 
+  function syncPublishedTransitStationLayers(glMap = currentVectorBasemap()) {
+    if (!glMap?.getStyle?.()) return;
+    if (!publishedTransitStationLayerStates.has(glMap)) {
+      publishedTransitStationLayerStates.set(glMap, {
+        visibility: new Map(),
+        filters: new Map(),
+      });
+    }
+    const state = publishedTransitStationLayerStates.get(glMap);
+    const transitActive = mapViewMode === "transit";
+    PUBLISHED_TRANSIT_STATION_LAYER_IDS.forEach((layerId) => {
+      if (!glMap.getLayer(layerId)) return;
+      if (!state.visibility.has(layerId)) {
+        state.visibility.set(layerId, glMap.getLayoutProperty(layerId, "visibility") || "visible");
+      }
+      glMap.setLayoutProperty(layerId, "visibility",
+        transitActive ? "none" : state.visibility.get(layerId));
+    });
+    PUBLISHED_GENERAL_POI_LAYER_IDS.forEach((layerId) => {
+      if (!glMap.getLayer(layerId)) return;
+      if (!state.filters.has(layerId)) state.filters.set(layerId, glMap.getFilter(layerId) || null);
+      const originalFilter = state.filters.get(layerId);
+      const stationExclusion = ["any", ["!=", "class", "railway"], ["!=", "subclass", "station"]];
+      glMap.setFilter(layerId, transitActive
+        ? ["all", originalFilter || ["all"], stationExclusion]
+        : originalFilter);
+    });
+  }
+
   function huayuOverlayPalette(glMap) {
     const night = String(glMap?.getStyle?.()?.metadata?.["ogf-atlas:theme"] || "").startsWith("huayu-night");
     return night ? {
@@ -16969,6 +17109,9 @@
       elevatedGreenColorProperty: "nightColor",
       buildingColors: ["#29343a", "#2f3b41", "#35434a", "#3b4b53", "#435760"],
       buildingOpacity: 0.97,
+      pavilionRoof: "#6f6258",
+      pavilionColumn: "#a09389",
+      pavilionBase: "#495257",
       ancientWall: "#4f4641",
       ancientRoof: "#77675d",
       ancientOutline: "#c0ada0",
@@ -17054,6 +17197,9 @@
       elevatedGreenColorProperty: "color",
       buildingColors: ["#e8ece9", "#e3e8e5", "#dce3e1", "#d4dddc", "#cbd7d9"],
       buildingOpacity: 0.92,
+      pavilionRoof: "#a98d78",
+      pavilionColumn: "#77685d",
+      pavilionBase: "#d8d4ca",
       ancientWall: "#cbb9a6",
       ancientRoof: "#958070",
       ancientOutline: "#75665c",
@@ -18042,9 +18188,10 @@
     [HUAYU_WALL_LAYERS.casing, HUAYU_WALL_LAYERS.line,
       HUAYU_WALL_LAYERS.fenceCasing, HUAYU_WALL_LAYERS.fenceLine].forEach((layerId) => {
       if (glMap.getLayer(layerId)) {
-        // Keep the footprint legible under the narrow 3D extrusion. Hiding these
-        // lines made walls and especially fences disappear against pale buildings.
-        glMap.setLayoutProperty(layerId, "visibility", "visible");
+        // MapLibre line layers are screen-ordered and can paint across 3D
+        // buildings. Use them only in the flat view; perspective is owned by
+        // the matching extrusion so the same barrier is never drawn twice.
+        glMap.setLayoutProperty(layerId, "visibility", perspective ? "none" : "visible");
       }
     });
     positionHuayuWallsAboveBuildings(glMap);
@@ -19823,12 +19970,41 @@
     }
   }
 
+  function huayuPavilionKind(tags = {}) {
+    const building = String(tags.building || tags["building:part"] || "").toLocaleLowerCase();
+    const leisure = String(tags.leisure || "").toLocaleLowerCase();
+    const manMade = String(tags.man_made || "").toLocaleLowerCase();
+    const amenity = String(tags.amenity || "").toLocaleLowerCase();
+    const tourism = String(tags.tourism || "").toLocaleLowerCase();
+    const historic = String(tags.historic || "").toLocaleLowerCase();
+    const publicTransport = String(tags.public_transport || "").toLocaleLowerCase();
+    const railway = String(tags.railway || "").toLocaleLowerCase();
+    const shelterType = String(tags.shelter_type || "").toLocaleLowerCase();
+    const highway = String(tags.highway || "").toLocaleLowerCase();
+    const name = String(tags.name || "").trim();
+    const serviceBooth = /(?:保安亭|警亭|收费亭|售票亭|岗亭)$/u.test(name);
+    const transitFeature = Boolean(publicTransport || ["station", "halt", "tram_stop"].includes(railway)
+      || shelterType === "public_transport" || tags.subway === "yes" || tags.bus === "yes"
+      || highway === "bus_stop" || amenity === "bus_station");
+    if (serviceBooth || transitFeature) return "";
+    if (["pavilion", "gazebo"].includes(building) || leisure === "gazebo"
+      || ["pavilion", "gazebo"].includes(manMade)
+      || amenity === "shelter") {
+      return "pavilion";
+    }
+    const pavilionName = /(?:凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$/u.test(name);
+    return pavilionName
+      && ((building && building !== "no") || amenity === "shelter"
+        || tourism === "attraction" || historic === "building") ? "pavilion" : "";
+  }
+
   function huayuLiveBuildingHeight(tags = {}) {
     const levels = Number.parseFloat(tags["building:levels"]);
     const historic = String(tags.historic || "").toLocaleLowerCase();
     const castleType = String(tags.castle_type || "").toLocaleLowerCase();
     const name = String(tags.name || "").trim();
-    const semanticFallback = historic === "city_gate" ? 12
+    const semanticFallback = huayuPavilionKind(tags) ? 3.6
+      : historic === "city_gate" ? 12
       : castleType === "palace" || historic === "castle" ? 9
         : name && /(?:殿|宫|阁|楼|门)$/u.test(name) ? 7
           : name ? 5 : 3.2;
@@ -19866,24 +20042,272 @@
     const building = String(tags.building || "");
     const buildingPart = String(tags["building:part"] || "");
     return Boolean((building && building !== "no") || (buildingPart && buildingPart !== "no")
-      || huayuAncientBuildingKind(tags));
+      || huayuAncientBuildingKind(tags) || huayuPavilionKind(tags));
+  }
+
+  function huayuPavilionRoofDepth(tags = {}, height = 3.6) {
+    const tagged = tags["roof:height"] ?? tags["building:roof:height"];
+    const fallback = Math.max(0.45, Math.min(0.8, height * 0.25));
+    return Math.max(0.2, Math.min(Math.max(0.2, height - 0.6),
+      parseHuayuWallMeasurement(tagged, fallback, 20)));
   }
 
   function huayuLiveBuildingMinHeight(tags = {}, height) {
     const minLevel = Number.parseFloat(tags["building:min_level"]);
     const fallback = Number.isFinite(minLevel) && minLevel > 0 ? Math.min(1000, minLevel * 3) : 0;
+    const explicitMinimum = tags.min_height !== undefined || tags["building:min_level"] !== undefined;
+    if (huayuPavilionKind(tags) && !explicitMinimum) {
+      return Math.max(0, height - huayuPavilionRoofDepth(tags, height));
+    }
     return Math.min(Math.max(0, height - 0.6),
       parseHuayuWallMeasurement(tags.min_height, fallback, 1000));
   }
 
-  function huayuLiveBuildingFeatureCollection(elements) {
+  function huayuPavilionPointSegmentDistanceMeters(point, first, second) {
+    const latitude = point[1] * Math.PI / 180;
+    const longitudeScale = Math.max(1000, 111320 * Math.cos(latitude));
+    const ax = (first[0] - point[0]) * longitudeScale;
+    const ay = (first[1] - point[1]) * 111320;
+    const bx = (second[0] - point[0]) * longitudeScale;
+    const by = (second[1] - point[1]) * 111320;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const denominator = dx * dx + dy * dy;
+    const amount = denominator > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / denominator)) : 0;
+    return Math.hypot(ax + amount * dx, ay + amount * dy);
+  }
+
+  function huayuPavilionRoadHalfWidth(tags = {}) {
+    const taggedWidth = tags.width ?? tags["width:carriageway"];
+    if (taggedWidth !== undefined) {
+      return Math.max(0.35, parseHuayuWallMeasurement(taggedWidth, 2, 40) / 2);
+    }
+    const lanes = Number.parseFloat(tags.lanes);
+    if (Number.isFinite(lanes) && lanes > 0) return Math.max(1.2, Math.min(14, lanes * 1.6));
+    const highway = String(tags.highway || "").toLocaleLowerCase();
+    return ({
+      motorway: 7, motorway_link: 4, trunk: 6, trunk_link: 3.5,
+      primary: 5.5, primary_link: 3.2, secondary: 4.5, secondary_link: 3,
+      tertiary: 3.8, tertiary_link: 2.8, residential: 3, unclassified: 2.8,
+      service: 2.2, living_street: 2.5, pedestrian: 2, track: 1.5,
+      cycleway: 1, footway: 0.9, path: 0.8, steps: 0.8,
+    })[highway] || 2.5;
+  }
+
+  function huayuPavilionNodeRadius(element, contextElements = [], fallbackRadiusMeters = 2.6) {
+    const latitude = Number(element?.lat ?? element?.center?.lat);
+    const longitude = Number(element?.lon ?? element?.center?.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return 0;
+    const taggedDiameter = element?.tags?.diameter ?? element?.tags?.width;
+    const diameter = parseHuayuWallMeasurement(taggedDiameter, fallbackRadiusMeters * 2, 40);
+    let targetRadius = taggedDiameter === undefined ? fallbackRadiusMeters : Math.max(0.6, diameter / 2);
+    const point = [longitude, latitude];
+    let roadClearance = Infinity;
+    let pavilionClearance = Infinity;
+    (contextElements || []).forEach((candidate) => {
+      if (candidate === element) return;
+      const tags = candidate?.tags || {};
+      if (candidate.type === "way" && tags.highway && Array.isArray(candidate.geometry)) {
+        const coordinates = huayuWallCoordinates(candidate);
+        for (let index = 1; index < coordinates.length; index += 1) {
+          const distance = huayuPavilionPointSegmentDistanceMeters(point, coordinates[index - 1], coordinates[index]);
+          roadClearance = Math.min(roadClearance,
+            distance - huayuPavilionRoadHalfWidth(tags) - 0.45);
+        }
+      } else if (candidate.type === "node" && huayuPavilionKind(tags)) {
+        const candidateLatitude = Number(candidate.lat ?? candidate.center?.lat);
+        const candidateLongitude = Number(candidate.lon ?? candidate.center?.lon);
+        if (Number.isFinite(candidateLatitude) && Number.isFinite(candidateLongitude)) {
+          const distance = huayuPavilionPointSegmentDistanceMeters(point,
+            [candidateLongitude, candidateLatitude], [candidateLongitude, candidateLatitude]);
+          pavilionClearance = Math.min(pavilionClearance, distance / 2 - 0.5);
+        }
+      }
+    });
+    if (taggedDiameter === undefined && Number.isFinite(roadClearance)) {
+      targetRadius = Math.max(2.2, Math.min(3.8, roadClearance * 0.45));
+    } else if (taggedDiameter === undefined) targetRadius = 3;
+    const availableRadius = Math.min(roadClearance, pavilionClearance);
+    return Math.max(0.8, Math.min(targetRadius,
+      Number.isFinite(availableRadius) ? availableRadius : targetRadius));
+  }
+
+  function huayuPavilionNodeGeometry(element, contextElements = [], fallbackRadiusMeters = 2.6) {
+    const latitude = Number(element?.lat ?? element?.center?.lat);
+    const longitude = Number(element?.lon ?? element?.center?.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    const radius = huayuPavilionNodeRadius(element, contextElements, fallbackRadiusMeters);
+    const latitudeScale = radius / 111320;
+    const longitudeScale = radius / Math.max(1000, 111320 * Math.cos(latitude * Math.PI / 180));
+    const ring = Array.from({ length: 8 }, (_, index) => {
+      const angle = Math.PI / 8 + index * Math.PI / 4;
+      return [longitude + Math.cos(angle) * longitudeScale, latitude + Math.sin(angle) * latitudeScale];
+    });
+    ring.push([...ring[0]]);
+    return { type: "Polygon", coordinates: [ring] };
+  }
+
+  function huayuPavilionRingPerimeter(ring) {
+    let perimeter = 0;
+    for (let index = 1; index < ring.length; index += 1) {
+      perimeter += huayuPavilionPointSegmentDistanceMeters(ring[index - 1], ring[index], ring[index]);
+    }
+    return perimeter;
+  }
+
+  function huayuPavilionSampleRing(ring, count) {
+    const segments = [];
+    let perimeter = 0;
+    for (let index = 1; index < ring.length; index += 1) {
+      const length = huayuPavilionPointSegmentDistanceMeters(ring[index - 1], ring[index], ring[index]);
+      if (length <= 0.02) continue;
+      segments.push({ first: ring[index - 1], second: ring[index], start: perimeter, length });
+      perimeter += length;
+    }
+    if (!segments.length || perimeter <= 0) return [];
+    return Array.from({ length: count }, (_, index) => {
+      const distance = index / count * perimeter;
+      const segment = segments.find((item) => distance <= item.start + item.length) || segments.at(-1);
+      const amount = Math.max(0, Math.min(1, (distance - segment.start) / segment.length));
+      return [
+        segment.first[0] + (segment.second[0] - segment.first[0]) * amount,
+        segment.first[1] + (segment.second[1] - segment.first[1]) * amount,
+      ];
+    });
+  }
+
+  function huayuPavilionPolygonContainsPoint(point, polygon) {
+    if (!Array.isArray(polygon?.[0]) || !huayuWallPointInRing(point, polygon[0])) return false;
+    return !polygon.slice(1).some((ring) => huayuWallPointInRing(point, ring));
+  }
+
+  function huayuPavilionDistanceToRings(point, polygon) {
+    let distance = Infinity;
+    (polygon || []).forEach((ring) => {
+      for (let index = 1; index < ring.length; index += 1) {
+        distance = Math.min(distance,
+          huayuPavilionPointSegmentDistanceMeters(point, ring[index - 1], ring[index]));
+      }
+    });
+    return distance;
+  }
+
+  function huayuPavilionInteriorPoint(polygon) {
+    const ring = polygon?.[0];
+    if (!Array.isArray(ring) || ring.length < 4) return null;
+    const points = huayuWallPointKey(ring[0]) === huayuWallPointKey(ring.at(-1))
+      ? ring.slice(0, -1) : ring.slice();
+    const longitudes = points.map((point) => point[0]);
+    const latitudes = points.map((point) => point[1]);
+    const west = Math.min(...longitudes);
+    const east = Math.max(...longitudes);
+    const south = Math.min(...latitudes);
+    const north = Math.max(...latitudes);
+    const average = points.reduce((total, point) => (
+      [total[0] + point[0], total[1] + point[1]]
+    ), [0, 0]).map((value) => value / points.length);
+    const candidates = [average, [(west + east) / 2, (south + north) / 2]];
+    for (let row = 1; row < 10; row += 1) {
+      for (let column = 1; column < 10; column += 1) {
+        candidates.push([west + (east - west) * column / 10,
+          south + (north - south) * row / 10]);
+      }
+    }
+    return candidates.filter((point) => huayuPavilionPolygonContainsPoint(point, polygon))
+      .sort((left, right) => huayuPavilionDistanceToRings(right, polygon)
+        - huayuPavilionDistanceToRings(left, polygon))[0] || null;
+  }
+
+  function huayuPavilionMoveTowardMeters(point, target, meters) {
+    const latitude = (point[1] + target[1]) / 2;
+    const longitudeScale = Math.max(1000, 111320 * Math.cos(latitude * Math.PI / 180));
+    const dx = (target[0] - point[0]) * longitudeScale;
+    const dy = (target[1] - point[1]) * 111320;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.01) return point.slice();
+    const amount = Math.min(1, meters / distance);
+    return [point[0] + dx * amount / longitudeScale, point[1] + dy * amount / 111320];
+  }
+
+  function huayuPavilionColumnRing(center, radiusMeters) {
+    const [longitude, latitude] = center;
+    const latitudeScale = radiusMeters / 111320;
+    const longitudeScale = radiusMeters
+      / Math.max(1000, 111320 * Math.cos(latitude * Math.PI / 180));
+    const ring = Array.from({ length: 8 }, (_, index) => {
+      const angle = Math.PI / 8 + index * Math.PI / 4;
+      return [longitude + Math.cos(angle) * longitudeScale,
+        latitude + Math.sin(angle) * latitudeScale];
+    });
+    ring.push([...ring[0]]);
+    return huayuNormalizedWallRing(ring, false);
+  }
+
+  function huayuPavilionInsetColumnCenter(boundaryPoint, interiorPoint, columnRadius, polygon) {
+    const baseInset = columnRadius * 1.65 + 0.12;
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      const center = huayuPavilionMoveTowardMeters(boundaryPoint, interiorPoint,
+        baseInset + attempt * (columnRadius * 0.6 + 0.08));
+      const columnRing = huayuPavilionColumnRing(center, columnRadius);
+      if (columnRing.slice(0, -1).every((point) =>
+        huayuPavilionPolygonContainsPoint(point, polygon))) return center;
+    }
+    return null;
+  }
+
+  function huayuPavilionColumnGeometry(geometry, osmType = "way") {
+    if (!geometry || !["Polygon", "MultiPolygon"].includes(geometry.type)) return null;
+    const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+    const columns = [];
+    polygons.forEach((polygon) => {
+      const ring = polygon?.[0];
+      if (!Array.isArray(ring) || ring.length < 4) return;
+      const uniqueRing = huayuWallPointKey(ring[0]) === huayuWallPointKey(ring.at(-1))
+        ? ring.slice(0, -1) : ring.slice();
+      const perimeter = huayuPavilionRingPerimeter([...uniqueRing, uniqueRing[0]]);
+      if (perimeter <= 0) return;
+      const vertexCount = uniqueRing.length;
+      const desiredCount = osmType === "node" ? 4 : Math.max(4, Math.min(8, Math.round(perimeter / 6)));
+      const centers = osmType !== "node" && vertexCount >= 4 && vertexCount <= 8
+        ? uniqueRing : huayuPavilionSampleRing([...uniqueRing, uniqueRing[0]], desiredCount);
+      const longitudes = uniqueRing.map((point) => point[0]);
+      const latitudes = uniqueRing.map((point) => point[1]);
+      const centerLatitude = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+      const widthMeters = (Math.max(...longitudes) - Math.min(...longitudes))
+        * Math.max(1000, 111320 * Math.cos(centerLatitude * Math.PI / 180));
+      const heightMeters = (Math.max(...latitudes) - Math.min(...latitudes)) * 111320;
+      const columnRadius = Math.max(0.16, Math.min(0.38, Math.min(widthMeters, heightMeters) * 0.035));
+      const interiorPoint = huayuPavilionInteriorPoint(polygon);
+      if (!interiorPoint) return;
+      centers.forEach((boundaryPoint) => {
+        const center = huayuPavilionInsetColumnCenter(boundaryPoint, interiorPoint, columnRadius, polygon);
+        if (!center) return;
+        columns.push([huayuPavilionColumnRing(center, columnRadius)]);
+      });
+      const preferredCenterRadius = Math.min(0.48, columnRadius * 1.15);
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const centerRadius = preferredCenterRadius * (1 - attempt * 0.12);
+        const centerRing = huayuPavilionColumnRing(interiorPoint, centerRadius);
+        if (!centerRing.slice(0, -1).every((point) =>
+          huayuPavilionPolygonContainsPoint(point, polygon))) continue;
+        columns.push([centerRing]);
+        break;
+      }
+    });
+    return columns.length ? { type: "MultiPolygon", coordinates: columns } : null;
+  }
+
+  function huayuLiveBuildingFeatureCollection(elements, pavilionOnly = false) {
     const sourceElements = Array.isArray(elements) ? elements : [];
+    const matchesRequestedStructure = (tags = {}) => pavilionOnly
+      ? Boolean(huayuPavilionKind(tags))
+      : huayuLiveBuildingTags(tags) && !huayuPavilionKind(tags);
     const waysById = new Map(sourceElements.filter((element) => element.type === "way")
       .map((element) => [String(element.id), element]));
     const buildingRelations = sourceElements.filter((element) => element.type === "relation"
-      && huayuLiveBuildingTags(element.tags));
+      && matchesRequestedStructure(element.tags));
     const isClosedTaggedBuildingWay = (way) => {
-      if (!way || !huayuLiveBuildingTags(way.tags)) return false;
+      if (!way || !matchesRequestedStructure(way.tags)) return false;
       const coordinates = huayuWallCoordinates(way);
       return coordinates.length >= 4
         && huayuWallPointKey(coordinates[0]) === huayuWallPointKey(coordinates.at(-1));
@@ -19901,8 +20325,8 @@
         .filter((member) => member.type === "way" && member.role !== "inner")
         .map((member) => String(member.ref))));
     const buildingElements = sourceElements.filter((element) => {
-      if (!["way", "relation"].includes(element.type)
-        || !huayuLiveBuildingTags(element.tags)) return false;
+      if (!["node", "way", "relation"].includes(element.type)
+        || !matchesRequestedStructure(element.tags)) return false;
       if (huayuIsPublicTransportShelter(element)) return false;
       if (element.type === "relation" && compositeBuildingRelationIds.has(String(element.id))) return false;
       return element.type !== "way" || !relationOuterMemberWayIds.has(String(element.id));
@@ -19913,7 +20337,9 @@
       const key = `${element.type}:${element.id}`;
       if (seen.has(key)) return;
       let geometry = null;
-      if (element.type === "way") {
+      if (element.type === "node") {
+        geometry = huayuPavilionNodeGeometry(element, sourceElements);
+      } else if (element.type === "way") {
         const coordinates = huayuWallCoordinates(element);
         if (coordinates.length >= 4 && huayuWallPointKey(coordinates[0]) === huayuWallPointKey(coordinates.at(-1))) {
           geometry = { type: "Polygon", coordinates: [huayuNormalizedWallRing(coordinates, false)] };
@@ -19926,50 +20352,195 @@
       const height = huayuLiveBuildingHeight(element.tags);
       const minHeight = huayuLiveBuildingMinHeight(element.tags, height);
       const ancientKind = huayuAncientBuildingKind(element.tags);
+      const structureKind = huayuPavilionKind(element.tags) || "building";
+      const baseProperties = {
+        name: String(element.tags?.name || "").trim(),
+        building: String(element.tags?.building || element.tags?.["building:part"] || "yes"),
+        buildingPart: String(element.tags?.["building:part"] || ""),
+        structureKind,
+        ...(structureKind === "pavilion" ? {
+          pavilionRoofDepth: huayuPavilionRoofDepth(element.tags, height),
+        } : {}),
+        ...(ancientKind ? {
+          ancientKind,
+          roofCapHeight: huayuAncientRoofCapHeight(element.tags, height),
+        } : {}),
+        height,
+        minHeight,
+        renderHeight: Math.max(height, minHeight + 0.6),
+        renderMinHeight: minHeight,
+        osmId: String(element.id),
+        osmType: element.type,
+        heightSource: element.tags?.height !== undefined || element.tags?.est_height !== undefined
+          ? "tagged" : Number.isFinite(Number.parseFloat(element.tags?.["building:levels"])) ? "levels"
+            : structureKind === "pavilion" ? "pavilion-default"
+              : height > 3.2 ? "semantic-default" : "default",
+      };
       features.push({
         type: "Feature",
-        id: `live-building:${key}`,
-        properties: {
-          name: String(element.tags?.name || "").trim(),
-          building: String(element.tags?.building || element.tags?.["building:part"] || "yes"),
-          buildingPart: String(element.tags?.["building:part"] || ""),
-          ...(ancientKind ? {
-            ancientKind,
-            roofCapHeight: huayuAncientRoofCapHeight(element.tags, height),
-          } : {}),
-          height,
-          minHeight,
-          renderHeight: Math.max(height, minHeight + 0.6),
-          renderMinHeight: minHeight,
-          osmId: String(element.id),
-          osmType: element.type,
-          heightSource: element.tags?.height !== undefined || element.tags?.est_height !== undefined
-            ? "tagged" : Number.isFinite(Number.parseFloat(element.tags?.["building:levels"])) ? "levels"
-              : height > 3.2 ? "semantic-default" : "default",
-        },
+        id: `${pavilionOnly ? "live-pavilion-roof" : "live-building"}:${key}`,
+        properties: structureKind === "pavilion"
+          ? { ...baseProperties, pavilionPart: "roof" } : baseProperties,
         geometry,
       });
+      if (structureKind === "pavilion") {
+        features.push({
+          type: "Feature",
+          id: `live-pavilion-base:${key}`,
+          properties: {
+            ...baseProperties,
+            pavilionPart: "base",
+            renderHeight: 0.14,
+            renderMinHeight: 0,
+          },
+          geometry,
+        });
+        const columnGeometry = huayuPavilionColumnGeometry(geometry, element.type);
+        const columnTop = Math.max(0.8, minHeight);
+        if (columnGeometry && columnTop < height) {
+          features.push({
+            type: "Feature",
+            id: `live-pavilion-columns:${key}`,
+            properties: {
+              ...baseProperties,
+              pavilionPart: "column",
+              renderHeight: columnTop,
+              renderMinHeight: 0,
+            },
+            geometry: columnGeometry,
+          });
+        }
+      }
     });
     return { type: "FeatureCollection", features };
+  }
+
+  function huayuPavilionFeatureCollection(elements) {
+    return huayuLiveBuildingFeatureCollection(elements, true);
+  }
+
+  function ensureHuayuPavilionLayer(glMap) {
+    if (!glMap?.isStyleLoaded?.()) return false;
+    const palette = huayuOverlayPalette(glMap);
+    if (!glMap.getSource(HUAYU_PAVILION_SOURCE)) {
+      glMap.addSource(HUAYU_PAVILION_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+    }
+    const beforeId = glMap.getLayer(HUAYU_CITY_WALL_LAYERS.fill)
+      ? HUAYU_CITY_WALL_LAYERS.fill : huayuCityWallInsertionLayer(glMap);
+    if (!glMap.getLayer(HUAYU_PAVILION_BASE_LAYER)) {
+      glMap.addLayer({
+        id: HUAYU_PAVILION_BASE_LAYER,
+        type: "fill-extrusion",
+        source: HUAYU_PAVILION_SOURCE,
+        minzoom: HUAYU_LIVE_BUILDING_MIN_ZOOM,
+        filter: ["==", ["get", "pavilionPart"], "base"],
+        metadata: {
+          "huayu:component": "live-pavilion-bases",
+          "huayu:model-version": "15",
+          "huayu:geometry-source": "ogf-overpass-structure-tiles",
+        },
+        paint: {
+          "fill-extrusion-color": palette.pavilionBase,
+          "fill-extrusion-height": ["get", "renderHeight"],
+          "fill-extrusion-base": ["get", "renderMinHeight"],
+          "fill-extrusion-opacity": 0.98,
+          "fill-extrusion-vertical-gradient": false,
+        },
+      }, beforeId);
+    }
+    if (!glMap.getLayer(HUAYU_PAVILION_COLUMN_LAYER)) {
+      glMap.addLayer({
+        id: HUAYU_PAVILION_COLUMN_LAYER,
+        type: "fill-extrusion",
+        source: HUAYU_PAVILION_SOURCE,
+        minzoom: HUAYU_LIVE_BUILDING_MIN_ZOOM,
+        filter: ["==", ["get", "pavilionPart"], "column"],
+        metadata: {
+          "huayu:component": "live-pavilion-columns",
+          "huayu:model-version": "15",
+          "huayu:geometry-source": "ogf-overpass-structure-tiles",
+        },
+        paint: {
+          "fill-extrusion-color": palette.pavilionColumn,
+          "fill-extrusion-height": ["get", "renderHeight"],
+          "fill-extrusion-base": ["get", "renderMinHeight"],
+          "fill-extrusion-opacity": 0.98,
+          "fill-extrusion-vertical-gradient": true,
+        },
+      }, beforeId);
+    }
+    if (!glMap.getLayer(HUAYU_PAVILION_LAYER)) {
+      glMap.addLayer({
+        id: HUAYU_PAVILION_LAYER,
+        type: "fill-extrusion",
+        source: HUAYU_PAVILION_SOURCE,
+        minzoom: HUAYU_LIVE_BUILDING_MIN_ZOOM,
+        filter: ["==", ["get", "pavilionPart"], "roof"],
+        metadata: {
+          "huayu:component": "live-pavilion-model",
+          "huayu:model-version": "15",
+          "huayu:geometry-source": "ogf-overpass-structure-tiles",
+        },
+        paint: {
+          "fill-extrusion-color": palette.pavilionRoof,
+          "fill-extrusion-height": ["get", "renderHeight"],
+          "fill-extrusion-base": ["get", "renderMinHeight"],
+          "fill-extrusion-opacity": palette.buildingOpacity,
+          "fill-extrusion-vertical-gradient": true,
+        },
+      }, beforeId);
+    }
+    positionHuayuWallsAboveBuildings(glMap);
+    syncHuayuBuildingReplacementLayers(glMap,
+      Boolean(huayuLiveBuildingStates.get(glMap)?.primaryActive));
+    return true;
+  }
+
+  function syncHuayuBuildingReplacementLayers(glMap, liveOwnsBuildings) {
+    if (!glMap) return;
+    const liveOwner = Boolean(liveOwnsBuildings);
+    [
+      [HUAYU_PAVILION_BASE_LAYER, "base"],
+      [HUAYU_PAVILION_COLUMN_LAYER, "column"],
+      [HUAYU_PAVILION_LAYER, "roof"],
+    ].forEach(([layerId, part]) => {
+      if (!glMap.getLayer(layerId)) return;
+      const partFilter = ["==", ["get", "pavilionPart"], part];
+      glMap.setFilter(layerId, liveOwner ? partFilter
+        : ["all", partFilter, ["==", ["get", "osmType"], "node"]]);
+    });
+    if (glMap.getLayer(HUAYU_BUS_FACILITY_LAYERS.model)) {
+      const partFilter = ["has", "busFacilityPart"];
+      glMap.setFilter(HUAYU_BUS_FACILITY_LAYERS.model, liveOwner ? partFilter
+        : ["all", partFilter,
+          ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]]);
+    }
   }
 
   function syncHuayuLiveBuildingPrimaryLayers(glMap, state, enabled) {
     if (!glMap || !state) return;
     const nextEnabled = Boolean(enabled);
-    const fallbackRequired = !nextEnabled || !state.coverageReady;
-    HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
-      if (glMap.getLayer(layerId)) {
-        glMap.setLayoutProperty(layerId, "visibility", fallbackRequired ? "visible" : "none");
-      }
+    const syncPublishedLayers = (visibility) => HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
+      if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
     });
-    if (glMap.getLayer(HUAYU_LIVE_BUILDING_LAYER)) {
-      glMap.setLayoutProperty(HUAYU_LIVE_BUILDING_LAYER, "visibility", nextEnabled ? "visible" : "none");
+    const syncLiveLayers = (visibility) => [
+      HUAYU_LIVE_BUILDING_LAYER,
+      ...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS),
+    ].forEach((layerId) => {
+      if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
+    });
+    // Never render published and live building owners in the same frame.
+    if (nextEnabled) {
+      syncPublishedLayers("none");
+      syncLiveLayers("visible");
+    } else {
+      syncLiveLayers("none");
+      syncPublishedLayers("visible");
     }
-    Object.values(HUAYU_ANCIENT_BUILDING_LAYERS).forEach((layerId) => {
-      if (glMap.getLayer(layerId)) {
-        glMap.setLayoutProperty(layerId, "visibility", nextEnabled ? "visible" : "none");
-      }
-    });
+    syncHuayuBuildingReplacementLayers(glMap, nextEnabled);
     state.primaryActive = nextEnabled;
   }
 
@@ -19986,12 +20557,13 @@
   function scheduleHuayuLiveBuildingPrimarySync(glMap, state) {
     clearHuayuLiveBuildingPrimarySync(state);
     const revision = ++state.primaryRevision;
-    if (!state.dataReady) {
+    if (!state.dataReady || !state.snapshotReady) {
       syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
       return;
     }
     const activate = () => {
       if (!state.active || revision !== state.primaryRevision || !state.dataReady
+        || !state.snapshotReady
         || glMap.isSourceLoaded?.(HUAYU_LIVE_BUILDING_SOURCE) === false) return;
       clearHuayuLiveBuildingPrimarySync(state);
       syncHuayuLiveBuildingPrimaryLayers(glMap, state, true);
@@ -20030,7 +20602,7 @@
         layout: { visibility: "none" },
         metadata: {
           "huayu:component": "live-building-model",
-          "huayu:model-version": "10",
+          "huayu:model-version": "15",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
           "huayu:vector-buildings": "disabled",
         },
@@ -20080,7 +20652,7 @@
         source: HUAYU_LIVE_BUILDING_SOURCE,
         minzoom: 14,
         filter: ["has", "ancientKind"],
-        layout: { "line-cap": "round", "line-join": "round" },
+        layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
         metadata: {
           "huayu:component": "ancient-building-outline",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
@@ -20099,7 +20671,7 @@
   }
 
   function applyHuayuLiveBuildings(glMap, state) {
-    const layersReady = ensureHuayuLiveBuildingLayer(glMap) && ensureHuayuWallLayers(glMap);
+    const layersReady = ensureHuayuLiveBuildingLayer(glMap);
     if (!layersReady) {
       if (state?.active) {
         window.clearTimeout(state.applyTimer);
@@ -20113,10 +20685,6 @@
     window.clearTimeout(state.applyTimer);
     state.applyTimer = null;
     if (state.appliedRevision !== state.renderRevision) {
-      // Commit walls before building setData makes the style busy. Sharing one
-      // revision previously let the building source advance while walls stayed empty.
-      glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData
-        || { type: "FeatureCollection", features: [] });
       glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data
         || { type: "FeatureCollection", features: [] });
       state.appliedRevision = state.renderRevision;
@@ -20129,18 +20697,12 @@
     const mapElement = document.getElementById("map");
     if (mapElement) {
       mapElement.dataset.huayuLiveBuildings = String(state.data?.features?.length || 0);
-      mapElement.dataset.huayuLiveWalls = String(state.wallData?.features?.length || 0);
-      mapElement.dataset.huayuWallSource = "ogf-overpass-building-tiles";
-      mapElement.dataset.huayuWallSnapshot = state.wallDataReady
-        ? (state.wallRenderSignature === state.renderSignature ? "complete" : "retained-complete")
-        : "progressive";
       const visibleKeys = [...(state.visibleTileKeys || [])];
       const loadedVisibleTiles = visibleKeys.filter((key) => state.tileCache?.has(key));
       const pendingVisibleTiles = visibleKeys.filter((key) => state.pendingTiles?.has(key));
       const sources = new Set(loadedVisibleTiles.map((key) => state.tileCache.get(key)?.source).filter(Boolean));
       mapElement.dataset.huayuBuildingSource = "ogf-overpass-tiled";
-      mapElement.dataset.huayuVectorBuildings = state.primaryActive && state.coverageReady
-        ? "disabled" : "fallback-visible";
+      mapElement.dataset.huayuVectorBuildings = state.primaryActive ? "disabled" : "fallback-visible";
       mapElement.dataset.huayuLiveBuildingTiles = `${loadedVisibleTiles.length}/${visibleKeys.length}`;
       mapElement.dataset.huayuLiveBuildingPending = String(pendingVisibleTiles.length);
       mapElement.dataset.huayuLiveBuildingPendingTotal = String(state.pendingTiles?.size || 0);
@@ -20309,11 +20871,8 @@
       && !state.queuedTileKeys.has(key));
     if (!ready) {
       state.coverageReady = false;
-      state.status = "loading";
-      // Keep the last rendered model while a new zoom/pan coverage is being
-      // fetched. Clearing the source here made every perspective-wheel step
-      // flash back to the vector fallback before the next tile arrived.
-      if (!state.dataReady) {
+      state.status = state.snapshotReady ? "retained" : "loading";
+      if (!state.snapshotReady) {
         state.primaryRevision += 1;
         clearHuayuLiveBuildingPrimarySync(state);
         syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, false);
@@ -20327,16 +20886,22 @@
       const entry = state.tileCache.get(key);
       return `${key}@${entry?.revision || 0}`;
     }).join("|");
+    if (!complete) {
+      state.coverageReady = false;
+      state.status = state.snapshotReady ? "retained" : "partial";
+      syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, state.snapshotReady);
+      updateHuayuLiveBuildingDiagnostics(state);
+      return;
+    }
     if (renderSignature === state.renderSignature && state.dataReady) {
-      state.coverageReady = complete;
-      state.status = complete ? (idle ? "ready" : "refreshing") : "partial";
+      state.coverageReady = true;
+      state.snapshotReady = true;
+      state.status = idle ? "ready" : "refreshing";
       applyHuayuLiveBuildings(state.glMap, state);
       return;
     }
     const features = [];
-    const wallFeatures = [];
     const seen = new Set();
-    const wallSeen = new Set();
     let loadedAt = 0;
     readyKeys.forEach((key) => {
       const entry = state.tileCache.get(key);
@@ -20349,29 +20914,15 @@
         seen.add(featureKey);
         features.push(feature);
       });
-      (entry.wallData?.features || []).forEach((feature) => {
-        const featureKey = String(feature.id || `${feature.properties?.barrierKind}:${feature.properties?.osmId}`);
-        if (wallSeen.has(featureKey)) return;
-        wallSeen.add(featureKey);
-        wallFeatures.push(feature);
-      });
     });
     state.loadedAt = loadedAt;
     state.data = { type: "FeatureCollection", features };
-    const nextWallData = { type: "FeatureCollection", features: wallFeatures };
-    // Once a complete wall viewport has rendered, keep it until the replacement
-    // viewport is also complete. Perspective expands the requested tile set and
-    // must not replace nearby walls with a sparse partial merge.
-    if (complete || !state.wallDataReady) {
-      state.wallData = nextWallData;
-      state.wallDataReady = complete;
-      state.wallRenderSignature = renderSignature;
-    }
     state.dataReady = true;
-    state.coverageReady = complete;
+    state.coverageReady = true;
+    state.snapshotReady = true;
     state.renderSignature = renderSignature;
     state.renderRevision += 1;
-    state.status = complete ? (idle ? "ready" : "refreshing") : "partial";
+    state.status = idle ? "ready" : "refreshing";
     applyHuayuLiveBuildings(state.glMap, state);
   }
 
@@ -20423,7 +20974,6 @@
           state.failedTiles.delete(tile.key);
           state.tileCache.set(tile.key, {
             data: huayuLiveBuildingFeatureCollection(result.payload.elements),
-            wallData: huayuWallFeatureCollection(result.payload.elements),
             loadedAt: result.loadedAt,
             cachedAt: Date.now(),
             lastUsed: Date.now(),
@@ -20465,12 +21015,9 @@
       state.tileZoom = null;
       state.dataReady = false;
       state.coverageReady = false;
+      state.snapshotReady = false;
       state.status = "zoom-in";
-      state.wallData = { type: "FeatureCollection", features: [] };
-      state.wallDataReady = false;
-      state.wallRenderSignature = "";
       state.appliedRevision = -1;
-      glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData);
       state.primaryRevision += 1;
       clearHuayuLiveBuildingPrimarySync(state);
       syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
@@ -20535,9 +21082,6 @@
       timerRunAt: 0,
       loadedAt: 0,
       data: { type: "FeatureCollection", features: [] },
-      wallData: { type: "FeatureCollection", features: [] },
-      wallDataReady: false,
-      wallRenderSignature: "",
       tileZoom: null,
       tileCache: huayuLiveBuildingSharedTileCache,
       visibleTileKeys: new Set(),
@@ -20547,6 +21091,7 @@
       queuedTileKeys: new Set(),
       dataReady: false,
       coverageReady: false,
+      snapshotReady: false,
       coverageFinalizeScheduled: false,
       lastMergeKeyCount: 0,
       lastMergeReadyCount: 0,
@@ -20600,9 +21145,6 @@
     const mapElement = document.getElementById("map");
     if (mapElement) {
       delete mapElement.dataset.huayuLiveBuildings;
-      delete mapElement.dataset.huayuLiveWalls;
-      delete mapElement.dataset.huayuWallSource;
-      delete mapElement.dataset.huayuWallSnapshot;
       delete mapElement.dataset.huayuBuildingSource;
       delete mapElement.dataset.huayuVectorBuildings;
       delete mapElement.dataset.huayuLiveBuildingTiles;
@@ -20619,6 +21161,366 @@
       delete mapElement.dataset.huayuLiveBuildingStatus;
       delete mapElement.dataset.huayuLiveBuildingMode;
       delete mapElement.dataset.huayuLiveBuildingUpdatedAt;
+    }
+  }
+
+  function huayuStructureTileQuery(tile) {
+    const bounds = huayuLiveBuildingTileBounds(tile);
+    const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
+    const pavilionName = "(凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$";
+    const clearanceWays = tile.z >= 14
+      ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
+    return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
+      + `nwr["amenity"="shelter"](${bbox});nwr["leisure"="gazebo"](${bbox});`
+      + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
+      + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});`
+      + `nwr["building"]["building"!="no"]["name"~"${pavilionName}"](${bbox});`
+      + `nwr["building"~"^(roof|shelter)$"]["name"~"${pavilionName}"](${bbox});`
+      + `nwr["tourism"="attraction"]["name"~"${pavilionName}"](${bbox});`
+      + `nwr["historic"="building"]["name"~"${pavilionName}"](${bbox});)->.pavilionStructures;`
+      + `(.barrierWays;.pavilionStructures;way(r.pavilionStructures);`
+      + `${tile.z >= 14 ? ".pavilionClearanceWays;" : ""});out body geom;`;
+  }
+
+  async function fetchHuayuStructureTile(tile, externalSignal) {
+    const canUseTileApi = ["http:", "https:"].includes(window.location.protocol);
+    if (canUseTileApi) {
+      let apiResponded = false;
+      const controller = new AbortController();
+      const abortFromCaller = () => controller.abort();
+      externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+      const timer = window.setTimeout(() => controller.abort(), 25000);
+      try {
+        const response = await fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`, {
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+        apiResponded = response.status !== 404;
+        if (response.ok) {
+          const payload = await response.json();
+          if (!Array.isArray(payload?.elements)) throw new Error("INVALID_STRUCTURE_TILE");
+          const cacheStatus = String(response.headers.get("X-OGF-Structure-Cache") || "EDGE").toLocaleLowerCase();
+          const fetchedAt = Date.parse(response.headers.get("X-OGF-Structure-Fetched-At") || "");
+          return {
+            payload,
+            source: `edge-${cacheStatus}`,
+            loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
+          };
+        }
+        if (apiResponded) throw new Error(`STRUCTURE_TILE_HTTP_${response.status}`);
+      } catch (error) {
+        if (apiResponded || error?.name === "AbortError") throw error;
+      } finally {
+        window.clearTimeout(timer);
+        externalSignal?.removeEventListener("abort", abortFromCaller);
+      }
+    }
+    const payload = await fetchJson(OVERPASS_URL, 20000, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: `data=${encodeURIComponent(huayuStructureTileQuery(tile))}`,
+    });
+    if (!Array.isArray(payload?.elements)) throw new Error("INVALID_STRUCTURE_TILE");
+    return { payload, source: "direct-overpass", loadedAt: Date.now() };
+  }
+
+  function huayuStructureEntryFresh(entry) {
+    return entry && Date.now() - (entry.cachedAt || entry.loadedAt) < HUAYU_STRUCTURE_CACHE_MS;
+  }
+
+  function applyHuayuStructures(glMap, state) {
+    const layersReady = ensureHuayuWallLayers(glMap) && ensureHuayuPavilionLayer(glMap);
+    if (!layersReady) {
+      if (state?.active) {
+        window.clearTimeout(state.applyTimer);
+        state.applyTimer = window.setTimeout(() => {
+          state.applyTimer = null;
+          applyHuayuStructures(glMap, state);
+        }, 100);
+      }
+      return;
+    }
+    window.clearTimeout(state.applyTimer);
+    state.applyTimer = null;
+    if (state.appliedRevision !== state.renderRevision) {
+      glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData);
+      glMap.getSource(HUAYU_PAVILION_SOURCE)?.setData(state.pavilionData);
+      state.appliedRevision = state.renderRevision;
+    }
+    syncHuayuWallPerspectiveLayers(glMap);
+    updateHuayuStructureDiagnostics(state);
+  }
+
+  function updateHuayuStructureDiagnostics(state) {
+    const mapElement = document.getElementById("map");
+    if (!mapElement) return;
+    const visibleKeys = [...state.visibleTileKeys];
+    const loadedVisibleTiles = visibleKeys.filter((key) => state.tileCache.has(key));
+    const pendingVisibleTiles = visibleKeys.filter((key) => state.pendingTiles.has(key));
+    const sources = new Set(loadedVisibleTiles.map((key) => state.tileCache.get(key)?.source).filter(Boolean));
+    mapElement.dataset.huayuLivePavilions = String(new Set(state.pavilionData.features
+      .map((feature) => `${feature.properties?.osmType}:${feature.properties?.osmId}`)).size);
+    mapElement.dataset.huayuLiveWalls = String(state.wallData.features.length);
+    mapElement.dataset.huayuWallSource = "ogf-overpass-structure-tiles";
+    mapElement.dataset.huayuWallSnapshot = state.status === "retained" ? "retained-complete"
+      : state.snapshotReady ? "complete" : "progressive";
+    mapElement.dataset.huayuStructureTiles = `${loadedVisibleTiles.length}/${visibleKeys.length}`;
+    mapElement.dataset.huayuStructurePending = String(pendingVisibleTiles.length);
+    mapElement.dataset.huayuStructureCache = [...sources].sort().join(",");
+    mapElement.dataset.huayuStructureStatus = state.status;
+    mapElement.dataset.huayuStructureUpdatedAt = state.loadedAt
+      ? new Date(state.loadedAt).toISOString() : "";
+  }
+
+  function mergeHuayuStructureTiles(state) {
+    const keys = [...state.visibleTileKeys];
+    const readyKeys = keys.filter((key) => state.tileCache.has(key));
+    const ready = readyKeys.length > 0;
+    const complete = ready && readyKeys.length === keys.length;
+    const idle = keys.length > 0 && keys.every((key) => !state.pendingTiles.has(key)
+      && !state.queuedTileKeys.has(key));
+    if (!ready) {
+      state.status = state.dataReady ? "retained" : "loading";
+      updateHuayuStructureDiagnostics(state);
+      return;
+    }
+    const renderSignature = readyKeys.sort().map((key) => {
+      const entry = state.tileCache.get(key);
+      return `${key}@${entry?.revision || 0}`;
+    }).join("|");
+    const replacementReady = complete && idle;
+    if (state.snapshotReady && !replacementReady) {
+      state.status = "retained";
+      updateHuayuStructureDiagnostics(state);
+      return;
+    }
+    if (renderSignature === state.renderSignature && state.dataReady) {
+      state.snapshotReady = replacementReady;
+      state.status = replacementReady ? "ready" : "progressive";
+      applyHuayuStructures(state.glMap, state);
+      return;
+    }
+    const pavilionFeatures = [];
+    const wallFeatures = [];
+    const pavilionSeen = new Set();
+    const wallSeen = new Set();
+    let loadedAt = 0;
+    readyKeys.forEach((key) => {
+      const entry = state.tileCache.get(key);
+      if (!entry) return;
+      entry.lastUsed = Date.now();
+      loadedAt = Math.max(loadedAt, entry.loadedAt || 0);
+      entry.pavilionData.features.forEach((feature) => {
+        const featureKey = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
+        if (pavilionSeen.has(featureKey)) return;
+        pavilionSeen.add(featureKey);
+        pavilionFeatures.push(feature);
+      });
+      entry.wallData.features.forEach((feature) => {
+        const featureKey = String(feature.id || `${feature.properties?.barrierKind}:${feature.properties?.osmId}`);
+        if (wallSeen.has(featureKey)) return;
+        wallSeen.add(featureKey);
+        wallFeatures.push(feature);
+      });
+    });
+    state.loadedAt = loadedAt;
+    state.pavilionData = { type: "FeatureCollection", features: pavilionFeatures };
+    state.wallData = { type: "FeatureCollection", features: wallFeatures };
+    state.dataReady = true;
+    state.snapshotReady = replacementReady;
+    state.renderSignature = renderSignature;
+    state.renderRevision += 1;
+    state.status = replacementReady ? "ready" : "progressive";
+    applyHuayuStructures(state.glMap, state);
+  }
+
+  function pruneHuayuStructureTileCache(state) {
+    if (state.tileCache.size <= HUAYU_STRUCTURE_TILE_CACHE_LIMIT) return;
+    const removable = [...state.tileCache.entries()]
+      .filter(([key]) => !state.visibleTileKeys.has(key) && !state.pendingTiles.has(key))
+      .sort((left, right) => (left[1].lastUsed || 0) - (right[1].lastUsed || 0));
+    while (state.tileCache.size > HUAYU_STRUCTURE_TILE_CACHE_LIMIT && removable.length) {
+      state.tileCache.delete(removable.shift()[0]);
+    }
+  }
+
+  function scheduleNextHuayuStructureRefresh(state) {
+    if (!state.active || !state.visibleTileKeys.size) return;
+    const visibleBusy = [...state.visibleTileKeys].some((key) => state.pendingTiles.has(key)
+      || state.queuedTileKeys.has(key));
+    if (visibleBusy) return;
+    const now = Date.now();
+    let delay = HUAYU_STRUCTURE_CACHE_MS;
+    state.visibleTileKeys.forEach((key) => {
+      const entry = state.tileCache.get(key);
+      if (entry) {
+        delay = Math.min(delay, Math.max(1000,
+          (entry.cachedAt || entry.loadedAt) + HUAYU_STRUCTURE_CACHE_MS - now));
+      } else {
+        const failedAt = state.failedTiles.get(key) || 0;
+        delay = Math.min(delay, Math.max(1000, failedAt + 15000 - now));
+      }
+    });
+    scheduleHuayuStructures(state.glMap, delay);
+  }
+
+  function pumpHuayuStructureTiles(state) {
+    if (!state.active) return;
+    while (state.pendingTiles.size < HUAYU_STRUCTURE_TILE_CONCURRENCY && state.queue.length) {
+      const tile = state.queue.shift();
+      state.queuedTileKeys.delete(tile.key);
+      if (!state.visibleTileKeys.has(tile.key) || state.pendingTiles.has(tile.key)) continue;
+      const controller = new AbortController();
+      const promise = fetchHuayuStructureTile(tile, controller.signal)
+        .then((result) => {
+          if (!state.active) return;
+          state.failedTiles.delete(tile.key);
+          state.tileCache.set(tile.key, {
+            pavilionData: huayuPavilionFeatureCollection(result.payload.elements),
+            wallData: huayuWallFeatureCollection(result.payload.elements),
+            loadedAt: result.loadedAt,
+            cachedAt: Date.now(),
+            lastUsed: Date.now(),
+            source: result.source,
+            revision: ++huayuStructureTileRevision,
+          });
+          pruneHuayuStructureTileCache(state);
+        })
+        .catch(() => {
+          if (state.active && state.visibleTileKeys.has(tile.key)) state.failedTiles.set(tile.key, Date.now());
+        })
+        .finally(() => {
+          state.pendingTiles.delete(tile.key);
+          if (!state.active) return;
+          pumpHuayuStructureTiles(state);
+          if (state.visibleTileKeys.has(tile.key)) mergeHuayuStructureTiles(state);
+          scheduleNextHuayuStructureRefresh(state);
+        });
+      state.pendingTiles.set(tile.key, { promise, controller });
+    }
+    updateHuayuStructureDiagnostics(state);
+  }
+
+  function refreshHuayuStructures(glMap) {
+    const state = huayuStructureStates.get(glMap);
+    if (!state || !state.active || !isHuayuBasemapSelected()) return;
+    if (!ensureHuayuWallLayers(glMap) || !ensureHuayuPavilionLayer(glMap)) {
+      scheduleHuayuStructures(glMap, 200);
+      return;
+    }
+    const visibleBounds = huayuAdministrativeQueryBounds(glMap);
+    if (!visibleBounds || glMap.getZoom() < HUAYU_LIVE_BUILDING_MIN_ZOOM) {
+      state.queue = [];
+      state.queuedTileKeys.clear();
+      state.visibleTileKeys = new Set();
+      state.visibleTileSignature = "";
+      state.tileZoom = null;
+      state.dataReady = false;
+      state.snapshotReady = false;
+      state.status = "zoom-in";
+      state.pavilionData = { type: "FeatureCollection", features: [] };
+      state.wallData = { type: "FeatureCollection", features: [] };
+      state.renderRevision += 1;
+      applyHuayuStructures(glMap, state);
+      return;
+    }
+    const tileZoom = huayuLiveBuildingTileZoom(glMap);
+    const tiles = huayuLiveBuildingVisibleTiles(visibleBounds, tileZoom);
+    const nextVisibleTileSignature = `${tileZoom}|${tiles.map((tile) => tile.key).sort().join(",")}`;
+    const visibleTilesChanged = nextVisibleTileSignature !== state.visibleTileSignature;
+    state.visibleTileSignature = nextVisibleTileSignature;
+    state.tileZoom = tileZoom;
+    state.visibleTileKeys = new Set(tiles.map((tile) => tile.key));
+    state.pendingTiles.forEach((pending, key) => {
+      if (!state.visibleTileKeys.has(key)) pending.controller.abort();
+    });
+    state.queue = state.queue.filter((tile) => state.visibleTileKeys.has(tile.key));
+    state.queuedTileKeys = new Set(state.queue.map((tile) => tile.key));
+    const now = Date.now();
+    tiles.forEach((tile) => {
+      const failedAt = state.failedTiles.get(tile.key) || 0;
+      if (huayuStructureEntryFresh(state.tileCache.get(tile.key))
+        || state.pendingTiles.has(tile.key) || state.queuedTileKeys.has(tile.key)
+        || now - failedAt < 15000) return;
+      state.queue.push(tile);
+      state.queuedTileKeys.add(tile.key);
+    });
+    if (visibleTilesChanged) mergeHuayuStructureTiles(state);
+    if (state.queue.length) pumpHuayuStructureTiles(state);
+    else {
+      mergeHuayuStructureTiles(state);
+      scheduleNextHuayuStructureRefresh(state);
+    }
+  }
+
+  function scheduleHuayuStructures(glMap, delay = 250) {
+    const state = huayuStructureStates.get(glMap);
+    if (!state || !state.active) return;
+    const nextDelay = Math.max(0, Number(delay) || 0);
+    const nextRunAt = Date.now() + nextDelay;
+    if (state.timer && state.timerRunAt <= nextRunAt) return;
+    window.clearTimeout(state.timer);
+    state.timerRunAt = nextRunAt;
+    state.timer = window.setTimeout(() => {
+      state.timer = null;
+      state.timerRunAt = 0;
+      refreshHuayuStructures(glMap);
+    }, nextDelay);
+  }
+
+  function activateHuayuStructures(glMap) {
+    if (!glMap || huayuStructureStates.has(glMap)) return;
+    const state = {
+      active: true,
+      glMap,
+      timer: null,
+      timerRunAt: 0,
+      loadedAt: 0,
+      pavilionData: { type: "FeatureCollection", features: [] },
+      wallData: { type: "FeatureCollection", features: [] },
+      tileZoom: null,
+      tileCache: huayuStructureSharedTileCache,
+      visibleTileKeys: new Set(),
+      pendingTiles: new Map(),
+      failedTiles: new Map(),
+      queue: [],
+      queuedTileKeys: new Set(),
+      dataReady: false,
+      snapshotReady: false,
+      status: "loading",
+      renderSignature: "",
+      renderRevision: 0,
+      appliedRevision: -1,
+      applyTimer: null,
+      visibleTileSignature: "",
+      onMoveEnd: null,
+    };
+    state.onMoveEnd = () => scheduleHuayuStructures(glMap, 120);
+    huayuStructureStates.set(glMap, state);
+    glMap.on("moveend", state.onMoveEnd);
+    scheduleHuayuStructures(glMap, 0);
+  }
+
+  function deactivateHuayuStructures(glMap) {
+    const state = glMap && huayuStructureStates.get(glMap);
+    if (!state) return;
+    state.active = false;
+    window.clearTimeout(state.timer);
+    window.clearTimeout(state.applyTimer);
+    state.pendingTiles.forEach((pending) => pending.controller.abort());
+    glMap.off("moveend", state.onMoveEnd);
+    huayuStructureStates.delete(glMap);
+    const mapElement = document.getElementById("map");
+    if (mapElement) {
+      delete mapElement.dataset.huayuLivePavilions;
+      delete mapElement.dataset.huayuLiveWalls;
+      delete mapElement.dataset.huayuWallSource;
+      delete mapElement.dataset.huayuWallSnapshot;
+      delete mapElement.dataset.huayuStructureTiles;
+      delete mapElement.dataset.huayuStructurePending;
+      delete mapElement.dataset.huayuStructureCache;
+      delete mapElement.dataset.huayuStructureStatus;
+      delete mapElement.dataset.huayuStructureUpdatedAt;
     }
   }
 
@@ -21537,6 +22439,8 @@
         },
       }, beforeRoadLabels);
     }
+    syncHuayuBuildingReplacementLayers(glMap,
+      Boolean(huayuLiveBuildingStates.get(glMap)?.primaryActive));
   }
 
   function huayuPoiLabelTextField() {
@@ -22201,12 +23105,17 @@
   }
 
   function huayuIsPublicTransportShelter(element) {
-    if (!element || element.type === "node") return false;
+    if (!element) return false;
     const tags = element.tags || {};
     const shelterType = String(tags.shelter_type || "").toLocaleLowerCase();
+    const publicTransport = String(tags.public_transport || "").toLocaleLowerCase();
+    const railway = String(tags.railway || "").toLocaleLowerCase();
+    const highway = String(tags.highway || "").toLocaleLowerCase();
     return (String(tags.amenity || "").toLocaleLowerCase() === "shelter"
         || ["roof", "shelter"].includes(String(tags.building || "").toLocaleLowerCase()))
-      && (shelterType === "public_transport" || String(tags.bus || "").toLocaleLowerCase() === "yes");
+      && (shelterType === "public_transport" || Boolean(publicTransport)
+        || ["station", "halt", "tram_stop"].includes(railway) || highway === "bus_stop"
+        || String(tags.bus || "").toLocaleLowerCase() === "yes");
   }
 
   function huayuBusFacilityPartFeature(id, part, geometry, minHeight, height, properties = {}) {
@@ -22267,7 +23176,11 @@
     const shelterHeight = clamp(parseHuayuWallMeasurement(tags.height, 2.8, 4.2), 2.2, 4.2);
     const roofThickness = clamp(parseHuayuWallMeasurement(tags["roof:thickness"], 0.18, 0.45), 0.12, 0.45);
     const key = `bus-shelter:${element.id}`;
-    const properties = { osmId: String(element.id), heightSource: tags.height ? "tagged" : "default" };
+    const properties = {
+      osmId: String(element.id),
+      heightSource: tags.height ? "tagged" : "default",
+      buildingReplacement: 1,
+    };
     const features = [{
       type: "Feature",
       id: `${key}:surface`,
@@ -23382,6 +24295,7 @@
     elements.mapViewButton.querySelector("span").textContent = mapViewMode === "transit" ? "交通图" : "视图";
     elements.basemapOptions.forEach((input) => { input.checked = input.value === selectedBasemapId; });
     elements.basemapStatus.textContent = BASEMAP_STYLES[selectedBasemapId].label;
+    syncPublishedTransitStationLayers();
     updateMapFeatureSelectionControl();
     syncVectorCameraControls();
   }

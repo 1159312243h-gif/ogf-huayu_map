@@ -159,6 +159,7 @@ function compactNetwork(network, snapshotId) {
         Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
         Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
       ) ? 1 : 0,
+      stop.isInterchange ? 1 : 0,
     ];
   });
 

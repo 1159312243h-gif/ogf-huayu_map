@@ -108,7 +108,9 @@ try {
   assert.match(building.headers.get("cache-control") || "", /max-age=10800/u);
   assert.match(upstreamQueries.at(-1), /buildingWays/u);
   assert.match(upstreamQueries.at(-1), /barrierWays/u,
-    "building tiles should carry walls and fences at the same zooms");
+    "legacy building snapshots should remain reusable");
+  assert.doesNotMatch(upstreamQueries.at(-1), /pavilionStructures/u,
+    "pavilion selectors must not make the heavy building query time out");
 
   const detailedBuilding = await worker.fetch(
     new Request("https://example.test/api/buildings/15/29822/14884.json"), { ASSETS: assets }, context);
@@ -117,6 +119,37 @@ try {
     new Request("https://example.test/api/buildings/16/59644/29768.json"), { ASSETS: assets }, context);
   assert.equal(invalidBuilding.status, 400);
   assert.deepEqual((await invalidBuilding.json()).requiredZooms, [11, 12, 13, 14, 15]);
+
+  const structureUrl = "https://example.test/api/structures/15/30304/15036.json?probe=1";
+  const structure = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
+  assert.equal(structure.status, 200);
+  assert.equal(structure.headers.get("x-ogf-structure-cache"), "MISS");
+  assert.equal(structure.headers.get("x-ogf-structure-policy"), "snapshot-3h");
+  assert.match(structure.headers.get("cache-control") || "", /max-age=60/u);
+  assert.match(upstreamQueries.at(-1), /barrierWays/u);
+  assert.match(upstreamQueries.at(-1), /pavilionStructures/u);
+  assert.match(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]/u,
+    "all non-transit shelter candidates should reach client-side classification");
+  assert.match(upstreamQueries.at(-1), /leisure"="gazebo/u);
+  assert.match(upstreamQueries.at(-1), /man_made"~"\^\(gazebo\|pavilion\)\$"/u);
+  assert.match(upstreamQueries.at(-1), /building:part"~"\^\(gazebo\|pavilion\)\$"/u);
+  assert.match(upstreamQueries.at(-1), /nwr\["building"\]\["building"!="no"\]\["name"~/u,
+    "named pavilion buildings should reach client-side classification even without shelter tags");
+  assert.match(upstreamQueries.at(-1), /way\(r\.pavilionStructures\)/u,
+    "pavilion relation member ways should be returned for polygon assembly");
+  assert.match(upstreamQueries.at(-1), /pavilionClearanceWays/u,
+    "z14-z15 structure tiles should include roads for pavilion clearance sizing");
+  const structureQueriesAfterMiss = upstreamQueries.length;
+  const structureHit = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
+  assert.equal(structureHit.headers.get("x-ogf-structure-cache"), "HIT");
+  assert.equal(upstreamQueries.length, structureQueriesAfterMiss);
+  const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v2-open-pavilions"));
+  assert.ok(structureCacheKey, "structures should use an independent edge snapshot cache");
+
+  const invalidStructure = await worker.fetch(
+    new Request("https://example.test/api/structures/16/60608/30072.json"), { ASSETS: assets }, context);
+  assert.equal(invalidStructure.status, 400);
+  assert.deepEqual((await invalidStructure.json()).requiredZooms, [11, 12, 13, 14, 15]);
 
   const invalidTransit = await worker.fetch(
     new Request("https://example.test/api/transit/rail/11/1893/939.json"), { ASSETS: assets }, context);
@@ -172,6 +205,8 @@ try {
     liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
     buildingZooms: [11, 12, 13, 14, 15],
     buildingCache: "3h",
+    structureZooms: [11, 12, 13, 14, 15],
+    structureCache: "MISS/HIT/3h",
     transitTileZooms: { rail: 10, bus: 12 },
     transitCache: "MISS/HIT/STALE/background-refresh/3h",
   }, null, 2));

@@ -345,6 +345,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     step("build-station-access.cjs"),
     step("build-huaxia-airports.cjs", ...(resume ? ["--resume"] : [])),
     step("build-rail-connections.cjs"),
+    step("enforce-transit-service-rules.cjs"),
   ]) await run(item);
 }
 

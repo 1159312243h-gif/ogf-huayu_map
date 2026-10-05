@@ -2,6 +2,10 @@ const OGF_OVERPASS_URL = "https://overpass.opengeofiction.net/api/interpreter";
 const BUILDING_TILE_ZOOMS = new Set([11, 12, 13, 14, 15]);
 const BUILDING_CACHE_SECONDS = 10800;
 const BUILDING_QUERY_TIMEOUT_MS = 30000;
+const STRUCTURE_TILE_ZOOMS = BUILDING_TILE_ZOOMS;
+const STRUCTURE_REFRESH_SECONDS = 10800;
+const STRUCTURE_RETENTION_SECONDS = 604800;
+const STRUCTURE_QUERY_TIMEOUT_MS = 20000;
 const LIVE_BASEMAP_TILE_ZOOMS = new Set([13, 14, 15]);
 const LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS = new Set([13, 14]);
 const LIVE_BASEMAP_SNAPSHOT_REFRESH_SECONDS = 10800;
@@ -15,6 +19,7 @@ const TRANSIT_RETENTION_SECONDS = 604800;
 const TRANSIT_QUERY_TIMEOUT_MS = Object.freeze({ rail: 40000, bus: 20000 });
 const liveBasemapRefreshes = new Map();
 const transitTileRefreshes = new Map();
+const structureTileRefreshes = new Map();
 
 function buildingTileBounds(z, x, y) {
   const scale = 2 ** z;
@@ -42,6 +47,23 @@ function buildingOverpassQuery(bounds) {
     + `(.buildingWays;.buildingRelations;.buildingPartWays;.buildingPartRelations;.ancientWays;.ancientRelations;`
     + `.ancientArchitectureWays;.ancientArchitectureRelations;.barrierWays;way(r.buildingRelations);way(r.buildingPartRelations);`
     + `way(r.ancientRelations);way(r.ancientArchitectureRelations););out body geom;`;
+}
+
+function structureOverpassQuery(bounds, zoom) {
+  const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
+  const pavilionName = "(凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$";
+  const clearanceWays = zoom >= 14
+    ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
+  return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
+    + `nwr["amenity"="shelter"](${bbox});nwr["leisure"="gazebo"](${bbox});`
+    + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
+    + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});`
+    + `nwr["building"]["building"!="no"]["name"~"${pavilionName}"](${bbox});`
+    + `nwr["building"~"^(roof|shelter)$"]["name"~"${pavilionName}"](${bbox});`
+    + `nwr["tourism"="attraction"]["name"~"${pavilionName}"](${bbox});`
+    + `nwr["historic"="building"]["name"~"${pavilionName}"](${bbox});)->.pavilionStructures;`
+    + `(.barrierWays;.pavilionStructures;way(r.pavilionStructures);`
+    + `${zoom >= 14 ? ".pavilionClearanceWays;" : ""});out body geom;`;
 }
 
 function liveBasemapOverpassQuery(bounds, zoom) {
@@ -220,6 +242,125 @@ async function fetchBuildingTile(request, context, z, x, y) {
     }), 504, { "Cache-Control": "no-store" });
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function structureTileClientResponse(response, cacheStatus) {
+  const headers = new Headers(response.headers);
+  const fetchedAt = Date.parse(headers.get("X-OGF-Structure-Fetched-At") || "");
+  const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : 0;
+  headers.set("X-OGF-Structure-Cache", cacheStatus);
+  headers.set("X-OGF-Structure-Policy", "snapshot-3h");
+  headers.set("X-OGF-Structure-Age", String(ageSeconds));
+  headers.set("X-OGF-Structure-Refresh-After", String(cacheStatus === "STALE"
+    ? 30 : Math.max(0, STRUCTURE_REFRESH_SECONDS - ageSeconds)));
+  headers.set("Cache-Control", `public, max-age=${cacheStatus === "STALE" ? 0 : 60}, must-revalidate`);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function loadStructureTile(cacheKey, z, x, y) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STRUCTURE_QUERY_TIMEOUT_MS);
+  try {
+    const query = structureOverpassQuery(buildingTileBounds(z, x, y), z);
+    const upstream = await fetch(OGF_OVERPASS_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      },
+      body: `data=${encodeURIComponent(query)}`,
+      signal: controller.signal,
+    });
+    if (!upstream.ok) {
+      const error = new Error("overpass_error");
+      error.responseStatus = 502;
+      error.upstreamStatus = upstream.status;
+      throw error;
+    }
+    const body = await upstream.text();
+    let payload = null;
+    try {
+      payload = JSON.parse(body);
+    } catch {
+      const error = new Error("invalid_overpass_json");
+      error.responseStatus = 502;
+      throw error;
+    }
+    if (!Array.isArray(payload?.elements)) {
+      const error = new Error("invalid_overpass_payload");
+      error.responseStatus = 502;
+      throw error;
+    }
+    const response = buildingJsonResponse(body, 200, {
+      "Cache-Control": `public, max-age=0, s-maxage=${STRUCTURE_RETENTION_SECONDS}`,
+      "X-OGF-Structure-Fetched-At": new Date().toISOString(),
+      "X-OGF-Structure-Tile": `${z}/${x}/${y}`,
+      "X-OGF-Structure-Policy": "snapshot-3h",
+    });
+    await caches.default.put(cacheKey, response.clone());
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function refreshStructureTile(cacheKey, z, x, y) {
+  const refreshKey = cacheKey.url;
+  if (structureTileRefreshes.has(refreshKey)) return structureTileRefreshes.get(refreshKey);
+  const refresh = loadStructureTile(cacheKey, z, x, y)
+    .finally(() => structureTileRefreshes.delete(refreshKey));
+  structureTileRefreshes.set(refreshKey, refresh);
+  return refresh;
+}
+
+async function fetchStructureTile(request, context, z, x, y) {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Accept",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+  if (request.method !== "GET") {
+    return buildingJsonResponse(JSON.stringify({ error: "method_not_allowed" }), 405, { Allow: "GET, OPTIONS" });
+  }
+  const scale = 2 ** z;
+  if (!STRUCTURE_TILE_ZOOMS.has(z) || x < 0 || y < 0 || x >= scale || y >= scale) {
+    return buildingJsonResponse(JSON.stringify({
+      error: "invalid_structure_tile",
+      requiredZooms: [...STRUCTURE_TILE_ZOOMS],
+    }), 400);
+  }
+  const cacheUrl = new URL(request.url);
+  cacheUrl.search = "";
+  cacheUrl.searchParams.set("schema", "huayu-structures-v2-open-pavilions");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+  const cached = await caches.default.match(cacheKey);
+  if (cached) {
+    const fetchedAt = Date.parse(cached.headers.get("X-OGF-Structure-Fetched-At") || "");
+    const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : Infinity;
+    if (ageSeconds < STRUCTURE_REFRESH_SECONDS) return structureTileClientResponse(cached, "HIT");
+    const refresh = refreshStructureTile(cacheKey, z, x, y);
+    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
+    return structureTileClientResponse(cached, "STALE");
+  }
+  try {
+    const response = await refreshStructureTile(cacheKey, z, x, y);
+    return structureTileClientResponse(response.clone(), "MISS");
+  } catch (error) {
+    return buildingJsonResponse(JSON.stringify({
+      error: error?.name === "AbortError" ? "overpass_timeout" : String(error?.message || "overpass_unavailable"),
+      ...(Number.isFinite(error?.upstreamStatus) ? { status: error.upstreamStatus } : {}),
+    }), error?.responseStatus || 504, { "Cache-Control": "no-store" });
   }
 }
 
@@ -468,6 +609,10 @@ export default {
     const match = url.pathname.match(/^\/api\/buildings\/(\d+)\/(\d+)\/(\d+)\.json$/u);
     if (match) {
       return fetchBuildingTile(request, context, ...match.slice(1).map(Number));
+    }
+    const structureMatch = url.pathname.match(/^\/api\/structures\/(\d+)\/(\d+)\/(\d+)\.json$/u);
+    if (structureMatch) {
+      return fetchStructureTile(request, context, ...structureMatch.slice(1).map(Number));
     }
     const liveBasemapMatch = url.pathname.match(/^\/api\/live-basemap\/(\d+)\/(\d+)\/(\d+)\.json$/u);
     if (liveBasemapMatch) {

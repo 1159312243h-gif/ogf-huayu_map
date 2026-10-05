@@ -90,6 +90,7 @@
       "stationNames": ["北沪车站"],
       "routeRefs": ["R", "I", "M"],
       "routeNames": [],
+      "symbolMode": "single-ring",
       "source": "user_confirmed"
     },
     {
@@ -97,6 +98,7 @@
       "stationNames": ["二重"],
       "routeRefs": ["M", "CY"],
       "routeNames": [],
+      "symbolMode": "single-ring",
       "source": "user_confirmed"
     },
     {
@@ -104,6 +106,8 @@
       "stationNames": ["郁家桥"],
       "routeRefs": ["CY"],
       "routeNames": ["捷运纵贯线"],
+      "symbolMode": "single-ring",
+      "mergeNearbyUnnamedWithinMeters": 30,
       "source": "user_confirmed"
     },
     {
@@ -111,6 +115,7 @@
       "stationNames": ["中山信德"],
       "routeRefs": ["BL"],
       "routeNames": [],
+      "symbolMode": "single-ring",
       "displayRoutes": [
         {
           "id": "beihu-zhongshan-xinde-railway",
@@ -129,6 +134,8 @@
       "routeRefs": ["R", "I", "P"],
       "routeNames": [],
       "displayOnly": true,
+      "symbolMode": "single-ring",
+      "mergeNearbyUnnamedWithinMeters": 80,
       "source": "user_confirmed"
     },
     {
@@ -138,6 +145,7 @@
       "routeNames": [],
       "mainline": false,
       "displayOnly": true,
+      "symbolMode": "single-ring",
       "source": "user_confirmed"
     },
     {
@@ -146,6 +154,7 @@
       "routeRefs": ["P", "BL"],
       "routeNames": [],
       "displayOnly": true,
+      "symbolMode": "single-ring",
       "source": "user_confirmed"
     },
     {

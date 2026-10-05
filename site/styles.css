@@ -2832,6 +2832,32 @@ button.popup-route:focus-visible .popup-route-arrow {
   border-radius: 50%;
 }
 
+.rail-stop-symbol.is-station-complex {
+  display: flex;
+  width: auto;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.rail-stop-symbol.is-station-complex > i {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  margin-left: -3px;
+  background: #ffffff;
+  border: 3px solid var(--station-lobe-color, #7651a3);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(28, 39, 44, 0.32);
+}
+
+.rail-stop-symbol.is-station-complex > i:first-child {
+  margin-left: 0;
+}
+
 .rail-stop-symbol.is-mainline {
   border-radius: 3px;
 }
@@ -2855,6 +2881,12 @@ button.popup-route:focus-visible .popup-route-arrow {
 .bus-stop-symbol.is-selected {
   transform: scale(1.28);
   box-shadow: 0 0 0 3px rgba(23, 105, 224, 0.3), 0 2px 6px rgba(28, 39, 44, 0.4);
+}
+
+.rail-stop-symbol.is-station-complex.is-selected {
+  transform: scale(1.18);
+  box-shadow: none;
+  filter: drop-shadow(0 0 2px rgba(23, 105, 224, 0.55));
 }
 
 .leaflet-tooltip.transit-stop-label {

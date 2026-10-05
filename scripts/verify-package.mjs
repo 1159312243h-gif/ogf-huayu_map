@@ -41,8 +41,15 @@ for (const required of ["_headers", "_worker.js", "app.js", "index.html", "huayu
 
 const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
+const styles = await fs.readFile(path.join(site, "styles.css"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
 const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
+const transitPreload = JSON.parse(await fs.readFile(path.join(site, "transit-preload.json"), "utf8"));
+const transitServices = JSON.parse(await fs.readFile(path.join(site, "transit-services.json"), "utf8"));
+const dataUpdater = await fs.readFile(path.join(root, "scripts", "update-all-data.mjs"), "utf8");
+const compactTransitBuilder = await fs.readFile(
+  path.join(root, "scripts", "data-update", "builders", "compact-transit-preload.cjs"), "utf8",
+);
 const dataRefreshWorkflow = await fs.readFile(path.join(root, ".github", "workflows", "data-refresh.yml"), "utf8");
 assert.ok(index.includes(release.entryScript), "index.html 未引用 release.json 指定的应用版本");
 assert.ok(app.includes(`\"huayu:model-version\": \"${release.expectedBuildingModel}\"`), "建筑模型版本不一致");
@@ -50,6 +57,9 @@ assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildin
 assert.ok(worker.includes(`new Set([${release.expectedBuildingTileZooms.join(", ")}])`), "Worker 建筑分片级别不一致");
 assert.ok(worker.includes(`BUILDING_CACHE_SECONDS = ${release.expectedBuildingCacheSeconds}`),
   "Worker 建筑缓存周期不一致");
+assert.ok(worker.includes(`STRUCTURE_REFRESH_SECONDS = ${release.expectedStructureRefreshSeconds}`)
+  && worker.includes("fetchStructureTile") && release.structureProbe.startsWith("/api/structures/"),
+"Worker 缺少独立墙、栅栏与亭子三小时分片接口");
 assert.ok(app.includes(`HUAYU_LIVE_BASEMAP_MIN_ZOOM = ${release.expectedLiveBasemapMinZoom}`),
   "实时底图起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedLiveBasemapTileZooms.join(", ")}])`),
@@ -96,23 +106,144 @@ assert.ok(dataRefreshWorkflow.includes('cron: "17 */3 * * *"')
   && dataRefreshWorkflow.includes("pages deploy site --project-name=ogf-atlas")
   && dataRefreshWorkflow.includes("npm run verify:online"),
 "全国交通数据必须每三小时重建、校验，仅在变化时提交并部署");
-assert.equal((app.match(/state\.timer && state\.timerRunAt <= nextRunAt/g) || []).length, 2,
-  "客户端实时底图和建筑必须保留更早的刷新任务");
+assert.equal((app.match(/state\.timer && state\.timerRunAt <= nextRunAt/g) || []).length, 3,
+  "客户端实时底图、建筑和轻量结构物必须保留更早的刷新任务");
 assert.ok(app.includes("const readyKeys = keys.filter((key) => state.tileCache.has(key))")
-  && app.includes('state.status = complete ? (idle ? "ready" : "refreshing") : "partial"')
-  && app.includes("[...state.visibleTileKeys].every((key) => state.tileCache.has(key))")
+  && app.includes("if (!complete)")
+  && app.includes('state.status = state.snapshotReady ? "retained" : "partial"')
+  && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, state.snapshotReady)")
   && app.includes("scheduleHuayuLiveBuildingCoverageFinalize(state)"),
-"建筑分片必须渐进显示，并在完整覆盖前保留矢量兜底");
+"建筑分片必须完整后原子接管，冷启动的局部分片不得与发布建筑叠加");
 assert.ok(app.includes("return clamp(Math.floor(glMap.getZoom()) + 1"),
   "建筑必须保留比底图细一级的分片，避免密集城区大分片阻塞");
 assert.ok(app.includes("visibleTileSignature")
   && app.includes("const visibleTilesChanged = nextVisibleTileSignature !== state.visibleTileSignature")
   && app.includes("if (visibleTilesChanged) mergeHuayuLiveBuildingTiles(state)"),
 "建筑倾斜视角必须复用未变化的可视瓦片集合，避免滚轮每步重复合并");
-assert.ok(app.includes("Do not invalidate the displayed model")
-  && app.includes("if (!state.dataReady) {")
-  && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, true);"),
-"建筑新覆盖加载期间必须保留上一帧模型，不得清空实时源造成闪烁");
+assert.ok(app.includes('state.status = state.snapshotReady ? "retained" : "loading"')
+  && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, true);")
+  && app.includes("state.snapshotReady = true;"),
+"建筑新覆盖加载期间必须保留上一份完整实时快照，不得清空或显示局部分片");
+const buildingReplacementSyncSource = app.match(/function syncHuayuBuildingReplacementLayers\(glMap, liveOwnsBuildings\) \{[\s\S]*?\n  \}/u)?.[0];
+const buildingPrimarySyncSource = app.match(/function syncHuayuLiveBuildingPrimaryLayers\(glMap, state, enabled\) \{[\s\S]*?\n  \}/u)?.[0];
+assert.ok(buildingReplacementSyncSource && buildingPrimarySyncSource,
+  "无法读取建筑所有权切换函数");
+const vectorBuildingLayers = ["building", "building-top", "building-3d"];
+const ancientBuildingLayers = { roof: "ancient-roof", outline: "ancient-outline" };
+const pavilionLayers = ["pavilion-base", "pavilion-columns", "pavilion-roof"];
+const busFacilityLayers = { model: "bus-facility-model" };
+const buildingLayerState = new Map([
+  ...vectorBuildingLayers.map((id) => [id, "visible"]),
+  ["live-building", "none"],
+  ...Object.values(ancientBuildingLayers).map((id) => [id, "none"]),
+]);
+const buildingLayerFilters = new Map();
+const buildingMap = {
+  getLayer: () => true,
+  setLayoutProperty: (id, property, value) => {
+    assert.equal(property, "visibility");
+    buildingLayerState.set(id, value);
+  },
+  setFilter: (id, filter) => buildingLayerFilters.set(id, filter),
+};
+const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
+  "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS",
+  `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers);
+const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
+  "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers",
+  `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
+  ancientBuildingLayers, syncBuildingReplacements);
+const buildingOwnerState = { primaryActive: false };
+syncBuildingOwners(buildingMap, buildingOwnerState, true);
+assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "none")
+  && ["live-building", ...Object.values(ancientBuildingLayers)]
+    .every((id) => buildingLayerState.get(id) === "visible")
+  && buildingOwnerState.primaryActive,
+"实时建筑接管时必须一次关闭全部发布建筑，并显示实时建筑与古建筑部件");
+assert.deepEqual(buildingLayerFilters.get("pavilion-roof"),
+  ["==", ["get", "pavilionPart"], "roof"], "实时建筑接管后应显示面状亭子模型");
+assert.deepEqual(buildingLayerFilters.get("bus-facility-model"), ["has", "busFacilityPart"],
+  "实时建筑接管后应显示面状候车亭模型");
+syncBuildingOwners(buildingMap, buildingOwnerState, false);
+assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "visible")
+  && ["live-building", ...Object.values(ancientBuildingLayers)]
+    .every((id) => buildingLayerState.get(id) === "none")
+  && !buildingOwnerState.primaryActive,
+"发布建筑兜底时必须先关闭全部实时建筑部件，再恢复发布建筑");
+assert.deepEqual(buildingLayerFilters.get("pavilion-roof"),
+  ["all", ["==", ["get", "pavilionPart"], "roof"],
+    ["==", ["get", "osmType"], "node"]],
+"发布建筑兜底时仅节点亭子可继续显示，面状亭子不得与建筑叠加");
+assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
+  ["all", ["has", "busFacilityPart"],
+    ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]],
+"发布建筑兜底时面状候车亭模型不得与建筑面重复");
+const mergeBuildingTilesSource = app.match(/function mergeHuayuLiveBuildingTiles\(state\) \{[\s\S]*?\n  \}/u)?.[0];
+assert.ok(mergeBuildingTilesSource, "无法读取实时建筑分片合并状态机");
+const buildingOwnershipCalls = [];
+const appliedBuildingStates = [];
+const mergeBuildingTiles = Function("clearHuayuLiveBuildingPrimarySync",
+  "syncHuayuLiveBuildingPrimaryLayers", "updateHuayuLiveBuildingDiagnostics",
+  "applyHuayuLiveBuildings", `"use strict"; return (${mergeBuildingTilesSource});`)(
+  () => {},
+  (_map, state, enabled) => {
+    state.primaryActive = Boolean(enabled);
+    buildingOwnershipCalls.push(Boolean(enabled));
+  },
+  () => {},
+  (_map, state) => appliedBuildingStates.push({
+    snapshotReady: state.snapshotReady,
+    featureCount: state.data.features.length,
+  }),
+);
+const buildingTileEntry = (key, revision) => ({
+  revision,
+  loadedAt: revision * 1000,
+  data: { type: "FeatureCollection", features: [{
+    type: "Feature", id: `live-building:${key}`,
+    properties: { osmId: key }, geometry: null,
+  }] },
+});
+const coldPartialBuildings = {
+  glMap: {}, visibleTileKeys: new Set(["a", "b"]),
+  tileCache: new Map([["a", buildingTileEntry("a", 1)]]),
+  pendingTiles: new Map(), queuedTileKeys: new Set(),
+  data: { type: "FeatureCollection", features: [] },
+  dataReady: false, coverageReady: false, snapshotReady: false,
+  primaryActive: false, primaryRevision: 0, renderSignature: "",
+  renderRevision: 0, lastMergeKeyCount: 0, lastMergeReadyCount: 0,
+};
+mergeBuildingTiles(coldPartialBuildings);
+assert.equal(coldPartialBuildings.status, "partial");
+assert.equal(coldPartialBuildings.data.features.length, 0,
+  "冷启动半包不得提交局部实时建筑");
+assert.equal(buildingOwnershipCalls.at(-1), false,
+  "冷启动半包必须继续由发布建筑兜底");
+const retainedBuildings = {
+  ...coldPartialBuildings,
+  data: { type: "FeatureCollection", features: [{ id: "previous-complete" }] },
+  dataReady: true, snapshotReady: true, primaryActive: true,
+};
+mergeBuildingTiles(retainedBuildings);
+assert.equal(retainedBuildings.status, "retained");
+assert.equal(retainedBuildings.data.features[0].id, "previous-complete",
+  "新视窗半包不得覆盖上一份完整实时建筑快照");
+assert.equal(buildingOwnershipCalls.at(-1), true,
+  "替换快照加载期间必须保持上一份完整实时建筑的所有权");
+const completeBuildings = {
+  ...coldPartialBuildings,
+  tileCache: new Map([
+    ["a", buildingTileEntry("a", 2)],
+    ["b", buildingTileEntry("b", 3)],
+  ]),
+};
+mergeBuildingTiles(completeBuildings);
+assert.equal(completeBuildings.snapshotReady, true);
+assert.equal(completeBuildings.coverageReady, true);
+assert.equal(completeBuildings.data.features.length, 2,
+  "完整可见分片必须合并为一份实时建筑快照");
+assert.deepEqual(appliedBuildingStates.at(-1), { snapshotReady: true, featureCount: 2 },
+  "完整建筑快照必须整体提交后再进入所有权切换");
 assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM")
   && (app.match(/minzoom: HUAYU_WALL_MIN_ZOOM/g) || []).length === 6
   && app.includes('[[10, 0.45], [15, 1.1]')
@@ -121,26 +252,71 @@ assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM
 assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && app.includes("wallData: huayuWallFeatureCollection(result.payload.elements)")
-  && app.includes("const nextWallData = { type: \"FeatureCollection\", features: wallFeatures };")
+  && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`")
+  && worker.includes('schema", "huayu-structures-v2-open-pavilions"')
   && worker.includes('schema", "huayu-building-v5"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
-"墙和栅栏必须复用建筑分片与缓存，不得恢复近景独立大范围查询");
-assert.ok(app.includes("const layersReady = ensureHuayuLiveBuildingLayer(glMap) && ensureHuayuWallLayers(glMap);")
+"墙和栅栏必须使用独立轻量分片与三小时缓存，不得被建筑查询超时连带清空");
+const buildingWorkerQuerySource = worker.match(/function buildingOverpassQuery\(bounds\) \{[\s\S]*?\n\}/u)?.[0] || "";
+const buildingClientQuerySource = app.match(/function huayuLiveBuildingTileQuery\(tile\) \{[\s\S]*?\n  \}/u)?.[0] || "";
+assert.ok(buildingWorkerQuerySource && buildingClientQuerySource
+  && !buildingWorkerQuerySource.includes("pavilionStructures")
+  && !buildingClientQuerySource.includes("pavilionStructures")
+  && !buildingWorkerQuerySource.includes('nwr["amenity"="shelter"]')
+  && !buildingClientQuerySource.includes('nwr["amenity"="shelter"]'),
+"重型建筑查询不得继续包含亭子选择器");
+assert.ok(app.includes("const layersReady = ensureHuayuWallLayers(glMap) && ensureHuayuPavilionLayer(glMap);")
   && app.indexOf("glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData")
-    < app.indexOf("glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data"),
-"墙体源必须和建筑源原子提交，并在建筑源进入加载态前写入墙体数据");
+    < app.indexOf("glMap.getSource(HUAYU_PAVILION_SOURCE)?.setData(state.pavilionData"),
+"墙体和亭子必须由轻量结构物加载器原子提交");
 assert.ok(app.includes("function positionHuayuWallsAboveBuildings(glMap)")
   && app.includes("positionHuayuWallsAboveBuildings(glMap);")
   && app.includes("function syncHuayuWallPerspectiveLayers(glMap) {\n    // Source requests can keep isStyleLoaded() false")
   && app.includes("if (!glMap?.getStyle?.()) return;")
-  && app.includes('glMap.setLayoutProperty(layerId, "visibility", "visible")')
+  && app.includes('glMap.setLayoutProperty(layerId, "visibility", perspective ? "none" : "visible")')
   && app.includes("polygons.push([huayuNormalizedWallRing(ring, false)])")
   && app.includes("huayuWallSegmentPolygons(coordinates, width, fence ? 0.12 : 0.2)")
-  && app.includes("if (complete || !state.wallDataReady)")
+  && app.includes("if (state.snapshotReady && !replacementReady)")
   && app.includes('"retained-complete"')
-  && app.includes("wallRenderSignature"),
-"墙和栅栏在透视视角必须保留轮廓、位于建筑之上，并原子切换完整分片快照");
+  && app.includes("state.snapshotReady = replacementReady"),
+"墙和栅栏必须在俯视线层与透视立体层之间互斥切换，并原子替换完整分片快照");
+const wallPerspectiveSyncSource = app.match(/function syncHuayuWallPerspectiveLayers\(glMap\) \{[\s\S]*?\n  \}/u)?.[0];
+assert.ok(wallPerspectiveSyncSource, "无法读取墙体透视显隐同步函数");
+const wallLayerIds = {
+  extrusion: "wall-extrusion",
+  casing: "wall-casing",
+  line: "wall-line",
+  fenceExtrusion: "fence-extrusion",
+  fenceCasing: "fence-casing",
+  fenceLine: "fence-line",
+};
+let testedWallPitch = 48;
+const wallVisibility = new Map();
+const wallLayerMap = {
+  getStyle: () => ({ layers: [] }),
+  getPitch: () => testedWallPitch,
+  getLayer: () => true,
+  setLayoutProperty: (id, property, value) => {
+    assert.equal(property, "visibility");
+    wallVisibility.set(id, value);
+  },
+};
+const syncWallPerspective = Function("HUAYU_WALL_LAYERS", "positionHuayuWallsAboveBuildings",
+  `"use strict"; return (${wallPerspectiveSyncSource});`)(wallLayerIds, () => {});
+syncWallPerspective(wallLayerMap);
+assert.ok([wallLayerIds.extrusion, wallLayerIds.fenceExtrusion]
+  .every((id) => wallVisibility.get(id) === "visible")
+  && [wallLayerIds.casing, wallLayerIds.line, wallLayerIds.fenceCasing, wallLayerIds.fenceLine]
+    .every((id) => wallVisibility.get(id) === "none"),
+"透视模式只能显示墙和栅栏的立体层，平面线不得穿过建筑重复渲染");
+testedWallPitch = 0;
+syncWallPerspective(wallLayerMap);
+assert.ok([wallLayerIds.extrusion, wallLayerIds.fenceExtrusion]
+  .every((id) => wallVisibility.get(id) === "none")
+  && [wallLayerIds.casing, wallLayerIds.line, wallLayerIds.fenceCasing, wallLayerIds.fenceLine]
+    .every((id) => wallVisibility.get(id) === "visible"),
+"俯视模式只能显示墙和栅栏的平面线，立体层不得同时渲染");
 assert.ok(app.includes('ancientKind,')
   && app.includes('HUAYU_ANCIENT_BUILDING_LAYERS')
   && app.includes('"huayu:component": "ancient-building-roof-cap"')
@@ -149,6 +325,206 @@ assert.ok(app.includes('ancientKind,')
   && worker.includes('ancientWays')
   && worker.includes('ancientArchitectureWays'),
 "古建筑必须从当前 OGF 标签查询并使用独立屋顶压檐和轮廓层");
+assert.ok(app.includes('function huayuPavilionKind(tags = {})')
+  && app.includes('structureKind === "pavilion"')
+  && app.includes('function huayuPavilionNodeRadius(element, contextElements = [], fallbackRadiusMeters = 2.6)')
+  && app.includes('function huayuPavilionColumnGeometry(geometry, osmType = "way")')
+  && app.includes('function huayuPavilionInteriorPoint(polygon)')
+  && app.includes('pavilionPart: "roof"')
+  && app.includes('pavilionPart: "column"')
+  && app.includes('pavilionPart: "base"')
+  && app.includes('mapElement.dataset.huayuLivePavilions')
+  && app.includes('palette.pavilionRoof')
+  && app.includes('palette.pavilionColumn')
+  && app.includes('palette.pavilionBase')
+  && app.includes('nwr["amenity"="shelter"]')
+  && app.includes('way["highway"](${bbox})->.pavilionClearanceWays;')
+  && app.includes('way(r.pavilionStructures)')
+  && worker.includes('nwr["amenity"="shelter"]')
+  && worker.includes('way["highway"](${bbox})->.pavilionClearanceWays;')
+  && worker.includes('way(r.pavilionStructures)')
+  && worker.includes('schema", "huayu-structures-v2-open-pavilions"'),
+"亭子与凉亭必须使用道路净距自适应节点轮廓、真实面屋顶、薄地台和开放立柱结构");
+const pavilionKindSource = app.match(/function huayuPavilionKind\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
+const liveBuildingHeightSource = app.match(/function huayuLiveBuildingHeight\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionRoofDepthSource = app.match(/function huayuPavilionRoofDepth\(tags = \{\}, height = 3\.6\) \{[\s\S]*?\n  \}/)?.[0];
+const liveBuildingMinHeightSource = app.match(/function huayuLiveBuildingMinHeight\(tags = \{\}, height\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(pavilionKindSource && liveBuildingHeightSource && pavilionRoofDepthSource && liveBuildingMinHeightSource,
+  "无法读取亭子分类或高度函数");
+const pavilionKind = Function(`"use strict"; return (${pavilionKindSource});`)();
+const parsePavilionMeasurement = (value, fallback, maximum) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.min(maximum, parsed) : fallback;
+};
+const pavilionHeight = Function("huayuPavilionKind", "parseHuayuWallMeasurement",
+  `"use strict"; return (${liveBuildingHeightSource});`)(pavilionKind, parsePavilionMeasurement);
+const pavilionRoofDepth = Function("parseHuayuWallMeasurement",
+  `"use strict"; return (${pavilionRoofDepthSource});`)(parsePavilionMeasurement);
+const pavilionMinHeight = Function("huayuPavilionKind", "huayuPavilionRoofDepth", "parseHuayuWallMeasurement",
+  `"use strict"; return (${liveBuildingMinHeightSource});`)(pavilionKind, pavilionRoofDepth, parsePavilionMeasurement);
+assert.equal(pavilionKind({ leisure: "gazebo" }), "pavilion", "leisure=gazebo 未识别为凉亭");
+assert.equal(pavilionKind({ amenity: "shelter", shelter_type: "picnic_shelter" }), "pavilion",
+  "picnic_shelter 未识别为亭子");
+assert.equal(pavilionKind({ amenity: "shelter" }), "pavilion", "普通 amenity=shelter 未识别为亭子");
+assert.equal(pavilionKind({ amenity: "shelter", shelter_type: "public_transport" }), "",
+  "公共交通候车亭不得识别为通用亭子");
+assert.equal(pavilionKind({ building: "roof", name: "望湖亭" }), "pavilion", "命名亭子屋顶未识别");
+assert.equal(pavilionKind({ tourism: "attraction", name: "睡莲亭" }), "pavilion", "景点节点亭子未识别");
+assert.equal(pavilionKind({ amenity: "shelter", building: "yes", name: "公明亭" }), "pavilion",
+  "带建筑轮廓的命名亭子未识别");
+assert.equal(pavilionKind({ building: "yes", name: "晴风亭" }), "pavilion",
+  "仅带普通建筑标签的命名亭子未识别");
+assert.equal(pavilionKind({ amenity: "police", building: "yes", name: "保安亭" }), "",
+  "保安亭不得误识别为休憩亭子");
+assert.equal(pavilionKind({ public_transport: "station", railway: "station", name: "归云亭" }), "",
+  "名称以亭结尾的车站不得误识别为亭子");
+assert.equal(pavilionKind({ building: "roof", name: "普通雨棚" }), "", "普通屋顶被误识别为亭子");
+assert.equal(pavilionHeight({ leisure: "gazebo", height: "5.2" }), 5.2, "亭子未优先使用 height");
+assert.equal(pavilionHeight({ man_made: "pavilion", "building:levels": "2" }), 6,
+  "亭子未使用 building:levels 推导高度");
+assert.equal(pavilionHeight({ leisure: "gazebo" }), 3.6, "亭子默认高度错误");
+assert.equal(pavilionRoofDepth({ leisure: "gazebo", "roof:height": "1.1" }, 5), 1.1,
+  "亭子未使用 roof:height");
+assert.equal(pavilionMinHeight({ leisure: "gazebo" }, 3.6), 2.8,
+  "无底高参数的亭子应只建模架空屋顶");
+assert.equal(pavilionMinHeight({ leisure: "gazebo", min_height: "2.1" }, 4.2), 2.1,
+  "亭子未尊重显式 min_height");
+const pavilionDistanceSource = app.match(/function huayuPavilionPointSegmentDistanceMeters\(point, first, second\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionRoadHalfWidthSource = app.match(/function huayuPavilionRoadHalfWidth\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionNodeRadiusSource = app.match(/function huayuPavilionNodeRadius\(element, contextElements = \[\], fallbackRadiusMeters = 2\.6\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionNodeGeometrySource = app.match(/function huayuPavilionNodeGeometry\(element, contextElements = \[\], fallbackRadiusMeters = 2\.6\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(pavilionDistanceSource && pavilionRoadHalfWidthSource && pavilionNodeRadiusSource
+  && pavilionNodeGeometrySource, "无法读取节点亭子道路净距或轮廓函数");
+const pavilionDistance = Function(`"use strict"; return (${pavilionDistanceSource});`)();
+const pavilionRoadHalfWidth = Function("parseHuayuWallMeasurement",
+  `"use strict"; return (${pavilionRoadHalfWidthSource});`)(parsePavilionMeasurement);
+const pavilionWallCoordinates = (element) => (element?.geometry || [])
+  .map((point) => [Number(point.lon), Number(point.lat)])
+  .filter(([longitude, latitude]) => Number.isFinite(longitude) && Number.isFinite(latitude));
+const pavilionNodeRadius = Function("parseHuayuWallMeasurement", "huayuWallCoordinates",
+  "huayuPavilionPointSegmentDistanceMeters", "huayuPavilionRoadHalfWidth", "huayuPavilionKind",
+  `"use strict"; return (${pavilionNodeRadiusSource});`)(parsePavilionMeasurement,
+  pavilionWallCoordinates, pavilionDistance, pavilionRoadHalfWidth, pavilionKind);
+const pavilionNodeGeometry = Function("huayuPavilionNodeRadius",
+  `"use strict"; return (${pavilionNodeGeometrySource});`)(pavilionNodeRadius);
+const pavilionNodePolygon = pavilionNodeGeometry({
+  type: "node", lat: 14.6353833, lon: 152.9625553,
+  tags: { amenity: "shelter", shelter_type: "gazebo" },
+});
+assert.equal(pavilionNodePolygon.type, "Polygon", "节点型凉亭未生成屋顶轮廓");
+assert.equal(pavilionNodePolygon.coordinates[0].length, 9, "节点型凉亭屋顶应为闭合八边形");
+assert.deepEqual(pavilionNodePolygon.coordinates[0][0], pavilionNodePolygon.coordinates[0].at(-1),
+  "节点型凉亭屋顶未闭合");
+const pavilionCenter = [152.9625553, 14.6353833];
+const pavilionFirstPoint = pavilionNodePolygon.coordinates[0][0];
+const pavilionDefaultRadius = Math.hypot(
+  (pavilionFirstPoint[0] - pavilionCenter[0]) * 111320 * Math.cos(pavilionCenter[1] * Math.PI / 180),
+  (pavilionFirstPoint[1] - pavilionCenter[1]) * 111320,
+);
+assert.ok(pavilionDefaultRadius > 2.9 && pavilionDefaultRadius < 3.1,
+  "无道路约束的节点型亭子应扩大到约 3 米半径");
+const nearbyFootway = {
+  type: "way", tags: { highway: "footway" }, geometry: [
+    { lon: 152.9625924, lat: 14.63534 }, { lon: 152.9625924, lat: 14.63543 },
+  ],
+};
+const constrainedRadius = pavilionNodeRadius({
+  type: "node", lat: 14.6353833, lon: 152.9625553,
+  tags: { amenity: "shelter", shelter_type: "gazebo" },
+}, [nearbyFootway]);
+assert.ok(constrainedRadius >= 0.8 && constrainedRadius < 2.7,
+  "临近步道的节点亭子必须按道路净距缩小");
+const explicitWidthPolygon = pavilionNodeGeometry({
+  type: "node", lat: 14.6353833, lon: 152.9625553, tags: { amenity: "shelter", width: "8" },
+});
+const explicitWidthPoint = explicitWidthPolygon.coordinates[0][0];
+const explicitWidthRadius = Math.hypot(
+  (explicitWidthPoint[0] - pavilionCenter[0]) * 111320 * Math.cos(pavilionCenter[1] * Math.PI / 180),
+  (explicitWidthPoint[1] - pavilionCenter[1]) * 111320,
+);
+assert.ok(explicitWidthRadius > 3.9 && explicitWidthRadius < 4.1,
+  "节点型亭子必须优先使用显式 width 参数");
+const pavilionRingPerimeterSource = app.match(/function huayuPavilionRingPerimeter\(ring\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionSampleRingSource = app.match(/function huayuPavilionSampleRing\(ring, count\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionWallPointInRingSource = app.match(/function huayuWallPointInRing\(point, ring\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionPolygonContainsPointSource = app.match(/function huayuPavilionPolygonContainsPoint\(point, polygon\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionDistanceToRingsSource = app.match(/function huayuPavilionDistanceToRings\(point, polygon\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionInteriorPointSource = app.match(/function huayuPavilionInteriorPoint\(polygon\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionMoveTowardSource = app.match(/function huayuPavilionMoveTowardMeters\(point, target, meters\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionColumnRingSource = app.match(/function huayuPavilionColumnRing\(center, radiusMeters\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionInsetColumnCenterSource = app.match(/function huayuPavilionInsetColumnCenter\(boundaryPoint, interiorPoint, columnRadius, polygon\) \{[\s\S]*?\n  \}/)?.[0];
+const pavilionColumnGeometrySource = app.match(/function huayuPavilionColumnGeometry\(geometry, osmType = "way"\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(pavilionRingPerimeterSource && pavilionSampleRingSource && pavilionWallPointInRingSource
+  && pavilionPolygonContainsPointSource && pavilionDistanceToRingsSource && pavilionInteriorPointSource
+  && pavilionMoveTowardSource && pavilionColumnRingSource && pavilionInsetColumnCenterSource
+  && pavilionColumnGeometrySource,
+  "无法读取亭子立柱几何函数");
+const pavilionRingPerimeter = Function("huayuPavilionPointSegmentDistanceMeters",
+  `"use strict"; return (${pavilionRingPerimeterSource});`)(pavilionDistance);
+const pavilionSampleRing = Function("huayuPavilionPointSegmentDistanceMeters",
+  `"use strict"; return (${pavilionSampleRingSource});`)(pavilionDistance);
+const pavilionPointKey = (point) => `${Number(point[0]).toFixed(7)},${Number(point[1]).toFixed(7)}`;
+const pavilionWallPointInRing = Function(`"use strict"; return (${pavilionWallPointInRingSource});`)();
+const pavilionPolygonContainsPoint = Function("huayuWallPointInRing",
+  `"use strict"; return (${pavilionPolygonContainsPointSource});`)(pavilionWallPointInRing);
+const pavilionDistanceToRings = Function("huayuPavilionPointSegmentDistanceMeters",
+  `"use strict"; return (${pavilionDistanceToRingsSource});`)(pavilionDistance);
+const pavilionInteriorPoint = Function("huayuWallPointKey", "huayuPavilionPolygonContainsPoint",
+  "huayuPavilionDistanceToRings", `"use strict"; return (${pavilionInteriorPointSource});`)(
+  pavilionPointKey, pavilionPolygonContainsPoint, pavilionDistanceToRings);
+const pavilionMoveToward = Function(`"use strict"; return (${pavilionMoveTowardSource});`)();
+const pavilionColumnRing = Function("huayuNormalizedWallRing",
+  `"use strict"; return (${pavilionColumnRingSource});`)((ring) => ring);
+const pavilionInsetColumnCenter = Function("huayuPavilionMoveTowardMeters", "huayuPavilionColumnRing",
+  "huayuPavilionPolygonContainsPoint", `"use strict"; return (${pavilionInsetColumnCenterSource});`)(
+  pavilionMoveToward, pavilionColumnRing, pavilionPolygonContainsPoint);
+const pavilionColumnGeometry = Function("huayuWallPointKey", "huayuPavilionRingPerimeter",
+  "huayuPavilionSampleRing", "huayuPavilionInteriorPoint", "huayuPavilionInsetColumnCenter",
+  "huayuPavilionColumnRing", "huayuPavilionPolygonContainsPoint",
+  `"use strict"; return (${pavilionColumnGeometrySource});`)(pavilionPointKey,
+  pavilionRingPerimeter, pavilionSampleRing, pavilionInteriorPoint, pavilionInsetColumnCenter,
+  pavilionColumnRing, pavilionPolygonContainsPoint);
+const facePavilionGeometry = {
+  type: "Polygon", coordinates: [[
+    [152.9356827, 14.6368156], [152.9356458, 14.6367194],
+    [152.9357802, 14.6366711], [152.9358171, 14.6367674],
+    [152.9356827, 14.6368156],
+  ]],
+};
+const facePavilionColumns = pavilionColumnGeometry(facePavilionGeometry, "way");
+assert.equal(facePavilionColumns.type, "MultiPolygon", "面状亭子必须生成独立立柱几何");
+assert.equal(facePavilionColumns.coordinates.length, 5, "四角面状亭子应生成四根内缩边柱和一根中心柱");
+assert.ok(facePavilionColumns.coordinates.every((column) => column[0].slice(0, -1)
+  .every((point) => pavilionPolygonContainsPoint(point, facePavilionGeometry.coordinates))),
+"每根亭柱的完整截面都必须位于原始亭面内");
+const facePavilionColumnCenters = facePavilionColumns.coordinates.map((column) => {
+  const points = column[0].slice(0, -1);
+  return points.reduce((sum, point) => [sum[0] + point[0], sum[1] + point[1]], [0, 0])
+    .map((value) => value / points.length);
+});
+assert.ok(facePavilionColumnCenters.slice(0, 4).every((center, index) =>
+  pavilionDistance(center, facePavilionGeometry.coordinates[0][index],
+    facePavilionGeometry.coordinates[0][index]) > 0.1),
+"面亭边柱中心不得继续落在原始轮廓顶点上");
+const facePavilionInteriorPoint = pavilionInteriorPoint(facePavilionGeometry.coordinates);
+assert.ok(pavilionDistance(facePavilionColumnCenters.at(-1), facePavilionInteriorPoint,
+  facePavilionInteriorPoint) < 0.1, "面亭必须在面内净空中心增加中心柱");
+const pavilionBaseFeatureSource = app.match(/id: `live-pavilion-base:\$\{key\}`,[\s\S]*?\n        \}\);/u)?.[0] || "";
+assert.ok(pavilionBaseFeatureSource.includes('pavilionPart: "base"')
+  && pavilionBaseFeatureSource.includes("renderHeight: 0.14")
+  && pavilionBaseFeatureSource.includes("renderMinHeight: 0")
+  && pavilionBaseFeatureSource.includes("geometry,"),
+"亭子地台必须沿原始亭面生成 0.14 米薄铺层");
+assert.ok(app.includes('filter: ["==", ["get", "pavilionPart"], "roof"]')
+  && app.includes('filter: ["==", ["get", "pavilionPart"], "column"]')
+  && app.includes('filter: ["==", ["get", "pavilionPart"], "base"]'),
+"亭子屋顶、立柱与地台必须由三个独立过滤图层渲染，四周保持通透");
+const publicTransportShelterSource = app.match(/function huayuIsPublicTransportShelter\(element\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(publicTransportShelterSource, "无法读取公交候车亭排除函数");
+const isPublicTransportShelter = Function(`"use strict"; return (${publicTransportShelterSource});`)();
+assert.equal(isPublicTransportShelter({ type: "node", tags: {
+  amenity: "shelter", shelter_type: "public_transport", bus: "yes",
+} }), true, "公交候车亭不得进入通用亭子模型");
 assert.ok(app.includes("source: HUAYU_LIVE_BASEMAP_SOURCE")
   && app.includes("function huayuLiveBasemapPolygonSignature"),
   "体育场详细面和嵌套子场地必须使用实时底图主数据源");
@@ -269,7 +645,119 @@ assert.ok(app.includes("function shouldShowTransitStopLabel(stop, displayIsRail,
   && (app.match(/shouldShowTransitStopLabel\(stop, displayIsRail, zoom\)/g) || []).length === 4
   && !app.includes("displayIsRail ? zoom >= 13 : zoom >= 16")
   && app.includes("if (shouldShowLabel && !entry.labelMarker)"),
-"公共交通站点标签必须在 z12 显示干线站、换乘站和多线路站，z13 起显示全部轨道站");
+  "公共交通站点标签必须在 z12 显示干线站、换乘站和多线路站，z13 起显示全部轨道站");
+assert.ok(app.includes("isInterchange: stop[13] === 1")
+  && compactTransitBuilder.includes("stop.isInterchange ? 1 : 0")
+  && dataUpdater.includes('step("enforce-transit-service-rules.cjs")'),
+"交通紧凑预载包必须持久化人工换乘标志，并在定时更新中重新应用规则");
+const huaxiaTransitSnapshot = transitPreload.snapshots.find((snapshot) => snapshot.id === "huaxia");
+assert.ok(huaxiaTransitSnapshot?.network, "缺少华夏交通预载快照");
+const transitRouteTable = huaxiaTransitSnapshot.network.routeTable;
+const transitStopByName = (name) => huaxiaTransitSnapshot.network.stops.find((stop) => stop[5] === name);
+const routeRefAt = (index) => String(transitRouteTable[index]?.[5] || "").trim();
+const southeastCornerStop = transitStopByName("东南角");
+assert.ok(southeastCornerStop && southeastCornerStop[13] === 1,
+  "东南角必须在预载包中保留换乘标志");
+assert.ok(["R", "I", "P"].every((ref) => southeastCornerStop[11]?.some((index) => routeRefAt(index) === ref)),
+"东南角必须在预载包中保留 R/I/P 三线展示设定");
+const southeastCornerRule = transitServices.stationInterchangeOverrides
+  ?.find((rule) => rule.id === "beihu-southeast-corner-three-line");
+assert.ok((southeastCornerRule?.stationCount ?? 1) === 1
+  && southeastCornerRule?.symbolMode === "single-ring"
+  && southeastCornerRule?.mergeNearbyUnnamedWithinMeters === 80,
+"东南角必须保留单个三线换乘符号及同组无名站显示合并规则");
+assert.ok(app.includes("const fill = uniqueColors.length > 1")
+  && app.includes("conic-gradient(${uniqueColors.map"),
+"多线换乘站必须在单个站圈内按线路颜色分区");
+assert.ok(app.includes("is-station-complex")
+  && app.includes("mergeNearbyUnnamedWithinMeters")
+  && styles.includes(".rail-stop-symbol.is-station-complex > i"),
+"交通视图必须使用多站换乘符号，并在点击前合并同组无名站标记");
+const yujiaqiaoStop = transitStopByName("郁家桥");
+assert.ok(yujiaqiaoStop && yujiaqiaoStop[13] === 1,
+  "郁家桥必须在预载包中保留换乘标志");
+const wangtieYujiaqiaoStop = transitStopByName("望铁郁家桥");
+assert.ok(wangtieYujiaqiaoStop && wangtieYujiaqiaoStop[0] !== yujiaqiaoStop[0],
+  "郁家桥与望铁郁家桥必须保留为两个独立站点");
+const yujiaqiaoRule = transitServices.stationInterchangeOverrides
+  ?.find((rule) => rule.id === "beihu-yujiaqiao-interchange");
+assert.equal(yujiaqiaoRule?.mergeNearbyUnnamedWithinMeters, 30,
+  "郁家桥必须合并共享线路的近邻无名站显示标记");
+assert.deepEqual(yujiaqiaoRule?.routeNames, ["捷运纵贯线"],
+  "郁家桥必须保留纵贯线换乘信息");
+const beihuInterchangeMatrix = [
+  ["beihu-north-station-three-line", "北沪车站", ["R", "I", "M"]],
+  ["beihu-erchong-interchange", "二重", ["M", "CY"]],
+  ["beihu-yujiaqiao-interchange", "郁家桥", ["CY"]],
+  ["beihu-zhongshan-xinde-interchange", "中山信德", ["BL"]],
+  ["beihu-southeast-corner-three-line", "东南角", ["R", "I", "P"]],
+  ["beihu-aiguo-road-interchange", "爱国路", ["R", "P"]],
+  ["beihu-ximending-interchange", "西门町", ["P", "BL"]],
+];
+for (const [id, stationName, routeRefs] of beihuInterchangeMatrix) {
+  const rule = transitServices.stationInterchangeOverrides?.find((item) => item.id === id);
+  assert.deepEqual(rule?.stationNames, [stationName], `北沪换乘站名规则丢失：${stationName}`);
+  assert.deepEqual(rule?.routeRefs, routeRefs, `北沪换乘线路顺序变化：${stationName}`);
+  assert.equal(rule?.symbolMode, "single-ring", `北沪换乘站必须使用单环符号：${stationName}`);
+}
+assert.ok(app.includes('stop.interchangeSymbolMode = override.symbolMode')
+  && app.includes('stop.interchangeSymbolMode !== "single-ring"'),
+"北沪单环换乘符号必须在实时数据融合后继续强制生效");
+for (const stop of huaxiaTransitSnapshot.network.stops) {
+  for (const index of [...(stop[8] || []), ...(stop[11] || [])]) {
+    assert.ok(transitRouteTable[index], `站点 ${stop[5]} 存在线路索引越界`);
+  }
+}
+for (const id of ["beihu-southeast-corner-three-line", "beihu-yujiaqiao-interchange"]) {
+  assert.ok(transitServices.stationInterchangeOverrides?.some((rule) => rule.id === id
+    && rule.source === "user_confirmed"), `缺少人工换乘规则：${id}`);
+}
+assert.ok(!transitServices.stationTransferAliases?.some((rule) => rule.id === "beihu-yujiaqiao-station-complex")
+  && !transitServices.stationDisplayMergeOverrides?.some((rule) => rule.id === "beihu-yujiaqiao-station-complex"),
+"郁家桥与望铁郁家桥不得配置为同一站点复合体");
+const publishedTransitStationSyncSource = app.match(
+  /function syncPublishedTransitStationLayers\(glMap = currentVectorBasemap\(\)\) \{[\s\S]*?\n  \}/u,
+)?.[0];
+assert.ok(publishedTransitStationSyncSource
+  && app.includes("syncPublishedTransitStationLayers(glMap);")
+  && app.includes("syncPublishedTransitStationLayers();"),
+"交通视图必须接管底图铁路站图标，并在底图加载和视图切换时同步");
+const publishedVisibility = new Map([["poi-railway", "visible"]]);
+const publishedFilters = new Map([
+  ["poi-level-1", ["all", ["==", "rank", 1]]],
+  ["poi-level-2", ["all", ["==", "rank", 2]]],
+  ["poi-level-3", ["all", ["==", "rank", 3]]],
+]);
+const publishedLayerMap = {
+  getStyle: () => ({ layers: [] }),
+  getLayer: (id) => publishedVisibility.has(id) || publishedFilters.has(id),
+  getLayoutProperty: (id) => publishedVisibility.get(id),
+  setLayoutProperty: (id, property, value) => {
+    assert.equal(property, "visibility");
+    publishedVisibility.set(id, value);
+  },
+  getFilter: (id) => publishedFilters.get(id),
+  setFilter: (id, value) => publishedFilters.set(id, value),
+};
+const publishedLayerState = new WeakMap();
+const makePublishedTransitStationSync = (mode) => Function(
+  "currentVectorBasemap", "publishedTransitStationLayerStates",
+  "PUBLISHED_TRANSIT_STATION_LAYER_IDS", "PUBLISHED_GENERAL_POI_LAYER_IDS", "mapViewMode",
+  `"use strict"; return (${publishedTransitStationSyncSource});`,
+)(() => null, publishedLayerState, ["poi-railway"], ["poi-level-1", "poi-level-2", "poi-level-3"], mode);
+const originalPublishedFilters = new Map([...publishedFilters].map(([id, filter]) => [id, structuredClone(filter)]));
+makePublishedTransitStationSync("transit")(publishedLayerMap);
+assert.equal(publishedVisibility.get("poi-railway"), "none",
+  "交通视图未隐藏底图原有铁路站图标");
+for (const filter of publishedFilters.values()) {
+  assert.deepEqual(filter.at(-1), ["any", ["!=", "class", "railway"], ["!=", "subclass", "station"]],
+    "交通视图未从通用 POI 图层排除铁路站点");
+}
+makePublishedTransitStationSync("normal")(publishedLayerMap);
+assert.equal(publishedVisibility.get("poi-railway"), "visible",
+  "退出交通视图后未恢复底图铁路站图标");
+assert.deepEqual(publishedFilters, originalPublishedFilters,
+  "退出交通视图后未恢复通用 POI 图层过滤器");
 const transitStopLabelSource = app.match(/function shouldShowTransitStopLabel\(stop, displayIsRail, zoom\) \{[\s\S]*?\n  \}/)?.[0];
 assert.ok(transitStopLabelSource, "无法读取公共交通站名分级函数");
 const makeTransitStopLabelRule = Function(
