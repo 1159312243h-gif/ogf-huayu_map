@@ -327,7 +327,6 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
   await run(step("build-huaxia-transit-preload.cjs", ...(resume ? ["--resume"] : [])));
   await runTask("seed-transit-relations", () => seedTransitRelations(stagedSite));
   for (const item of [
-    step("fetch-huaxia-country-boundary.cjs", ...(resume ? ["--resume"] : [])),
     step("fetch-huaxia-full-railways-once.cjs"),
     step("fetch-huaxia-railway-ids-once.cjs", ...(resume ? ["--resume"] : [])),
     step("fetch-cardahe-rail-once.cjs", ...(resume ? ["--resume"] : [])),
