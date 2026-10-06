@@ -41,6 +41,11 @@ const updater = await fs.readFile(path.join(root, "scripts", "update-all-data.mj
 assert.doesNotMatch(updater, /wrangler|pages deploy|cloudflare.*deploy/iu, "统一更新器不得自动部署");
 assert.match(updater, /replaceDatasetsAtomically/u, "统一更新器必须保留原子替换流程");
 assert.match(updater, /backupDirectory/u, "统一更新器必须创建备份");
+assert.doesNotMatch(
+  updater,
+  /fetch-huaxia-country-boundary/u,
+  "统一更新器不得依赖 Nominatim 国界查询阻断交通数据更新",
+);
 assert.ok(updater.indexOf('step("compact-transit-preload.cjs", "--write")')
   < updater.indexOf('step("enforce-transit-service-rules.cjs")'),
 "人工换乘规则必须在交通预载包紧凑化后重新应用");
