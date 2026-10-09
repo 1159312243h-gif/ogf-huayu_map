@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -17,6 +18,7 @@ const datasetNames = [
   "railway-connections.json",
   "station-access.json",
   "airports.json",
+  "terrain-preload.json.gz",
 ];
 
 function printHelp() {
@@ -30,8 +32,8 @@ function printHelp() {
   node scripts/update-all-data.mjs --help
 
 要求：Node.js 20 或更高版本。脚本不依赖浏览器、Codex 或任何大模型，
-不会部署网站。建筑和近距底图由 Worker 按需读取 OGF，本命令只探测其
-共同数据源，不生成永久瓦片。`);
+不会部署网站。地形与交通一起生成发布快照；建筑和近距底图由 Worker
+按需读取 OGF，本命令只探测其共同数据源，不生成永久建筑瓦片。`);
 }
 
 function timestampId(date = new Date()) {
@@ -149,6 +151,39 @@ function validateAirports(payload, label) {
   return { airports: payload.airports.length };
 }
 
+function validateTerrainPreload(payload, label) {
+  validDate(payload.generatedAt, label);
+  assert.equal(payload.format, 1, `${label} 格式错误`);
+  assert.equal(payload.schema, "open-small-mountains-v1", `${label} 山体规则版本错误`);
+  assert.ok(Array.isArray(payload.coverage) && payload.coverage.length >= 3
+    && payload.coverage.every((region) => region.complete === true
+      && Array.isArray(region.bounds) && region.bounds.length === 2
+      && region.bounds.every((corner) => Array.isArray(corner) && corner.length === 2
+        && corner.every(Number.isFinite))), `${label} 覆盖不完整`);
+  assert.ok(Array.isArray(payload.features) && payload.features.length > 0, `${label} 没有山体`);
+  assert.equal(uniqueCount(payload.features.map((feature) => feature.id)), payload.features.length,
+    `${label} 要素 ID 重复`);
+  let surfaces = 0;
+  const validCoordinates = (coordinates) => Array.isArray(coordinates) && coordinates.length > 0
+    && (typeof coordinates[0] === "number" ? coordinates.length === 2 && coordinates.every(Number.isFinite)
+      : coordinates.every(validCoordinates));
+  for (const feature of payload.features) {
+    assert.ok(feature.type === "Feature" && feature.id && feature.geometry
+      && validCoordinates(feature.geometry.coordinates), `${label} 无效要素`);
+    if (feature.properties?.reliefRole === "surface") {
+      surfaces++;
+      assert.ok(["Polygon", "MultiPolygon"].includes(feature.geometry.type)
+        && Number.isFinite(feature.properties.reliefArea) && feature.properties.reliefArea > 0
+        && Number.isFinite(feature.properties.reliefHeight) && feature.properties.reliefHeight > 0,
+        `${label} 山体参数错误`);
+    } else assert.ok(feature.properties?.renderKind === "important-label"
+      && feature.geometry.type === "Point" && ["mountain", "peak"].includes(feature.properties.featureClass),
+      `${label} 非地形要素`);
+  }
+  assert.ok(surfaces > 0, `${label} 没有山体面`);
+  return {surfaces, features: payload.features.length, regions: payload.coverage.length};
+}
+
 const validators = {
   "transit-preload.json": validateTransitPreload,
   "transit-relations.json": validateTransitRelations,
@@ -156,6 +191,7 @@ const validators = {
   "railway-connections.json": validateRailwayConnections,
   "station-access.json": validateStationAccess,
   "airports.json": validateAirports,
+  "terrain-preload.json.gz": validateTerrainPreload,
 };
 
 export function validateDataset(name, payload) {
@@ -164,12 +200,16 @@ export function validateDataset(name, payload) {
   return validator(payload, name);
 }
 
+export async function readDatasetFile(filename) {
+  const body = await fs.readFile(filename);
+  assert.ok(body.length > 20, `${path.basename(filename)} 文件为空`);
+  return JSON.parse((filename.endsWith(".gz") ? gunzipSync(body) : body).toString("utf8"));
+}
+
 async function loadDatasets(directory) {
   const datasets = {};
   for (const name of datasetNames) {
-    const body = await fs.readFile(path.join(directory, name), "utf8");
-    assert.ok(body.length > 20, `${name} 文件为空`);
-    datasets[name] = JSON.parse(body);
+    datasets[name] = await readDatasetFile(path.join(directory, name));
   }
   return datasets;
 }
@@ -200,6 +240,7 @@ function validateAll(candidateDatasets, baselineDatasets = null) {
       "railway-routing.json": 0.75,
       "station-access.json": 0.55,
       "airports.json": 0.55,
+      "terrain-preload.json.gz": 0.65,
     };
     for (const name of datasetNames.filter((item) => item !== "railway-connections.json")) {
       compareCounts(counts[name], baselineCounts[name], thresholds[name], name);
@@ -295,6 +336,8 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     pipelineHash.update(await fs.readFile(path.join(runDirectory, "work", name)));
   }
   pipelineHash.update(await fs.readFile(fileURLToPath(import.meta.url)));
+  pipelineHash.update(await fs.readFile(path.join(stagedSite, "app.js")));
+  pipelineHash.update(await fs.readFile(path.join(stagedSite, "_worker.js")));
   const pipelineFingerprint = pipelineHash.digest("hex");
   const runTask = async (name, action) => {
     const marker = path.join(stepDirectory, `${name}.done.json`);
@@ -346,6 +389,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     step("build-huaxia-airports.cjs", ...(resume ? ["--resume"] : [])),
     step("build-rail-connections.cjs"),
     step("enforce-transit-service-rules.cjs"),
+    step("build-terrain-preload.cjs", ...(resume ? ["--resume"] : [])),
   ]) await run(item);
 }
 
@@ -448,7 +492,9 @@ async function main() {
     const candidateDatasets = await loadDatasets(stagedSite);
     const counts = validateAll(candidateDatasets, baselineDatasets);
     const changedFiles = datasetNames.filter((name) =>
-      semanticHash(candidateDatasets[name]) !== semanticHash(baselineDatasets[name]));
+      semanticHash(candidateDatasets[name]) !== semanticHash(baselineDatasets[name])
+      || (name === "terrain-preload.json.gz"
+        && candidateDatasets[name].generatedAt !== baselineDatasets[name].generatedAt));
     const dryRun = previousReport ? previousReport.mode === "dry-run" : args.has("--dry-run");
     const backupDirectory = path.join(stateRoot, "backups", runId);
 

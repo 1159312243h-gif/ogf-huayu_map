@@ -1,6 +1,7 @@
 node_modules/
 data-freshness-report.json
 .data-update/
+work/terrain-refresh-cache/
 .wrangler/
 .env
 .env.*

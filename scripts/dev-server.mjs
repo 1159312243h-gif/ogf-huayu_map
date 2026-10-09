@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -33,9 +34,17 @@ async function staticResponse(request) {
   if (file !== site && !file.startsWith(`${site}${path.sep}`)) return new Response("Forbidden", { status: 403 });
   try {
     const body = await fs.readFile(file);
+    const terrainPreload = relative === "terrain-preload.json.gz";
+    const terrainEtag = terrainPreload ? `"${createHash("sha256").update(body).digest("hex")}"` : null;
+    if (terrainEtag && request.headers.get("If-None-Match") === terrainEtag) {
+      return new Response(null, {status: 304, headers: {ETag: terrainEtag,
+        "Cache-Control": "public, max-age=300, must-revalidate"}});
+    }
     return new Response(body, {
       status: 200,
-      headers: { "Content-Type": contentTypes.get(path.extname(file).toLocaleLowerCase()) || "application/octet-stream" },
+      headers: terrainPreload ? {"Content-Type": "application/json; charset=UTF-8",
+        "Content-Encoding": "gzip", "Cache-Control": "public, max-age=300, must-revalidate", ETag: terrainEtag}
+        : { "Content-Type": contentTypes.get(path.extname(file).toLocaleLowerCase()) || "application/octet-stream" },
     });
   } catch (error) {
     if (error?.code === "ENOENT" || error?.code === "EISDIR") return new Response("Not found", { status: 404 });

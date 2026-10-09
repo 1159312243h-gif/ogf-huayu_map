@@ -14,6 +14,7 @@ globalThis.caches = {
 
 const upstreamQueries = [];
 let failNextUpstream = false;
+let partialNextUpstream = false;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options = {}) => {
   if (String(url) !== "https://overpass.opengeofiction.net/api/interpreter") {
@@ -25,6 +26,11 @@ globalThis.fetch = async (url, options = {}) => {
   if (failNextUpstream) {
     failNextUpstream = false;
     return new Response("temporary overload", { status: 502 });
+  }
+  if (partialNextUpstream) {
+    partialNextUpstream = false;
+    return new Response(JSON.stringify({elements:[], remark:"runtime error: Query timed out"}),
+      {status:200, headers:{"Content-Type":"application/json"}});
   }
   return new Response(JSON.stringify({
     version: 0.6,
@@ -43,6 +49,11 @@ try {
   assert.equal(invalid.status, 400);
   assert.deepEqual((await invalid.json()).requiredZooms, [13, 14, 15]);
 
+  const invalidTerrain = await worker.fetch(new Request("https://example.test/api/terrain/5/29/14.json"),
+    { ASSETS: assets }, context);
+  assert.equal(invalidTerrain.status, 400);
+  assert.equal((await invalidTerrain.json()).requiredZoom, 9);
+
   const liveUrl = "https://example.test/api/live-basemap/13/7576/3760.json?probe=1";
   const first = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
   assert.equal(first.status, 200);
@@ -59,6 +70,8 @@ try {
   assert.match(upstreamQueries[0], /basemapPlaces/u);
   assert.match(upstreamQueries[0], /basemapImportantLabels/u);
   assert.match(upstreamQueries[0], /natural"~"\^\(peak\|volcano\)\$"/u);
+  assert.doesNotMatch(upstreamQueries[0], /basemapTrees/u,
+    "z13 snapshots should not request every individual tree");
   assert.match(upstreamQueries[0], /pitch\|track\|stadium\|sports_centre/u,
     "live basemap tiles should carry detailed sports geometry");
   await Promise.all(waitUntilPromises.splice(0));
@@ -68,7 +81,8 @@ try {
   assert.equal(second.headers.get("x-ogf-basemap-cache"), "HIT");
   assert.equal(upstreamQueries.length, 1, "cache hit should not request Overpass again");
 
-  const liveCacheKey = [...cache.keys()].find((key) => key.includes("huayu-live-basemap-v6"));
+  const liveCacheKey = [...cache.keys()].find((key) =>
+    key.includes("huayu-live-basemap-v8-progressive-terrain"));
   assert.ok(liveCacheKey, "live basemap tile should be retained in the edge snapshot cache");
   const retained = cache.get(liveCacheKey);
   const retainedHeaders = new Headers(retained.headers);
@@ -91,6 +105,9 @@ try {
   assert.equal(detail.status, 200);
   assert.equal(detail.headers.get("x-ogf-basemap-policy"), "live-2m");
   assert.match(detail.headers.get("cache-control") || "", /max-age=15/u);
+  assert.match(upstreamQueries.at(-1), /node\["natural"="tree"\]/u,
+    "z15 detail tiles should carry mapped tree points");
+  assert.match(upstreamQueries.at(-1), /basemapTrees/u);
 
   failNextUpstream = true;
   const beforeRetry = upstreamQueries.length;
@@ -99,6 +116,53 @@ try {
     { ASSETS: assets }, context);
   assert.equal(retriedSnapshot.status, 200);
   assert.equal(upstreamQueries.length, beforeRetry + 2, "snapshot cold load should retry one transient upstream failure");
+  assert.doesNotMatch(upstreamQueries.at(-1), /basemapTrees/u,
+    "z14 snapshots should keep woodland polygons but skip expensive individual tree nodes");
+
+  const terrainQueriesBeforeMiss = upstreamQueries.length;
+  const terrainUrl = "https://example.test/api/terrain/9/473/235.json?probe=1";
+  const terrain = await worker.fetch(new Request(terrainUrl), { ASSETS: assets }, context);
+  assert.equal(terrain.status, 200);
+  assert.equal(terrain.headers.get("x-ogf-terrain-cache"), "MISS");
+  assert.equal(terrain.headers.get("x-ogf-terrain-policy"), "snapshot-3h");
+  assert.match(terrain.headers.get("cache-control") || "", /max-age=60/u);
+  assert.equal(upstreamQueries.length, terrainQueriesBeforeMiss + 1);
+  assert.match(upstreamQueries.at(-1), /terrainWays/u);
+  assert.match(upstreamQueries.at(-1), /terrainRelations/u);
+  assert.doesNotMatch(upstreamQueries.at(-1), /mountainNameSelector|name:zh/u,
+    "terrain coverage must not filter woodland by a narrow name suffix before classification");
+  assert.match(upstreamQueries.at(-1), /natural"="wood/u);
+  assert.match(upstreamQueries.at(-1), /landuse"="forest/u);
+  assert.match(upstreamQueries.at(-1), /landuse"~"\^\(grass\|meadow\)\$"/u,
+    "named highland grassland must be included in the terrain snapshot");
+  assert.match(upstreamQueries.at(-1), /leisure"="garden/u,
+    "named landscaped hills must survive terrain snapshot refresh");
+  assert.doesNotMatch(upstreamQueries.at(-1), /way\(r\.terrainRelations\)/u,
+    "relation member geometry must not be downloaded twice");
+  assert.match(upstreamQueries.at(-1), /out body geom/u,
+    "complete embedded outer and inner member geometry must be retained");
+  assert.doesNotMatch(upstreamQueries.at(-1), /highway/u,
+    "low-zoom terrain tiles should not request unrelated basemap features");
+  const terrainHit = await worker.fetch(new Request(terrainUrl), { ASSETS: assets }, context);
+  assert.equal(terrainHit.headers.get("x-ogf-terrain-cache"), "HIT");
+  assert.equal(upstreamQueries.length, terrainQueriesBeforeMiss + 1);
+  assert.ok([...cache.keys()].some((key) => key.includes("huayu-terrain-v5-open-small-mountains")),
+    "terrain tiles should use an independent edge cache schema");
+  assert.doesNotMatch(upstreamQueries.at(-1), /waterway|natural"="water/u,
+    "reuse basemap water so wider water queries cannot delay forest snapshots");
+  for (const zoom of [6,7,8]) {
+    const overviewTerrain = await worker.fetch(new Request(`https://example.test/api/terrain/${zoom}/59/29.json`),
+      {ASSETS:assets},context);
+    assert.equal(overviewTerrain.status,200,"overview terrain must accept complete wider tiles");
+  }
+  partialNextUpstream = true;
+  const partialTerrainUrl = "https://example.test/api/terrain/9/474/242.json";
+  const partialTerrain = await worker.fetch(new Request(partialTerrainUrl), {ASSETS:assets}, context);
+  assert.equal(partialTerrain.status, 502,
+    "Overpass HTTP 200 timeout remarks must not become an empty successful terrain snapshot");
+  assert.equal([...cache.keys()].some((key) => key.includes("/terrain/9/474/242.json")), false);
+  const recoveredTerrain = await worker.fetch(new Request(partialTerrainUrl), {ASSETS:assets}, context);
+  assert.equal(recoveredTerrain.headers.get("x-ogf-terrain-cache"), "MISS");
 
   const building = await worker.fetch(new Request("https://example.test/api/buildings/11/1893/939.json"),
     { ASSETS: assets }, context);
@@ -203,6 +267,8 @@ try {
     liveBasemapCache: "MISS/HIT/STALE/background-refresh",
     liveBasemapZooms: [13, 14, 15],
     liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
+    terrainTileZoom: 9,
+    terrainCache: "MISS/HIT/3h",
     buildingZooms: [11, 12, 13, 14, 15],
     buildingCache: "3h",
     structureZooms: [11, 12, 13, 14, 15],

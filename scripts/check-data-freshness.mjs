@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const maximumAgeDays = Math.max(1, Number(process.env.DATA_MAX_AGE_DAYS || 14));
@@ -14,12 +15,13 @@ const definitions = [
   { file: "railway-connections.json", kind: "national-railway-connections" },
   { file: "station-access.json", kind: "station-access" },
   { file: "airports.json", kind: "airports" },
+  { file: "terrain-preload.json.gz", kind: "terrain-overview" },
 ];
 
 const results = [];
 for (const definition of definitions) {
   const filePath = path.join(root, "site", definition.file);
-  const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
+  const payload = await readDatasetFile(filePath);
   const generatedAt = String(payload.generatedAt || "");
   const timestamp = Date.parse(generatedAt);
   assert.ok(Number.isFinite(timestamp), `${definition.file} 缺少有效 generatedAt`);

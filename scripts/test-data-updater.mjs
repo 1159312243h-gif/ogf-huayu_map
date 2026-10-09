@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { compareCounts, semanticHash, validateDataset } from "./update-all-data.mjs";
+import { compareCounts, semanticHash, validateDataset, readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const names = [
@@ -12,11 +12,12 @@ const names = [
   "railway-connections.json",
   "station-access.json",
   "airports.json",
+  "terrain-preload.json.gz",
 ];
 
 const counts = {};
 for (const name of names) {
-  const payload = JSON.parse(await fs.readFile(path.join(root, "site", name), "utf8"));
+  const payload = await readDatasetFile(path.join(root, "site", name));
   counts[name] = validateDataset(name, payload);
 }
 
@@ -50,6 +51,27 @@ const transitServices = JSON.parse(await fs.readFile(path.join(root, "site", "tr
 assert.ok(transitServices.stationInterchangeOverrides?.some((rule) => rule.id === "beihu-southeast-corner-three-line")
   && transitServices.stationInterchangeOverrides?.some((rule) => rule.id === "beihu-yujiaqiao-interchange"),
 "人工换乘规则文件必须包含东南角和郁家桥设定");
+const jinchuanStationRule = transitServices.stationDisplayMergeOverrides
+  ?.find((rule) => rule.id === "jinchuan-main-station-interchange");
+assert.deepEqual(jinchuanStationRule?.stationNames, ["津川", "津川火车站"],
+  "数据更新后必须继续把津川铁路站与津川火车站显示为换乘复合体");
+assert.equal(jinchuanStationRule?.anchorStationId, 424888164,
+  "数据更新后津川换乘符号必须继续锚定地铁站点");
+const jinchuanRailOperatingRule = transitServices.railOperatingRules
+  ?.find((rule) => rule.id === "jinchuan-passenger-rail");
+const pingzhangYanhuaJourney = jinchuanRailOperatingRule?.requiredTransferJourneys
+  ?.find((journey) => journey.fromStationIds?.includes(404677559)
+    && journey.toStationIds?.includes(416327117));
+assert.deepEqual(pingzhangYanhuaJourney?.fromStationNames, ["平章"],
+  "数据更新后必须保留平章铁路站的稳定站名匹配");
+assert.deepEqual(pingzhangYanhuaJourney?.toStationNames, ["雁华"],
+  "数据更新后必须保留雁华城铁站的稳定站名匹配");
+assert.deepEqual(pingzhangYanhuaJourney?.viaStationIds, [403358828],
+  "平章至雁华必须经津川铁路站换乘");
+assert.deepEqual(pingzhangYanhuaJourney?.viaStationNames, ["津川"],
+  "数据更新后必须能按站名恢复津川换乘点");
+assert.deepEqual(pingzhangYanhuaJourney?.segmentRouteLabels, ["", "津川城铁雁华线"],
+  "平章至雁华的换乘后路段必须继续标为津川城铁雁华线");
 const beihuInterchangeMatrix = [
   ["beihu-north-station-three-line", "北沪车站", ["R", "I", "M"]],
   ["beihu-erchong-interchange", "二重", ["M", "CY"]],

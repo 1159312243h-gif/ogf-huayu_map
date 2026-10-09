@@ -1,4 +1,4 @@
-name: Refresh transit data
+name: Refresh transit and terrain data
 
 on:
   workflow_dispatch:
@@ -29,7 +29,9 @@ jobs:
       - name: Rebuild and validate all generated data
         run: npm run data:update
       - name: Run updater regression checks
-        run: npm run test:data-update
+        run: |
+          npm run test:data-update
+          npm run test:terrain-preload
       - name: Commit changed data only
         id: commit
         shell: bash
@@ -41,6 +43,7 @@ jobs:
             site/railway-connections.json \
             site/station-access.json \
             site/airports.json \
+            site/terrain-preload.json.gz \
             release/SHA256.txt
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

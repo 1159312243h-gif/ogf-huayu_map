@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -35,12 +36,23 @@ for (const file of files) {
 }
 
 for (const required of ["_headers", "_worker.js", "app.js", "index.html", "huayu-style.json",
-  "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json"]) {
+  "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
+  "terrain-preload.json.gz"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
 }
 
 const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
+const terrainPreload = await readDatasetFile(path.join(site,"terrain-preload.json.gz"));
+assert.equal(terrainPreload.schema,"open-small-mountains-v1");
+assert.ok(terrainPreload.features.some((feature) => feature.properties?.reliefRole === "surface")
+  && terrainPreload.coverage.every((region) => region.complete), "发布地形快照必须完整且包含山体面");
+assert.ok((await fs.stat(path.join(site, "terrain-preload.json.gz"))).size < 25 * 1024 * 1024,
+  "发布地形快照不得超过 Cloudflare Pages 单文件上限");
+assert.ok(app.includes("function loadHuayuTerrainPreload(state)")
+  && app.includes("huayuTerrainPreloadCovers(visibleBounds)")
+  && app.includes(`HUAYU_TERRAIN_PRELOAD_RECHECK_MS = ${release.expectedTerrainPreloadRevalidateSeconds / 60} * 60 * 1000`),
+  "地形首次加载必须使用发布快照，并检查三小时脚本生成的替换包");
 const styles = await fs.readFile(path.join(site, "styles.css"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
 const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
@@ -51,7 +63,52 @@ const compactTransitBuilder = await fs.readFile(
   path.join(root, "scripts", "data-update", "builders", "compact-transit-preload.cjs"), "utf8",
 );
 const dataRefreshWorkflow = await fs.readFile(path.join(root, ".github", "workflows", "data-refresh.yml"), "utf8");
+const jinchuanRailOperatingRule = transitServices.railOperatingRules
+  ?.find((rule) => rule.id === "jinchuan-passenger-rail");
+const pingzhangYanhuaJourney = jinchuanRailOperatingRule?.requiredTransferJourneys
+  ?.find((journey) => journey.fromStationIds?.includes(404677559)
+    && journey.toStationIds?.includes(416327117));
+assert.deepEqual(pingzhangYanhuaJourney?.viaStationIds, [403358828],
+  "平章至雁华铁路规则必须强制经津川换乘");
+assert.deepEqual(pingzhangYanhuaJourney?.viaStationNames, ["津川"],
+  "津川换乘规则必须保留数据刷新后的站名回退");
+assert.deepEqual(pingzhangYanhuaJourney?.segmentRouteLabels, ["", "津川城铁雁华线"],
+  "津川换乘后的乘车段必须明确显示津川城铁雁华线");
+assert.ok(app.includes("stationMatches(originStop, journey.fromStationIds, journey.fromStationNames)")
+  && app.includes("transitStationComplexKey(stop.name) === name")
+  && app.includes("viaStationNames: stationNames(journey.viaStationNames)")
+  && app.includes("const requiredOperatingPairs = pairs.filter")
+  && app.includes("const candidatePairs = requiredOperatingPairs.length ? requiredOperatingPairs : pairs")
+  && app.includes("plan.railOperatingRuleId = railPath.operatingRuleId || null")
+  && app.includes("const requiredOperatingRuleIds = new Set(unrestrictedPlanPool")
+  && app.includes("identity: `train:operating-segment:${operatingRuleId}:${index}`"),
+"铁路运营规则必须支持稳定站名和途经站恢复，并在端点邻近时约束候选车站与最终方案");
 assert.ok(index.includes(release.entryScript), "index.html 未引用 release.json 指定的应用版本");
+assert.equal((index.match(/data-map-overlay=/gu) || []).length, 2,
+  "地图图层菜单必须提供交通与地形两个独立开关");
+assert.ok(index.includes('data-map-overlay="transit"')
+  && index.includes('data-map-overlay="terrain" checked')
+  && !index.includes("data-map-view="),
+"交通与地形必须是可叠加开关，且默认仅开启地形");
+assert.ok(index.includes('id="map-transit-layer-options"')
+  && (index.match(/data-transit-layer=/gu) || []).length === 8
+  && styles.includes(".map-transit-layer-options[hidden]")
+  && app.includes('elements.mapTransitLayerOptions.hidden = mapViewMode !== "transit";')
+  && app.includes("function syncTransitLayerToggles()")
+  && app.includes("syncTransitLayerToggles();"),
+"交通图层菜单必须直接提供四类显示筛选，并与交通状态浮窗同步");
+assert.ok(app.includes('showView("place", { preservePerspective: true });')
+  && app.includes('elements.panel.classList.add("is-hidden");')
+  && app.includes('updateActiveAction("map-view");')
+  && app.includes('setLayerPresence(routeLayer, view === "directions");'),
+"打开地图视图菜单时必须退出导航面板并隐藏导航图层，同时保留导航结果数据");
+assert.ok(app.includes('let mapViewMode = "normal";')
+  && app.includes("let terrainOverlayEnabled = true;")
+  && app.includes("function setTransitOverlayEnabled(enabled, options = {})")
+  && app.includes("function setTerrainOverlayEnabled(enabled, options = {})")
+  && app.includes('? (terrainOverlayEnabled ? "组合图" : "交通图")')
+  && app.includes(': (terrainOverlayEnabled ? "地形图" : "视图")'),
+"交通与地形状态必须彼此独立，并覆盖四种组合状态");
 assert.ok(app.includes(`\"huayu:model-version\": \"${release.expectedBuildingModel}\"`), "建筑模型版本不一致");
 assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildingMinZoom}`), "建筑起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedBuildingTileZooms.join(", ")}])`), "Worker 建筑分片级别不一致");
@@ -72,6 +129,234 @@ assert.ok(worker.includes(`LIVE_BASEMAP_DETAIL_REFRESH_SECONDS = ${release.expec
   "Worker 近景实时刷新周期不一致");
 assert.ok(worker.includes("live-basemap") && worker.includes("fetchLiveBasemapTile"),
   "Worker 缺少实时底图接口");
+assert.ok(worker.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
+  && app.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
+  && worker.includes("const treeNodes = zoom >= 15")
+  && app.includes("const treeNodes = tile.z >= 15")
+  && worker.includes('schema", "huayu-live-basemap-v8-progressive-terrain"'),
+"实时底图必须仅在 z15 查询树木点，并使用渐进地形缓存 schema");
+assert.ok(app.includes('treeTrunk: "ogf-atlas-huayu-tree-trunk"')
+  && app.includes('treeCanopy: "ogf-atlas-huayu-tree-canopy"')
+  && app.includes('filter: ["==", ["get", "renderKind"], "tree-trunk"]')
+  && app.includes('filter: ["==", ["get", "renderKind"], "tree-canopy"]')
+  && app.includes('treeOrigin: clusterIndex === null ? "mapped" : "woodland"'),
+"树木点必须渲染独立树干和树冠，林地生成树必须保留来源标识");
+assert.ok(app.includes("function huayuTreeRandom(seedValue)")
+  && app.includes("function huayuWoodlandTreeCenters(element, geometry, areaSquareMeters)")
+  && app.includes('huayuTreeRandom(`${element?.type}:${element?.id}:woodland-grid`)')
+  && app.includes("HUAYU_WOODLAND_CLUSTER_TREE_LIMIT = 240"),
+"小面积林地必须使用要素 ID 驱动的确定性面内采样，并限制每批树木数量");
+assert.ok(app.includes("HUAYU_TERRAIN_MIN_ZOOM = 5.5")
+  && app.includes("function rebuildHuayuTerrainData(state)")
+  && app.includes("HUAYU_TERRAIN_TILE_ZOOM = 9")
+  && app.includes("function fetchHuayuTerrainTile(tile, externalSignal)")
+  && app.includes("function refreshHuayuTerrainTiles(glMap, state, visibleBounds)")
+  && app.includes("huayuTerrainSharedTileCache")
+  && app.includes('fetch(`/api/terrain/${tile.z}/${tile.x}/${tile.y}.json`')
+  && app.includes("const terrainBeforeId = huayuLiveBasemapFirstExistingLayer")
+  && app.includes("glMap.addLayer(woodlandMaterialLayer, woodlandBeforeId)")
+  && app.includes("if (area >= HUAYU_MOUNTAIN_WOODLAND_MIN_AREA) return;")
+  && app.includes('["mountain", "peak"].includes(properties.featureClass)')
+  && app.includes("useHuayuTerrainData(state)")
+  && app.includes("山|岭|谷|岳|峰|岗|丘|峦|坡|峡")
+  && app.includes("const woodlandMaterialLayer = createHuayuWoodlandMaterialLayer(palette)")
+  && app.includes("{ includeMountainRelief: true }")
+  && app.includes("huayuMountainWoodlandEligible(element, geometry, terrainPeaks)")
+  && app.includes("area < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA")
+  && !app.includes('reliefRole: "ridge"')
+  && !app.includes('id: HUAYU_LIVE_BASEMAP_LAYERS.mountainRelief,'),
+"山名小山、山地草原和合格大林地可进入山体，森林公园必须排除；不得恢复分级挤出");
+assert.ok(app.includes("const HUAYU_TERRAIN_LAYER_IDS = [")
+  && app.includes("function syncHuayuTerrainOverlay(glMap = currentVectorBasemap())")
+  && app.includes("function suspendHuayuTerrainTiles(state)")
+  && app.includes("if (!terrainOverlayEnabled) {")
+  && app.includes("state.terrainPendingTiles.forEach((pending) => pending.controller.abort())")
+  && app.includes("state.terrainQueue = []")
+  && app.includes("state.terrainVisibleTileKeys = new Set()")
+  && app.includes("if (terrainOverlayEnabled) scheduleHuayuLiveBasemap(glMap, 0)"),
+"地形开关必须隐藏山体并停止其请求，同时不得关闭基础地图中的树木模型");
+const terrainLayerList = app.match(/const HUAYU_TERRAIN_LAYER_IDS = \[([\s\S]*?)\];/u)?.[1] || "";
+assert.doesNotMatch(terrainLayerList, /treeTrunk|treeCanopy/u,
+  "树木模型不得被地形图层开关隐藏");
+assert.match(terrainLayerList, /mountainOverviewTexture/u,
+  "地形开关必须控制原有二维山林材质");
+assert.doesNotMatch(terrainLayerList, /mountainSurface|mountainContour|mountainOverviewContour/u,
+  "不得另加三维山体、等高线或林地描边图层");
+assert.doesNotMatch(terrainLayerList, /mountainOverview,|mountainRelief/u,
+  "地形开关不得恢复旧分级挤出或人工山脊图层");
+assert.ok(app.includes('mountainOverviewTexture: "ogf-atlas-huayu-mountain-overview-texture"')
+  && !app.includes('"ogf-atlas-huayu-mountain-surface"')
+  && !app.includes('"ogf-atlas-huayu-mountain-overview-contour"')
+  && app.includes('HUAYU_WOODLAND_TEXTURE_IMAGE = "ogf-atlas-huayu-woodland-texture"')
+  && app.includes("function ensureHuayuWoodlandTextureImage(glMap, palette)")
+  && app.includes('huayuTreeRandom("huayu-woodland-texture-v1")')
+  && app.includes('glMap.setPaintProperty("landcover-wood", "fill-pattern",')
+  && app.includes("context.fillStyle = palette.liveLandWood;")
+  && app.includes("glMap.addLayer(woodlandMaterialLayer, woodlandBeforeId)")
+  && app.includes("const woodlandBeforeId = huayuLiveBasemapFirstExistingLayer")
+  && app.includes('glMap.moveLayer("landcover-grass-park", "landcover-farmland")')
+  && app.includes("huayuTerrainOverviewLayerOrder")
+  && app.includes('mapElement.dataset.huayuTerrainModel = "flat-textured-woodland-contours"')
+  && app.includes('mapElement.dataset.huayuTerrainContourMode = "woodland-material"')
+  && app.includes('mapElement.dataset.huayuTerrainPerspectiveMode = "flat"')
+  && app.includes("function huayuMountainSurfaceModel(feature, polygonGeometry)")
+  && !app.includes("huayuMountainContourInterpolatedElevation")
+  && !app.includes("u_height_scale")
+  && app.includes('renderingMode: "2d"')
+  && app.includes("gl_Position = u_matrix * vec4(a_position.xy, 0.0, 1.0);")
+  && !app.includes("function huayuMountainContourFeatures(feature)")
+  && !app.includes('renderKind: "terrain-contour"')
+  && !app.includes('"huayu:component": "height-field-contours"')
+  && app.includes("in float a_elevation;")
+  && app.includes("out vec2 v_world_position;")
+  && app.includes("float huayuCanopyTexture(vec2 worldPosition)")
+  && app.includes("float canopyGrain = smoothstep(0.58, 0.82, huayuSurfaceNoise(")
+  && app.includes("0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);")
+  && app.includes("uniform vec3 u_contour_color;")
+  && app.includes("float minorPhase = fract(max(0.0, v_elevation) / interval);")
+  && app.includes("vec3 shaded = mix(color * v_light * textureShade, u_contour_color, contour);")
+  && app.includes("const model = huayuMountainSurfaceModel(feature, polygonGeometry)")
+  && app.includes("const heightAt = (coordinate) =>")
+  && app.includes("edgeDistance(coordinate, edgeFadeMeters)")
+  && !app.includes("HUAYU_TOPOGRAPHIC_CONTOUR_IMAGE")
+  && !app.includes("ensureHuayuTopographicContourImage")
+  && !app.includes('visibility", nextEnabled ? "none" : "visible"'),
+"林冠纹理、明暗与等高线必须合成在原有二维山林材质中，不得抬升几何或另加图层");
+const flatWoodlandFactorySource = app.match(
+  /function createHuayuWoodlandMaterialLayer\(palette\) \{[\s\S]*?\n  \}(?=\n\n  function syncHuayuTerrainOverlay)/u,
+)?.[0];
+assert.ok(flatWoodlandFactorySource, "缺少二维山林材质实现");
+assert.doesNotMatch(flatWoodlandFactorySource, /gl\.clear\(|gl\.depthMask\(true\)|renderingMode: "3d"/u,
+  "二维山林不得清空或写入地图深度缓冲");
+const flatWoodlandLayer = Function("HUAYU_LIVE_BASEMAP_LAYERS", "terrainOverlayEnabled",
+  "huayuMountainSurfaceRgb", `return (${flatWoodlandFactorySource});`)(
+  { mountainOverviewTexture: "existing-woodland-material" }, true, () => [0.5, 0.5, 0.5],
+)({ mountainRelief: ["", "", "", "", ""], mountainContour: "" });
+assert.equal(flatWoodlandLayer.id, "existing-woodland-material", "必须复用原山林材质 ID");
+assert.equal(flatWoodlandLayer.renderingMode, "2d", "山林材质必须使用二维渲染");
+const flatWoodlandVerticesSource = app.match(
+  /function huayuMountainSurfaceFeatureVertices\([\s\S]*?\n  \}(?=\n\n  function huayuMountainSurfaceRgb)/u,
+)?.[0];
+assert.ok(flatWoodlandVerticesSource, "缺少山林平面几何实现");
+const makeFlatWoodlandVertices = Function("HUAYU_TERRAIN_MIN_ZOOM", "clamp",
+  "huayuMountainSurfaceModel", "huayuMountainContourInterval", "window",
+  `return (${flatWoodlandVerticesSource});`)(7.5,
+  (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value)),
+  () => ({ bounds: { west: 0, east: 1, south: 0, north: 1 }, cosine: 1,
+    areaSquareMeters: 1e8, peakHeight: 800, heightAt: ([x, y]) => 100 + 300 * x + 400 * y }),
+  () => 80, { maplibregl: { MercatorCoordinate: {
+    fromLngLat: ({ lng, lat }, altitude) => ({ x: lng, y: lat, z: altitude }),
+  } } },
+);
+for (const zoom of [7.5, 11, 15, 19]) {
+  const vertices = makeFlatWoodlandVertices({ geometry: { type: "Polygon",
+    coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] } }, 600, null, zoom);
+  assert.ok(vertices.length > 0, "二维山林仍应生成可见几何");
+  const elevations = new Set();
+  for (let index = 0; index < vertices.length; index += 9) {
+    assert.equal(vertices[index + 2], 0, `z${zoom} 山林顶点必须贴地`);
+    elevations.add(vertices[index + 7]);
+  }
+  assert.ok(elevations.size > 1, "平面材质必须保留明暗和等高线所需的数值变化");
+}
+const terrainSyncSource = app.match(
+  /function syncHuayuTerrainOverlay\([\s\S]*?\n  \}(?=\n\n  function syncHuayuMountainFeatureOrder)/u,
+)?.[0];
+assert.ok(terrainSyncSource);
+for (const enabled of [false, true]) {
+  const paints = [];
+  const materialStates = [];
+  const glMap = { getStyle: () => ({}), getLayer: () => ({}), hasImage: () => true,
+    getLayoutProperty: () => "visible", setLayoutProperty: () => {},
+    setPaintProperty: (...args) => paints.push(args) };
+  const syncTerrain = Function("terrainOverlayEnabled", "currentVectorBasemap", "HUAYU_TERRAIN_LAYER_IDS",
+    "HUAYU_LIVE_BASEMAP_LAYERS", "huayuWoodlandMaterialLayers", "HUAYU_WOODLAND_TEXTURE_IMAGE", "document",
+    `return (${terrainSyncSource});`)(enabled, () => glMap, ["mountain-material"],
+    { mountainOverviewTexture: "mountain-material" },
+    { get: () => ({ setEnabled: (value) => materialStates.push(value) }) },
+    "base-woodland-texture", { getElementById: () => null });
+  syncTerrain(glMap);
+  assert.deepEqual(materialStates, [enabled], "地形开关应只控制山体材质");
+  assert.deepEqual(paints, [["landcover-wood", "fill-pattern", "base-woodland-texture"]],
+    "关闭地形时基础树冠纹理必须保留");
+}
+const mountainNameSource = app.match(/function huayuMountainWoodlandName\(value\) \{[\s\S]*?\n  \}/u)?.[0];
+const landPatternSource = app.match(/function huayuLiveLandPattern\([\s\S]*?\n  \}/u)?.[0];
+assert.ok(landPatternSource);
+const landImages = new Set(["base-woodland-texture"]);
+const landImageMap = { hasImage: (id) => landImages.has(id), addImage: (id) => landImages.add(id) };
+const makeLandPattern = Function("ensureHuayuWoodlandTextureImage", "HUAYU_WOODLAND_TEXTURE_IMAGE", "document",
+  `return (${landPatternSource});`)(() => true, "base-woodland-texture", {
+  createElement: () => ({ getContext: () => ({ fillRect: () => {}, getImageData: () => ({}) }) }),
+});
+const mixedLandPattern = makeLandPattern(landImageMap, {}, ["match", ["get", "featureClass"],
+  "wood", "#cfe7cf", "park", "#d6ebd2", "residential", "#edf1f2", "#edf1f2"]);
+assert.equal(mixedLandPattern[3], "base-woodland-texture", "实时林地必须继续使用基础树冠纹理");
+assert.equal(mixedLandPattern[5], "ogf-atlas-land-color-#d6ebd2", "公园必须保留原有底色");
+for (let index = 3; index < mixedLandPattern.length; index += 2) {
+  assert.ok(landImages.has(mixedLandPattern[index]), "实时土地的每个分支都必须有有效纹理，避免空图");
+}
+assert.ok(landImages.has(mixedLandPattern.at(-1)), "实时土地的默认分支必须保留填充");
+const mountainEligibleSource = app.match(
+  /function huayuMountainWoodlandEligible\([\s\S]*?\n  \}/u,
+)?.[0];
+assert.ok(mountainNameSource && mountainEligibleSource);
+const mountainName = Function(`return (${mountainNameSource});`)();
+const mountainPlainName = Function(`return (${app.match(/function huayuMountainPlainName\([\s\S]*?\n  \}/u)?.[0]});`)();
+const forestPark = Function("huayuPreferredFeatureName",
+  `return (${app.match(/function huayuForestPark\([\s\S]*?\n  \}/u)?.[0]});`)((tags) => tags.name || "");
+const mountainLandKind = Function("huayuForestPark", "huayuWoodlandArea", "huayuMountainWoodlandName",
+  `return (${app.match(/function huayuMountainLandKind\([\s\S]*?\n  \}/u)?.[0]});`)(forestPark,
+  (tags) => tags.natural === "wood" || tags.landuse === "forest", mountainName);
+const mountainEligible = Function("huayuMountainLandKind", "huayuGeometryAreaSquareMeters",
+  "HUAYU_MOUNTAIN_WOODLAND_MIN_AREA", "HUAYU_REGIONAL_WOODLAND_MIN_AREA", "huayuMountainWoodlandName", "huayuPointInPolygonGeometry", "huayuMountainPlainName",
+  `return (${mountainEligibleSource});`)(
+  mountainLandKind,
+  (geometry) => geometry.area, 1000000, 25000000, mountainName, () => true, mountainPlainName,
+);
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "大华山脉" } }, { area: 2e6 }), true);
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "林区", alt_name: "大华岭;华岭" } },
+  { area: 2e6 }), true, "山名别名不得被主名称遮蔽");
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "小山" } }, { area: 1e4 }), true,
+  "有明确山名的小山不得被面积规则排除");
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "树林" } }, { area: 1e4 }), false,
+  "无山名的普通小林地仍保留原有树木规则");
+assert.equal(mountainEligible({ tags: { leisure: "garden", name: "梅岭" } }, { area: 6000 }), true,
+  "临大梅岭的花园面应保留真实范围的小山");
+assert.equal(mountainEligible({ tags: { leisure: "park", natural: "wood", name: "梅岭" } },
+  { area: 6000 }), false, "普通公园不扩大为山体");
+assert.equal(mountainEligible({ tags: { landuse: "grass", name: "一得阁拉米高山草地" } },
+  { area: 50e9 }), true, "已标注的高山草地应作为缓山地");
+assert.equal(mountainEligible({ tags: { landuse: "grass", name: "草地" } },
+  { area: 50e9 }), false, "普通草地不能仅凭面积生成山地");
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "大华国家森林公园（景区）" } },
+  { area: 2e6 }, [{ coordinates: [0, 0] }]), false, "森林公园不得因峰顶变成山体");
+assert.equal(mountainEligible({ tags: { natural: "wood" } }, { area: 2e6 }, [{ coordinates: [0, 0] }]), true,
+  "已标注峰顶所在大林地应支持山体材质");
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "林区" } }, { area: 2e6 }), false,
+  "缺少山地依据的普通林地应保留树冠纹理");
+assert.equal(mountainEligible({ tags: { natural: "wood" } }, { area: 88e6 }), true,
+  "区域性大林地不得仅因没有名称而失去地形材质");
+assert.equal(mountainEligible({ tags: { natural: "wood", name: "北沛口林区（平原）" } },
+  {area:50e9}), false, "明确标注平原的林地不得生成山峰");
+assert.ok(app.includes("function huayuForestPark(tags = {})")
+  && app.includes("function huayuWoodlandArea(tags = {})")
+  && app.indexOf('if (huayuForestPark(tags) || leisure === "playground") return "park";')
+    < app.indexOf('if (natural === "wood") return "wood";')
+  && app.includes('huayuMountainLandKind(tags) !== "garden"')
+  && app.includes('|| !["wood", "park"].includes(featureClass)) return;')
+  && app.includes('"wood", 5,')
+  && app.includes('"park", 6,'),
+"森林公园必须优先按公园显示，可保留树木，但不得进入山地标签；公园绘制顺序必须高于林地");
+assert.ok(worker.includes(`TERRAIN_TILE_ZOOM = ${release.expectedTerrainTileZoom}`)
+  && worker.includes(`TERRAIN_REFRESH_SECONDS = ${release.expectedTerrainRefreshSeconds}`)
+  && worker.includes("function terrainOverpassQuery(bounds)")
+  && worker.includes("fetchTerrainTile")
+  && worker.includes("huayu-terrain-v5-open-small-mountains")
+  && worker.includes('node["natural"~"^(peak|volcano)$"](${bbox})->.terrainPeaks;')
+  && !worker.includes("way(r.terrainRelations)")
+  && worker.includes('"X-OGF-Terrain-Policy": "snapshot-3h"'),
+"Worker 缺少独立低缩放山体接口或三小时缓存");
 assert.ok(worker.includes(`TRANSIT_TILE_ZOOMS = Object.freeze({ rail: ${release.expectedTransitRailTileZoom}, bus: ${release.expectedTransitBusTileZoom} })`)
   && worker.includes(`TRANSIT_REFRESH_SECONDS = ${release.expectedTransitRefreshSeconds}`)
   && worker.includes("fetchTransitTile")
@@ -565,14 +850,16 @@ assert.ok(app.includes('runningOverview: "ogf-atlas-huayu-sports-running-overvie
 assert.ok(app.includes("function positionHuayuSportsBelowBuildings(glMap)")
   && app.includes('const HUAYU_SPORTS_SOURCE = "ogf-atlas-huayu-sports"')
   && app.includes("function applyHuayuSportsSnapshot(glMap, state)")
-  && app.includes('state.activeTier === "fallback"')
-  && app.includes("state.sportsRenderSignature === state.renderSignature")
+  && app.includes("const loadedEntries = [...state.visibleTileKeys]")
+  && app.includes("state.tileCache.get(key)")
+  && app.includes("state.sportsRenderSignature === signature")
+  && app.includes("applyHuayuSportsSnapshot(state.glMap, state)")
   && app.includes("function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap))")
   && app.includes("const liveVisible = Boolean(state?.sportsDataReady)")
   && app.includes('state?.primaryActive ? "live" : "retained-live"')
   && app.includes("syncHuayuSportsSnapshotLayers(glMap, state)")
   && app.includes("syncHuayuSportsSnapshotLayers(glMap)"),
-"实时操场必须只接收完整快照，透视扩大视野时保留最后完整体育数据并保持在建筑层下方");
+"实时操场必须按已返回瓦片渐进显示，移动与透视扩大视野时保留最后有效体育数据并保持在建筑层下方");
 assert.ok(app.includes("function huayuLiveBasemapRenderPlan(state)")
   && app.includes("...state.detailTileKeys")
   && app.includes("...(snapshotReady ? state.snapshotTileKeys : [])")
@@ -610,7 +897,7 @@ assert.ok(app.includes("function huayuPoiLabelTextField()")
   && app.includes('["index-of", "（", ["var", "label"]]')
   && app.includes('["poi-level-1", "poi-level-2", "poi-level-3", "huayu-poi-facilities", "huayu-poi-toilets"]'),
 "POI 注记必须保留全角括号兼容和长后缀成组换行规则");
-assert.ok(app.includes('leisure === "park" && ["Polygon", "MultiPolygon"].includes(geometry?.type)')
+assert.ok(app.includes('huayuForestPark(tags) && huayuMountainLandKind(tags) !== "garden"')
   && app.includes('importantParkLarge: "ogf-atlas-huayu-important-park-large"')
   && app.includes('["!=", "subclass", "park"], ["!=", "class", "park"]')
   && app.includes('[HUAYU_LIVE_BASEMAP_LAYERS.importantParkLarge, 14, 0]')
@@ -654,7 +941,26 @@ const huaxiaTransitSnapshot = transitPreload.snapshots.find((snapshot) => snapsh
 assert.ok(huaxiaTransitSnapshot?.network, "缺少华夏交通预载快照");
 const transitRouteTable = huaxiaTransitSnapshot.network.routeTable;
 const transitStopByName = (name) => huaxiaTransitSnapshot.network.stops.find((stop) => stop[5] === name);
+const transitStopById = (id) => huaxiaTransitSnapshot.network.stops.find((stop) => stop[0] === id);
 const routeRefAt = (index) => String(transitRouteTable[index]?.[5] || "").trim();
+const routeLabelAt = (index) => String(transitRouteTable[index]?.[4] || "").trim();
+const jinchuanMetroStop = transitStopById(424888164);
+const jinchuanRailwayStop = transitStopById(403358828);
+const jinchuanStationRule = transitServices.stationDisplayMergeOverrides
+  ?.find((rule) => rule.id === "jinchuan-main-station-interchange");
+assert.ok(jinchuanMetroStop && ["JS01", "JS03"].every((ref) =>
+  jinchuanMetroStop[8]?.some((index) => routeRefAt(index) === ref)),
+"津川火车站必须保留 JS01/JS03 两条地铁线路");
+assert.ok(jinchuanRailwayStop?.[8]?.some((index) => routeLabelAt(index).includes("津川城铁航空港线")),
+  "津川铁路站必须保留津川城铁航空港线");
+assert.deepEqual(jinchuanStationRule?.stationNames, ["津川", "津川火车站"],
+  "津川铁路站与地铁站必须保留为同一显示换乘复合体");
+assert.equal(jinchuanStationRule?.anchorStationId, 424888164,
+  "津川换乘符号必须锚定津川火车站地铁站点");
+assert.ok(app.includes("function collapseParallelPublicTransitRailLinesForDisplay(lines)")
+  && app.includes("const connected = joinConnectedTransitLines(group, 1)")
+  && app.includes("collapseParallelPublicTransitRailLinesForDisplay(visibleSourceLines)"),
+"市域铁路双线显示必须只连接真实连续轨道并压成运营中线，禁止生成假折返");
 const southeastCornerStop = transitStopByName("东南角");
 assert.ok(southeastCornerStop && southeastCornerStop[13] === 1,
   "东南角必须在预载包中保留换乘标志");
@@ -908,10 +1214,47 @@ assert.ok(transitLayerCategorySource, "无法读取交通线路图层分类函�
 const transitLayerCategory = Function("METRO_ROUTE_TYPES",
   `"use strict"; return (${transitLayerCategorySource});`,
 )(new Set(["subway", "light_rail", "monorail"]));
-assert.equal(transitLayerCategory({ type: "train", publicTransitRailSystem: "beihu-wangtie" }), "metro",
-  "已登记公共交通铁路系统的望铁线路必须随城市轨道默认显示");
+[
+  "jinchuan-city-rail",
+  "beihu-wangtie",
+  "gaoyang-shentie",
+  "gaoyang-jintie",
+].forEach((publicTransitRailSystem) => {
+  assert.equal(transitLayerCategory({ type: "train", publicTransitRailSystem }), "railway",
+    `${publicTransitRailSystem} 必须归入铁路显示图层，不得归入地铁`);
+});
 assert.equal(transitLayerCategory({ type: "train" }), "railway",
   "普通国铁线路不得被并入默认城市轨道图层");
+const isUrbanRailTransitRouteSource = app.match(/function isUrbanRailTransitRoute\(route\) \{[\s\S]*?\n  \}/)?.[0];
+assert.ok(isUrbanRailTransitRouteSource, "无法读取市域铁路导航资格函数");
+const isUrbanRailTransitRoute = Function(
+  "publicTransitRailSystemForRoute", "URBAN_TRAIN_ROUTE_LABEL", "URBAN_TRAIN_SERVICE_LABEL",
+  "URBAN_TRAIN_OPERATOR_LABEL", "urbanRailText",
+  `"use strict"; return (${isUrbanRailTransitRouteSource});`,
+)(() => null, /$a/u, /$a/u, /$a/u, () => ({ label: "", service: "", operator: "" }));
+assert.equal(isUrbanRailTransitRoute({ type: "train", publicTransitRailSystem: "jinchuan-city-rail" }), true,
+  "铁路图层中的津川城铁仍必须参与公交地铁导航");
+assert.equal(isUrbanRailTransitRoute({ type: "train", publicTransitRailSystem: "beihu-wangtie" }), true,
+  "铁路图层中的北沪望铁仍必须参与公交地铁导航");
+assert.equal(isUrbanRailTransitRoute({ type: "train", publicTransitRailSystem: "gaoyang-jintie" }), true,
+  "铁路图层中的高阳金铁仍必须参与公交地铁导航");
+assert.equal(isUrbanRailTransitRoute({ type: "train" }), false,
+  "未登记的普通铁路不得自动参与公交地铁导航");
+const railStationTransferTrackOffsetSource = app.match(
+  /function railStationTransferTrackOffsetMeters\(stop\) \{[\s\S]*?\n  \}/,
+)?.[0];
+assert.ok(railStationTransferTrackOffsetSource, "无法读取铁路站内换乘轨道范围函数");
+const railStationTransferTrackOffsetMeters = Function(
+  "RAIL_STATION_TRANSFER_MAX_METERS", "RAIL_STATION_TRANSFER_MAX_TRACK_OFFSET_METERS",
+  `"use strict"; return (${railStationTransferTrackOffsetSource});`,
+)(650, 250);
+assert.equal(railStationTransferTrackOffsetMeters({ isMainline: true }), 650,
+  "大型主线铁路客站必须覆盖完整车站范围内的不同线路轨道");
+assert.equal(railStationTransferTrackOffsetMeters({ isMainline: false }), 250,
+  "普通铁路站不得扩大既有轨道吸附范围");
+assert.ok((app.match(/candidate\.offset <= railStationTransferTrackOffsetMeters\(stop\)/g) || []).length === 3
+  && app.includes("if (distance > (stop.isMainline ? railStationTransferTrackOffsetMeters(stop) : 500)) return;"),
+"铁路物理建图与全国铁路换乘建图必须统一使用车站级轨道范围");
 assert.ok(app.includes("return normalizedB - normalizedA;")
   && app.includes("every higher-level boundary remains visible")
   && app.includes('[8, "#2f7d4a"]')
@@ -992,6 +1335,15 @@ const workerTest = spawnSync(process.execPath, [path.join(root, "scripts", "test
   encoding: "utf8",
 });
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
+const terrainTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-loading.mjs")], {
+  encoding: "utf8",
+});
+assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
+const terrainPreloadTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-preload.mjs")], {
+  encoding: "utf8",
+});
+assert.equal(terrainPreloadTest.status, 0,
+  `地形发布快照回归测试失败：${terrainPreloadTest.stderr || terrainPreloadTest.stdout}`);
 
 console.log(JSON.stringify({
   status: "passed",

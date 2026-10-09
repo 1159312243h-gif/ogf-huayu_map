@@ -51,6 +51,16 @@ async function verify() {
   assert.ok(Array.isArray(transit.elements) && transit.elements.length > 0, "生产交通分片 API 没有返回 OGF 要素");
   assert.equal(transitResponse.headers.get("x-ogf-transit-policy"), "snapshot-3h",
     "生产交通分片没有使用三小时缓存策略");
+  const terrainResponse = await fetch(`${baseUrl}/terrain-preload.json.gz?verify=${encodeURIComponent(cacheKey)}`, {
+    signal: AbortSignal.timeout(30000),
+  });
+  const terrain = await terrainResponse.json();
+  assert.equal(terrainResponse.status,200,"生产地形快照未返回 200");
+  assert.equal(terrainResponse.headers.get("content-encoding"),"gzip","生产地形快照必须正确声明压缩传输");
+  assert.equal(terrain.schema,"open-small-mountains-v1","生产地形快照规则不一致");
+  assert.ok(terrain.coverage?.every((region) => region.complete)
+    && terrain.features?.some((feature) => feature.properties?.reliefRole === "surface"),
+    "生产地形快照缺少完整山体覆盖");
 
   return {
     status: "passed",
@@ -62,6 +72,8 @@ async function verify() {
     liveBasemapCache: basemapResponse.headers.get("x-ogf-basemap-cache"),
     transitElements: transit.elements.length,
     transitCache: transitResponse.headers.get("x-ogf-transit-cache"),
+    terrainFeatures: terrain.features.length,
+    terrainGeneratedAt: terrain.generatedAt,
   };
 }
 
