@@ -27,7 +27,8 @@ async function terrainRuntime(siteDirectory) {
     "huayuNormalizedWallRing", "huayuWallPointInRing", "huayuCityWallRelationGeometry",
     "huayuGeometryAreaSquareMeters", "huayuGeometryInteriorPoint", "huayuLiveBasemapLabelCoordinate",
     "huayuLiveBasemapImportantLabel", "huayuPointInPolygonGeometry", "huayuTreeHash", "huayuTreeRandom",
-    "huayuTerrainElevationMeters", "huayuMountainWoodlandEligible", "huayuMountainReliefParts",
+    "huayuTerrainElevationMeters", "huayuMountainWoodlandEligible", "huayuMountainNeighborhoodBounds",
+    "huayuMountainNeighborhoodIndex", "huayuMountainReliefParts",
     "huayuLiveBasemapSportsRelationGeometry", "huayuLiveBasemapFeatureCollection"];
   for (const name of names) {
     const declaration = app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, "u"))?.[0];
@@ -91,7 +92,7 @@ async function buildTerrainPreload(options = {}) {
   const rulesHash = createHash("sha256").update(await fs.readFile(path.join(siteDirectory, "app.js")))
     .update(await fs.readFile(path.join(siteDirectory, "_worker.js")))
     .update(await fs.readFile(__filename)).digest("hex");
-  const potentialTerrain = (element) => {
+  const potentialTerrain = (element, minimumArea = runtime.HUAYU_MOUNTAIN_WOODLAND_MIN_AREA) => {
     if (element.type === "node") return true;
     const tags = element.tags || {};
     const names = [tags.name, tags["name:zh"], tags.alt_name, tags.loc_name];
@@ -106,7 +107,7 @@ async function buildTerrainPreload(options = {}) {
     // woods that cannot possibly reach the application's one-square-km floor.
     const maximumArea = (bounds.maxlat - bounds.minlat) * (bounds.maxlon - bounds.minlon)
       * 111320 ** 2 * Math.cos(equatorLatitude * Math.PI / 180) * 1.02;
-    return maximumArea >= runtime.HUAYU_MOUNTAIN_WOODLAND_MIN_AREA;
+    return maximumArea >= minimumArea;
   };
   const transit = JSON.parse(await fs.readFile(path.join(siteDirectory, "transit-preload.json"), "utf8"));
   const coverage = transit.snapshots.map(({id, bounds}) => ({id, bounds, complete: true}));
@@ -208,7 +209,8 @@ async function buildTerrainPreload(options = {}) {
         inventory = await requestElements(inventoryQuery, `${slice.id}-inventory`);
         await fs.writeFile(inventoryPath, JSON.stringify({query: inventoryQuery, elements: inventory}));
       }
-      inventory = inventory.filter(potentialTerrain);
+      const fullInventory = inventory;
+      inventory = inventory.filter(item => potentialTerrain(item));
       remember(inventory);
       const missing = inventory.filter((item) => !geometries.has(`${item.type}:${item.id}`));
       console.log(`Terrain inventory ${slice.id}: ${inventory.length} elements, ${missing.length} geometries to fetch`);
@@ -218,6 +220,25 @@ async function buildTerrainPreload(options = {}) {
           await fetchGeometry(typedItems.slice(offset, offset + batchSize), `${slice.id}-${type}-${offset}`);
         }
       }
+      // Resolve large mountain geometry first. Use its expanded bounds only as
+      // a conservative download filter; the shared classifier checks real edges.
+      const primaryData = runtime.huayuLiveBasemapFeatureCollection(
+        inventory.map(item => geometries.get(`${item.type}:${item.id}`)), {includeMountainRelief: true});
+      const neighborhood = runtime.huayuMountainNeighborhoodIndex(primaryData.features
+        .filter(feature => feature.properties?.reliefRole === "surface" && !feature.properties.reliefNeighbor)
+        .map(feature => ({qualified: true, element: {type: feature.properties.osmType, id: feature.properties.sourceOsmId},
+          geometry: feature.geometry})));
+      const selectedIds = new Set(inventory.map(item => `${item.type}:${item.id}`));
+      const nearby = fullInventory.filter(item => !selectedIds.has(`${item.type}:${item.id}`)
+        && potentialTerrain(item, 10000) && item.bounds && neighborhood.mayBeNearby({
+          west: item.bounds.minlon, east: item.bounds.maxlon, south: item.bounds.minlat, north: item.bounds.maxlat}));
+      for (const [type, batchSize] of [["way", 150], ["relation", 4]]) {
+        const missingNearby = nearby.filter(item => item.type === type && !geometries.has(`${item.type}:${item.id}`));
+        for (let offset = 0; offset < missingNearby.length; offset += batchSize) {
+          await fetchGeometry(missingNearby.slice(offset, offset + batchSize), `${slice.id}-nearby-${type}-${offset}`);
+        }
+      }
+      inventory = [...inventory, ...nearby];
       const elements = inventory.map((item) => geometries.get(`${item.type}:${item.id}`));
       if (elements.some((item) => !item)) throw new Error(`Incomplete terrain slice: ${slice.id}`);
       await fs.writeFile(cachePath, JSON.stringify({query: broadQuery, rulesHash, elements}));
@@ -256,7 +277,7 @@ async function buildTerrainPreload(options = {}) {
     .map(compactFeature).sort((a, b) => String(a.id).localeCompare(String(b.id)));
   if (!features.some((feature) => feature.properties.reliefRole === "surface")) throw new Error("Empty terrain preload");
   const payload = {format: 1, schema: "open-small-mountains-v1", generatedAt: new Date().toISOString(),
-    coverage, features};
+    classification: "mountain-neighbors-v1", coverage, features};
   const target = path.join(siteDirectory, "terrain-preload.json.gz");
   const next = `${target}.next`;
   // Commit only after every spatial slice succeeds; failures leave the published packet intact.

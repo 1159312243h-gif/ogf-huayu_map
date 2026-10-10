@@ -45,6 +45,10 @@ const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
 const terrainPreload = await readDatasetFile(path.join(site,"terrain-preload.json.gz"));
 assert.equal(terrainPreload.schema,"open-small-mountains-v1");
+assert.equal(terrainPreload.classification,"mountain-neighbors-v1",
+  "发布快照必须包含当前邻近山区分类");
+assert.ok(terrainPreload.features.some(feature => feature.properties?.reliefNeighbor === 1),
+  "发布快照不得遗漏新增的邻近小山体");
 assert.ok(terrainPreload.features.some((feature) => feature.properties?.reliefRole === "surface")
   && terrainPreload.coverage.every((region) => region.complete), "发布地形快照必须完整且包含山体面");
 assert.ok((await fs.stat(path.join(site, "terrain-preload.json.gz"))).size < 25 * 1024 * 1024,
@@ -162,7 +166,7 @@ assert.ok(app.includes("HUAYU_TERRAIN_MIN_ZOOM = 5.5")
   && app.includes("const woodlandMaterialLayer = createHuayuWoodlandMaterialLayer(palette)")
   && app.includes("{ includeMountainRelief: true }")
   && app.includes("huayuMountainWoodlandEligible(element, geometry, terrainPeaks)")
-  && app.includes("area < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA")
+  && app.includes("function huayuMountainNeighborhoodIndex(candidates, terrainPeaks = [])")
   && !app.includes('reliefRole: "ridge"')
   && !app.includes('id: HUAYU_LIVE_BASEMAP_LAYERS.mountainRelief,'),
 "山名小山、山地草原和合格大林地可进入山体，森林公园必须排除；不得恢复分级挤出");
@@ -352,7 +356,7 @@ assert.ok(worker.includes(`TERRAIN_TILE_ZOOM = ${release.expectedTerrainTileZoom
   && worker.includes(`TERRAIN_REFRESH_SECONDS = ${release.expectedTerrainRefreshSeconds}`)
   && worker.includes("function terrainOverpassQuery(bounds)")
   && worker.includes("fetchTerrainTile")
-  && worker.includes("huayu-terrain-v5-open-small-mountains")
+  && worker.includes("huayu-terrain-v6-mountain-neighbors")
   && worker.includes('node["natural"~"^(peak|volcano)$"](${bbox})->.terrainPeaks;')
   && !worker.includes("way(r.terrainRelations)")
   && worker.includes('"X-OGF-Terrain-Policy": "snapshot-3h"'),
@@ -1344,6 +1348,8 @@ const terrainPreloadTest = spawnSync(process.execPath, [path.join(root, "scripts
 });
 assert.equal(terrainPreloadTest.status, 0,
   `地形发布快照回归测试失败：${terrainPreloadTest.stderr || terrainPreloadTest.stdout}`);
+const neighborsTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-neighbors.mjs")], {encoding: "utf8"});
+assert.equal(neighborsTest.status, 0, `邻近小山体回归失败：${neighborsTest.stderr || neighborsTest.stdout}`);
 
 console.log(JSON.stringify({
   status: "passed",

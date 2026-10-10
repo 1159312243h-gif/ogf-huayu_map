@@ -60,6 +60,11 @@ assert.equal(context.validateHuayuTerrainPreload({...packet,features:[{...featur
 await context.loadHuayuTerrainPreload(state);
 assert.equal(requests,1);
 assert.equal(state.terrainData.features[0].id,"hill","cold start renders the published packet");
+nextPacket = {...packet,classification:"mountain-neighbors-v1",features:[feature,{...feature,id:"foothill"}]};
+context.huayuTerrainPreloadLastCheckedAt = 0;
+await context.loadHuayuTerrainPreload(state);
+assert.equal(state.terrainData.features.length,2,
+  "a reclassified snapshot replaces older browser data without falsifying its data generation time");
 context.refreshHuayuTerrainTiles(state.glMap,state,{west:1,east:2,south:1,north:2});
 assert.equal(tileRequests,0,"fresh complete overview must not wait for Overpass tiles");
 assert.equal(context.huayuTerrainPreloadCovers({west:3,east:4,south:1,north:2}),false);
@@ -106,6 +111,8 @@ for (const name of ["app.js","_worker.js","transit-preload.json"]) {
 }
 const mapped = {type:"way",id:1,tags:{natural:"wood",name:"测试山"},geometry:[
   {lon:1,lat:1},{lon:1.1,lat:1},{lon:1.1,lat:1.1},{lon:1,lat:1.1},{lon:1,lat:1}]};
+const nearbyHill = {type:"way",id:6,tags:{natural:"wood"},geometry:[
+  {lon:1.105,lat:1.02},{lon:1.108,lat:1.02},{lon:1.108,lat:1.023},{lon:1.105,lat:1.023},{lon:1.105,lat:1.02}]};
 let geometryRequests = 0;
 let inventoryRateLimited = true;
 const built = await buildTerrainPreload({siteDirectory:testDirectory,cacheDirectory:path.join(testDirectory,"cache"),
@@ -122,14 +129,17 @@ const built = await buildTerrainPreload({siteDirectory:testDirectory,cacheDirect
         {type:"way",id:3,tags:{natural:"wood",leisure:"park",name:"森林公园"},
           bounds:{minlat:1,maxlat:2,minlon:1,maxlon:2}},
         {type:"node",id:4,lat:1.05,lon:1.05,tags:{natural:"peak",name:"测试峰",ele:"400"}},
-        {type:"node",id:5,lat:2,lon:2,tags:{natural:"peak",name:"远处峰",ele:"999"}}]}));
+        {type:"node",id:5,lat:2,lon:2,tags:{natural:"peak",name:"远处峰",ele:"999"}},
+        {type:"way",id:6,tags:nearbyHill.tags,bounds:{minlat:1.02,maxlat:1.023,minlon:1.105,maxlon:1.108}}]}));
     }
     geometryRequests++;
-    return new Response(JSON.stringify({elements:[mapped]}));
+    return new Response(JSON.stringify({elements:query.includes("way(id:6)")?[nearbyHill]:[mapped]}));
   }});
-assert.equal(geometryRequests,1,"neighbouring inventories must reuse the same full geometry");
-assert.equal(built.features.filter((item) => item.properties.reliefRole === "surface").length,1,
+assert.equal(geometryRequests,2,"neighbouring inventories must reuse the primary and foothill geometries");
+assert.equal(built.features.filter((item) => item.properties.reliefRole === "surface").length,2,
   "overlapping spatial queries must deduplicate terrain");
+assert.ok(built.features.some(item=>item.properties.reliefNeighbor===1),
+  "the scheduled builder must fetch small nearby woods that its former area filter discarded");
 assert.equal(built.features.find((item) => item.properties.reliefRole === "surface").properties.reliefHeight,400,
   "national peak filtering must retain local elevation while excluding distant peaks");
 assert.ok(validateDataset("terrain-preload.json.gz",built).surfaces > 0);

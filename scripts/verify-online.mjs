@@ -58,6 +58,9 @@ async function verify() {
   assert.equal(terrainResponse.status,200,"生产地形快照未返回 200");
   assert.equal(terrainResponse.headers.get("content-encoding"),"gzip","生产地形快照必须正确声明压缩传输");
   assert.equal(terrain.schema,"open-small-mountains-v1","生产地形快照规则不一致");
+  assert.equal(terrain.classification,"mountain-neighbors-v1","生产快照仍在使用旧分类");
+  assert.ok(terrain.features.some(feature => feature.properties?.reliefNeighbor === 1),
+    "生产快照没有包含邻近小山体");
   assert.ok(terrain.coverage?.every((region) => region.complete)
     && terrain.features?.some((feature) => feature.properties?.reliefRole === "surface"),
     "生产地形快照缺少完整山体覆盖");
@@ -73,6 +76,7 @@ async function verify() {
     transitElements: transit.elements.length,
     transitCache: transitResponse.headers.get("x-ogf-transit-cache"),
     terrainFeatures: terrain.features.length,
+    terrainNeighborFeatures: terrain.features.filter(feature => feature.properties?.reliefNeighbor === 1).length,
     terrainGeneratedAt: terrain.generatedAt,
   };
 }

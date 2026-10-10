@@ -17,6 +17,7 @@ const geometryContext = vm.createContext({
   huayuLiveBasemapPolygonSignature: () => "wood", huayuPreferredFeatureName: (tags) => tags.name,
   huayuLiveBasemapSportsProperties: () => ({}), huayuLiveBasemapImportantLabel: () => null,
   huayuMountainWoodlandEligible: () => true,
+  huayuMountainLandKind: () => "wood", huayuMountainNeighborhoodIndex: () => null,
   huayuMountainReliefParts: (element, geometry) => [{element, geometry, properties:{reliefRole:"surface"}}],
 });
 install(["huayuWallCoordinates", "huayuWallPointKey", "huayuWallJoinRings", "huayuWallRingArea",
@@ -51,6 +52,9 @@ const distant = overviewContext.huayuMountainSurfaceOverviewFeatures(
   overviewFeatures, null, 5,
 );
 assert.equal(distant.length, 1600, "overview rebuilds must use a bounded feature set");
+const retainedFoothill = {...overviewFeatures[0],id:"small-neighbour",properties:{reliefRole:"surface",reliefArea:1e4,reliefNeighbor:1}};
+assert.ok(overviewContext.huayuMountainSurfaceOverviewFeatures([...overviewFeatures,retainedFoothill],null,5)
+  .some(feature=>feature.id==="small-neighbour"),"recognised small foothills must survive overview thinning");
 assert.ok(distant.some((feature) => feature.properties.name === "大华岭"),
   "named mountains must survive overview thinning");
 assert.equal(overviewContext.huayuMountainSurfaceOverviewFeatures(
