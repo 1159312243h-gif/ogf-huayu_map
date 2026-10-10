@@ -758,6 +758,16 @@ async function fetchTransitTile(request, context, kind, z, x, y) {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/terrain-preload.json.gz") {
+      const asset = await environment.ASSETS.fetch(request);
+      if (asset.status !== 200) return asset;
+      const headers = new Headers(asset.headers);
+      headers.set("Content-Type", "application/json; charset=UTF-8");
+      headers.set("Content-Encoding", "gzip");
+      headers.set("Cache-Control", "public, max-age=300, must-revalidate, no-transform");
+      // The asset body already contains gzip bytes. Do not gzip it again.
+      return new Response(asset.body, { status: asset.status, headers, encodeBody: "manual" });
+    }
     const match = url.pathname.match(/^\/api\/buildings\/(\d+)\/(\d+)\/(\d+)\.json$/u);
     if (match) {
       return fetchBuildingTile(request, context, ...match.slice(1).map(Number));

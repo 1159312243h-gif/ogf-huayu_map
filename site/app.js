@@ -17049,6 +17049,15 @@
         headers: { Accept: "application/json", ...options.headers },
       });
       if (!response.ok) throw new Error(`HTTP_${response.status}`);
+      if (String(url).split(/[?#]/u)[0].endsWith(".json.gz")) {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        // Fetch normally decodes Content-Encoding. Older Pages responses may
+        // leave the stored gzip file inside a second transport encoding.
+        const text = bytes[0] === 0x1f && bytes[1] === 0x8b
+          ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text()
+          : new TextDecoder().decode(bytes);
+        return JSON.parse(text);
+      }
       return await response.json();
     } finally {
       window.clearTimeout(timer);

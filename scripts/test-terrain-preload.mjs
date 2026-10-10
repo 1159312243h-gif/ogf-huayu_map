@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import vm from "node:vm";
+import {gzipSync} from "node:zlib";
 import {createRequire} from "node:module";
 import {fileURLToPath} from "node:url";
 import {validateDataset,readDatasetFile} from "./update-all-data.mjs";
@@ -17,6 +18,14 @@ const feature = {type:"Feature",id:"hill",geometry:{type:"Polygon",coordinates:[
   [[1,1],[2,1],[2,2],[1,2],[1,1]]]},properties:{reliefRole:"surface",reliefHeight:200,reliefArea:1e8}};
 const packet = {format:1,schema:"open-small-mountains-v1",generatedAt:new Date().toISOString(),
   coverage:[{id:"region",bounds:[[0,0],[3,3]],complete:true}],features:[feature]};
+const transportContext = vm.createContext({AbortController,Response,Blob,DecompressionStream,TextDecoder,
+  window:{setTimeout,clearTimeout}});
+install(["fetchJson"],transportContext);
+for (const body of [JSON.stringify(packet),gzipSync(JSON.stringify(packet))]) {
+  transportContext.fetch = async () => new Response(body);
+  assert.equal((await transportContext.fetchJson("./terrain-preload.json.gz",1000))
+    .features[0].id,"hill","plain and remaining gzip responses must decode identically");
+}
 let requests = 0;
 let tileRequests = 0;
 let nextPacket = packet;

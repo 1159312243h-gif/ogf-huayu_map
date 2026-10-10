@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 const cache = new Map();
 globalThis.caches = {
@@ -261,6 +262,21 @@ try {
 
   const asset = await worker.fetch(new Request("https://example.test/index.html"), { ASSETS: assets }, context);
   assert.equal(await asset.text(), "asset");
+
+  const compressedTerrain = gzipSync(JSON.stringify({ format: 1, features: [{ id: "test-hill" }] }));
+  const terrainAsset = await worker.fetch(new Request("https://example.test/terrain-preload.json.gz"), {
+    ASSETS: { fetch: async () => new Response(compressedTerrain) },
+  }, context);
+  assert.equal(terrainAsset.headers.get("content-encoding"), "gzip");
+  assert.match(terrainAsset.headers.get("content-type"), /application\/json/u);
+  assert.match(terrainAsset.headers.get("cache-control"), /max-age=300.*no-transform/u);
+  assert.equal(JSON.parse(gunzipSync(Buffer.from(await terrainAsset.arrayBuffer())))
+    .features[0].id, "test-hill", "snapshot bytes must retain exactly one gzip encoding");
+  const absentTerrain = await worker.fetch(new Request("https://example.test/terrain-preload.json.gz"), {
+    ASSETS: { fetch: async () => new Response("missing", { status: 404 }) },
+  }, context);
+  assert.equal(absentTerrain.status, 404);
+  assert.equal(absentTerrain.headers.get("content-encoding"), null);
 
   console.log(JSON.stringify({
     status: "passed",
