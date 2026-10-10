@@ -37,11 +37,25 @@ for (const name of builderFiles) {
   const source = await fs.readFile(path.join(builderDirectory, name), "utf8");
   assert.doesNotMatch(source, forbidden, `${name} 仍包含设备、Codex、浏览器或大模型依赖`);
 }
+const huaxiaBoundary = JSON.parse(await fs.readFile(
+  path.join(builderDirectory, "huaxia-country-boundary.json"),
+  "utf8",
+));
+assert.equal(huaxiaBoundary.relationId, 28652, "华夏国界参考必须来自关系 28652");
+assert.ok(["Polygon", "MultiPolygon"].includes(huaxiaBoundary.geometry?.type),
+  "华夏国界参考必须包含有效多边形，不能在定时更新时临时依赖 Nominatim");
 
 const updater = await fs.readFile(path.join(root, "scripts", "update-all-data.mjs"), "utf8");
 assert.doesNotMatch(updater, /wrangler|pages deploy|cloudflare.*deploy/iu, "统一更新器不得自动部署");
 assert.match(updater, /replaceDatasetsAtomically/u, "统一更新器必须保留原子替换流程");
 assert.match(updater, /backupDirectory/u, "统一更新器必须创建备份");
+assert.doesNotMatch(
+  updater,
+  /fetch-huaxia-country-boundary/u,
+  "统一更新器不得依赖 Nominatim 国界查询阻断交通数据更新",
+);
+assert.match(updater, /huaxia-country-boundary\.json/u,
+  "统一更新器的流水线指纹必须覆盖国界参考文件");
 assert.ok(updater.indexOf('step("compact-transit-preload.cjs", "--write")')
   < updater.indexOf('step("enforce-transit-service-rules.cjs")'),
 "人工换乘规则必须在交通预载包紧凑化后重新应用");

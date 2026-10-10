@@ -290,6 +290,10 @@ function step(name, ...args) {
   return { name, script: name, args };
 }
 
+function isBuilderInput(name) {
+  return name.endsWith(".cjs") || name === "huaxia-country-boundary.json";
+}
+
 async function seedTransitRelations(stagedSite) {
   const preload = JSON.parse(await fs.readFile(path.join(stagedSite, "transit-preload.json"), "utf8"));
   const relations = {
@@ -325,13 +329,13 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
   const stepDirectory = path.join(runDirectory, "steps");
   await fs.mkdir(stepDirectory, { recursive: true });
   if (resume) {
-    for (const name of (await fs.readdir(builderSource)).filter((item) => item.endsWith(".cjs"))) {
+    for (const name of (await fs.readdir(builderSource)).filter(isBuilderInput)) {
       await fs.copyFile(path.join(builderSource, name), path.join(runDirectory, "work", name));
     }
   }
   const pipelineHash = createHash("sha256");
   for (const name of (await fs.readdir(path.join(runDirectory, "work")))
-    .filter((item) => item.endsWith(".cjs")).sort()) {
+    .filter(isBuilderInput).sort()) {
     pipelineHash.update(name);
     pipelineHash.update(await fs.readFile(path.join(runDirectory, "work", name)));
   }
@@ -370,7 +374,6 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
   await run(step("build-huaxia-transit-preload.cjs", ...(resume ? ["--resume"] : [])));
   await runTask("seed-transit-relations", () => seedTransitRelations(stagedSite));
   for (const item of [
-    step("fetch-huaxia-country-boundary.cjs", ...(resume ? ["--resume"] : [])),
     step("fetch-huaxia-full-railways-once.cjs"),
     step("fetch-huaxia-railway-ids-once.cjs", ...(resume ? ["--resume"] : [])),
     step("fetch-cardahe-rail-once.cjs", ...(resume ? ["--resume"] : [])),

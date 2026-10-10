@@ -2,6 +2,14 @@ name: Refresh transit and terrain data
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/data-refresh.yml
+      - scripts/update-all-data.mjs
+      - scripts/test-data-updater.mjs
+      - scripts/data-update/builders/**
   schedule:
     - cron: "17 */3 * * *"
 
