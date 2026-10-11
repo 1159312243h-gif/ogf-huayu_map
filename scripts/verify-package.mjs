@@ -273,14 +273,14 @@ const flatWoodlandVerticesSource = app.match(
 )?.[0];
 assert.ok(flatWoodlandVerticesSource, "缺少山林平面几何实现");
 const makeFlatWoodlandVertices = Function("HUAYU_TERRAIN_MIN_ZOOM", "HUAYU_MOUNTAIN_WOODLAND_MIN_AREA", "clamp",
-  "huayuMountainSurfaceModel", "huayuMountainContourInterval", "window",
+  "huayuMountainSurfaceModel", "huayuMountainContourInterval", "window", "huayuMountainMaterialOrigin",
   `return (${flatWoodlandVerticesSource});`)(7.5,1e6,
   (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value)),
   () => ({ bounds: { west: 0, east: 1, south: 0, north: 1 }, cosine: 1,
     areaSquareMeters: 1e8, peakHeight: 800, heightAt: ([x, y]) => 100 + 300 * x + 400 * y }),
   () => 80, { maplibregl: { MercatorCoordinate: {
     fromLngLat: ({ lng, lat }, altitude) => ({ x: lng, y: lat, z: altitude }),
-  } } },
+  } } }, () => [0.5,0.5],
 );
 for (const zoom of [7.5, 11, 15, 19]) {
   const vertices = makeFlatWoodlandVertices({ geometry: { type: "Polygon",
@@ -1372,6 +1372,8 @@ assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainT
 const terrainWorkerTest = await runCheck([path.join(root,"scripts","test-terrain-mesh-worker.mjs")]);
 const terrainContextTest = await runCheck([path.join(root,"scripts","test-terrain-context.mjs")]);
 assert.equal(terrainContextTest.status,0,terrainContextTest.stderr);
+const mountainLandscapesTest = await runCheck([path.join(root,"scripts","test-mountain-landscapes.mjs")]);
+assert.equal(mountainLandscapesTest.status,0,`山上园林连续坡面回归失败：${mountainLandscapesTest.stderr}`);
 assert.equal(terrainWorkerTest.status,0,`地形后台计算与缓存回归失败：${terrainWorkerTest.stderr || terrainWorkerTest.stdout}`);
 const terrainAtomicTest = await runCheck([path.join(root,"scripts","test-terrain-update-atomic.mjs")]);
 assert.equal(terrainAtomicTest.status,0,`地形快照原子替换回归失败：${terrainAtomicTest.stderr}`);
@@ -1382,6 +1384,8 @@ const neighborsTest = await runCheck([path.join(root, "scripts", "test-terrain-n
 assert.equal(neighborsTest.status, 0, `邻近小山体回归失败：${neighborsTest.stderr || neighborsTest.stdout}`);
 const adminLabelsTest = await runCheck([path.join(root, "scripts", "test-administrative-labels.mjs")]);
 assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLabelsTest.stderr || adminLabelsTest.stdout}`);
+const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);
+assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
 
 console.log(JSON.stringify({
   status: "passed",

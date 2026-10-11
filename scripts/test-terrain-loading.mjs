@@ -175,6 +175,7 @@ const renderContext = vm.createContext({
   huayuAdministrativeQueryBounds:() => viewport,
   huayuMountainSurfaceFeatureIntersectsViewport:() => true,
   huayuMountainSurfaceOverviewFeatures: (features) => features,
+  huayuMountainSurfaceLandscapes: (features) => features,
   huayuMountainRangeContext:(_surfaces,waterContext) => waterContext,
   huayuMountainSurfaceMeshLevel: (zoom) => zoom >= 10.5 ? 4 : 3,
   huayuWoodlandMaterialCoverage:() => null,
@@ -190,7 +191,7 @@ const renderContext = vm.createContext({
   clamp:(value,min,max) => Math.max(min,Math.min(max,value)),
   performance:{now:() => {clock+=20; return clock;}}, setTimeout, window:{setTimeout,clearTimeout},
 });
-install(["huayuAdministrativeBoundsContain", "huayuWoodlandMaterialCells",
+install(["huayuMountainMaterialOrigin", "huayuAdministrativeBoundsContain", "huayuWoodlandMaterialCells",
   "huayuWoodlandMaterialBoundsIntersect", "huayuWoodlandMaterialBuildGeometry", "createHuayuWoodlandMaterialLayer"], renderContext);
 layer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
 layer.gl = {bindBuffer:() => {}, bufferData:() => {uploads++;}, createBuffer:() => ({}),
@@ -234,7 +235,7 @@ cancelBuild = false;
 let draws = 0;
 const drawBounds = [];
 Object.assign(layer.gl, Object.fromEntries(["useProgram","enableVertexAttribArray","uniformMatrix4fv",
-  "uniform3fv","uniform1f","activeTexture","bindTexture","uniform1i","depthMask","enable",
+  "uniform2fv","uniform3fv","uniform1f","activeTexture","bindTexture","uniform1i","depthMask","enable",
   "disable","blendFunc","vertexAttribPointer"].map(name=>[name,()=>{}])));
 Object.assign(layer.gl,{getParameter:()=>0,isEnabled:()=>false,drawArrays:()=>{draws++;},
   uniform4fv:(location,value)=>{if(location==="clip")drawBounds.push(value);}});
@@ -390,13 +391,13 @@ const meshContext = vm.createContext({HUAYU_TERRAIN_MIN_ZOOM:5.5,
   huayuMountainContourInterval:() => 40,
   window:{maplibregl:{MercatorCoordinate:{fromLngLat:({lng,lat},altitude) => ({x:lng,y:lat,z:altitude})}}},
 });
-install(["huayuMountainSurfaceFeatureVertices"],meshContext);
+install(["huayuMountainMaterialOrigin", "huayuMountainSurfaceFeatureVertices"],meshContext);
 for (const budget of [6,12,300,600]) {
   const vertices = meshContext.huayuMountainSurfaceFeatureVertices({geometry:polygon},budget,null,8);
   const positions = Array.from({length:vertices.length/9},(_,index) => vertices.slice(index*9,index*9+2));
   assert.ok(positions.length<=budget);
-  assert.equal(Math.max(...positions.map((point) => point[0])),100);
-  assert.ok(Math.abs(Math.max(...positions.map((point) => point[1]))-0.01)<1e-7,
+  assert.equal(Math.max(...positions.map((point) => point[0]))-Math.min(...positions.map((point) => point[0])),100);
+  assert.ok(Math.abs(Math.max(...positions.map((point) => point[1]))-Math.min(...positions.map((point) => point[1]))-0.01)<1e-7,
     "both ends must survive the vertex budget even for an elongated mountain");
 }
 
@@ -408,14 +409,14 @@ const leftMesh = meshContext.huayuMountainSurfaceFeatureVertices({geometry:polyg
   {west:0,east:1,south:0,north:1},9);
 const rightMesh = meshContext.huayuMountainSurfaceFeatureVertices({geometry:polygon},72000,
   {west:1,east:2,south:0,north:1},9);
-const edgeValues = mesh => {
+const edgeValues = (mesh,origin) => {
   const values = new Map();
-  for(let index=0;index<mesh.length;index+=9) if(mesh[index]===1) {
-    values.set(mesh[index+1],Array.from(mesh.slice(index+3,index+8)));
+  for(let index=0;index<mesh.length;index+=9) if(mesh[index]+origin[0]===1) {
+    values.set(mesh[index+1]+origin[1],Array.from(mesh.slice(index+3,index+8)));
   }
   return [...values].sort((first,second)=>first[0]-second[0]);
 };
-assert.deepEqual(edgeValues(leftMesh),edgeValues(rightMesh),
+assert.deepEqual(edgeValues(leftMesh,[0.5,0.5]),edgeValues(rightMesh,[1.5,0.5]),
   "adjacent regional blocks must have identical edge heights and normals despite different budgets");
 
 // Overview tiles cover every visible region; do not silently truncate the centre-priority list.
@@ -482,7 +483,8 @@ const maskContext = {globalCompositeOperation:"source-over",beginPath:() => {pat
 maskCanvas.getContext = () => maskContext;
 const maskVm = vm.createContext({document:{createElement:() => maskCanvas},
   window:{maplibregl:{MercatorCoordinate:{fromLngLat:({lng,lat}) => ({x:lng,y:-lat,z:0})}}}});
-install(["huayuWoodlandMaterialCoverage"],maskVm);
+install(["clamp", "huayuWallPointInRing", "huayuPointInPolygonGeometry", "huayuGeometryInteriorPoint",
+  "huayuGeometryAreaSquareMeters", "huayuWoodlandMaterialCoverage"],maskVm);
 const square = (low,high) => ({geometry:{type:"Polygon",coordinates:[
   [[low,low],[high,low],[high,high],[low,high],[low,low]]]}});
 maskVm.huayuWoodlandMaterialCoverage([square(0,1)],{west:0,east:1,south:0,north:1},
@@ -513,6 +515,14 @@ maskVm.huayuWoodlandMaterialCoverage([
 ],{west:0,east:1,south:0,north:1});
 assert.deepEqual(probes.map(probe=>probe.owner),[257,257,257,257],
   "large geographic blocks must retain both bytes of the surface owner");
+const integratedGarden = {...square(0,1),properties:{reliefLandKind:"garden",osmType:"way",sourceOsmId:"1",
+  reliefArea:maskVm.huayuGeometryAreaSquareMeters(square(0,1).geometry)}};
+maskVm.huayuWoodlandMaterialCoverage([integratedGarden],{west:0,east:1,south:0,north:1},[
+  {...square(0.2,0.4),properties:{materialOcclusion:"garden",class:"grass",subclass:"garden"}},
+  {...square(0.6,0.8),properties:{materialOcclusion:"water"}},
+]);
+assert.deepEqual(probes.map(probe=>probe.alpha),[1,1,0,1],
+  "a partial vector-tile garden must preserve the slope while water still remains excluded");
 const overlayVm = vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{water:"live-water"},
   HUAYU_LIVE_BUILDING_LAYER:"buildings",HUAYU_PAVILION_LAYER:"pavilions",HUAYU_PAVILION_BASE_LAYER:"pavilion-bases",
   huayuMountainSurfaceFeatureIntersectsViewport:() => true});

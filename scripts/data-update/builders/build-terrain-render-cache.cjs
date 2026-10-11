@@ -54,12 +54,13 @@ async function writeTerrainRenderCache(siteDirectory, payload) {
   }
   const entries=[];
   for (const group of [...groups.values()].sort((a,b)=>a.id.localeCompare(b.id))) {
-    const features=runtime.huayuMountainSurfaceOverviewFeatures(group.features,group.cell.bounds,7)
-      .sort((a,b)=>Number(b.properties.reliefArea)-Number(a.properties.reliefArea));
     const occlusions=context.filter(feature=>runtime.huayuMountainSurfaceFeatureIntersectsViewport(feature,group.cell.bounds));
+    const features=runtime.huayuMountainSurfaceLandscapes(
+      runtime.huayuMountainSurfaceOverviewFeatures(group.features,group.cell.bounds,7),occlusions)
+      .sort((a,b)=>Number(b.properties.reliefArea)-Number(a.properties.reliefArea));
     const water=occlusions.filter(feature=>feature.properties.materialOcclusion==="water" && !feature.properties.bridge);
-    const signature=createHash("sha256").update(`overview-v1:${runtime.renderFingerprint}:`
-      + [...features,...occlusions].map(feature=>feature.terrainDigest).join("|")).digest("hex");
+    const signature=createHash("sha256").update(`overview-v2:${runtime.renderFingerprint}:`
+      + [...features,...occlusions].map(feature=>feature.terrainDigest || JSON.stringify(feature)).join("|")).digest("hex");
     const filename=`${group.id}-${signature.slice(0,16)}.json.gz`;
     const target=path.join(directory,filename);
     let bytes;
@@ -70,7 +71,7 @@ async function writeTerrainRenderCache(siteDirectory, payload) {
       const encoded=Buffer.from(built.values.buffer,built.values.byteOffset,built.values.byteLength).toString("base64");
       // Geometry is also the exact coverage mask, including holes and open-land
       // colours; no raster outline, new height model or second layer is added.
-      const packet={format:1,model:"woodland-material-overview-v1",cell:group.cell,
+      const packet={format:1,model:"woodland-material-overview-v1",coordinateSpace:"cell-local-v1",cell:group.cell,
         surfaces:features,occlusions,vertices:encoded,renderedNeighbors:built.renderedNeighbors};
       const body=gzipSync(JSON.stringify(packet),{level:9});
       if (body.length>=25*1024*1024) throw new Error(`Terrain render block exceeds Pages limit: ${group.id}`);

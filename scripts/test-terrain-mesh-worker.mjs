@@ -127,6 +127,7 @@ assert.deepEqual(Array.from(answer.values),first);
 let publishedFetches=0;
 Object.assign(worker,{Uint8Array, TextDecoder, Response, AbortSignal, atob,
   fetch:async()=>{publishedFetches++;return new Response(JSON.stringify({format:1,model:"woodland-material-overview-v1",
+    coordinateSpace:"cell-local-v1",
     cell,surfaces:[hill],occlusions:[{...hill,geometry:{type:"Polygon",coordinates:[[[0.2,0.2],[0.3,0.2],[0.3,0.3],[0.2,0.3],[0.2,0.2]]]},
       properties:{materialOcclusion:"water"}}],
     vertices:Buffer.from(new Float32Array(first).buffer).toString("base64"),renderedNeighbors:1}));}});

@@ -127,7 +127,8 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
         features.push({type:"Feature",id:`terrain-context:${type}:${item.id}`,geometry,properties:{
           renderKind:water ? geometry.type.includes("LineString") ? "waterway" : "water" : "terrain-context",
           featureClass:water ? tags.waterway || tags.water || "water" : kind,
-          materialOcclusion:kind,terrainContext:1,osmType:type,osmId:String(item.id),
+          materialOcclusion:kind,landscapeKind:kind==="garden" ? tags.leisure || "garden" : "",
+          terrainContext:1,osmType:type,osmId:String(item.id),
           name:runtime.huayuPreferredFeatureName(tags),layer:Number(tags.layer)||0,tunnel:0,bridge:tags.bridge&&tags.bridge!=="no"?1:0,
           terrainValley:water && tags.water!=="pond"
             && (!tags.waterway || ["river","stream","riverbank"].includes(tags.waterway)) ? 1 : 0,

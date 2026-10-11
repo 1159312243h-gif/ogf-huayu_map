@@ -862,6 +862,7 @@
   let vectorTransitOverlaySignature = "";
   let vectorTransitOverlayMap = null;
   const huayuAdminLabelStates = new WeakMap();
+  const huayuModelOcclusionStates = new WeakMap();
   const huayuCityWallStates = new WeakMap();
   const huayuWallStates = new WeakMap();
   const huayuElevatedGreenStates = new WeakMap();
@@ -1097,6 +1098,7 @@
             activateHuayuLiveBuildings(glMap);
             activateHuayuElevatedGreen(glMap);
             activateHuayuSupplementalPois(glMap);
+            activateHuayuModelOcclusion(glMap);
           }
         });
       });
@@ -1105,6 +1107,7 @@
         if (isHuayuBasemapId(id)) {
           if (onStyleImageMissing) vectorMap?.off("styleimagemissing", onStyleImageMissing);
           [deactivateHuayuLiveBasemap, deactivateHuayuAdministrativeLabels,
+            deactivateHuayuModelOcclusion,
             deactivateHuayuCityWalls, deactivateHuayuWalls, deactivateHuayuStructures, deactivateHuayuElevatedGreen,
             deactivateHuayuLiveBuildings, deactivateHuayuSupplementalPois].forEach((deactivate) => {
             try { deactivate(vectorMap); } catch {}
@@ -17220,7 +17223,7 @@
       wallColorProperty: "nightColor",
       elevatedGreenColorProperty: "nightColor",
       buildingColors: ["#29343a", "#2f3b41", "#35434a", "#3b4b53", "#435760"],
-      buildingOpacity: 0.97,
+      buildingOpacity: 1,
       pavilionRoof: "#6f6258",
       pavilionColumn: "#a09389",
       pavilionBase: "#495257",
@@ -17312,7 +17315,7 @@
       wallColorProperty: "color",
       elevatedGreenColorProperty: "color",
       buildingColors: ["#e8ece9", "#e3e8e5", "#dce3e1", "#d4dddc", "#cbd7d9"],
-      buildingOpacity: 0.92,
+      buildingOpacity: 1,
       pavilionRoof: "#a98d78",
       pavilionColumn: "#77685d",
       pavilionBase: "#d8d4ca",
@@ -17669,6 +17672,82 @@
     const buildingIndex = layers.findIndex((layer) => layer.id === "building-3d");
     return layers.slice(buildingIndex >= 0 ? buildingIndex + 1 : 0)
       .find((layer) => layer.type === "symbol")?.id;
+  }
+
+  function syncHuayuModelOcclusion(glMap) {
+    const style = glMap?.getStyle?.();
+    if (!style) return;
+    const state = huayuModelOcclusionStates.get(glMap);
+    if (state?.syncing) return;
+    if (state) state.syncing = true;
+    try {
+      // MapLibre disables 2D depth testing after the FIRST extrusion, including
+      // hidden ones. A later road/fill then paints over every model. Keep all
+      // ground surfaces (including the existing flat mountain material) before
+      // one shared 3D pass, with cartographic symbols above it.
+      const definitions = new Map(style.layers.map(layer => [layer.id, layer]));
+      const order = [...(glMap.getLayersOrder?.() || style.layers.map(layer => layer.id))];
+      const ground = [], models = [], annotations = [];
+      for (const id of order) {
+        const layer = definitions.get(id) || glMap.getLayer(id);
+        if (!layer) continue;
+        if (layer.type === "fill-extrusion") {
+          models.push(id);
+          // Solids must not show roads or farther models through their faces.
+          // Keep holes, roof bases and model heights in the actual geometry.
+          if (glMap.getPaintProperty(id, "fill-extrusion-opacity") !== 1) {
+            glMap.setPaintProperty(id, "fill-extrusion-opacity-transition", {duration: 0, delay: 0});
+            glMap.setPaintProperty(id, "fill-extrusion-opacity", 1);
+          }
+        } else if (["background", "fill", "line", "raster", "hillshade", "color-relief"].includes(layer.type)
+          || (layer.type === "custom"
+            && (layer.renderingMode || layer.implementation?.renderingMode || "2d") === "2d")) {
+          ground.push(id);
+        } else {
+          annotations.push(id);
+        }
+      }
+      if (!models.length) return;
+      // Garden ground inherits mountain shading, but its transparent planting
+      // pattern and outline are surface details and must remain above it.
+      const materialId = HUAYU_LIVE_BASEMAP_LAYERS.mountainOverviewTexture;
+      if (ground.includes(materialId)) {
+        const details = [HUAYU_GARDEN_LAYERS.pattern, HUAYU_GARDEN_LAYERS.outline]
+          .filter(id => ground.includes(id));
+        for (const id of details) ground.splice(ground.indexOf(id), 1);
+        ground.splice(ground.indexOf(materialId) + 1, 0, ...details);
+      }
+      const wanted = [...ground, ...models, ...annotations];
+      // Repair only inversions. No sorting by feature or camera on pan/rotate;
+      // all extrusion layers share MapLibre's real depth buffer.
+      for (let index = wanted.length - 1; index >= 0; index -= 1) {
+        const id = wanted[index], beforeId = wanted[index + 1];
+        const currentIndex = order.indexOf(id);
+        if (beforeId ? order[currentIndex + 1] === beforeId : currentIndex === order.length - 1) continue;
+        glMap.moveLayer(id, beforeId);
+        order.splice(currentIndex, 1);
+        order.splice(beforeId ? order.indexOf(beforeId) : order.length, 0, id);
+      }
+    } finally {
+      if (state) state.syncing = false;
+    }
+  }
+
+  function activateHuayuModelOcclusion(glMap) {
+    if (huayuModelOcclusionStates.has(glMap)) return;
+    const state = {syncing: false, onStyleData: () => syncHuayuModelOcclusion(glMap)};
+    huayuModelOcclusionStates.set(glMap, state);
+    // Sources and model layers arrive asynchronously and may be reinserted on
+    // snapshot handoff. Repair before drawing, without waiting for full idle.
+    glMap.on("styledata", state.onStyleData);
+    syncHuayuModelOcclusion(glMap);
+  }
+
+  function deactivateHuayuModelOcclusion(glMap) {
+    const state = glMap && huayuModelOcclusionStates.get(glMap);
+    if (!state) return;
+    glMap.off("styledata", state.onStyleData);
+    huayuModelOcclusionStates.delete(glMap);
   }
 
   function syncHuayuCityWallPerspectiveLayers(glMap) {
@@ -18356,6 +18435,10 @@
   }
 
   function positionHuayuWallsAboveBuildings(glMap) {
+    if (huayuModelOcclusionStates.has(glMap)) {
+      syncHuayuModelOcclusion(glMap);
+      return;
+    }
     if (!glMap?.isStyleLoaded?.()) return;
     const beforeSymbols = huayuCityWallInsertionLayer(glMap);
     if (!beforeSymbols) return;
@@ -18442,7 +18525,7 @@
           "fill-extrusion-color": ["get", palette.wallColorProperty],
           "fill-extrusion-height": ["get", "height"],
           "fill-extrusion-base": ["get", "minHeight"],
-          "fill-extrusion-opacity": 0.9,
+          "fill-extrusion-opacity": 1,
           "fill-extrusion-vertical-gradient": true,
         },
       }, beforeId);
@@ -18582,6 +18665,10 @@
   }
 
   function positionHuayuElevatedGreenAboveBuildings(glMap) {
+    if (huayuModelOcclusionStates.has(glMap)) {
+      syncHuayuModelOcclusion(glMap);
+      return;
+    }
     const layerId = HUAYU_ELEVATED_GREEN_LAYERS.surface;
     if (!glMap?.getLayer?.(layerId)) return;
     const beforeId = glMap.getLayer(HUAYU_CITY_WALL_LAYERS.fill)
@@ -19973,7 +20060,7 @@
     const edgeFadeMeters = clamp(Math.sqrt(areaSquareMeters) * 0.12, smallHill ? 8 : 240, 8500);
     const contains = huayuMountainOuterContains(outer, bounds);
     const edgeLine = huayuMountainEdgeFadeLine(outer, cosine,
-      clamp(edgeFadeMeters * 0.035, 12, 240));
+      clamp(edgeFadeMeters * 0.035, smallHill ? 0.25 : 12, 240));
     const edgeDistance = huayuMountainSegmentIndex([edgeLine], bounds, cosine, edgeFadeMeters);
     const valleyWidth = clamp(Math.sqrt(areaSquareMeters) * 0.035, smallHill ? 8 : 250, 4500);
     const waterDistance = huayuMountainWaterDistance(waterContext);
@@ -19984,7 +20071,8 @@
     };
     const detailSeed = huayuTreeHash(`${feature.id}:surface-detail`);
     const detailOrigin = [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
-    const detailWavelength = clamp(Math.sqrt(areaSquareMeters) * 0.09, 700, 9000);
+    const detailWavelength = smallHill ? clamp(Math.sqrt(areaSquareMeters) * 0.35, 30, 350)
+      : clamp(Math.sqrt(areaSquareMeters) * 0.09, 700, 9000);
     const rawHeightAt = (coordinate) => {
       if (regionalSurface) return regionalSurface.heightAt(coordinate);
       let relief = peakHeight * 0.035;
@@ -20041,7 +20129,18 @@
       }
     };
     const groups = new Map();
+    const byId = new Map(entries.map(entry => [String(entry.feature.id), entry]));
+    const linked = new Set();
+    // Mapped gardens in a mountain clearing are land cover on that mountain,
+    // not an independent summit starting at sea level inside the clearing.
     for (const entry of entries) {
+      const parent = byId.get(entry.feature.properties?.reliefOnMountain);
+      if (!parent || parent === entry) continue;
+      if (!groups.has(parent)) groups.set(parent, []);
+      groups.get(parent).push(entry); linked.add(entry);
+    }
+    for (const entry of entries) {
+      if (linked.has(entry)) continue;
       const candidates = new Set();
       visit(entry.bounds,key=>(cells.get(key)||[]).forEach(parent=>candidates.add(parent)));
       const larger=[...candidates].filter(item=>item.area>=entry.area*4
@@ -20056,8 +20155,24 @@
       const parent=larger.find(item=>probes.length && probes.filter(item.contains).length>=probes.length*0.65);
       if(parent) groups.get(parent).push(entry);
       else if(entry.area>=HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA) {
-        groups.set(entry,[]);
+        if (!groups.has(entry)) groups.set(entry,[]);
         visit(entry.bounds,key=>{if(!cells.has(key)) cells.set(key,[]);cells.get(key).push(entry);});
+      }
+    }
+    // A garden on an internal woodland patch still belongs to the enclosing
+    // range. Flatten these links before creating any fields, avoiding a local
+    // garden field left behind when its parent inherits the regional field.
+    const parentOf = new Map();
+    for (const [root, children] of groups) for (const child of children) parentOf.set(child, root);
+    for (const [root, children] of [...groups]) {
+      let ancestor = parentOf.get(root);
+      if (!ancestor) continue;
+      const visited = new Set([root]);
+      while (parentOf.has(ancestor) && !visited.has(ancestor)) {
+        visited.add(ancestor); ancestor = parentOf.get(ancestor);
+      }
+      if (ancestor !== root && groups.has(ancestor)) {
+        groups.get(ancestor).push(...children); groups.delete(root);
       }
     }
     for (const [root, children] of groups) {
@@ -20205,6 +20320,86 @@
     return 4;
   }
 
+  function huayuMountainMaterialOrigin(bounds) {
+    const point = window.maplibregl.MercatorCoordinate.fromLngLat({
+      lng: (bounds.west + bounds.east) / 2, lat: (bounds.south + bounds.north) / 2,
+    }, 0);
+    return [point.x, point.y];
+  }
+
+  function huayuMountainSurfaceLandscapes(surfaces, context = []) {
+    const result = surfaces.slice();
+    const sourceKey = feature => `${feature.properties?.osmType}:${feature.properties?.sourceOsmId || feature.properties?.osmId}`;
+    const gardens = context.filter(feature => feature.properties?.terrainContext === 1
+      && feature.properties?.materialOcclusion === "garden"
+      && (!feature.properties?.landscapeKind || feature.properties.landscapeKind === "garden")
+      && !/(?:公园|\bpark\b)/iu.test(feature.properties?.name || "")
+      && ["Polygon", "MultiPolygon"].includes(feature.geometry?.type));
+    // Named garden hills are already in the terrain inventory. Use the same
+    // rule even before their duplicate garden context/vector tiles arrive.
+    const candidates = [...surfaces.filter(feature => feature.properties?.reliefLandKind === "garden"), ...gardens];
+    const parents = surfaces.filter(feature => feature.properties?.reliefLandKind !== "garden")
+      .flatMap(feature => (feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates)
+        .map(polygon => {
+          const bounds = huayuMountainSurfaceModelBounds(polygon[0]);
+          let contains;
+          return {feature, polygon, bounds,
+            contains: point => (contains ||= huayuMountainOuterContains(polygon[0], bounds))(point)};
+        }))
+      .sort((a,b) => Number(a.feature.properties.reliefArea) - Number(b.feature.properties.reliefArea));
+    const index = new Map();
+    for (const parent of parents) for (let y=Math.floor(parent.bounds.south);y<=Math.floor(parent.bounds.north);y++) {
+      for (let x=Math.floor(parent.bounds.west);x<=Math.floor(parent.bounds.east);x++) {
+        const key = `${x}/${y}`;
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(parent);
+      }
+    }
+    const seen = new Set();
+    for (const garden of candidates) {
+      const key = sourceKey(garden);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const rings = garden.geometry.type === "Polygon" ? [garden.geometry.coordinates[0]]
+        : garden.geometry.coordinates.map(polygon => polygon[0]);
+      const probes = rings.flatMap(ring => ring.slice(0,-1));
+      const area = huayuGeometryAreaSquareMeters(garden.geometry);
+      const nearby = new Set();
+      const gardenBounds = huayuMountainSurfaceModelBounds(probes);
+      for (let y=Math.floor(gardenBounds.south);y<=Math.floor(gardenBounds.north);y++) {
+        for (let x=Math.floor(gardenBounds.west);x<=Math.floor(gardenBounds.east);x++) {
+          for (const parent of index.get(`${x}/${y}`) || []) nearby.add(parent);
+        }
+      }
+      const parent = [...nearby].sort((a,b) => Number(a.feature.properties.reliefArea) - Number(b.feature.properties.reliefArea))
+        .find(item => item.feature !== garden
+        && Number(item.feature.properties.reliefArea) > area * 1.25
+        && huayuMountainSurfaceFeatureIntersectsViewport(garden, item.bounds)
+        && probes.length && probes.every(item.contains));
+      if (!parent) continue;
+      const existing = result.findIndex(feature => sourceKey(feature) === key && feature.properties?.reliefLandKind === "garden");
+      const original = existing >= 0 ? result[existing] : garden;
+      const feature = {...original, id: existing >= 0 ? original.id : `terrain-landscape:${parent.feature.id}:${garden.id}`,
+        properties: {...original.properties, renderKind: "mountain-surface", reliefRole: "surface",
+          reliefLandKind: "garden", reliefOnMountain: String(parent.feature.id), reliefArea: area,
+          reliefHeight: parent.feature.properties.reliefHeight,
+          reliefPeaks: existing >= 0 ? original.properties?.reliefPeaks || "[]" : "[]",
+          sourceOsmId: garden.properties?.sourceOsmId || garden.properties?.osmId}};
+      delete feature.terrainDigest;
+      if (existing >= 0) result[existing] = feature; else result.push(feature);
+    }
+    return result;
+  }
+
+  function huayuMountainSurfaceModelBounds(outer) {
+    const bounds = {west:Infinity,east:-Infinity,south:Infinity,north:-Infinity};
+    for (const [x,y] of outer) {
+      bounds.west=Math.min(bounds.west,x); bounds.east=Math.max(bounds.east,x);
+      bounds.south=Math.min(bounds.south,y); bounds.north=Math.max(bounds.north,y);
+    }
+    return bounds;
+  }
+
   function huayuMountainSurfaceFeatureVertices(feature, remainingVertices, viewportBounds = null,
     zoom = HUAYU_TERRAIN_MIN_ZOOM) {
     const geometry = feature?.geometry;
@@ -20220,6 +20415,7 @@
       const model = huayuMountainSurfaceModel(feature, polygonGeometry);
       if (!model) return;
       const { bounds, cosine, areaSquareMeters, peakHeight, heightAt } = model;
+      const origin = huayuMountainMaterialOrigin(viewportBounds || bounds);
       const west = viewportBounds ? Math.max(bounds.west, viewportBounds.west) : bounds.west;
       const east = viewportBounds ? Math.min(bounds.east, viewportBounds.east) : bounds.east;
       const south = viewportBounds ? Math.max(bounds.south, viewportBounds.south) : bounds.south;
@@ -20347,14 +20543,16 @@
           && !model.contains?.([(first.coordinate[0]+second.coordinate[0]+third.coordinate[0])/3,
             (first.coordinate[1]+second.coordinate[1]+third.coordinate[1])/3])) return;
         [first, second, third].forEach((point) => {
-          polygonVertices[polygonOffset++] = point.mercator.x;
-          polygonVertices[polygonOffset++] = point.mercator.y;
+          // Absolute float32 Mercator coordinates lose metres at z19. Keep
+          // local coordinates; translate the map matrix in double precision.
+          polygonVertices[polygonOffset++] = point.mercator.x - origin[0];
+          polygonVertices[polygonOffset++] = point.mercator.y - origin[1];
           polygonVertices[polygonOffset++] = point.mercator.z;
           polygonVertices[polygonOffset++] = point.normal[0];
           polygonVertices[polygonOffset++] = point.normal[1];
           polygonVertices[polygonOffset++] = point.normal[2];
           polygonVertices[polygonOffset++] = clamp(point.height / peakHeight, 0, 1)
-            + (feature.properties?.reliefLandKind === "open" ? 2 : 0);
+            + (feature.properties?.reliefLandKind === "garden" ? 4 : feature.properties?.reliefLandKind === "open" ? 2 : 0);
           polygonVertices[polygonOffset++] = point.height;
           polygonVertices[polygonOffset++] = contourInterval;
         });
@@ -20406,6 +20604,12 @@
       try {
         for (const feature of glMap.querySourceFeatures?.(layer.source,
           layer["source-layer"] ? { sourceLayer: layer["source-layer"] } : {}) || []) {
+          // querySourceFeatures ignores the display layer's filter. A garden
+          // layer sharing landcover must not turn all forest/grass into holes.
+          if (layer["source-layer"] === "landcover"
+            && !["garden"].includes(feature.properties?.class)
+            && feature.properties?.subclass !== "garden"
+            && feature.properties?.leisure !== "garden") continue;
           const kind=feature.properties?.renderKind;
           // A shared source contains terrain, names and land-use as well as
           // modeled canopies/structures. Only the latter may cut the material.
@@ -20442,7 +20646,8 @@
             for(let row=first;row<last;row++) crossings[row].push(ax+(bx-ax)*(row+0.5-ay)/(by-ay));
           }
         }
-        const owner=index+1, land=feature.properties?.reliefLandKind==="open" ? 0 : 255;
+        const owner=index+1, land=feature.properties?.reliefLandKind==="garden" ? 128
+          : feature.properties?.reliefLandKind==="open" ? 0 : 255;
         for(let row=0;row<resolution;row++) {
           const xs=crossings[row].sort((a,b)=>a-b);
           for(let i=1;i<xs.length;i+=2) {
@@ -20521,7 +20726,8 @@
     // the neighbouring hill, creating rectangular patches at their junction.
     const drawSurface = (feature, index) => {
       const owner = index + 1;
-      context.fillStyle = `rgb(${feature.properties?.reliefLandKind === "open" ? 0 : 255},${owner % 256},${Math.floor(owner / 256)})`;
+      context.fillStyle = `rgb(${feature.properties?.reliefLandKind === "garden" ? 128
+        : feature.properties?.reliefLandKind === "open" ? 0 : 255},${owner % 256},${Math.floor(owner / 256)})`;
       drawPolygon(feature);
     };
     features.forEach((feature, index) => {
@@ -20534,7 +20740,23 @@
     // Exact exclusions preserve those water/building pixels without writing
     // depth, raising terrain or adding a second material layer.
     context.globalCompositeOperation = "destination-out";
-    occlusions.forEach(drawOcclusion);
+    const gardenSurfaces = features.filter(feature => feature.properties?.reliefLandKind === "garden");
+    const integratedGardens = new Set(gardenSurfaces
+      .filter(feature => feature.properties?.sourceOsmId || feature.properties?.osmId)
+      .map(feature => `${feature.properties?.osmType}:${feature.properties?.sourceOsmId || feature.properties?.osmId}`));
+    occlusions.forEach(feature => {
+      if (feature.properties?.materialOcclusion === "garden"
+        && (integratedGardens.has(`${feature.properties?.osmType}:${feature.properties?.osmId}`)
+          || gardenSurfaces.some(garden => {
+            const area = huayuGeometryAreaSquareMeters(feature.geometry);
+            // Vector tiles can contain only a clipped part of the garden. Its
+            // smaller area must not punch the integrated slope back out.
+            if (!(area > 0) || area > garden.properties.reliefArea * 1.12) return false;
+            const point = huayuGeometryInteriorPoint(feature.geometry);
+            return point && huayuPointInPolygonGeometry(point, garden.geometry);
+          }))) return;
+      drawOcclusion(feature);
+    });
     context.globalCompositeOperation = "source-over";
     const image=context.getImageData?.(0,0,resolution,resolution);
     if(image) {
@@ -20653,7 +20875,8 @@
       huayuRegionalMountainSurface, huayuMountainEdgeFadeLine, huayuMountainSegmentIndex,
       huayuMountainOuterContains, huayuMountainSurfaceFeatureIntersectsViewport, huayuWoodlandMaterialBoundsIntersect,
       huayuMountainWaterDistance, huayuMountainSurfaceModel, huayuMountainRangeContext,
-      huayuMountainContourInterval, huayuMountainSurfaceFeatureVertices,
+      huayuMountainContourInterval, huayuMountainMaterialOrigin, huayuMountainSurfaceModelBounds,
+      huayuMountainSurfaceLandscapes, huayuMountainSurfaceFeatureVertices,
       huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
       huayuWoodlandMaterialBuildGeometry, huayuTerrainMeshWorkerMain];
     return `const HUAYU_MOUNTAIN_WOODLAND_MIN_AREA=${HUAYU_MOUNTAIN_WOODLAND_MIN_AREA};
@@ -20675,6 +20898,7 @@
     const modelVersion = crypto.subtle.digest("SHA-256", new TextEncoder().encode([
       huayuMountainSurfaceModel, huayuMountainSurfaceFeatureVertices, huayuRegionalMountainSurface,
       huayuMountainSurfaceAnchors, huayuMountainWaterDistance, huayuMountainRangeContext,
+      huayuMountainMaterialOrigin, huayuMountainSurfaceLandscapes,
       huayuWoodlandMaterialBuildGeometry, huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
     ].map(fn => fn.toString()).join("\n"))).then(bytes =>
       Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join(""));
@@ -20750,6 +20974,13 @@
               const bytes = Uint8Array.from(encoded, character => character.charCodeAt(0));
               if (!bytes.length || bytes.length % 36) throw new Error("INVALID_TERRAIN_RENDER_VERTICES");
               values = new Float32Array(bytes.buffer);
+              if (payload.coordinateSpace !== "cell-local-v1") {
+                // Keep an older complete overview usable during an update.
+                const origin = huayuMountainMaterialOrigin(payload.cell.bounds);
+                for (let offset = 0; offset < values.length; offset += 9) {
+                  values[offset] -= origin[0]; values[offset + 1] -= origin[1];
+                }
+              }
             }
             const coverage = huayuWoodlandMaterialCoverage(payload.surfaces, job.maskBounds || payload.cell.bounds,
               [...(payload.occlusions || []), ...(job.preparedOcclusions || [])], 1024);
@@ -20776,19 +21007,20 @@
         const waterKey = job.water.map(token => fingerprints.get(token)).sort().join("|");
         if (!waterContexts.has(waterKey)) waterContexts.set(waterKey, {features: job.water.map(token => features.get(token))});
         const waterContext = waterContexts.get(waterKey);
+        const maskResolution = job.zoom >= 17 ? 1024 : 512;
         const key = `v1:${await modelVersion}:${job.cell.key}:${job.surfaces.map(token => fingerprints.get(token)).join("|")}`
-          + `:water:${waterKey}:mask:${job.occlusions.map(token => fingerprints.get(token)).sort().join("|")}`;
+          + `:water:${waterKey}:mask:${job.occlusions.map(token => fingerprints.get(token)).sort().join("|")}:resolution:${maskResolution}`;
         const previous = await stored(key);
         let values, renderedNeighbors, coverage, cacheHit = false;
         if (previous?.values && previous.coverage) {
           values = previous.values; renderedNeighbors = previous.renderedNeighbors;
-          coverage = {canvas: await createImageBitmap(previous.coverage), resolution: 512, bounds: previous.bounds};
+          coverage = {canvas: await createImageBitmap(previous.coverage), resolution: maskResolution, bounds: previous.bounds};
           cacheHit = true;
         } else {
           const built = job.needsMesh ? await huayuWoodlandMaterialBuildGeometry(surfaceFeatures,
             waterContext, job.cell.bounds, job.zoom) : null;
           values = built?.values; renderedNeighbors = built?.renderedNeighbors;
-          coverage = huayuWoodlandMaterialCoverage(surfaceFeatures, job.cell.bounds, occlusions, 512);
+          coverage = huayuWoodlandMaterialCoverage(surfaceFeatures, job.cell.bounds, occlusions, maskResolution);
           if (values && coverage) {
             const blob = await coverage.canvas.convertToBlob();
             // IDB clones the vertices before their buffer is transferred to the UI.
@@ -20863,6 +21095,8 @@
     const contourColor = huayuMountainSurfaceRgb(palette.mountainContour);
     const openLowColor = huayuMountainSurfaceRgb(palette.night ? "#374235" : "#d7dfbd");
     const openHighColor = huayuMountainSurfaceRgb(palette.night ? "#485342" : "#bfc9a2");
+    const gardenLowColor = huayuMountainSurfaceRgb(palette.night ? "#344b3e" : "#91b288");
+    const gardenHighColor = huayuMountainSurfaceRgb(palette.night ? "#42604a" : "#85a57c");
     return {
       // Replace the existing woodland overview material; do not add a relief layer.
       id: HUAYU_LIVE_BASEMAP_LAYERS.mountainOverviewTexture,
@@ -21116,11 +21350,19 @@
         let maskUpdates = 0;
         for (const cell of cells) {
           if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
-          const surfaces = huayuMountainSurfaceOverviewFeatures(candidates, cell.bounds, zoom)
-            .sort((first, second) => Number(second.properties?.reliefArea || 0)
-              - Number(first.properties?.reliefArea || 0));
           const localOcclusions = [...this.retainedOcclusions.values()].filter(feature =>
             huayuMountainSurfaceFeatureIntersectsViewport(feature, cell.bounds));
+          const landscapeKey = `${this.dataRevision}:${this.contextRevision}:${cell.key}`;
+          this.landscapeSurfaces ||= new Map();
+          let surfaces = this.landscapeSurfaces.get(landscapeKey);
+          if (!surfaces) {
+            surfaces = huayuMountainSurfaceLandscapes(
+              huayuMountainSurfaceOverviewFeatures(candidates, cell.bounds, zoom), localOcclusions)
+              .sort((first, second) => Number(second.properties?.reliefArea || 0)
+                - Number(first.properties?.reliefArea || 0));
+            this.landscapeSurfaces.set(landscapeKey, surfaces);
+            while (this.landscapeSurfaces.size > 64) this.landscapeSurfaces.delete(this.landscapeSurfaces.keys().next().value);
+          }
           // Include nearby water on both sides of a cell boundary, so the
           // valley field remains continuous even when the river is in the next cell.
           const valleyBounds = {west: cell.bounds.west - 0.06, east: cell.bounds.east + 0.06,
@@ -21165,7 +21407,7 @@
               if (!built) return;
               values = built.values; renderedNeighbors = built.renderedNeighbors;
             }
-            coverage = huayuWoodlandMaterialCoverage(surfaces, cell.bounds, localOcclusions, 512);
+            coverage = huayuWoodlandMaterialCoverage(surfaces, cell.bounds, localOcclusions, zoom >= 17 ? 1024 : 512);
           }
           if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) {
             coverage?.canvas?.close?.(); return;
@@ -21277,6 +21519,7 @@
           out float v_light;
           out float v_relief;
           out float v_open_surface;
+          out float v_garden_surface;
           out float v_elevation;
           out float v_contour_interval;
           out float v_owner;
@@ -21284,8 +21527,9 @@
           void main() {
             vec3 light = normalize(vec3(-0.42, -0.34, 0.84));
             v_light = clamp(1.0 + (dot(normalize(a_normal), light) - 0.84) * 0.9, 0.72, 1.1);
-            v_open_surface = step(2.0, a_relief);
-            v_relief = a_relief - v_open_surface * 2.0;
+            v_garden_surface = step(4.0, a_relief);
+            v_open_surface = step(2.0, a_relief) * (1.0 - v_garden_surface);
+            v_relief = a_relief - v_open_surface * 2.0 - v_garden_surface * 4.0;
             v_elevation = a_elevation;
             v_owner = floor(abs(a_contour_interval) / 256.0);
             v_contour_interval = sign(a_contour_interval) * mod(abs(a_contour_interval), 256.0);
@@ -21301,6 +21545,7 @@
           varying float v_light;
           varying float v_relief;
           varying float v_open_surface;
+          varying float v_garden_surface;
           varying float v_elevation;
           varying float v_contour_interval;
           varying float v_owner;
@@ -21308,8 +21553,9 @@
           void main() {
             vec3 light = normalize(vec3(-0.42, -0.34, 0.84));
             v_light = clamp(1.0 + (dot(normalize(a_normal), light) - 0.84) * 0.9, 0.72, 1.1);
-            v_open_surface = step(2.0, a_relief);
-            v_relief = a_relief - v_open_surface * 2.0;
+            v_garden_surface = step(4.0, a_relief);
+            v_open_surface = step(2.0, a_relief) * (1.0 - v_garden_surface);
+            v_relief = a_relief - v_open_surface * 2.0 - v_garden_surface * 4.0;
             v_elevation = a_elevation;
             v_owner = floor(abs(a_contour_interval) / 256.0);
             v_contour_interval = sign(a_contour_interval) * mod(abs(a_contour_interval), 256.0);
@@ -21321,6 +21567,7 @@
           in float v_light;
           in float v_relief;
           in float v_open_surface;
+          in float v_garden_surface;
           in float v_elevation;
           in float v_contour_interval;
           in float v_owner;
@@ -21333,6 +21580,7 @@
           uniform vec4 u_coverage_bounds;
           uniform float u_coverage_resolution;
           uniform vec4 u_draw_bounds;
+          uniform vec2 u_texture_origin;
           out vec4 outColor;
           float huayuSurfaceHash(vec2 point) {
             return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
@@ -21373,21 +21621,25 @@
             // Owner zero supports an older overview until its replacement arrives.
             if (v_owner > 0.5 && abs(owner - v_owner) > 0.5) discard;
             float surfaceAlpha = coverage.a;
-            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5 || surfaceAlpha < 0.005) discard;
+            if (abs(ownerCoverage.r - (1.0 - v_open_surface - v_garden_surface * 0.498)) > 0.3 || surfaceAlpha < 0.005) discard;
             vec3 color = mix(u_low_color, u_high_color, smoothstep(0.08, 1.0, v_relief));
             color = mix(color, mix(vec3(${openLowColor.join(",")}), vec3(${openHighColor.join(",")}),
               smoothstep(0.08, 1.0, v_relief)), v_open_surface);
-            float canopyTexture = huayuCanopyTexture(v_world_position);
+            color = mix(color, mix(vec3(${gardenLowColor.join(",")}), vec3(${gardenHighColor.join(",")}),
+              smoothstep(0.08, 1.0, v_relief)), v_garden_surface);
+            vec2 texturePosition = v_world_position + u_texture_origin;
+            float canopyTexture = huayuCanopyTexture(texturePosition);
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
             float overviewDetail = smoothstep(5.5, 10.0, u_zoom);
             float canopyGrain = smoothstep(0.58, 0.82, huayuSurfaceNoise(
-              v_world_position * min(mix(310000.0, 1150000.0, detailMix),
+              texturePosition * min(mix(310000.0, 1150000.0, detailMix),
                 exp2(u_zoom) * 256.0 * 0.55) + vec2(113.0, 29.0))) * overviewDetail;
             float textureAmount = smoothstep(0.015, 0.28, v_relief);
             float textureShade = mix(1.0,
               0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);
             textureShade = clamp(textureShade, 0.78, 1.02);
             textureShade = mix(textureShade, 0.97 + canopyTexture * 0.06, v_open_surface);
+            textureShade = mix(textureShade, 0.98 + canopyTexture * 0.04, v_garden_surface);
             textureShade = mix(1.0, textureShade, mix(0.28, 1.0, overviewDetail));
             float regional = v_contour_interval < 0.0 ? 1.0 : 0.0;
             float interval = max(1.0, abs(v_contour_interval));
@@ -21397,7 +21649,7 @@
             float majorDistance = min(majorPhase, 1.0 - majorPhase);
             float pixelWidth = max(fwidth(v_elevation / interval), 0.00015);
             float majorPixelWidth = pixelWidth / 5.0;
-            float screenSpace = max(regional, 1.0 - smoothstep(8.0, 11.0, u_zoom));
+            float screenSpace = 1.0;
             float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, screenSpace),
               mix(0.065, pixelWidth * 1.1, screenSpace), minorDistance);
             float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, screenSpace),
@@ -21410,16 +21662,17 @@
             float majorVisibility = smoothstep(5.75, 8.0, u_zoom)
               * (1.0 - smoothstep(0.16, 0.4, majorPixelWidth));
             float contour = max(minorLine * 0.36 * minorVisibility, majorLine * 0.72 * majorVisibility)
-              * smoothstep(6.0, 24.0, v_elevation);
+              * smoothstep(interval * 0.2, interval * 0.8, v_elevation) * mix(1.0, 0.85, v_garden_surface);
             float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));
             vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);
-            outColor = vec4(shaded, surfaceAlpha);
+            outColor = vec4(shaded, surfaceAlpha * mix(1.0, 0.84, v_garden_surface));
         }` : `
           ${derivatives ? "#extension GL_OES_standard_derivatives : enable" : ""}
           precision highp float;
           varying float v_light;
           varying float v_relief;
           varying float v_open_surface;
+          varying float v_garden_surface;
           varying float v_elevation;
           varying float v_contour_interval;
           varying float v_owner;
@@ -21432,6 +21685,7 @@
           uniform vec4 u_coverage_bounds;
           uniform float u_coverage_resolution;
           uniform vec4 u_draw_bounds;
+          uniform vec2 u_texture_origin;
           float huayuSurfaceHash(vec2 point) {
             return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
           }
@@ -21470,21 +21724,25 @@
             float owner = floor(ownerCoverage.g * 255.0 + 0.5) + floor(ownerCoverage.b * 255.0 + 0.5) * 256.0;
             if (v_owner > 0.5 && abs(owner - v_owner) > 0.5) discard;
             float surfaceAlpha = coverage.a;
-            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5 || surfaceAlpha < 0.005) discard;
+            if (abs(ownerCoverage.r - (1.0 - v_open_surface - v_garden_surface * 0.498)) > 0.3 || surfaceAlpha < 0.005) discard;
             vec3 color = mix(u_low_color, u_high_color, smoothstep(0.08, 1.0, v_relief));
             color = mix(color, mix(vec3(${openLowColor.join(",")}), vec3(${openHighColor.join(",")}),
               smoothstep(0.08, 1.0, v_relief)), v_open_surface);
-            float canopyTexture = huayuCanopyTexture(v_world_position);
+            color = mix(color, mix(vec3(${gardenLowColor.join(",")}), vec3(${gardenHighColor.join(",")}),
+              smoothstep(0.08, 1.0, v_relief)), v_garden_surface);
+            vec2 texturePosition = v_world_position + u_texture_origin;
+            float canopyTexture = huayuCanopyTexture(texturePosition);
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
             float overviewDetail = smoothstep(5.5, 10.0, u_zoom);
             float canopyGrain = smoothstep(0.58, 0.82, huayuSurfaceNoise(
-              v_world_position * min(mix(310000.0, 1150000.0, detailMix),
+              texturePosition * min(mix(310000.0, 1150000.0, detailMix),
                 exp2(u_zoom) * 256.0 * 0.55) + vec2(113.0, 29.0))) * overviewDetail;
             float textureAmount = smoothstep(0.015, 0.28, v_relief);
             float textureShade = mix(1.0,
               0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);
             textureShade = clamp(textureShade, 0.78, 1.02);
             textureShade = mix(textureShade, 0.97 + canopyTexture * 0.06, v_open_surface);
+            textureShade = mix(textureShade, 0.98 + canopyTexture * 0.04, v_garden_surface);
             textureShade = mix(1.0, textureShade, mix(0.28, 1.0, overviewDetail));
             float regional = v_contour_interval < 0.0 ? 1.0 : 0.0;
             float interval = max(1.0, abs(v_contour_interval));
@@ -21494,7 +21752,7 @@
             float majorDistance = min(majorPhase, 1.0 - majorPhase);
             float pixelWidth = ${derivatives ? "max(fwidth(v_elevation / interval), 0.00015)" : "0.02"};
             float majorPixelWidth = pixelWidth / 5.0;
-            float screenSpace = max(regional, 1.0 - smoothstep(8.0, 11.0, u_zoom));
+            float screenSpace = 1.0;
             float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, screenSpace),
               mix(0.065, pixelWidth * 1.1, screenSpace), minorDistance);
             float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, screenSpace),
@@ -21507,10 +21765,10 @@
             float majorVisibility = smoothstep(5.75, 8.0, u_zoom)
               * (1.0 - smoothstep(0.16, 0.4, majorPixelWidth));
             float contour = max(minorLine * 0.36 * minorVisibility, majorLine * 0.72 * majorVisibility)
-              * smoothstep(6.0, 24.0, v_elevation);
+              * smoothstep(interval * 0.2, interval * 0.8, v_elevation) * mix(1.0, 0.85, v_garden_surface);
             float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));
             vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);
-            gl_FragColor = vec4(shaded, surfaceAlpha);
+            gl_FragColor = vec4(shaded, surfaceAlpha * mix(1.0, 0.84, v_garden_surface));
           }`;
         const vertexShader = huayuMountainSurfaceShader(gl, gl.VERTEX_SHADER, vertexSource);
         const fragmentShader = huayuMountainSurfaceShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
@@ -21537,6 +21795,7 @@
         this.coverageBoundsLocation = gl.getUniformLocation(this.program, "u_coverage_bounds");
         this.coverageResolutionLocation = gl.getUniformLocation(this.program, "u_coverage_resolution");
         this.drawBoundsLocation = gl.getUniformLocation(this.program, "u_draw_bounds");
+        this.textureOriginLocation = gl.getUniformLocation(this.program, "u_texture_origin");
         this.onViewportChange = () => {
           if (this.enabled) this.scheduleRebuild();
         };
@@ -21585,7 +21844,6 @@
         gl.enableVertexAttribArray(this.reliefLocation);
         gl.enableVertexAttribArray(this.elevationLocation);
         gl.enableVertexAttribArray(this.contourIntervalLocation);
-        gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
         gl.uniform3fv(this.lowColorLocation, lowColor);
         gl.uniform3fv(this.highColorLocation, highColor);
         gl.uniform3fv(this.contourColorLocation, contourColor);
@@ -21609,7 +21867,13 @@
           if (!block.vertexCount || !block.coverageBounds) return;
           const northwest = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.west, lat: clip.north}, 0);
           const southeast = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.east, lat: clip.south}, 0);
-          gl.uniform4fv(this.drawBoundsLocation, [northwest.x, northwest.y, southeast.x, southeast.y]);
+          const origin = huayuMountainMaterialOrigin(block.bounds);
+          const localMatrix = Array.from(matrix);
+          for (let row = 0; row < 4; row += 1) localMatrix[12 + row] += matrix[row] * origin[0] + matrix[4 + row] * origin[1];
+          gl.uniformMatrix4fv(this.matrixLocation, false, localMatrix);
+          gl.uniform2fv(this.textureOriginLocation, [origin[0] - 0.9, origin[1] - 0.45]);
+          gl.uniform4fv(this.drawBoundsLocation, [northwest.x - origin[0], northwest.y - origin[1],
+            southeast.x - origin[0], southeast.y - origin[1]]);
           gl.bindBuffer(gl.ARRAY_BUFFER, block.buffer);
           gl.vertexAttribPointer(this.positionLocation, 3, gl.FLOAT, false, stride, 0);
           gl.vertexAttribPointer(this.normalLocation, 3, gl.FLOAT, false, stride, 3 * Float32Array.BYTES_PER_ELEMENT);
@@ -21617,7 +21881,8 @@
           gl.vertexAttribPointer(this.elevationLocation, 1, gl.FLOAT, false, stride, 7 * Float32Array.BYTES_PER_ELEMENT);
           gl.vertexAttribPointer(this.contourIntervalLocation, 1, gl.FLOAT, false, stride, 8 * Float32Array.BYTES_PER_ELEMENT);
           gl.bindTexture(gl.TEXTURE_2D, block.texture);
-          gl.uniform4fv(this.coverageBoundsLocation, block.coverageBounds);
+          gl.uniform4fv(this.coverageBoundsLocation, [block.coverageBounds[0] - origin[0],
+            block.coverageBounds[1] - origin[1], block.coverageBounds[2], block.coverageBounds[3]]);
           gl.uniform1f(this.coverageResolutionLocation, block.coverageResolution || 512);
           gl.drawArrays(gl.TRIANGLES, 0, block.vertexCount);
         };
@@ -21875,10 +22140,10 @@
         "fill-extrusion-color": palette.treeTrunk,
         "fill-extrusion-base": ["get", "treeBase"],
         "fill-extrusion-height": ["get", "treeHeight"],
-        "fill-extrusion-opacity": 0.96,
+        "fill-extrusion-opacity": 1,
         "fill-extrusion-vertical-gradient": true,
       },
-    }, roadBeforeId);
+    }, huayuCityWallInsertionLayer(glMap));
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy,
       type: "fill-extrusion",
@@ -21891,10 +22156,10 @@
           0, palette.treeCanopy[0], 1, palette.treeCanopy[1], palette.treeCanopy[2]],
         "fill-extrusion-base": ["get", "treeBase"],
         "fill-extrusion-height": ["get", "treeHeight"],
-        "fill-extrusion-opacity": palette.night ? 0.92 : 0.94,
+        "fill-extrusion-opacity": 1,
         "fill-extrusion-vertical-gradient": true,
       },
-    }, roadBeforeId);
+    }, huayuCityWallInsertionLayer(glMap));
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.waterway,
       type: "line",
@@ -24213,7 +24478,7 @@
           "fill-extrusion-color": palette.pavilionBase,
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
-          "fill-extrusion-opacity": 0.98,
+          "fill-extrusion-opacity": 1,
           "fill-extrusion-vertical-gradient": false,
         },
       }, beforeId);
@@ -24234,7 +24499,7 @@
           "fill-extrusion-color": palette.pavilionColumn,
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
-          "fill-extrusion-opacity": 0.98,
+          "fill-extrusion-opacity": 1,
           "fill-extrusion-vertical-gradient": true,
         },
       }, beforeId);
@@ -24407,7 +24672,7 @@
           "fill-extrusion-color": palette.ancientRoof,
           "fill-extrusion-height": ["+", ["get", "renderHeight"], ["get", "roofCapHeight"]],
           "fill-extrusion-base": ["get", "renderHeight"],
-          "fill-extrusion-opacity": 0.98,
+          "fill-extrusion-opacity": 1,
           "fill-extrusion-vertical-gradient": false,
         },
       }, ancientBeforeId);
