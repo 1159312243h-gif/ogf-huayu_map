@@ -3,6 +3,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 const {createHash} = require("node:crypto");
 const {gzipSync} = require("node:zlib");
+const {writeTerrainRenderCache} = require("./build-terrain-render-cache.cjs");
+const {buildTerrainContext} = require("./build-terrain-context.cjs");
 
 // Use the application classification and Worker query, so scheduled refreshes
 // retain named small hills, landscaped hills, open highlands and park exclusions.
@@ -27,7 +29,7 @@ async function terrainRuntime(siteDirectory) {
     "huayuNormalizedWallRing", "huayuWallPointInRing", "huayuCityWallRelationGeometry",
     "huayuGeometryAreaSquareMeters", "huayuGeometryInteriorPoint", "huayuLiveBasemapLabelCoordinate",
     "huayuLiveBasemapImportantLabel", "huayuPointInPolygonGeometry", "huayuTreeHash", "huayuTreeRandom",
-    "huayuTerrainElevationMeters", "huayuMountainWoodlandEligible", "huayuMountainNeighborhoodBounds",
+    "huayuTerrainElevationMeters", "huayuMountainOuterContains", "huayuMountainWoodlandEligible", "huayuMountainNeighborhoodBounds",
     "huayuMountainNeighborhoodIndex", "huayuMountainReliefParts",
     "huayuLiveBasemapSportsRelationGeometry", "huayuLiveBasemapFeatureCollection"];
   for (const name of names) {
@@ -82,7 +84,115 @@ function compactFeature(feature) {
   const walk = (coordinates) => typeof coordinates[0] === "number"
     ? coordinates.map(round) : coordinates.map(walk);
   geometry.coordinates = walk(geometry.coordinates);
-  return {...feature, geometry};
+  const {terrainDigest, ...source} = feature;
+  const compact = {...source, geometry};
+  return {...compact, terrainDigest:createHash("sha256").update(JSON.stringify(compact)).digest("hex")};
+}
+
+function terrainFeatureBounds(feature) {
+  const coordinates = feature?.geometry?.coordinates;
+  const bounds = {south: Infinity, west: Infinity, north: -Infinity, east: -Infinity};
+  const visit = (value) => {
+    if (!Array.isArray(value)) return;
+    if (typeof value[0] === "number" && typeof value[1] === "number") {
+      bounds.west = Math.min(bounds.west, value[0]);
+      bounds.east = Math.max(bounds.east, value[0]);
+      bounds.south = Math.min(bounds.south, value[1]);
+      bounds.north = Math.max(bounds.north, value[1]);
+      return;
+    }
+    value.forEach(visit);
+  };
+  visit(coordinates);
+  return Object.values(bounds).every(Number.isFinite) ? bounds : null;
+}
+
+async function writeTerrainContextAsset(siteDirectory,payload) {
+  const features=payload.features.filter(feature=>feature.properties?.terrainContext===1);
+  if (!features.length) return null;
+  const body=gzipSync(JSON.stringify({format:1,schema:payload.schema,generatedAt:payload.generatedAt,
+    classification:payload.classification,features}),{level:9});
+  if (body.length>=25*1024*1024) throw Error("Mountain context snapshot exceeds Pages file limit");
+  const digest=createHash("sha256").update(body).digest("hex").slice(0,16);
+  const file=`context-${digest}.json.gz`;
+  const directory=path.join(siteDirectory,"terrain-preload-chunks");
+  await fs.mkdir(directory,{recursive:true});
+  await fs.writeFile(path.join(directory,file),body);
+  return {url:`./terrain-preload-chunks/${file}`,bytes:body.length,features:features.length};
+}
+
+function terrainLegacyPacket(payload,contextSnapshot) {
+  // Pages limits each asset to 25 MiB. Keep complete geometry and complete
+  // mapped context in separate assets, as well as the normal spatial chunks.
+  return contextSnapshot ? {...payload,contextSnapshot,
+    features:payload.features.filter(feature=>feature.properties?.terrainContext!==1)} : payload;
+}
+
+async function writeTerrainPreloadChunks(siteDirectory, payload) {
+  const targetDirectory = path.join(siteDirectory, "terrain-preload-chunks");
+  const chunkSize = 4;
+  const coarseChunkSize = 12;
+  const chunks = new Map();
+  const add = (prefix, size, latitudeIndex, longitudeIndex, feature) => {
+    const id = `${prefix}-${latitudeIndex}-${longitudeIndex}`;
+    let chunk = chunks.get(id);
+    if (!chunk) {
+      chunk = {id, bounds: [[Math.max(-85, latitudeIndex * size), Math.max(-180, longitudeIndex * size)],
+        [Math.min(85, (latitudeIndex + 1) * size), Math.min(180, (longitudeIndex + 1) * size)]], features: []};
+      chunks.set(id, chunk);
+    }
+    chunk.features.push(feature);
+  };
+  for (const feature of payload.features) {
+    const bounds = terrainFeatureBounds(feature);
+    if (!bounds) continue;
+    const columns = Math.max(1, Math.floor((bounds.east - 1e-9) / chunkSize)
+      - Math.floor(bounds.west / chunkSize) + 1);
+    const rows = Math.max(1, Math.floor((bounds.north - 1e-9) / chunkSize)
+      - Math.floor(bounds.south / chunkSize) + 1);
+    const size = columns * rows > 9 ? coarseChunkSize : chunkSize;
+    const prefix = size === coarseChunkSize ? "c" : "f";
+    const westIndex = Math.floor(bounds.west / size);
+    const eastIndex = Math.floor((bounds.east - 1e-9) / size);
+    const southIndex = Math.floor(bounds.south / size);
+    const northIndex = Math.floor((bounds.north - 1e-9) / size);
+    for (let latitudeIndex = southIndex; latitudeIndex <= northIndex; latitudeIndex += 1) {
+      for (let longitudeIndex = westIndex; longitudeIndex <= eastIndex; longitudeIndex += 1) {
+        add(prefix, size, latitudeIndex, longitudeIndex, feature);
+      }
+    }
+  }
+  await fs.mkdir(targetDirectory, {recursive: true});
+  const retainedFiles = new Set();
+  const contextSnapshot=await writeTerrainContextAsset(siteDirectory,payload);
+  if (contextSnapshot) retainedFiles.add(path.basename(contextSnapshot.url));
+  const manifestChunks = [];
+  for (const chunk of [...chunks.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+    const chunkPayload = {format: 1, schema: payload.schema, generatedAt: payload.generatedAt,
+      classification: payload.classification, chunkId: chunk.id, features: chunk.features};
+    const serialized = gzipSync(JSON.stringify(chunkPayload), {level: 9});
+    if (serialized.length >= 25 * 1024 * 1024) throw new Error(`Terrain chunk exceeds Pages file limit: ${chunk.id}`);
+    const digest = createHash("sha256").update(serialized).digest("hex").slice(0, 16);
+    const file = `${chunk.id}-${digest}.json.gz`;
+    retainedFiles.add(file);
+    await fs.writeFile(path.join(targetDirectory, file), serialized);
+    manifestChunks.push({id: chunk.id, bounds: chunk.bounds,
+      url: `./terrain-preload-chunks/${file}`, bytes: serialized.length,
+      features: chunk.features.length,
+      surfaces: chunk.features.filter((feature) => feature.properties?.reliefRole === "surface").length});
+  }
+  const renderBlocks = await writeTerrainRenderCache(siteDirectory, payload);
+  const manifest = {format: 1, schema: payload.schema, generatedAt: payload.generatedAt,
+    classification: payload.classification, coverage: payload.coverage, chunks: manifestChunks, renderBlocks,
+    ...(contextSnapshot ? {contextSnapshot} : {})};
+  const manifestTarget = path.join(siteDirectory, "terrain-preload-manifest.json");
+  await fs.writeFile(`${manifestTarget}.next`, JSON.stringify(manifest));
+  await fs.rename(`${manifestTarget}.next`, manifestTarget);
+  for (const file of await fs.readdir(targetDirectory)) {
+    if (file.endsWith(".json.gz") && !retainedFiles.has(file)) await fs.unlink(path.join(targetDirectory, file));
+  }
+  console.log(`Terrain preload chunks: ${manifestChunks.length} files, ${manifestChunks.reduce((sum, chunk) => sum + chunk.bytes, 0)} bytes`);
+  return manifest;
 }
 
 async function buildTerrainPreload(options = {}) {
@@ -97,7 +207,9 @@ async function buildTerrainPreload(options = {}) {
     const tags = element.tags || {};
     const names = [tags.name, tags["name:zh"], tags.alt_name, tags.loc_name];
     if (!runtime.huayuMountainLandKind(tags) || names.some(runtime.huayuMountainPlainName)) return false;
-    if (names.some(runtime.huayuMountainWoodlandName) || runtime.huayuMountainLandKind(tags) === "open") return true;
+    if (names.some(runtime.huayuMountainWoodlandName)
+      || (runtime.huayuMountainLandKind(tags) === "open" && names.some(name =>
+        /(?:高山|山地|山区|山坡|丘陵|荒原|alpine|upland|mountain)/iu.test(String(name || ""))))) return true;
     const bounds = element.bounds;
     if (!bounds || ![bounds.minlat, bounds.maxlat, bounds.minlon, bounds.maxlon].every(Number.isFinite)
       || bounds.maxlon < bounds.minlon) return true;
@@ -271,17 +383,21 @@ async function buildTerrainPreload(options = {}) {
   const elements = new Map();
   for (const packet of packets) for (const element of packet) elements.set(`${element.type}:${element.id}`, element);
   const data = runtime.huayuLiveBasemapFeatureCollection([...elements.values()], {includeMountainRelief: true});
-  const features = data.features.filter((feature) => feature.properties?.reliefRole === "surface"
+  const terrainFeatures = data.features.filter((feature) => feature.properties?.reliefRole === "surface"
     || (feature.properties?.renderKind === "important-label"
       && ["mountain", "peak"].includes(feature.properties.featureClass)))
     .map(compactFeature).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const contextFeatures = await buildTerrainContext({surfaces:terrainFeatures.filter(feature=>feature.properties.reliefRole==="surface"),
+    slices,runtime,cacheDirectory,fetch:options.fetch,resume:options.resume});
+  const features = [...terrainFeatures,...contextFeatures.map(compactFeature)].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
   if (!features.some((feature) => feature.properties.reliefRole === "surface")) throw new Error("Empty terrain preload");
   const payload = {format: 1, schema: "open-small-mountains-v1", generatedAt: new Date().toISOString(),
-    classification: "mountain-neighbors-v1", coverage, features};
+    classification: "mountain-features-v2", coverage, features};
   const target = path.join(siteDirectory, "terrain-preload.json.gz");
   const next = `${target}.next`;
   // Commit only after every spatial slice succeeds; failures leave the published packet intact.
-  const serialized = gzipSync(JSON.stringify(payload), {level: 9});
+  const manifest=await writeTerrainPreloadChunks(siteDirectory, payload);
+  const serialized = gzipSync(JSON.stringify(terrainLegacyPacket(payload,manifest.contextSnapshot)), {level: 9});
   if (serialized.length >= 25 * 1024 * 1024) throw new Error("Terrain snapshot exceeds Pages file limit");
   await fs.writeFile(next, serialized);
   await fs.rename(next, target);
@@ -289,7 +405,8 @@ async function buildTerrainPreload(options = {}) {
   return payload;
 }
 
-module.exports = {terrainRuntime, terrainSlices, compactFeature, buildTerrainPreload};
+module.exports = {terrainRuntime, terrainSlices, compactFeature, terrainFeatureBounds,writeTerrainContextAsset,terrainLegacyPacket,
+  writeTerrainPreloadChunks, buildTerrainPreload};
 if (require.main === module) {
   const siteIndex = process.argv.indexOf("--site");
   buildTerrainPreload({siteDirectory: siteIndex >= 0 ? process.argv[siteIndex + 1] : undefined,

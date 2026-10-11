@@ -32,4 +32,17 @@ const index = runtime.huayuMountainNeighborhoodIndex([{element:main,geometry}]);
 const clearing = rectangle(8,1.024,1.024,0.002,0.002);
 assert.equal(index.findNearby({type:"Polygon",coordinates:[clearing.geometry.map(p=>[p.lon,p.lat])]}),null,
   "a large clearing must not become mountainous merely because bounding boxes overlap");
+const unnamedHeath = rectangle(20, 2, 2, 0.1, 0.1, {natural:"heath"});
+const unnamedScrub = rectangle(21, 2.2, 2, 0.1, 0.1, {natural:"scrub"});
+const urbanScrub = rectangle(22, 3, 2, 0.002, 0.002, {natural:"scrub"});
+const nearbyHeath = rectangle(23, 1.055, 1.035, 0.002, 0.002, {natural:"heath"});
+const lawn = rectangle(24, 2, 3, 0.1, 0.1, {natural:"grassland"});
+const flatHeath = rectangle(25, 2, 2, 0.1, 0.1, {natural:"heath",name:"河谷平原"});
+const forestPark = rectangle(26, 2, 2, 0.1, 0.1, {natural:"heath",leisure:"park",name:"山地森林公园"});
+const namedHighland = rectangle(27, 3, 3, 0.002, 0.002, {natural:"grassland",name:"高山草地"});
+const openSurfaces = surfaces([main,unnamedHeath,unnamedScrub,urbanScrub,nearbyHeath,lawn,flatHeath,forestPark,namedHighland]);
+assert.deepEqual(Array.from(openSurfaces,f=>f.properties.sourceOsmId).sort(),["1","20","21","23","27"]);
+assert.ok(openSurfaces.filter(f=>f.properties.sourceOsmId!=="1")
+  .every(f=>f.properties.reliefLandKind==="open"&&f.properties.reliefHeight<=420),
+  "unnamed rough land must use gentle open terrain, not forest canopy or tall mountain defaults");
 console.log("Neighbour hills passed: real edges, parks, plains, slivers, order, holes and no transitive growth.");

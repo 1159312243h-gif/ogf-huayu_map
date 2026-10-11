@@ -873,6 +873,10 @@
   let huayuTerrainStorageStatus = "pending";
   const huayuMountainSurfaceModels = new WeakMap();
   let huayuTerrainPreload = null;
+  let huayuTerrainPreloadManifest = null;
+  let huayuTerrainSnapshotWorker = null;
+  const huayuTerrainPreloadChunks = new Map();
+  const huayuTerrainPreloadChunkRequests = new Map();
   let huayuTerrainPreloadPromise = null;
   let huayuTerrainPreloadAttempted = false;
   let huayuTerrainPreloadLastCheckedAt = 0;
@@ -17412,7 +17416,9 @@
   }
 
   function ensureHuayuAdministrativeLabelLayer(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    // The style definition is ready before every remote tile has arrived.
+    // Pending terrain/basemap tiles must not suppress the label supplement.
+    if (!glMap?.getStyle?.()?.layers) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_ADMIN_LABEL_SOURCE)) {
       glMap.addSource(HUAYU_ADMIN_LABEL_SOURCE, {
@@ -17498,17 +17504,40 @@
       && outer.south <= inner.south && outer.north >= inner.north;
   }
 
+  function huayuAdministrativeLabelCoordinate(element, nodes) {
+    if (element.type === "relation") {
+      for (const role of ["label", "admin_centre", "admin_center"]) {
+        const member = element.members?.find(item => item.type === "node" && item.role === role);
+        if (!member) continue;
+        const node = nodes.get(String(member.ref)) || member;
+        const coordinate = [Number(node.lon), Number(node.lat)];
+        // A designated but missing anchor must never fall back to a distant
+        // bounding-box centre. The next complete supplement can restore it.
+        return coordinate.every(Number.isFinite) ? coordinate : null;
+      }
+    }
+    const coordinate = [Number(element.lon ?? element.center?.lon), Number(element.lat ?? element.center?.lat)];
+    return coordinate.every(Number.isFinite) ? coordinate : null;
+  }
+
+  function huayuAdministrativeLabelQuery(group, bbox) {
+    const level = group === "road" ? 3 : 4;
+    return `[out:json][timeout:20];rel["boundary"="administrative"]["admin_level"="${level}"](${bbox})->.adminRelations;(`
+      + (group === "road" ? `node["place"="state"](${bbox});` : "")
+      + `.adminRelations;node(r.adminRelations:"label");node(r.adminRelations:"admin_centre");`
+      + `node(r.adminRelations:"admin_center"););out body center;`;
+  }
+
   function applyHuayuAdministrativeLabels(glMap, state) {
     if (!ensureHuayuAdministrativeLabelLayer(glMap)) return;
     const supplementalRoadNames = new Set();
     const elements = [...(state.roadElements || []), ...(state.provinceElements || [])];
+    const nodes = new Map(elements.filter(element => element.type === "node").map(element => [String(element.id), element]));
     const features = elements.filter((element) => {
       const name = String(element.tags?.name || "").trim();
       const adminLevel = Number(element.tags?.admin_level)
         || (element.type === "node" && element.tags?.place === "state" ? 3 : 0);
-      const latitude = Number(element.lat ?? element.center?.lat);
-      const longitude = Number(element.lon ?? element.center?.lon);
-      if (!name || ![3, 4].includes(adminLevel) || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      if (!name || ![3, 4].includes(adminLevel) || !huayuAdministrativeLabelCoordinate(element, nodes)) {
         return false;
       }
       if (adminLevel === 3) {
@@ -17527,10 +17556,16 @@
       },
       geometry: {
         type: "Point",
-        coordinates: [Number(element.lon ?? element.center?.lon), Number(element.lat ?? element.center?.lat)],
+        coordinates: huayuAdministrativeLabelCoordinate(element, nodes),
       },
     }));
     glMap.getSource(HUAYU_ADMIN_LABEL_SOURCE)?.setData({ type: "FeatureCollection", features });
+    const mapElement = document.getElementById("map");
+    if (mapElement) mapElement.dataset.huayuAdminLabelAnchors = JSON.stringify(features.filter(feature =>
+      elements.some(element => String(element.id) === feature.id && element.type === "relation"
+        && element.members?.some(member => member.type === "node"
+          && ["label", "admin_centre", "admin_center"].includes(member.role))))
+      .map(feature => ({id: feature.id, coordinates: feature.geometry.coordinates})));
   }
 
   async function loadHuayuAdministrativeLabelGroup(glMap, state, group, queryBounds, query) {
@@ -17540,6 +17575,9 @@
     const elementsKey = `${group}Elements`;
     const requestId = ++state[requestIdKey];
     state[pendingBoundsKey] = queryBounds;
+    const mapElement = document.getElementById("map");
+    const statusKey = group === "province" ? "huayuAdminProvinceStatus" : "huayuAdminRoadStatus";
+    if (mapElement) mapElement.dataset[statusKey] = "loading";
     try {
       const payload = await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 25000);
       if (requestId !== state[requestIdKey] || !isHuayuBasemapSelected()) return;
@@ -17547,8 +17585,12 @@
       state[elementsKey] = Array.isArray(payload.elements) ? payload.elements : [];
       state[pendingBoundsKey] = null;
       applyHuayuAdministrativeLabels(glMap, state);
-    } catch {
-      if (requestId === state[requestIdKey]) state[pendingBoundsKey] = null;
+      if (mapElement) mapElement.dataset[statusKey] = `ready:${state[elementsKey].length}`;
+    } catch (error) {
+      if (requestId === state[requestIdKey]) {
+        state[pendingBoundsKey] = null;
+        if (mapElement) mapElement.dataset[statusKey] = `failed:${error?.message || error}`;
+      }
       // The vector-tile labels remain available when a live supplement is offline.
     }
   }
@@ -17572,14 +17614,14 @@
     const roadCovered = huayuAdministrativeBoundsContain(state.roadQueryBounds, visibleBounds)
       || huayuAdministrativeBoundsContain(state.roadPendingBounds, visibleBounds);
     if (!roadCovered) {
-      const roadQuery = `[out:json][timeout:20];(node["place"="state"](${bbox});rel["boundary"="administrative"]["admin_level"="3"](${bbox}););out tags center;`;
+      const roadQuery = huayuAdministrativeLabelQuery("road", bbox);
       loadHuayuAdministrativeLabelGroup(glMap, state, "road", queryBounds, roadQuery);
     }
     if (zoom >= 5.5) {
       const provinceCovered = huayuAdministrativeBoundsContain(state.provinceQueryBounds, visibleBounds)
         || huayuAdministrativeBoundsContain(state.provincePendingBounds, visibleBounds);
       if (!provinceCovered) {
-        const provinceQuery = `[out:json][timeout:20];rel["boundary"="administrative"]["admin_level"="4"](${bbox});out tags center;`;
+        const provinceQuery = huayuAdministrativeLabelQuery("province", bbox);
         loadHuayuAdministrativeLabelGroup(glMap, state, "province", queryBounds, provinceQuery);
       }
     }
@@ -18915,7 +18957,11 @@
       || ["grass", "meadow"].includes(tags.landuse);
     const mountainGrass = names.some((name) =>
       /(?:高山|山地|山区|山坡|丘陵|荒原|alpine|upland|mountain)/iu.test(String(name || "")));
-    return openLand && (namedMountain || mountainGrass) ? "open" : "";
+    // Unnamed heath and scrub can form the interior of a mapped mountain range.
+    // Keep them as candidates; size, peaks and real neighbouring edges decide
+    // eligibility below. Ordinary lawns/meadows still require a highland name.
+    const roughLand = ["scrub", "heath", "fell", "bare_rock", "scree"].includes(tags.natural);
+    return openLand && (roughLand || namedMountain || mountainGrass) ? "open" : "";
   }
 
   function huayuMountainWoodlandEligible(element, geometry, terrainPeaks = [], neighborhood = null) {
@@ -18925,11 +18971,13 @@
       || [tags.name, tags["name:zh"], tags.alt_name, tags.loc_name].some(huayuMountainPlainName)) return false;
     const area = huayuGeometryAreaSquareMeters(geometry);
     const mountainNames = [tags.name, tags["name:zh"], tags.alt_name, tags.loc_name];
-    if (area > 0 && (landKind === "open" || mountainNames.some(huayuMountainWoodlandName))) return true;
+    const namedHighland = landKind === "open" && mountainNames.some((name) =>
+      /(?:高山|山地|山区|山坡|丘陵|荒原|alpine|upland|mountain)/iu.test(String(name || "")));
+    if (area > 0 && (namedHighland || mountainNames.some(huayuMountainWoodlandName))) return true;
     if (area >= HUAYU_MOUNTAIN_WOODLAND_MIN_AREA
       && (area >= HUAYU_REGIONAL_WOODLAND_MIN_AREA
         || terrainPeaks.some((peak) => huayuPointInPolygonGeometry(peak.coordinates, geometry)))) return true;
-    return landKind === "wood" && area >= 10000 && Boolean(neighborhood?.findNearby(geometry));
+    return ["wood", "open"].includes(landKind) && area >= 10000 && Boolean(neighborhood?.findNearby(geometry));
   }
 
   function huayuMountainNeighborhoodBounds(geometry) {
@@ -19580,7 +19628,9 @@
         sigma: clamp(Math.sqrt(areaSquareMeters) * 0.42, smallHill ? 12 : 600, 24000),
       });
     }
-    const desired = clamp(Math.round(Math.sqrt(areaSquareMeters) / 4500), 3, 9);
+    // A landscaped hill does not need several invented, competing summits.
+    const desired = smallHill ? Math.max(1, anchors.length)
+      : clamp(Math.round(Math.sqrt(areaSquareMeters) / 4500), 3, 9);
     const longitudeMeters = (bounds.east - bounds.west) * 111320
       * Math.max(0.1, Math.cos((bounds.south + bounds.north) * Math.PI / 360));
     const latitudeMeters = (bounds.north - bounds.south) * 111320;
@@ -19638,7 +19688,7 @@
   }
 
   function huayuMountainPlainName(value) {
-    return /[（(]\s*平原\s*[）)]|平原(?:林区|森林|林地)|(?:lowland|flatland)\s+(?:rain)?forest/iu
+    return /[（(]\s*平原\s*[）)]|平原(?:林区|森林|林地)|(?:平原|平地|低地)(?:草地|荒原|灌丛)?$|(?:lowland|flatland)\s+(?:(?:rain)?forest|heath|scrub|grassland)/iu
       .test(String(value || ""));
   }
 
@@ -19697,8 +19747,76 @@
     return { wavelength, heightAt };
   }
 
-  // Exact shorelines and forest edges are indexed once, rather than simplified
-  // into shortcuts that can cut a narrow mountain extension out of the material.
+  function huayuMountainEdgeFadeLine(line, cosine, toleranceMeters, maximumPoints = 2048) {
+    if (!Array.isArray(line) || line.length <= maximumPoints) return line;
+    const closed = line.length > 2 && line[0][0] === line.at(-1)[0] && line[0][1] === line.at(-1)[1];
+    const source = closed ? line.slice(0, -1) : line.slice();
+    const origin = source[0];
+    const projected = source.map(([longitude, latitude]) => [
+      (longitude - origin[0]) * 111320 * cosine,
+      (latitude - origin[1]) * 111320,
+    ]);
+    let farthest = 1;
+    for (let index = 2; index < projected.length; index += 1) {
+      if (projected[index][0] ** 2 + projected[index][1] ** 2
+        > projected[farthest][0] ** 2 + projected[farthest][1] ** 2) farthest = index;
+    }
+    const simplifyPath = (path, tolerance) => {
+      const keep = new Set([path[0], path.at(-1)]);
+      const stack = [[0, path.length - 1]];
+      const toleranceSquared = tolerance * tolerance;
+      while (stack.length) {
+        const [firstPosition, lastPosition] = stack.pop();
+        const first = projected[path[firstPosition]];
+        const last = projected[path[lastPosition]];
+        const dx = last[0] - first[0];
+        const dy = last[1] - first[1];
+        const lengthSquared = dx * dx + dy * dy;
+        let bestDistanceSquared = toleranceSquared;
+        let bestPosition = -1;
+        for (let position = firstPosition + 1; position < lastPosition; position += 1) {
+          const point = projected[path[position]];
+          const ratio = clamp(((point[0] - first[0]) * dx + (point[1] - first[1]) * dy)
+            / (lengthSquared || 1), 0, 1);
+          const offsetX = point[0] - first[0] - ratio * dx;
+          const offsetY = point[1] - first[1] - ratio * dy;
+          const distanceSquared = offsetX * offsetX + offsetY * offsetY;
+          if (distanceSquared > bestDistanceSquared) {
+            bestDistanceSquared = distanceSquared;
+            bestPosition = position;
+          }
+        }
+        if (bestPosition < 0) continue;
+        keep.add(path[bestPosition]);
+        stack.push([firstPosition, bestPosition], [bestPosition, lastPosition]);
+      }
+      return keep;
+    };
+    const forward = Array.from({length: farthest + 1}, (_, index) => index);
+    const backward = Array.from({length: source.length - farthest}, (_, index) => farthest + index);
+    backward.push(0);
+    let tolerance = toleranceMeters;
+    let indexes;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      indexes = new Set([...simplifyPath(forward, tolerance), ...simplifyPath(backward, tolerance)]);
+      if (indexes.size <= maximumPoints) break;
+      tolerance *= 1.8;
+    }
+    if (indexes.size > maximumPoints) {
+      const stride = Math.ceil(source.length / (maximumPoints - 1));
+      indexes = new Set(Array.from({length: Math.ceil(source.length / stride)},
+        (_, index) => Math.min(source.length - 1, index * stride)));
+      indexes.add(farthest);
+    }
+    const simplified = [...indexes].sort((first, second) => first - second)
+      .map((index) => source[index]);
+    if (closed) simplified.push(simplified[0]);
+    return simplified;
+  }
+
+  // Point containment and the texture mask retain the exact footprint. Only
+  // the soft edge-distance field uses a bounded line, avoiding tens of
+  // thousands of segments on regional relations without changing the outline.
   function huayuMountainSegmentIndex(lines, bounds, cosine, cellMeters) {
     const cells = new Map();
     const project = ([longitude, latitude]) => [
@@ -19763,13 +19881,61 @@
     };
   }
 
+  function huayuMountainWaterDistance(context) {
+    if (!context?.features?.length) return null;
+    if (context.distance) return context.distance;
+    // One shared geographic index per snapshot block, rather than duplicating
+    // every river segment for each individual woodland fragment.
+    const span=0.025, cells=new Map();
+    for (const water of context.features) {
+      if (water.properties?.terrainValley===0 || ["canal","drain","ditch"].includes(water.properties?.featureClass)) continue;
+      const geometry=water.geometry;
+      const lines=geometry?.type==="LineString" ? [geometry.coordinates]
+        : geometry?.type==="MultiLineString" || geometry?.type==="Polygon" ? geometry.coordinates
+          : geometry?.type==="MultiPolygon" ? geometry.coordinates.flat() : [];
+      for (const line of lines) for (let index=1;index<line.length;index+=1) {
+        const a=line[index-1],b=line[index];
+        const count=Math.max(1,Math.ceil(Math.max(Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]))/span));
+        for (let part=0;part<count;part+=1) {
+          const start=a.map((value,axis)=>value+(b[axis]-value)*part/count);
+          const end=a.map((value,axis)=>value+(b[axis]-value)*(part+1)/count);
+          for (let y=Math.floor(Math.min(start[1],end[1])/span);y<=Math.floor(Math.max(start[1],end[1])/span);y+=1) {
+            for (let x=Math.floor(Math.min(start[0],end[0])/span);x<=Math.floor(Math.max(start[0],end[0])/span);x+=1) {
+              const key=`${x}/${y}`; if (!cells.has(key)) cells.set(key,[]); cells.get(key).push([start,end]);
+            }
+          }
+        }
+      }
+    }
+    context.distance=(coordinate,radius)=>{
+      const [longitude,latitude]=coordinate, cosine=Math.max(0.1,Math.cos(latitude*Math.PI/180));
+      const dy=radius/111320,dx=dy/cosine;
+      let best=radius*radius;
+      for (let y=Math.floor((latitude-dy)/span);y<=Math.floor((latitude+dy)/span);y+=1) {
+        for (let x=Math.floor((longitude-dx)/span);x<=Math.floor((longitude+dx)/span);x+=1) {
+          for (const [a,b] of cells.get(`${x}/${y}`)||[]) {
+            const ax=(a[0]-longitude)*111320*cosine,ay=(a[1]-latitude)*111320;
+            const bx=(b[0]-longitude)*111320*cosine,by=(b[1]-latitude)*111320;
+            const sx=bx-ax,sy=by-ay;
+            const ratio=clamp((-ax*sx-ay*sy)/(sx*sx+sy*sy||1),0,1);
+            best=Math.min(best,(ax+sx*ratio)**2+(ay+sy*ratio)**2);
+          }
+        }
+      }
+      return Math.sqrt(best);
+    };
+    return context.distance;
+  }
+
   function huayuMountainSurfaceModel(feature, polygonGeometry) {
     const polygon = polygonGeometry?.coordinates;
     const outer = polygon?.[0];
     if (!Array.isArray(outer) || outer.length < 4) return null;
     const cachedModels = huayuMountainSurfaceModels.get(feature);
     const waterContext = huayuMountainWaterContexts.get(feature);
-    if (cachedModels?.has(polygon) && cachedModels.get(polygon).waterContext === waterContext) {
+    const range = waterContext?.ranges?.get(feature);
+    if (cachedModels?.has(polygon) && cachedModels.get(polygon).waterContext === waterContext
+      && cachedModels.get(polygon).range === range) {
       return cachedModels.get(polygon);
     }
     const bounds = {
@@ -19783,6 +19949,16 @@
     const areaSquareMeters = Number(feature.properties?.reliefArea)
       || huayuGeometryAreaSquareMeters(polygonGeometry);
     if (!(areaSquareMeters > 0)) return null;
+    if (range) {
+      // Land-cover boundaries inside a range are not new zero-altitude slopes.
+      // Heights, normals, normalization and contours all inherit the same field.
+      const model = {...range, bounds, cosine, areaSquareMeters, waterContext, range,
+        contains: huayuMountainOuterContains(outer, bounds)};
+      const models = cachedModels || new Map();
+      models.set(polygon, model);
+      huayuMountainSurfaceModels.set(feature, models);
+      return model;
+    }
     const smallHill = areaSquareMeters < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA;
     const peakHeight = clamp(Number(feature.properties?.reliefHeight) || 240, smallHill ? 4 : 80, 2500);
     // Clearings are clipped by the exact material mask, not treated as zero-altitude
@@ -19796,22 +19972,11 @@
     if (!regionalSurface && !anchors.length) return null;
     const edgeFadeMeters = clamp(Math.sqrt(areaSquareMeters) * 0.12, smallHill ? 8 : 240, 8500);
     const contains = huayuMountainOuterContains(outer, bounds);
-    const edgeDistance = huayuMountainSegmentIndex([outer], bounds, cosine, edgeFadeMeters);
-    const valleyWidth = clamp(Math.sqrt(areaSquareMeters) * 0.035, 250, 4500);
-    const waterLines = (waterContext?.features || []).filter((water) =>
-      huayuMountainSurfaceFeatureIntersectsViewport(water, {
-        west: bounds.west - valleyWidth / (111320 * cosine),
-        east: bounds.east + valleyWidth / (111320 * cosine),
-        south: bounds.south - valleyWidth / 111320, north: bounds.north + valleyWidth / 111320,
-      })).flatMap((water) => {
-      const geometry = water.geometry;
-      if (geometry?.type === "LineString") return [geometry.coordinates];
-      if (geometry?.type === "MultiLineString") return geometry.coordinates;
-      if (geometry?.type === "Polygon") return geometry.coordinates;
-      return geometry?.type === "MultiPolygon" ? geometry.coordinates.flat() : [];
-    });
-    const waterDistance = waterLines.length
-      ? huayuMountainSegmentIndex(waterLines, bounds, cosine, valleyWidth) : null;
+    const edgeLine = huayuMountainEdgeFadeLine(outer, cosine,
+      clamp(edgeFadeMeters * 0.035, 12, 240));
+    const edgeDistance = huayuMountainSegmentIndex([edgeLine], bounds, cosine, edgeFadeMeters);
+    const valleyWidth = clamp(Math.sqrt(areaSquareMeters) * 0.035, smallHill ? 8 : 250, 4500);
+    const waterDistance = huayuMountainWaterDistance(waterContext);
     const valleyFactor = (coordinate) => {
       if (!waterDistance) return 1;
       const ratio = clamp(waterDistance(coordinate, valleyWidth) / valleyWidth, 0, 1);
@@ -19820,13 +19985,8 @@
     const detailSeed = huayuTreeHash(`${feature.id}:surface-detail`);
     const detailOrigin = [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
     const detailWavelength = clamp(Math.sqrt(areaSquareMeters) * 0.09, 700, 9000);
-    const heightAt = (coordinate) => {
-      if (!contains(coordinate)) return 0;
-      const edgeRatio = clamp(
-        edgeDistance(coordinate, edgeFadeMeters) / edgeFadeMeters, 0, 1,
-      );
-      const edgeFactor = edgeRatio * edgeRatio * (3 - 2 * edgeRatio);
-      if (regionalSurface) return regionalSurface.heightAt(coordinate) * edgeFactor * valleyFactor(coordinate);
+    const rawHeightAt = (coordinate) => {
+      if (regionalSurface) return regionalSurface.heightAt(coordinate);
       let relief = peakHeight * 0.035;
       anchors.forEach((anchor) => {
         const dx = (coordinate[0] - anchor.coordinates[0]) * 111320 * cosine;
@@ -19844,14 +20004,107 @@
         localY / detailWavelength * 4.3 + 11, detailSeed ^ 0x85ebca6b);
       const ridgeDetail = 1 - Math.abs(medium * 2 - 1);
       const variation = broad * 0.5 + ridgeDetail * 0.32 + fine * 0.18;
-      return Math.min(peakHeight, relief * (0.7 + variation * 0.42)) * edgeFactor * valleyFactor(coordinate);
+      return Math.min(peakHeight, relief * (0.7 + variation * 0.42));
+    };
+    const heightAt = (coordinate) => {
+      if (!contains(coordinate)) return 0;
+      const ratio = clamp(edgeDistance(coordinate, edgeFadeMeters) / edgeFadeMeters, 0, 1);
+      return rawHeightAt(coordinate) * ratio * ratio * (3 - 2 * ratio) * valleyFactor(coordinate);
     };
     const model = { bounds, cosine, areaSquareMeters, peakHeight, heightAt, contains, waterContext,
+      rawHeightAt, edgeDistance, edgeFadeMeters, valleyFactor,
       regionalWavelength: regionalSurface?.wavelength || 0 };
     const models = cachedModels || new Map();
     models.set(polygon, model);
     huayuMountainSurfaceModels.set(feature, models);
     return model;
+  }
+
+  function huayuMountainRangeContext(surfaces, waterContext) {
+    const context = {...waterContext, ranges: new WeakMap()};
+    const entries = surfaces.filter(feature => feature.geometry?.type === "Polygon").map(feature => {
+      const rings = feature.geometry.coordinates;
+      const bounds = {west:Infinity,east:-Infinity,south:Infinity,north:-Infinity};
+      for (const [x,y] of rings[0]) {
+        bounds.west=Math.min(bounds.west,x); bounds.east=Math.max(bounds.east,x);
+        bounds.south=Math.min(bounds.south,y); bounds.north=Math.max(bounds.north,y);
+      }
+      let indexedContains;
+      const outerContains = point => (indexedContains ||= huayuMountainOuterContains(rings[0],bounds))(point);
+      const holes=rings.slice(1);
+      const contains = point => outerContains(point) && !holes.some(ring => huayuWallPointInRing(point,ring));
+      return {feature,bounds,outerContains,contains,area:Number(feature.properties?.reliefArea)||0};
+    }).sort((a,b)=>b.area-a.area || String(a.feature.id).localeCompare(String(b.feature.id)));
+    const cells = new Map(), visit = (bounds, fn) => {
+      for (let y=Math.floor(bounds.south);y<=Math.floor(bounds.north);y++) {
+        for (let x=Math.floor(bounds.west);x<=Math.floor(bounds.east);x++) fn(`${y}/${x}`);
+      }
+    };
+    const groups = new Map();
+    for (const entry of entries) {
+      const candidates = new Set();
+      visit(entry.bounds,key=>(cells.get(key)||[]).forEach(parent=>candidates.add(parent)));
+      const larger=[...candidates].filter(item=>item.area>=entry.area*4
+        && huayuWoodlandMaterialBoundsIntersect(item.bounds,entry.bounds));
+      const outer=entry.feature.geometry.coordinates[0], probes=[];
+      if(larger.length) for(let i=0;i<outer.length-1;i+=Math.max(1,Math.ceil((outer.length-1)/24))) probes.push(outer[i]);
+      if(larger.length) for(let y=1;y<5;y++) for(let x=1;x<5;x++) {
+        const point=[entry.bounds.west+(entry.bounds.east-entry.bounds.west)*x/5,
+          entry.bounds.south+(entry.bounds.north-entry.bounds.south)*y/5];
+        if(entry.contains(point)) probes.push(point);
+      }
+      const parent=larger.find(item=>probes.length && probes.filter(item.contains).length>=probes.length*0.65);
+      if(parent) groups.get(parent).push(entry);
+      else if(entry.area>=HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA) {
+        groups.set(entry,[]);
+        visit(entry.bounds,key=>{if(!cells.has(key)) cells.set(key,[]);cells.get(key).push(entry);});
+      }
+    }
+    for (const [root, children] of groups) {
+      if(!children.length) continue;
+      huayuMountainWaterContexts.set(root.feature,context);
+      const base=huayuMountainSurfaceModel(root.feature,root.feature.geometry);
+      if(!base) continue;
+      const members=[root,...children], memberCells=new Map();
+      const peakConstraints=[];
+      for(const member of members) {
+        const latitude=(member.bounds.south+member.bounds.north)/2;
+        member.edgeDistance=member===root ? base.edgeDistance : huayuMountainSegmentIndex(
+          [huayuMountainEdgeFadeLine(member.feature.geometry.coordinates[0],Math.cos(latitude*Math.PI/180),
+            clamp(base.edgeFadeMeters*0.035,12,240))], member.bounds,Math.cos(latitude*Math.PI/180),base.edgeFadeMeters);
+        visit(member.bounds,key=>{if(!memberCells.has(key))memberCells.set(key,[]);memberCells.get(key).push(member);});
+        if(member!==root) {
+          try {
+            for(const peak of JSON.parse(member.feature.properties?.reliefPeaks||"[]")) {
+              if(Array.isArray(peak.coordinates) && Number(peak.elevation)>0) peakConstraints.push({
+                coordinates:peak.coordinates,height:clamp(Number(peak.elevation),4,2500),
+                sigma:clamp(Math.sqrt(member.area)*0.18,180,12000)});
+            }
+          } catch { /* Optional malformed peak metadata cannot split a continuous range. */ }
+        }
+      }
+      const heightAt = point => {
+        let distance=0;
+        for(const member of memberCells.get(`${Math.floor(point[1])}/${Math.floor(point[0])}`)||[]) {
+          if(member.outerContains(point)) distance=Math.max(distance,member.edgeDistance(point,base.edgeFadeMeters));
+        }
+        if(!distance) return 0;
+        const ratio=clamp(distance/base.edgeFadeMeters,0,1);
+        let height=base.rawHeightAt(point);
+        for(const peak of peakConstraints) {
+          const dx=(point[0]-peak.coordinates[0])*111320*base.cosine;
+          const dy=(point[1]-peak.coordinates[1])*111320;
+          height+=(peak.height-height)*Math.exp(-(dx*dx+dy*dy)/(2*peak.sigma*peak.sigma));
+        }
+        return height*ratio*ratio*(3-2*ratio)*base.valleyFactor(point);
+      };
+      const range={heightAt,peakHeight:base.peakHeight,regionalWavelength:base.regionalWavelength};
+      for(const member of members) {
+        context.ranges.set(member.feature,range);
+        huayuMountainSurfaceModels.delete(member.feature);
+      }
+    }
+    return context;
   }
 
   function huayuMountainContourInterval(peakHeight) {
@@ -19871,8 +20124,10 @@
     const south = Number(bounds.getSouth());
     const north = Number(bounds.getNorth());
     if (![west, east, south, north].every(Number.isFinite) || east <= west || north <= south) return null;
-    const longitudePadding = (east - west) * 0.2;
-    const latitudePadding = (north - south) * 0.2;
+    // Keep a generous mesh around the screen so ordinary pans reuse the GPU
+    // buffer instead of rebuilding the same mountains after every moveend.
+    const longitudePadding = Math.max(0.04, (east - west) * 0.75);
+    const latitudePadding = Math.max(0.04, (north - south) * 0.75);
     return {
       west: west - longitudePadding,
       east: east + longitudePadding,
@@ -19942,14 +20197,23 @@
     return selected;
   }
 
+  function huayuMountainSurfaceMeshLevel(zoom) {
+    if (zoom < 6) return 0;
+    if (zoom < 7) return 1;
+    if (zoom < 8.5) return 2;
+    if (zoom < 10.5) return 3;
+    return 4;
+  }
+
   function huayuMountainSurfaceFeatureVertices(feature, remainingVertices, viewportBounds = null,
     zoom = HUAYU_TERRAIN_MIN_ZOOM) {
     const geometry = feature?.geometry;
     const polygons = geometry?.type === "Polygon" ? [geometry.coordinates]
       : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
-    const vertices = [];
+    const vertexChunks = [];
+    let vertexCount = 0;
     polygons.forEach((polygon) => {
-      if (vertices.length / 9 >= remainingVertices) return;
+      if (vertexCount >= remainingVertices) return;
       const outer = polygon?.[0];
       if (!Array.isArray(outer) || outer.length < 4) return;
       const polygonGeometry = { type: "Polygon", coordinates: polygon };
@@ -19971,24 +20235,55 @@
         idealCells = Math.max(idealCells, clamp(Math.round(widthMeters * heightMeters
           / (model.regionalWavelength * 0.12) ** 2), 6000, 28000));
       }
-      const targetCells = Math.min(idealCells, Math.floor((remainingVertices - vertices.length / 9) / 6));
+      const targetCells = Math.min(idealCells, Math.floor((remainingVertices - vertexCount) / 6));
       if (targetCells < 1) return;
       const maximumGridSize = model.regionalWavelength ? 192 : closeTerrain ? 64 : 42;
-      const columns = clamp(Math.round(Math.sqrt(targetCells * widthMeters / Math.max(1, heightMeters))), 1,
+      let columns = clamp(Math.round(Math.sqrt(targetCells * widthMeters / Math.max(1, heightMeters))), 1,
         Math.min(maximumGridSize, targetCells));
-      const rows = clamp(Math.floor(targetCells / columns), 1, maximumGridSize);
+      let rows = clamp(Math.floor(targetCells / columns), 1, maximumGridSize);
+      let longitudeGrid;
+      let latitudeGrid;
+      if (model.regionalWavelength && viewportBounds) {
+        // Regional neighbours share grid lines as well as the height function.
+        // Resampling each clipped rectangle independently changes interpolation
+        // along its border and leaves a visible patch even with matching normals.
+        let resolution = 64;
+        const axis = (first, last, step) => {
+          const values = [first];
+          for (let value = (Math.floor(first / step) + 1) * step; value < last - step * 1e-8; value += step) {
+            values.push(value);
+          }
+          values.push(last);
+          return values;
+        };
+        do {
+          const step = (viewportBounds.east - viewportBounds.west) / resolution;
+          longitudeGrid = axis(west, east, step);
+          latitudeGrid = axis(south, north, step);
+          if ((longitudeGrid.length - 1) * (latitudeGrid.length - 1) <= targetCells) break;
+          resolution /= 2;
+        } while (resolution >= 1);
+        if ((longitudeGrid.length - 1) * (latitudeGrid.length - 1) <= targetCells) {
+          columns = longitudeGrid.length - 1;
+          rows = latitudeGrid.length - 1;
+        } else { longitudeGrid = null; latitudeGrid = null; }
+      }
       const contourInterval = huayuMountainContourInterval(peakHeight)
         * (model.regionalWavelength ? -1 : 1);
       const grid = [];
       for (let row = 0; row <= rows; row += 1) {
         for (let column = 0; column <= columns; column += 1) {
           const coordinate = [
-            west + (east - west) * column / columns,
-            south + (north - south) * row / rows,
+            longitudeGrid?.[column] ?? west + (east - west) * column / columns,
+            latitudeGrid?.[row] ?? south + (north - south) * row / rows,
           ];
+          const mercator = window.maplibregl.MercatorCoordinate.fromLngLat({
+            lng: coordinate[0], lat: coordinate[1],
+          }, 0);
           grid.push({
             coordinate,
             height: heightAt(coordinate),
+            mercator,
           });
         }
       }
@@ -19996,32 +20291,72 @@
       grid.forEach((point, index) => {
         const row = Math.floor(index / (columns + 1));
         const column = index % (columns + 1);
-        const left = gridPoint(row, Math.max(0, column - 1));
-        const right = gridPoint(row, Math.min(columns, column + 1));
-        const down = gridPoint(Math.max(0, row - 1), column);
-        const up = gridPoint(Math.min(rows, row + 1), column);
+        let left = gridPoint(row, Math.max(0, column - 1));
+        let right = gridPoint(row, Math.min(columns, column + 1));
+        let down = gridPoint(Math.max(0, row - 1), column);
+        let up = gridPoint(Math.min(rows, row + 1), column);
+        // Normals sample the continuous field, rather than the coarse mesh's
+        // neighbouring grid points. This also avoids rectangular slope bands.
+        {
+          const stepMeters = clamp(model.regionalWavelength ? model.regionalWavelength * 0.03
+            : Math.sqrt(areaSquareMeters) * 0.002, 3, 240);
+          const stepX = stepMeters / (111320 * cosine);
+          const stepY = stepMeters / 111320;
+          const sample = (x, y) => ({coordinate: [x, y], height: heightAt([x, y])});
+          const [x, y] = point.coordinate;
+          left = sample(x - stepX, y); right = sample(x + stepX, y);
+          down = sample(x, y - stepY); up = sample(x, y + stepY);
+        }
         const dxMeters = Math.max(1,
           (right.coordinate[0] - left.coordinate[0]) * 111320 * cosine);
         const dyMeters = Math.max(1, (up.coordinate[1] - down.coordinate[1]) * 111320);
-        const shadingScale = model.regionalWavelength ? 8 : 3.2;
+        const shadingScale = model.regionalWavelength ? 8
+          : areaSquareMeters < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA ? 0.85 : 3.2;
         const slopeX = (right.height - left.height) / dxMeters * shadingScale;
         const slopeY = (up.height - down.height) / dyMeters * shadingScale;
         const magnitude = Math.hypot(slopeX, slopeY, 1);
         point.normal = [-slopeX / magnitude, -slopeY / magnitude, 1 / magnitude];
       });
-      const emitTriangle = (first, second, third) => {
-        if (vertices.length / 9 + 3 > remainingVertices) return;
-        if (!first.height && !second.height && !third.height
-          && !model.contains?.([(first.coordinate[0] + second.coordinate[0] + third.coordinate[0]) / 3,
-            (first.coordinate[1] + second.coordinate[1] + third.coordinate[1]) / 3])) return;
+      const maximumPolygonVertices = Math.min(rows * columns * 6, remainingVertices - vertexCount);
+      const boundaryCells = new Set();
+      const gridIndex = (value, axis, first, last, count) => {
+        if (!axis) return clamp(Math.floor((value-first)/(last-first)*count),0,count-1);
+        let low=0,high=axis.length-1;
+        while (high-low>1) {const middle=(low+high)>>1; if (axis[middle]<=value) low=middle; else high=middle;}
+        return Math.min(count-1,low);
+      };
+      for (let index=1;index<outer.length;index+=1) {
+        const a=outer[index-1],b=outer[index];
+        if (Math.max(a[0],b[0])<west || Math.min(a[0],b[0])>east
+          || Math.max(a[1],b[1])<south || Math.min(a[1],b[1])>north) continue;
+        const steps=Math.max(1,Math.min((columns+rows)*2,Math.ceil(
+          Math.abs(b[0]-a[0])/(east-west)*columns+Math.abs(b[1]-a[1])/(north-south)*rows)*2));
+        for (let sample=0;sample<=steps;sample+=1) {
+          const x=a[0]+(b[0]-a[0])*sample/steps,y=a[1]+(b[1]-a[1])*sample/steps;
+          if (x<west || x>east || y<south || y>north) continue;
+          boundaryCells.add(`${gridIndex(x,longitudeGrid,west,east,columns)}/${gridIndex(y,latitudeGrid,south,north,rows)}`);
+        }
+      }
+      const polygonVertices = new Float32Array(maximumPolygonVertices * 9);
+      let polygonOffset = 0;
+      const emitTriangle = (first, second, third, boundary) => {
+        if (polygonOffset / 9 + 3 > maximumPolygonVertices) return;
+        // Thin boundary parts need coverage even with no interior grid samples.
+        // Distant exterior cells stay absent, so neighbouring woods are not repainted.
+        if (!boundary && !first.height && !second.height && !third.height
+          && !model.contains?.([(first.coordinate[0]+second.coordinate[0]+third.coordinate[0])/3,
+            (first.coordinate[1]+second.coordinate[1]+third.coordinate[1])/3])) return;
         [first, second, third].forEach((point) => {
-          const mercator = window.maplibregl.MercatorCoordinate.fromLngLat({
-            lng: point.coordinate[0], lat: point.coordinate[1],
-          }, 0);
-          vertices.push(mercator.x, mercator.y, mercator.z,
-            point.normal[0], point.normal[1], point.normal[2],
-            clamp(point.height / peakHeight, 0, 1) + (feature.properties?.reliefLandKind === "open" ? 2 : 0),
-            point.height, contourInterval);
+          polygonVertices[polygonOffset++] = point.mercator.x;
+          polygonVertices[polygonOffset++] = point.mercator.y;
+          polygonVertices[polygonOffset++] = point.mercator.z;
+          polygonVertices[polygonOffset++] = point.normal[0];
+          polygonVertices[polygonOffset++] = point.normal[1];
+          polygonVertices[polygonOffset++] = point.normal[2];
+          polygonVertices[polygonOffset++] = clamp(point.height / peakHeight, 0, 1)
+            + (feature.properties?.reliefLandKind === "open" ? 2 : 0);
+          polygonVertices[polygonOffset++] = point.height;
+          polygonVertices[polygonOffset++] = contourInterval;
         });
       };
       for (let row = 0; row < rows; row += 1) {
@@ -20030,10 +20365,21 @@
           const southeast = gridPoint(row, column + 1);
           const northwest = gridPoint(row + 1, column);
           const northeast = gridPoint(row + 1, column + 1);
-          emitTriangle(southwest, southeast, northeast);
-          emitTriangle(southwest, northeast, northwest);
+          const boundary=boundaryCells.has(`${column}/${row}`);
+          emitTriangle(southwest, southeast, northeast, boundary);
+          emitTriangle(southwest, northeast, northwest, boundary);
         }
       }
+      if (polygonOffset) {
+        vertexChunks.push(polygonVertices.subarray(0, polygonOffset));
+        vertexCount += polygonOffset / 9;
+      }
+    });
+    const vertices = new Float32Array(vertexCount * 9);
+    let offset = 0;
+    vertexChunks.forEach((chunk) => {
+      vertices.set(chunk, offset);
+      offset += chunk.length;
     });
     return vertices;
   }
@@ -20046,11 +20392,12 @@
 
   function huayuWoodlandMaterialOcclusions(glMap, waterFeatures, viewportBounds) {
     const features = (waterFeatures || []).map((feature) => ({ ...feature,
-      properties: { ...feature.properties, materialOcclusion: "water" } }));
+      properties: { ...feature.properties, materialOcclusion: feature.properties?.materialOcclusion || "water" } }));
     const sources = new Map();
     (glMap?.getStyle?.()?.layers || []).forEach((layer) => {
-      if (!["fill", "fill-extrusion"].includes(layer.type)) return;
-      if (!["water", "building"].includes(layer["source-layer"])
+      if (!["fill", "fill-extrusion", "line"].includes(layer.type)) return;
+      if (layer.type !== "fill-extrusion" && !["water", "waterway", "building", "park"].includes(layer["source-layer"])
+        && !/garden.*fill|garden.*area/u.test(layer.id)
         && ![HUAYU_LIVE_BASEMAP_LAYERS.water, HUAYU_LIVE_BUILDING_LAYER,
           HUAYU_PAVILION_LAYER, HUAYU_PAVILION_BASE_LAYER].includes(layer.id)) return;
       sources.set(`${layer.source}/${layer["source-layer"] || ""}`, layer);
@@ -20059,11 +20406,18 @@
       try {
         for (const feature of glMap.querySourceFeatures?.(layer.source,
           layer["source-layer"] ? { sourceLayer: layer["source-layer"] } : {}) || []) {
-          if (layer.id === HUAYU_LIVE_BASEMAP_LAYERS.water && feature.properties?.renderKind !== "water") continue;
-          if (["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) {
+          const kind=feature.properties?.renderKind;
+          // A shared source contains terrain, names and land-use as well as
+          // modeled canopies/structures. Only the latter may cut the material.
+          if (!feature.properties?.materialOcclusion
+            && (["land","road","railway","important-label","place","mountain-surface"].includes(kind)
+              || feature.properties?.reliefRole==="surface")) continue;
+          if (["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry?.type)) {
             features.push({ ...feature, properties: { ...feature.properties,
-              materialOcclusion: layer["source-layer"] === "water"
-                || layer.id === HUAYU_LIVE_BASEMAP_LAYERS.water ? "water" : "building" } });
+              materialOcclusion: feature.properties?.materialOcclusion
+                || (["water", "waterway"].includes(layer["source-layer"])
+                  || ["water", "waterway"].includes(feature.properties?.renderKind) ? "water"
+                  : layer["source-layer"] === "park" || /garden/u.test(layer.id) ? "garden" : "building") } });
           }
         }
       } catch { /* A not-yet-loaded vector source will trigger sourcedata later. */ }
@@ -20071,7 +20425,42 @@
     return features.filter((feature) => huayuMountainSurfaceFeatureIntersectsViewport(feature, viewportBounds));
   }
 
-  function huayuWoodlandMaterialCoverage(features, viewportBounds, occlusions = []) {
+  function huayuWoodlandMaterialOwnership(features, projectPixel, resolution, pixels) {
+    // Categorical owner IDs cannot be anti-aliased: blending two IDs produces
+    // an unrelated third ID and leaves white seams between nested footprints.
+    const draw = (feature,index) => {
+      const polygons=feature.geometry?.type==="Polygon" ? [feature.geometry.coordinates]
+        : feature.geometry?.type==="MultiPolygon" ? feature.geometry.coordinates : [];
+      for(const polygon of polygons) {
+        const crossings=Array.from({length:resolution},()=>[]);
+        for(const ring of polygon) {
+          for(let i=1;i<ring.length;i++) {
+            const [ax,ay]=projectPixel(ring[i-1]),[bx,by]=projectPixel(ring[i]);
+            if(ay===by)continue;
+            const first=Math.max(0,Math.ceil(Math.min(ay,by)-0.5));
+            const last=Math.min(resolution,Math.ceil(Math.max(ay,by)-0.5));
+            for(let row=first;row<last;row++) crossings[row].push(ax+(bx-ax)*(row+0.5-ay)/(by-ay));
+          }
+        }
+        const owner=index+1, land=feature.properties?.reliefLandKind==="open" ? 0 : 255;
+        for(let row=0;row<resolution;row++) {
+          const xs=crossings[row].sort((a,b)=>a-b);
+          for(let i=1;i<xs.length;i+=2) {
+            const first=Math.max(0,Math.ceil(xs[i-1]-0.5));
+            const last=Math.min(resolution,Math.ceil(xs[i]-0.5));
+            for(let column=first;column<last;column++) {
+              const offset=(row*resolution+column)*4;
+              pixels[offset]=land; pixels[offset+1]=owner%256; pixels[offset+2]=Math.floor(owner/256);
+            }
+          }
+        }
+      }
+    };
+    features.forEach((feature,index)=>{if(feature.properties?.reliefLandKind==="open")draw(feature,index);});
+    features.forEach((feature,index)=>{if(feature.properties?.reliefLandKind!=="open")draw(feature,index);});
+  }
+
+  function huayuWoodlandMaterialCoverage(features, viewportBounds, occlusions = [], resolution = 1024) {
     if (!viewportBounds) return null;
     const project = (coordinate) => window.maplibregl.MercatorCoordinate.fromLngLat({
       lng: coordinate[0], lat: coordinate[1],
@@ -20081,9 +20470,10 @@
     const width = southeast.x - northwest.x;
     const height = southeast.y - northwest.y;
     if (!(width > 0 && height > 0)) return null;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1024;
-    canvas.height = 1024;
+    const canvas = typeof document === "undefined" ? new OffscreenCanvas(resolution, resolution)
+      : document.createElement("canvas");
+    canvas.width = resolution;
+    canvas.height = resolution;
     const context = canvas.getContext("2d");
     if (!context) return null;
     context.fillStyle = "#ffffff";
@@ -20106,19 +20496,55 @@
         context.fill("evenodd");
       });
     };
-    // The same mask also distinguishes grassland and forest footprints. Open
-    // terrain meshes must not repaint neighbouring forests through the union mask.
-    context.fillStyle = "#000000";
-    features.filter((feature) => feature.properties?.reliefLandKind === "open").forEach(drawPolygon);
-    context.fillStyle = "#ffffff";
-    features.filter((feature) => feature.properties?.reliefLandKind !== "open").forEach(drawPolygon);
+    const drawOcclusion = (feature) => {
+      drawPolygon(feature);
+      const geometry = feature.geometry;
+      const lines = geometry?.type === "LineString" ? [geometry.coordinates]
+        : geometry?.type === "MultiLineString" ? geometry.coordinates : [];
+      const latitude = (viewportBounds.south + viewportBounds.north) / 2;
+      const metersPerPixel = width * 40075016.7 * Math.cos(latitude * Math.PI / 180) / resolution;
+      context.lineWidth = Math.max(0.75, (Number(feature.properties?.width) || 4) / metersPerPixel);
+      context.lineCap = "round"; context.lineJoin = "round";
+      for (const line of lines) {
+        context.beginPath();
+        line.forEach((coordinate, index) => {
+          const point = project(coordinate);
+          const x = (point.x - northwest.x) / width * resolution;
+          const y = (point.y - northwest.y) / height * resolution;
+          if (!index) context.moveTo(x, y); else context.lineTo(x, y);
+        });
+        context.stroke();
+      }
+    };
+    // R distinguishes open/woodland; G/B identify the original surface index.
+    // A union mask alone lets a boundary triangle belonging to one hill paint
+    // the neighbouring hill, creating rectangular patches at their junction.
+    const drawSurface = (feature, index) => {
+      const owner = index + 1;
+      context.fillStyle = `rgb(${feature.properties?.reliefLandKind === "open" ? 0 : 255},${owner % 256},${Math.floor(owner / 256)})`;
+      drawPolygon(feature);
+    };
+    features.forEach((feature, index) => {
+      if (feature.properties?.reliefLandKind === "open") drawSurface(feature, index);
+    });
+    features.forEach((feature, index) => {
+      if (feature.properties?.reliefLandKind !== "open") drawSurface(feature, index);
+    });
     // Custom materials render in the translucent pass, after opaque fills.
     // Exact exclusions preserve those water/building pixels without writing
     // depth, raising terrain or adding a second material layer.
     context.globalCompositeOperation = "destination-out";
-    occlusions.forEach(drawPolygon);
+    occlusions.forEach(drawOcclusion);
     context.globalCompositeOperation = "source-over";
-    return { canvas, bounds: [northwest.x, northwest.y, 1 / width, 1 / height] };
+    const image=context.getImageData?.(0,0,resolution,resolution);
+    if(image) {
+      huayuWoodlandMaterialOwnership(features,coordinate=>{
+        const point=project(coordinate);
+        return [(point.x-northwest.x)/width*resolution,(point.y-northwest.y)/height*resolution];
+      },resolution,image.data);
+      context.putImageData(image,0,0);
+    }
+    return { canvas, resolution, bounds: [northwest.x, northwest.y, 1 / width, 1 / height] };
   }
 
   function huayuMountainSurfaceShader(gl, type, source) {
@@ -20131,6 +20557,304 @@
       throw new Error(`HUAYU_MOUNTAIN_SURFACE_SHADER: ${message}`);
     }
     return shader;
+  }
+
+  function huayuWoodlandMaterialCells(bounds, zoom, buffered = true) {
+    if (!bounds || bounds.east <= bounds.west || bounds.north <= bounds.south) return [];
+    const level = huayuMountainSurfaceMeshLevel(zoom);
+    let span = [8, 4, 2, 0.5, 0.25][level];
+    if (level === 4) span /= 4 ** Math.max(0, Math.floor((zoom - 11) / 2));
+    const padding = buffered ? 0.35 : 0;
+    const width = bounds.east - bounds.west;
+    const height = bounds.north - bounds.south;
+    const extent = {west: Math.max(-180, bounds.west - width * padding),
+      east: Math.min(180, bounds.east + width * padding),
+      south: Math.max(-85, bounds.south - height * padding),
+      north: Math.min(85, bounds.north + height * padding)};
+    // Keep work bounded on unusually tall/pitched screens, while retaining
+    // world-aligned cells rather than a rectangle attached to the camera.
+    while (Math.ceil((extent.east - extent.west) / span + 1)
+      * Math.ceil((extent.north - extent.south) / span + 1) > 12) span *= 2;
+    const cells = [];
+    for (let y = Math.floor(extent.south / span); y < Math.ceil(extent.north / span); y += 1) {
+      for (let x = Math.floor(extent.west / span); x < Math.ceil(extent.east / span); x += 1) {
+        cells.push({key: `${level}/${span}/${x}/${y}`, level, span,
+          bounds: {west: x * span, east: (x + 1) * span,
+            south: Math.max(-85, y * span), north: Math.min(85, (y + 1) * span)}});
+      }
+    }
+    const centerX = (bounds.west + bounds.east) / 2;
+    const centerY = (bounds.south + bounds.north) / 2;
+    return cells.sort((first, second) =>
+      Math.hypot((first.bounds.west + first.bounds.east) / 2 - centerX,
+        (first.bounds.south + first.bounds.north) / 2 - centerY)
+      - Math.hypot((second.bounds.west + second.bounds.east) / 2 - centerX,
+        (second.bounds.south + second.bounds.north) / 2 - centerY));
+  }
+
+  function huayuWoodlandMaterialBoundsIntersect(first, second) {
+    return first && second && first.west < second.east && first.east > second.west
+      && first.south < second.north && first.north > second.south;
+  }
+
+  async function huayuWoodlandMaterialBuildGeometry(surfaces, waterContext, bounds, zoom, alive = () => true) {
+    const chunks = [];
+    let valueLength = 0;
+    let renderedNeighbors = 0;
+    const limit = Math.min(120000, Math.max(60000, surfaces.length * 6 + 36000));
+    let remainingWeight = surfaces.reduce((sum, feature) => sum
+      + Math.sqrt(Math.max(1, Number(feature.properties?.reliefArea) || 1)), 0);
+    let startedAt = performance.now();
+    const rangeContext = huayuMountainRangeContext(surfaces,waterContext);
+    for (const [index, feature] of surfaces.entries()) {
+      if (!alive()) return null;
+      const remaining = limit - valueLength / 9;
+      if (remaining < 6) break;
+      const weight = Math.sqrt(Math.max(1, Number(feature.properties?.reliefArea) || 1));
+      const reserved = Math.min(remaining - 6, (surfaces.length - index - 1) * 6);
+      const budget = Number(feature.properties?.reliefArea || 0) >= HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA
+        ? Math.min(36000, remaining - reserved)
+        : Math.max(6, Math.floor((remaining - reserved) * weight / Math.max(1, remainingWeight) / 6) * 6);
+      huayuMountainWaterContexts.set(feature, rangeContext);
+      const vertices = huayuMountainSurfaceFeatureVertices(feature, budget, bounds, zoom);
+      // The finished mesh is cached, so retaining every temporary boundary and
+      // river index as well would make national snapshots exhaust the heap.
+      huayuMountainSurfaceModels.delete(feature);
+      huayuMountainWaterContexts.delete(feature);
+      remainingWeight -= weight;
+      if (vertices.length) {
+        // Keep the nine-float vertex layout. Decode the owner in the vertex
+        // shader before interpolating the small contour interval separately.
+        for (let offset = 8; offset < vertices.length; offset += 9) {
+          const interval = vertices[offset];
+          vertices[offset] = Math.sign(interval || 1) * ((index + 1) * 256 + Math.abs(interval));
+        }
+        chunks.push(vertices);
+        valueLength += vertices.length;
+        if (feature.properties?.reliefNeighbor === 1) renderedNeighbors += 1;
+      }
+      if (performance.now() - startedAt >= 8) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        startedAt = performance.now();
+      }
+    }
+    const values = new Float32Array(valueLength);
+    let offset = 0;
+    chunks.forEach(chunk => { values.set(chunk, offset); offset += chunk.length; });
+    return {values, renderedNeighbors};
+  }
+
+  function huayuTerrainMeshWorkerSource() {
+    // Share the exact elevation, contours, holes and river-valley algorithms.
+    // Only their execution moves off the UI thread.
+    const functions = [clamp, huayuTreeHash, huayuTreeRandom, huayuWallPointInRing,
+      huayuPointInPolygonGeometry, huayuGeometryInteriorPoint, huayuGeometryAreaSquareMeters,
+      huayuMountainSurfaceSamplingPolygon, huayuMountainSurfaceAnchors, huayuMountainSurfaceNoise,
+      huayuRegionalMountainSurface, huayuMountainEdgeFadeLine, huayuMountainSegmentIndex,
+      huayuMountainOuterContains, huayuMountainSurfaceFeatureIntersectsViewport, huayuWoodlandMaterialBoundsIntersect,
+      huayuMountainWaterDistance, huayuMountainSurfaceModel, huayuMountainRangeContext,
+      huayuMountainContourInterval, huayuMountainSurfaceFeatureVertices,
+      huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
+      huayuWoodlandMaterialBuildGeometry, huayuTerrainMeshWorkerMain];
+    return `const HUAYU_MOUNTAIN_WOODLAND_MIN_AREA=${HUAYU_MOUNTAIN_WOODLAND_MIN_AREA};
+      const HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA=${HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA};
+      const HUAYU_TERRAIN_MIN_ZOOM=${HUAYU_TERRAIN_MIN_ZOOM};
+      const huayuMountainSurfaceModels=new WeakMap(), huayuMountainGeometryBounds=new WeakMap(),
+        huayuMountainWaterContexts=new WeakMap();
+      const window={maplibregl:{MercatorCoordinate:{fromLngLat:({lng,lat})=>({
+        x:(180+lng)/360,y:(180-180/Math.PI*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360)))/360,z:0})}}};
+      ${functions.map(fn => fn.toString()).join("\n")}
+      huayuTerrainMeshWorkerMain();`;
+  }
+
+  function huayuTerrainMeshWorkerMain() {
+    const features = new Map();
+    const publishedPackets = new Map();
+    const fingerprints = new Map();
+    const waterContexts = new Map();
+    const modelVersion = crypto.subtle.digest("SHA-256", new TextEncoder().encode([
+      huayuMountainSurfaceModel, huayuMountainSurfaceFeatureVertices, huayuRegionalMountainSurface,
+      huayuMountainSurfaceAnchors, huayuMountainWaterDistance, huayuMountainRangeContext,
+      huayuWoodlandMaterialBuildGeometry, huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
+    ].map(fn => fn.toString()).join("\n"))).then(bytes =>
+      Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join(""));
+    let databasePromise;
+    const database = () => databasePromise ||= new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) { value?.close?.(); return; }
+        settled = true; clearTimeout(timer); resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), 1500);
+      try {
+        const request = indexedDB.open("ogf-atlas-terrain-mesh-v1", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("blocks", {keyPath: "key"})
+          .createIndex("usedAt", "usedAt");
+        request.onsuccess = () => finish(request.result);
+        request.onerror = request.onblocked = () => finish(null);
+      } catch { finish(null); }
+    });
+    const stored = async key => {
+      const db = await database();
+      if (!db) return null;
+      return new Promise(resolve => {
+        const timer = setTimeout(() => resolve(null), 1000);
+        try {
+          const request = db.transaction("blocks").objectStore("blocks").get(key);
+          request.onsuccess = () => {clearTimeout(timer);resolve(request.result || null);};
+          request.onerror = () => {clearTimeout(timer);resolve(null);};
+        } catch {clearTimeout(timer);resolve(null);}
+      });
+    };
+    const persist = async entry => {
+      const db = await database();
+      if (!db) return;
+      try {
+        const store = db.transaction("blocks", "readwrite").objectStore("blocks");
+        store.put(entry);
+        const count = store.count();
+        count.onsuccess = () => {
+          let excess = count.result - 96;
+          if (excess <= 0) return;
+          const cursor = store.index("usedAt").openCursor();
+          cursor.onsuccess = () => {
+            if (!cursor.result || excess-- <= 0) return;
+            cursor.result.delete(); cursor.result.continue();
+          };
+        };
+      } catch { /* A denied/full cache must still return the computed mesh. */ }
+    };
+    self.onmessage = async ({data: job}) => {
+      try {
+        if (job.publishedUrl || job.url) {
+          let payload = publishedPackets.get(job.publishedUrl);
+          if (!payload) {
+          const response = await fetch(job.publishedUrl || job.url, {cache: "force-cache", signal: AbortSignal.timeout(30000)});
+          if (!response.ok) throw new Error(`HTTP_${response.status}`);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          const text = bytes[0] === 0x1f && bytes[1] === 0x8b
+            ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text()
+            : new TextDecoder().decode(bytes);
+          payload = JSON.parse(text);
+          if (job.publishedUrl) {
+            publishedPackets.set(job.publishedUrl, payload);
+            while (publishedPackets.size > 4) publishedPackets.delete(publishedPackets.keys().next().value);
+          }
+          }
+          if (job.publishedUrl) {
+            if (payload.format !== 1 || payload.model !== "woodland-material-overview-v1"
+              || !payload.cell?.bounds || !Array.isArray(payload.surfaces)) throw new Error("INVALID_TERRAIN_RENDER_BLOCK");
+            let values = new Float32Array(0);
+            if (job.needsGeometry !== false) {
+              const encoded = atob(payload.vertices);
+              const bytes = Uint8Array.from(encoded, character => character.charCodeAt(0));
+              if (!bytes.length || bytes.length % 36) throw new Error("INVALID_TERRAIN_RENDER_VERTICES");
+              values = new Float32Array(bytes.buffer);
+            }
+            const coverage = huayuWoodlandMaterialCoverage(payload.surfaces, job.maskBounds || payload.cell.bounds,
+              [...(payload.occlusions || []), ...(job.preparedOcclusions || [])], 1024);
+            coverage.canvas = coverage.canvas.transferToImageBitmap();
+            self.postMessage({id: job.id, cell: payload.cell, values, coverage,
+              waterFeatures:(payload.occlusions || []).filter(feature=>feature.properties?.materialOcclusion==="water"
+                && huayuMountainSurfaceFeatureIntersectsViewport(feature,job.maskBounds || payload.cell.bounds)),
+              renderedNeighbors: payload.renderedNeighbors}, [values.buffer, coverage.canvas]);
+          } else self.postMessage({id: job.id, payload});
+          return;
+        }
+        for (const [token, feature] of job.register || []) {
+          features.set(token, feature);
+          if (/^[a-f0-9]{64}$/u.test(feature.terrainDigest || "")) fingerprints.set(token, feature.terrainDigest);
+          else {
+            const {terrainDigest, ...source} = feature;
+            const bytes = new TextEncoder().encode(JSON.stringify(source));
+            const digest = await crypto.subtle.digest("SHA-256", bytes);
+            fingerprints.set(token, Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join(""));
+          }
+        }
+        const surfaceFeatures = job.surfaces.map(token => features.get(token));
+        const occlusions = job.occlusions.map(token => features.get(token));
+        const waterKey = job.water.map(token => fingerprints.get(token)).sort().join("|");
+        if (!waterContexts.has(waterKey)) waterContexts.set(waterKey, {features: job.water.map(token => features.get(token))});
+        const waterContext = waterContexts.get(waterKey);
+        const key = `v1:${await modelVersion}:${job.cell.key}:${job.surfaces.map(token => fingerprints.get(token)).join("|")}`
+          + `:water:${waterKey}:mask:${job.occlusions.map(token => fingerprints.get(token)).sort().join("|")}`;
+        const previous = await stored(key);
+        let values, renderedNeighbors, coverage, cacheHit = false;
+        if (previous?.values && previous.coverage) {
+          values = previous.values; renderedNeighbors = previous.renderedNeighbors;
+          coverage = {canvas: await createImageBitmap(previous.coverage), resolution: 512, bounds: previous.bounds};
+          cacheHit = true;
+        } else {
+          const built = job.needsMesh ? await huayuWoodlandMaterialBuildGeometry(surfaceFeatures,
+            waterContext, job.cell.bounds, job.zoom) : null;
+          values = built?.values; renderedNeighbors = built?.renderedNeighbors;
+          coverage = huayuWoodlandMaterialCoverage(surfaceFeatures, job.cell.bounds, occlusions, 512);
+          if (values && coverage) {
+            const blob = await coverage.canvas.convertToBlob();
+            // IDB clones the vertices before their buffer is transferred to the UI.
+            await persist({key, values, renderedNeighbors, coverage: blob, bounds: coverage.bounds, usedAt: Date.now()});
+          }
+          if (coverage) coverage.canvas = coverage.canvas.transferToImageBitmap();
+        }
+        const transfer = [...(values ? [values.buffer] : []), ...(coverage ? [coverage.canvas] : [])];
+        self.postMessage({id: job.id, values, renderedNeighbors, coverage, cacheHit}, transfer);
+        while (waterContexts.size > 8) waterContexts.delete(waterContexts.keys().next().value);
+      } catch (error) { self.postMessage({id: job.id, error: String(error?.message || error)}); }
+    };
+  }
+
+  function createHuayuTerrainMeshWorker() {
+    if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") return null;
+    try {
+      const url = URL.createObjectURL(new Blob([huayuTerrainMeshWorkerSource()], {type: "text/javascript"}));
+      const worker = new Worker(url);
+      URL.revokeObjectURL(url);
+      const registered = new WeakSet();
+      const pending = new Map();
+      let sequence = 0;
+      const fail = error => { pending.forEach(job => job.reject(error)); pending.clear(); };
+      worker.onerror = () => fail(new Error("TERRAIN_WORKER_UNAVAILABLE"));
+      worker.onmessage = ({data}) => {
+        const job = pending.get(data.id);
+        if (!job) { data.coverage?.canvas?.close?.(); return; }
+        pending.delete(data.id);
+        if (data.error) job.reject(new Error(data.error));
+        else job.resolve(data);
+      };
+      return {
+        loadPublished(url, occlusions, maskBounds, needsGeometry = true) {
+          return new Promise((resolve, reject) => {
+            const id = ++sequence;
+            pending.set(id, {resolve, reject});
+            worker.postMessage({id, publishedUrl: url, preparedOcclusions: occlusions, maskBounds, needsGeometry});
+          });
+        },
+        load(url) {
+          return new Promise((resolve, reject) => {
+            const id = ++sequence;
+            pending.set(id, {resolve, reject});
+            worker.postMessage({id, url});
+          }).then(result => result.payload);
+        },
+        build(layer, cell, surfaces, water, occlusions, zoom, needsMesh) {
+          const register = [];
+          for (const feature of new Set([...surfaces, ...water, ...occlusions])) {
+            if (registered.has(feature)) continue;
+            registered.add(feature);
+            register.push([layer.featureToken(feature), feature]);
+          }
+          const tokens = list => list.map(feature => layer.featureToken(feature));
+          return new Promise((resolve, reject) => {
+            const id = ++sequence;
+            pending.set(id, {resolve, reject});
+            try { worker.postMessage({id, register, cell, surfaces: tokens(surfaces), water: tokens(water),
+              occlusions: tokens(occlusions), zoom, needsMesh}); }
+            catch (error) { pending.delete(id); reject(error); }
+          });
+        },
+        close() { worker.terminate(); fail(new Error("TERRAIN_WORKER_CLOSED")); },
+      };
+    } catch { return null; }
   }
 
   function createHuayuWoodlandMaterialLayer(palette) {
@@ -20147,24 +20871,160 @@
       enabled: terrainOverlayEnabled,
       features: [],
       signature: "",
+      blocks: new Map(),
+      featureTokens: new WeakMap(),
+      featureFingerprints: new WeakMap(),
+      retainedOcclusions: new Map(),
+      waterContexts: new Map(),
+      tokenSequence: 0,
       vertexCount: 0,
       triangleCount: 0,
+      loadPublishedSnapshot(manifest) {
+        if (!this.gl || !this.enabled || this.interacting || !this.meshWorker || !manifest?.renderBlocks?.length) return;
+        this.publishedManifest = manifest;
+        this.publishedRequests ||= new Map();
+        const retained = new Set(manifest.renderBlocks.map(entry => entry.url));
+        for (const [key, block] of this.blocks) {
+          if (!block.publishedUrl || retained.has(block.publishedUrl)) continue;
+          this.gl.deleteBuffer(block.buffer); this.gl.deleteTexture(block.texture); this.blocks.delete(key);
+        }
+        const bounds = huayuAdministrativeQueryBounds(this.map);
+        if (!bounds) return;
+        const descriptors = manifest.renderBlocks.filter(entry =>
+          huayuWoodlandMaterialBoundsIntersect(entry.cell.bounds, bounds)).sort((a, b) => {
+          const distance = entry => Math.hypot((entry.cell.bounds.west + entry.cell.bounds.east - bounds.west - bounds.east) / 2,
+            (entry.cell.bounds.south + entry.cell.bounds.north - bounds.south - bounds.north) / 2);
+          return distance(a) - distance(b);
+        });
+        for (const entry of descriptors) {
+          const existing = this.blocks.get(entry.cell.key);
+          const zoom = this.map.getZoom();
+          const wantedBounds = huayuMountainSurfaceViewportBounds(this.map) || entry.cell.bounds;
+          const maskBounds = {west:Math.max(entry.cell.bounds.west,wantedBounds.west),
+            east:Math.min(entry.cell.bounds.east,wantedBounds.east),
+            south:Math.max(entry.cell.bounds.south,wantedBounds.south),
+            north:Math.min(entry.cell.bounds.north,wantedBounds.north)};
+          const visible = {west:Math.max(bounds.west,entry.cell.bounds.west),east:Math.min(bounds.east,entry.cell.bounds.east),
+            south:Math.max(bounds.south,entry.cell.bounds.south),north:Math.min(bounds.north,entry.cell.bounds.north)};
+          if ((existing?.publishedUrl === entry.url && existing.checkedContextRevision === this.contextRevision
+            && existing.maskZoom >= Math.floor(zoom)
+            && huayuAdministrativeBoundsContain(existing.maskGeographicBounds,visible))
+            || this.publishedRequests.has(entry.url)) continue;
+          const contextRevision = this.contextRevision;
+          const occlusions = huayuWoodlandMaterialOcclusions(this.map, this.contextFeatures || this.waterFeatures, maskBounds);
+          const request = this.meshWorker.loadPublished(new URL(entry.url, window.location.href).href, occlusions,
+            maskBounds, existing?.publishedUrl !== entry.url)
+            .then(async built => {
+              if (this.interacting) await new Promise(resolve => map.once("moveend", resolve));
+              if (!this.gl || !huayuTerrainPreloadManifest?.renderBlocks?.some(next => next.url === entry.url) || !this.enabled) {
+                built.coverage.canvas.close(); return;
+              }
+              const gl = this.gl;
+              const previous = this.blocks.get(entry.cell.key);
+              const reuseGeometry = previous?.publishedUrl === entry.url;
+              if (previous) {
+                if (!reuseGeometry) gl.deleteBuffer(previous.buffer);
+                gl.deleteTexture(previous.texture);
+              }
+              const block = {...built.cell, publishedUrl: entry.url, usedAt: performance.now(),
+                checkedContextRevision: contextRevision,
+                maskGeographicBounds:maskBounds, maskZoom:Math.floor(zoom),
+                buffer: reuseGeometry ? previous.buffer : gl.createBuffer(), texture: gl.createTexture(),
+                vertexCount: reuseGeometry ? previous.vertexCount : built.values.length / 9,
+                coverageBounds: built.coverage.bounds, coverageResolution: built.coverage.resolution,
+                renderedNeighbors: built.renderedNeighbors};
+              if (!reuseGeometry) {
+                gl.bindBuffer(gl.ARRAY_BUFFER, block.buffer);
+                gl.bufferData(gl.ARRAY_BUFFER, built.values, gl.STATIC_DRAW);
+              }
+              const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+              const previousFlip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+              gl.bindTexture(gl.TEXTURE_2D, block.texture);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+              gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, built.coverage.canvas);
+              gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip);
+              gl.bindTexture(gl.TEXTURE_2D, previousTexture);
+              built.coverage.canvas.close();
+              this.blocks.set(block.key, block);
+              if (!reuseGeometry) this.publishedBlocks = (this.publishedBlocks || 0) + 1;
+              if (!this.firstMaterialMs) this.firstMaterialMs = Math.round(performance.now() - this.addedAt);
+              this.map.triggerRepaint();
+              const state = huayuLiveBasemapStates.get(this.map);
+              if (state) {
+                const generation=manifest.generatedAt+manifest.renderBlocks.map(entry=>entry.url).join("|");
+                let changed=false;
+                if (state.publishedTerrainContextGeneration!==generation) {
+                  state.publishedTerrainContextGeneration=generation;
+                  state.publishedTerrainContext=new Map();changed=true;
+                }
+                for (const feature of built.waterFeatures || []) {
+                  const previous=state.publishedTerrainContext.get(String(feature.id));
+                  if (previous?.terrainDigest===feature.terrainDigest && previous) continue;
+                  state.publishedTerrainContext.set(String(feature.id),feature);changed=true;
+                }
+                if (changed) {
+                  state.publishedTerrainContextAt=Date.parse(manifest.generatedAt);
+                  state.publishedTerrainContextRevision=(state.publishedTerrainContextRevision || 0)+1;
+                  mergeHuayuLiveBasemapTiles(state);
+                }
+                updateHuayuLiveBasemapDiagnostics(state);
+              }
+            }).catch(() => { /* Raw chunks and completed browser meshes remain the fallback. */ })
+            .finally(() => this.publishedRequests.delete(entry.url));
+          this.publishedRequests.set(entry.url, request);
+        }
+        // Let the centre material arrive before competing with raw geometry
+        // downloads on a slow connection. Remaining overview blocks continue.
+        return this.publishedRequests.get(descriptors[0]?.url);
+      },
+      featureFingerprint(feature) {
+        if (feature.terrainDigest) return feature.terrainDigest;
+        if (!this.featureFingerprints.has(feature)) this.featureFingerprints.set(feature,
+          JSON.stringify([feature.id, feature.geometry, feature.properties]));
+        return this.featureFingerprints.get(feature);
+      },
+      featureToken(feature) {
+        if (!this.featureTokens.has(feature)) this.featureTokens.set(feature, ++this.tokenSequence);
+        return this.featureTokens.get(feature);
+      },
+      pruneBlocks(required) {
+        let vertices = [...this.blocks.values()].reduce((sum, block) => sum + block.vertexCount, 0);
+        if (this.blocks.size <= 64 && vertices <= 1500000) return;
+        for (const block of [...this.blocks.values()].sort((a, b) => a.usedAt - b.usedAt)) {
+          if (this.blocks.size <= 64 && vertices <= 1500000) break;
+          if (required.has(block.key)) continue;
+          this.gl.deleteBuffer(block.buffer);
+          this.gl.deleteTexture(block.texture);
+          this.blocks.delete(block.key);
+          vertices -= block.vertexCount;
+        }
+      },
       setData(features) {
+        this.contextFeatures = (features || []).filter(feature => feature.properties?.materialOcclusion
+          || ["water", "waterway"].includes(feature.properties?.renderKind));
         const waterFeatures = (features || []).filter((feature) =>
           ["water", "waterway"].includes(feature.properties?.renderKind)
           && !feature.properties?.tunnel && !feature.properties?.bridge);
+        const previousFeatures = new Map(this.features.map((feature) => [String(feature.id), feature]));
         const nextFeatures = (features || []).filter((feature) =>
           feature.properties?.reliefRole === "surface"
-          && !huayuMountainPlainName(feature.properties?.name));
+          && !huayuMountainPlainName(feature.properties?.name)).map((feature) => {
+            const previous = previousFeatures.get(String(feature.id));
+            return previous && (previous === feature
+              || this.featureFingerprint(previous) === this.featureFingerprint(feature)) ? previous : feature;
+          });
         const signature = nextFeatures.map((feature) =>
           `${feature.id}:${feature.properties?.reliefHeight || 0}:${feature.properties?.reliefPeaks || ""}:${feature.properties?.reliefLandKind || "wood"}`)
-          .sort().join("|") + "|water:" + waterFeatures.map((feature) => feature.id).sort().join("|");
+          .sort().join("|") + "|water:" + waterFeatures.map((feature) => feature.id).sort().join("|")
+          + "|context:" + this.contextFeatures.map(feature=>feature.terrainDigest || feature.id).sort().join("|");
         if (signature === this.signature && nextFeatures.length === this.features.length
           && nextFeatures.every((feature, index) => feature === this.features[index])
           && waterFeatures.length === this.waterFeatures?.length
           && waterFeatures.every((feature, index) => feature === this.waterFeatures[index])) return;
-        const waterContext = { features: waterFeatures };
-        nextFeatures.forEach((feature) => huayuMountainWaterContexts.set(feature, waterContext));
         this.waterFeatures = waterFeatures;
         this.features = nextFeatures;
         this.signature = signature;
@@ -20184,94 +21044,200 @@
         window.clearTimeout(this.rebuildTimer);
         this.rebuildTimer = window.setTimeout(() => {
           this.rebuildTimer = null;
+          if (this.interacting || this.map?.isMoving?.()) { this.scheduleRebuild(); return; }
           if (this.gl && this.enabled) this.rebuild();
-        }, 120);
+        }, 220);
       },
       async rebuild() {
+        if (this.rebuildPromise) { this.rebuildAgain = true; return this.rebuildPromise; }
+        this.rebuildPromise = this.rebuildBlocks().finally(() => {
+          this.rebuildPromise = null;
+          if (this.rebuildAgain) { this.rebuildAgain = false; this.scheduleRebuild(); }
+        });
+        return this.rebuildPromise;
+      },
+      async rebuildBlocks() {
         const revision = this.rebuildRevision || 0;
         const startedAt = performance.now();
-        const values = [];
-        const viewportBounds = huayuMountainSurfaceViewportBounds(this.map);
         const zoom = this.map?.getZoom?.() || HUAYU_TERRAIN_MIN_ZOOM;
-        const currentBounds = huayuAdministrativeQueryBounds(this.map);
-        const detailLevel = zoom >= 10.5;
-        if (this.builtDataRevision === this.dataRevision && this.builtDetailLevel === detailLevel
-          && this.builtContextRevision === this.contextRevision
-          && Math.abs(zoom - this.builtZoom) < 0.75
-          && huayuAdministrativeBoundsContain(this.builtBounds, currentBounds)) return;
-        const visibleFeatures = huayuMountainSurfaceOverviewFeatures(
-          this.features, viewportBounds, zoom,
-        ).sort((first, second) => Number(second.properties?.reliefArea || 0)
-          - Number(first.properties?.reliefArea || 0));
-        const totalWeight = visibleFeatures.reduce((sum, feature) =>
-          sum + Math.sqrt(Math.max(1, Number(feature.properties?.reliefArea) || 1)), 0);
-        const occlusions = huayuWoodlandMaterialOcclusions(this.map, this.waterFeatures, viewportBounds);
-        // Reuse water already delivered by the basemap. A separate wide water
-        // query must never hold forest snapshots behind an upstream timeout.
-        const waterContextKey = `${this.dataRevision}:${this.contextRevision || 0}:${JSON.stringify(viewportBounds)}`;
-        if (this.modelWaterContextKey !== waterContextKey) {
-          this.modelWaterContextKey = waterContextKey;
-          this.modelWaterContext = { features: occlusions.filter((feature) =>
-            feature.properties?.materialOcclusion === "water") };
+        // The prepared 8-degree mesh is finer than a country-scale runtime
+        // cell. Reuse it instead of resampling the same range over 16-32 degrees.
+        if (zoom < 7 && this.publishedManifest?.renderBlocks?.length) {
+          await this.loadPublishedSnapshot(this.publishedManifest);
+          const blocks = [...this.blocks.values()].filter(block => block.publishedUrl);
+          this.vertexCount = blocks.reduce((sum, block) => sum + block.vertexCount, 0);
+          this.triangleCount = this.vertexCount / 3;
+          this.rebuildMs = Math.round(performance.now() - startedAt);
+          this.rebuildPhases = {blocks: 0, masks: 0};
+          const state = huayuLiveBasemapStates.get(this.map);
+          if (state) updateHuayuLiveBasemapDiagnostics(state);
+          return;
         }
-        visibleFeatures.forEach((feature) => huayuMountainWaterContexts.set(feature, this.modelWaterContext));
-        const coverage = huayuWoodlandMaterialCoverage(visibleFeatures, viewportBounds, occlusions);
+        const currentBounds = huayuAdministrativeQueryBounds(this.map);
+        const cells = huayuWoodlandMaterialCells(currentBounds, zoom);
+        if (!cells.length) return;
+        const required = new Set(cells.map(cell => cell.key));
+        if (!this.contextDirty && cells.every(cell => {
+          const block = this.blocks.get(cell.key);
+          return block && block.checkedDataRevision === this.dataRevision
+            && block.checkedContextRevision === this.contextRevision;
+        })) {
+          this.cacheHits = (this.cacheHits || 0) + cells.length;
+          const blocks = cells.map(cell => this.blocks.get(cell.key));
+          blocks.forEach(block => { block.usedAt = performance.now(); });
+          this.vertexCount = blocks.reduce((sum, block) => sum + block.vertexCount, 0);
+          this.triangleCount = this.vertexCount / 3;
+          this.renderedNeighbors = blocks.reduce((sum, block) => sum + block.renderedNeighbors, 0);
+          this.rebuildMs = Math.round(performance.now() - startedAt);
+          this.rebuildPhases = {blocks: 0, masks: 0};
+          const state = huayuLiveBasemapStates.get(this.map);
+          if (state) updateHuayuLiveBasemapDiagnostics(state);
+          return;
+        }
+        const extent = {west: Math.min(...cells.map(cell => cell.bounds.west)),
+          east: Math.max(...cells.map(cell => cell.bounds.east)),
+          south: Math.min(...cells.map(cell => cell.bounds.south)),
+          north: Math.max(...cells.map(cell => cell.bounds.north))};
+        const candidates = this.features.filter(feature =>
+          huayuMountainSurfaceFeatureIntersectsViewport(feature, extent));
+        // Keep delivered masks across source-tile eviction. Buildings affect
+        // only the mask; new local water can also change a valley's elevation.
+        const occlusions = huayuWoodlandMaterialOcclusions(this.map, this.contextFeatures || this.waterFeatures, extent);
+        for (const feature of occlusions) {
+          const key = this.featureFingerprint(feature);
+          if (this.retainedOcclusions.has(key)) continue;
+          this.retainedOcclusions.set(key, feature);
+        }
+        while (this.retainedOcclusions.size > 4096) {
+          this.retainedOcclusions.delete(this.retainedOcclusions.keys().next().value);
+        }
         let batchStartedAt = performance.now();
-        let remainingWeight = totalWeight;
-        let renderedNeighbors = 0;
-        for (const [featureIndex, feature] of visibleFeatures.entries()) {
-          const remaining = HUAYU_MOUNTAIN_SURFACE_VERTEX_LIMIT - values.length / 9;
-          if (remaining < 6) break;
-          const weight = Math.sqrt(Math.max(1, Number(feature.properties?.reliefArea) || 1));
-          const reserved = (visibleFeatures.length - featureIndex - 1) * 6;
-          const featureVertexBudget = clamp(Math.floor(
-            (remaining - reserved) * weight / Math.max(1, remainingWeight) / 6,
-          ) * 6, 6, Math.max(6, Math.min(remaining - reserved, Number(feature.properties?.reliefArea || 0)
-            >= HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA ? 180000 : 30000)));
-          const featureValues = huayuMountainSurfaceFeatureVertices(feature,
-            Math.min(remaining, featureVertexBudget), viewportBounds, zoom);
-          if (featureValues.length && feature.properties?.reliefNeighbor === 1) renderedNeighbors += 1;
-          remainingWeight -= weight;
-          // Large meshes exceed the argument limit of Array.push(...values).
-          for (const value of featureValues) values.push(value);
-          if (performance.now() - batchStartedAt >= 12) {
-            // Yield between features; retain the previous complete material while building.
-            await new Promise((resolve) => window.setTimeout(resolve, 0));
+        let builds = 0;
+        let maskUpdates = 0;
+        for (const cell of cells) {
+          if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
+          const surfaces = huayuMountainSurfaceOverviewFeatures(candidates, cell.bounds, zoom)
+            .sort((first, second) => Number(second.properties?.reliefArea || 0)
+              - Number(first.properties?.reliefArea || 0));
+          const localOcclusions = [...this.retainedOcclusions.values()].filter(feature =>
+            huayuMountainSurfaceFeatureIntersectsViewport(feature, cell.bounds));
+          // Include nearby water on both sides of a cell boundary, so the
+          // valley field remains continuous even when the river is in the next cell.
+          const valleyBounds = {west: cell.bounds.west - 0.06, east: cell.bounds.east + 0.06,
+            south: cell.bounds.south - 0.05, north: cell.bounds.north + 0.05};
+          const water = [...this.retainedOcclusions.values()].filter(feature =>
+            feature.properties?.materialOcclusion === "water"
+            && huayuMountainSurfaceFeatureIntersectsViewport(feature, valleyBounds));
+          const surfaceKey = surfaces.map(feature => this.featureToken(feature)).join(",");
+          const waterKey = water.map(feature => this.featureToken(feature)).sort((a, b) => a - b).join(",");
+          const meshKey = `${surfaceKey}|water:${waterKey}`;
+          const maskKey = `${surfaceKey}|mask:${localOcclusions.map(feature => this.featureToken(feature)).sort((a, b) => a - b).join(",")}`;
+          let block = this.blocks.get(cell.key);
+          const needsMesh = !block || block.meshKey !== meshKey;
+          if (!needsMesh && block.maskKey === maskKey) {
+            block.usedAt = performance.now();
+            block.checkedDataRevision = this.dataRevision;
+            block.checkedContextRevision = this.contextRevision;
+            this.cacheHits = (this.cacheHits || 0) + 1;
+            continue;
+          }
+          let values;
+          let renderedNeighbors = block?.renderedNeighbors || 0;
+          let coverage;
+          if (this.meshWorker) {
+            try {
+              const built = await this.meshWorker.build(this, cell, surfaces, water, localOcclusions, zoom, needsMesh);
+              values = needsMesh ? built.values : undefined;
+              if (needsMesh) renderedNeighbors = built.renderedNeighbors;
+              coverage = built.coverage;
+              if (built.cacheHit) this.diskMeshHits = (this.diskMeshHits || 0) + 1;
+            } catch (error) {
+              this.meshWorker.close(); this.meshWorker = null;
+              this.workerError = String(error?.message || error);
+            }
+          }
+          if (!coverage) {
             if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
+            if (needsMesh) {
+              if (!this.waterContexts.has(waterKey)) this.waterContexts.set(waterKey, {features: water});
+              const built = await huayuWoodlandMaterialBuildGeometry(surfaces, this.waterContexts.get(waterKey),
+                cell.bounds, zoom, () => Boolean(this.gl && this.enabled && revision === (this.rebuildRevision || 0)));
+              if (!built) return;
+              values = built.values; renderedNeighbors = built.renderedNeighbors;
+            }
+            coverage = huayuWoodlandMaterialCoverage(surfaces, cell.bounds, localOcclusions, 512);
+          }
+          if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) {
+            coverage?.canvas?.close?.(); return;
+          }
+          if (!block) block = {...cell, buffer: this.gl.createBuffer(), texture: this.gl.createTexture()};
+          if (values) {
+            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, block.buffer);
+            this.gl.bufferData(this.gl.ARRAY_BUFFER, values, this.gl.STATIC_DRAW);
+            block.vertexCount = values.length / 9;
+            block.renderedNeighbors = renderedNeighbors;
+            this.meshBuilds = (this.meshBuilds || 0) + 1;
+            builds += 1;
+            if (!this.firstMaterialMs && values.length) this.firstMaterialMs = Math.round(performance.now() - this.addedAt);
+          }
+          if (coverage) {
+            block.coverageBounds = coverage.bounds;
+            block.coverageResolution = coverage.resolution;
+            const previousTexture = this.gl.getParameter(this.gl.TEXTURE_BINDING_2D);
+            const previousFlip = this.gl.getParameter(this.gl.UNPACK_FLIP_Y_WEBGL);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, block.texture);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
+            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA,
+              this.gl.UNSIGNED_BYTE, coverage.canvas);
+            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, previousFlip);
+            this.gl.bindTexture(this.gl.TEXTURE_2D, previousTexture);
+            coverage.canvas.close?.();
+            maskUpdates += 1;
+          }
+          Object.assign(block, {meshKey, maskKey, usedAt: performance.now(),
+            checkedDataRevision: this.dataRevision, checkedContextRevision: this.contextRevision});
+          this.blocks.set(cell.key, block);
+          // Prune before yielding too: continuously interrupted pans must not
+          // accumulate buffers while repeatedly cancelling the end-of-build cleanup.
+          this.pruneBlocks(required);
+          this.map?.triggerRepaint?.();
+          if (performance.now() - batchStartedAt >= 16) {
+            await new Promise(resolve => window.setTimeout(resolve, 0));
             batchStartedAt = performance.now();
           }
         }
         if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
-        if (coverage) {
-          this.coverageBounds = coverage.bounds;
-          const previousTexture = this.gl.getParameter(this.gl.TEXTURE_BINDING_2D);
-          const previousFlip = this.gl.getParameter(this.gl.UNPACK_FLIP_Y_WEBGL);
-          this.gl.bindTexture(this.gl.TEXTURE_2D, this.coverageTexture);
-          this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
-          this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA,
-            this.gl.UNSIGNED_BYTE, coverage.canvas);
-          this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, previousFlip);
-          this.gl.bindTexture(this.gl.TEXTURE_2D, previousTexture);
-        }
-        this.builtBounds = viewportBounds;
-        this.builtSignature = this.signature;
+        this.pruneBlocks(required);
+        while (this.waterContexts.size > 8) this.waterContexts.delete(this.waterContexts.keys().next().value);
         this.builtDataRevision = this.dataRevision;
-        this.builtDetailLevel = detailLevel;
-        this.builtZoom = zoom;
-        this.builtContextRevision = this.contextRevision;
         this.rebuildMs = Math.round(performance.now() - startedAt);
-        this.vertexCount = Math.floor(values.length / 9);
+        this.rebuildPhases = {blocks: builds, masks: maskUpdates};
+        const visibleBlocks = cells.map(cell => this.blocks.get(cell.key)).filter(Boolean);
+        this.vertexCount = visibleBlocks.reduce((sum, block) => sum + block.vertexCount, 0);
         this.triangleCount = Math.floor(this.vertexCount / 3);
-        this.renderedNeighbors = renderedNeighbors;
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(values), this.gl.STATIC_DRAW);
+        this.renderedNeighbors = visibleBlocks.reduce((sum, block) => sum + block.renderedNeighbors, 0);
         this.map?.triggerRepaint?.();
         const state = huayuLiveBasemapStates.get(this.map);
         if (state) updateHuayuLiveBasemapDiagnostics(state);
+        if (this.contextDirty && !this.contextTimer) {
+          this.contextTimer = window.setTimeout(() => {
+            this.contextTimer = null;
+            if (!this.contextDirty) return;
+            this.contextDirty = false;
+            this.contextRevision += 1;
+            if (this.enabled) this.scheduleRebuild();
+          }, 800);
+        }
       },
       onAdd(mapInstance, gl) {
         this.map = mapInstance;
         this.gl = gl;
+        this.addedAt = performance.now();
+        this.meshWorker = createHuayuTerrainMeshWorker();
         this.contextRevision = 0;
         this.onSourceContextChange = (event) => {
           if (event.sourceDataType !== "content") return;
@@ -20280,8 +21246,22 @@
               || [HUAYU_LIVE_BASEMAP_LAYERS.water, HUAYU_LIVE_BUILDING_LAYER,
                 HUAYU_PAVILION_LAYER, HUAYU_PAVILION_BASE_LAYER].includes(layer.id)));
           if (!affectsCoverage) return;
-          this.contextRevision += 1;
-          if (this.enabled) this.scheduleRebuild();
+          // Vector sources emit many partial content events. Rebuilding for
+          // every arriving tile repeatedly cancels the same expensive mesh.
+          if (event.isSourceLoaded === false) return;
+          // Preserve the first complete terrain build while vector tiles arrive.
+          // Once visible, coalesce the many source completion events into one
+          // water/building mask refresh instead of repeatedly cancelling geometry.
+          this.contextDirty = true;
+          if (!this.builtDataRevision) return;
+          window.clearTimeout(this.contextTimer);
+          this.contextTimer = window.setTimeout(() => {
+            this.contextTimer = null;
+            if (!this.contextDirty) return;
+            this.contextDirty = false;
+            this.contextRevision += 1;
+            if (this.enabled) this.scheduleRebuild();
+          }, 800);
         };
         mapInstance.on("sourcedata", this.onSourceContextChange);
         const webgl2 = typeof WebGL2RenderingContext !== "undefined"
@@ -20299,6 +21279,7 @@
           out float v_open_surface;
           out float v_elevation;
           out float v_contour_interval;
+          out float v_owner;
           out vec2 v_world_position;
           void main() {
             vec3 light = normalize(vec3(-0.42, -0.34, 0.84));
@@ -20306,7 +21287,8 @@
             v_open_surface = step(2.0, a_relief);
             v_relief = a_relief - v_open_surface * 2.0;
             v_elevation = a_elevation;
-            v_contour_interval = a_contour_interval;
+            v_owner = floor(abs(a_contour_interval) / 256.0);
+            v_contour_interval = sign(a_contour_interval) * mod(abs(a_contour_interval), 256.0);
             v_world_position = a_position.xy;
             gl_Position = u_matrix * vec4(a_position.xy, 0.0, 1.0);
           }` : `
@@ -20321,6 +21303,7 @@
           varying float v_open_surface;
           varying float v_elevation;
           varying float v_contour_interval;
+          varying float v_owner;
           varying vec2 v_world_position;
           void main() {
             vec3 light = normalize(vec3(-0.42, -0.34, 0.84));
@@ -20328,7 +21311,8 @@
             v_open_surface = step(2.0, a_relief);
             v_relief = a_relief - v_open_surface * 2.0;
             v_elevation = a_elevation;
-            v_contour_interval = a_contour_interval;
+            v_owner = floor(abs(a_contour_interval) / 256.0);
+            v_contour_interval = sign(a_contour_interval) * mod(abs(a_contour_interval), 256.0);
             v_world_position = a_position.xy;
             gl_Position = u_matrix * vec4(a_position.xy, 0.0, 1.0);
           }`;
@@ -20339,6 +21323,7 @@
           in float v_open_surface;
           in float v_elevation;
           in float v_contour_interval;
+          in float v_owner;
           in vec2 v_world_position;
           uniform vec3 u_low_color;
           uniform vec3 u_high_color;
@@ -20346,6 +21331,8 @@
           uniform float u_zoom;
           uniform sampler2D u_coverage_mask;
           uniform vec4 u_coverage_bounds;
+          uniform float u_coverage_resolution;
+          uniform vec4 u_draw_bounds;
           out vec4 outColor;
           float huayuSurfaceHash(vec2 point) {
             return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
@@ -20362,27 +21349,46 @@
             );
           }
           float huayuCanopyTexture(vec2 worldPosition) {
-            float broad = huayuSurfaceNoise(worldPosition * 95000.0);
-            float medium = huayuSurfaceNoise(worldPosition * 310000.0 + vec2(17.0, 43.0));
+            // Keep distant grain larger than a pixel; subpixel noise flickers
+            // while dragging and makes an overview look like coarse sandpaper.
+            float scaleLimit = exp2(u_zoom) * 256.0 * 0.22;
+            float broad = huayuSurfaceNoise(worldPosition * min(95000.0, scaleLimit));
+            float medium = huayuSurfaceNoise(worldPosition * min(310000.0, scaleLimit * 1.8)
+              + vec2(17.0, 43.0));
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
-            float detailScale = mix(310000.0, 1150000.0, detailMix);
+            float detailScale = min(mix(310000.0, 1150000.0, detailMix), scaleLimit * 2.5);
             float fine = huayuSurfaceNoise(worldPosition * detailScale + vec2(71.0, 19.0));
             return clamp(broad * 0.38 + medium * 0.32
               + mix(medium, fine, detailMix) * 0.3, 0.0, 1.0);
           }
           void main() {
+            if (v_world_position.x < u_draw_bounds.x || v_world_position.x > u_draw_bounds.z
+              || v_world_position.y < u_draw_bounds.y || v_world_position.y > u_draw_bounds.w) discard;
+            vec2 maskPosition = (v_world_position - u_coverage_bounds.xy) * u_coverage_bounds.zw;
+            if (maskPosition.x < 0.0 || maskPosition.y < 0.0 || maskPosition.x > 1.0 || maskPosition.y > 1.0) discard;
+            vec4 coverage = texture(u_coverage_mask, maskPosition);
+            vec2 ownerPosition = (floor(maskPosition * u_coverage_resolution) + 0.5) / u_coverage_resolution;
+            vec4 ownerCoverage = texture(u_coverage_mask, ownerPosition);
+            float owner = floor(ownerCoverage.g * 255.0 + 0.5) + floor(ownerCoverage.b * 255.0 + 0.5) * 256.0;
+            // Owner zero supports an older overview until its replacement arrives.
+            if (v_owner > 0.5 && abs(owner - v_owner) > 0.5) discard;
+            float surfaceAlpha = coverage.a;
+            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5 || surfaceAlpha < 0.005) discard;
             vec3 color = mix(u_low_color, u_high_color, smoothstep(0.08, 1.0, v_relief));
             color = mix(color, mix(vec3(${openLowColor.join(",")}), vec3(${openHighColor.join(",")}),
               smoothstep(0.08, 1.0, v_relief)), v_open_surface);
             float canopyTexture = huayuCanopyTexture(v_world_position);
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
+            float overviewDetail = smoothstep(5.5, 10.0, u_zoom);
             float canopyGrain = smoothstep(0.58, 0.82, huayuSurfaceNoise(
-              v_world_position * mix(310000.0, 1150000.0, detailMix) + vec2(113.0, 29.0)));
+              v_world_position * min(mix(310000.0, 1150000.0, detailMix),
+                exp2(u_zoom) * 256.0 * 0.55) + vec2(113.0, 29.0))) * overviewDetail;
             float textureAmount = smoothstep(0.015, 0.28, v_relief);
             float textureShade = mix(1.0,
               0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);
             textureShade = clamp(textureShade, 0.78, 1.02);
             textureShade = mix(textureShade, 0.97 + canopyTexture * 0.06, v_open_surface);
+            textureShade = mix(1.0, textureShade, mix(0.28, 1.0, overviewDetail));
             float regional = v_contour_interval < 0.0 ? 1.0 : 0.0;
             float interval = max(1.0, abs(v_contour_interval));
             float minorPhase = fract(max(0.0, v_elevation) / interval);
@@ -20391,20 +21397,22 @@
             float majorDistance = min(majorPhase, 1.0 - majorPhase);
             float pixelWidth = max(fwidth(v_elevation / interval), 0.00015);
             float majorPixelWidth = pixelWidth / 5.0;
-            float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, regional),
-              mix(0.065, pixelWidth * 1.1, regional), minorDistance);
-            float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, regional),
-              mix(0.052, majorPixelWidth * 1.1, regional), majorDistance);
-            float minorVisibility = mix(1.0, smoothstep(8.5, 11.0, u_zoom), regional);
-            float majorVisibility = mix(1.0, 1.0 - smoothstep(0.16, 0.4, majorPixelWidth), regional);
+            float screenSpace = max(regional, 1.0 - smoothstep(8.0, 11.0, u_zoom));
+            float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, screenSpace),
+              mix(0.065, pixelWidth * 1.1, screenSpace), minorDistance);
+            float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, screenSpace),
+              mix(0.052, majorPixelWidth * 1.1, screenSpace), majorDistance);
+            // At country scale contour spacing falls below a screen pixel.
+            // Show ridge shading there, then introduce readable contours gradually.
+            float minorVisibility = mix(smoothstep(7.5, 9.5, u_zoom),
+              smoothstep(8.5, 11.0, u_zoom), regional)
+              * (1.0 - smoothstep(0.16, 0.4, pixelWidth));
+            float majorVisibility = smoothstep(5.75, 8.0, u_zoom)
+              * (1.0 - smoothstep(0.16, 0.4, majorPixelWidth));
             float contour = max(minorLine * 0.36 * minorVisibility, majorLine * 0.72 * majorVisibility)
               * smoothstep(6.0, 24.0, v_elevation);
-            vec3 shaded = mix(color * v_light * textureShade, u_contour_color, contour);
-            vec2 maskPosition = (v_world_position - u_coverage_bounds.xy) * u_coverage_bounds.zw;
-            vec4 coverage = texture(u_coverage_mask, maskPosition);
-            float surfaceAlpha = coverage.a;
-            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5) discard;
-            if (surfaceAlpha < 0.005) discard;
+            float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));
+            vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);
             outColor = vec4(shaded, surfaceAlpha);
         }` : `
           ${derivatives ? "#extension GL_OES_standard_derivatives : enable" : ""}
@@ -20414,6 +21422,7 @@
           varying float v_open_surface;
           varying float v_elevation;
           varying float v_contour_interval;
+          varying float v_owner;
           varying vec2 v_world_position;
           uniform vec3 u_low_color;
           uniform vec3 u_high_color;
@@ -20421,6 +21430,8 @@
           uniform float u_zoom;
           uniform sampler2D u_coverage_mask;
           uniform vec4 u_coverage_bounds;
+          uniform float u_coverage_resolution;
+          uniform vec4 u_draw_bounds;
           float huayuSurfaceHash(vec2 point) {
             return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453123);
           }
@@ -20436,27 +21447,45 @@
             );
           }
           float huayuCanopyTexture(vec2 worldPosition) {
-            float broad = huayuSurfaceNoise(worldPosition * 95000.0);
-            float medium = huayuSurfaceNoise(worldPosition * 310000.0 + vec2(17.0, 43.0));
+            // Keep distant grain larger than a pixel; subpixel noise flickers
+            // while dragging and makes an overview look like coarse sandpaper.
+            float scaleLimit = exp2(u_zoom) * 256.0 * 0.22;
+            float broad = huayuSurfaceNoise(worldPosition * min(95000.0, scaleLimit));
+            float medium = huayuSurfaceNoise(worldPosition * min(310000.0, scaleLimit * 1.8)
+              + vec2(17.0, 43.0));
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
-            float detailScale = mix(310000.0, 1150000.0, detailMix);
+            float detailScale = min(mix(310000.0, 1150000.0, detailMix), scaleLimit * 2.5);
             float fine = huayuSurfaceNoise(worldPosition * detailScale + vec2(71.0, 19.0));
             return clamp(broad * 0.38 + medium * 0.32
               + mix(medium, fine, detailMix) * 0.3, 0.0, 1.0);
           }
           void main() {
+            if (v_world_position.x < u_draw_bounds.x || v_world_position.x > u_draw_bounds.z
+              || v_world_position.y < u_draw_bounds.y || v_world_position.y > u_draw_bounds.w) discard;
+            vec2 maskPosition = (v_world_position - u_coverage_bounds.xy) * u_coverage_bounds.zw;
+            if (maskPosition.x < 0.0 || maskPosition.y < 0.0 || maskPosition.x > 1.0 || maskPosition.y > 1.0) discard;
+            vec4 coverage = texture2D(u_coverage_mask, maskPosition);
+            vec2 ownerPosition = (floor(maskPosition * u_coverage_resolution) + 0.5) / u_coverage_resolution;
+            vec4 ownerCoverage = texture2D(u_coverage_mask, ownerPosition);
+            float owner = floor(ownerCoverage.g * 255.0 + 0.5) + floor(ownerCoverage.b * 255.0 + 0.5) * 256.0;
+            if (v_owner > 0.5 && abs(owner - v_owner) > 0.5) discard;
+            float surfaceAlpha = coverage.a;
+            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5 || surfaceAlpha < 0.005) discard;
             vec3 color = mix(u_low_color, u_high_color, smoothstep(0.08, 1.0, v_relief));
             color = mix(color, mix(vec3(${openLowColor.join(",")}), vec3(${openHighColor.join(",")}),
               smoothstep(0.08, 1.0, v_relief)), v_open_surface);
             float canopyTexture = huayuCanopyTexture(v_world_position);
             float detailMix = smoothstep(7.5, 13.5, u_zoom);
+            float overviewDetail = smoothstep(5.5, 10.0, u_zoom);
             float canopyGrain = smoothstep(0.58, 0.82, huayuSurfaceNoise(
-              v_world_position * mix(310000.0, 1150000.0, detailMix) + vec2(113.0, 29.0)));
+              v_world_position * min(mix(310000.0, 1150000.0, detailMix),
+                exp2(u_zoom) * 256.0 * 0.55) + vec2(113.0, 29.0))) * overviewDetail;
             float textureAmount = smoothstep(0.015, 0.28, v_relief);
             float textureShade = mix(1.0,
               0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);
             textureShade = clamp(textureShade, 0.78, 1.02);
             textureShade = mix(textureShade, 0.97 + canopyTexture * 0.06, v_open_surface);
+            textureShade = mix(1.0, textureShade, mix(0.28, 1.0, overviewDetail));
             float regional = v_contour_interval < 0.0 ? 1.0 : 0.0;
             float interval = max(1.0, abs(v_contour_interval));
             float minorPhase = fract(max(0.0, v_elevation) / interval);
@@ -20465,20 +21494,22 @@
             float majorDistance = min(majorPhase, 1.0 - majorPhase);
             float pixelWidth = ${derivatives ? "max(fwidth(v_elevation / interval), 0.00015)" : "0.02"};
             float majorPixelWidth = pixelWidth / 5.0;
-            float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, regional),
-              mix(0.065, pixelWidth * 1.1, regional), minorDistance);
-            float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, regional),
-              mix(0.052, majorPixelWidth * 1.1, regional), majorDistance);
-            float minorVisibility = mix(1.0, smoothstep(8.5, 11.0, u_zoom), regional);
-            float majorVisibility = mix(1.0, 1.0 - smoothstep(0.16, 0.4, majorPixelWidth), regional);
+            float screenSpace = max(regional, 1.0 - smoothstep(8.0, 11.0, u_zoom));
+            float minorLine = 1.0 - smoothstep(mix(0.018, pixelWidth * 0.35, screenSpace),
+              mix(0.065, pixelWidth * 1.1, screenSpace), minorDistance);
+            float majorLine = 1.0 - smoothstep(mix(0.012, majorPixelWidth * 0.5, screenSpace),
+              mix(0.052, majorPixelWidth * 1.1, screenSpace), majorDistance);
+            // At country scale contour spacing falls below a screen pixel.
+            // Show ridge shading there, then introduce readable contours gradually.
+            float minorVisibility = mix(smoothstep(7.5, 9.5, u_zoom),
+              smoothstep(8.5, 11.0, u_zoom), regional)
+              * (1.0 - smoothstep(0.16, 0.4, pixelWidth));
+            float majorVisibility = smoothstep(5.75, 8.0, u_zoom)
+              * (1.0 - smoothstep(0.16, 0.4, majorPixelWidth));
             float contour = max(minorLine * 0.36 * minorVisibility, majorLine * 0.72 * majorVisibility)
               * smoothstep(6.0, 24.0, v_elevation);
-            vec3 shaded = mix(color * v_light * textureShade, u_contour_color, contour);
-            vec2 maskPosition = (v_world_position - u_coverage_bounds.xy) * u_coverage_bounds.zw;
-            vec4 coverage = texture2D(u_coverage_mask, maskPosition);
-            float surfaceAlpha = coverage.a;
-            if (abs(coverage.r - (1.0 - v_open_surface)) > 0.5) discard;
-            if (surfaceAlpha < 0.005) discard;
+            float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));
+            vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);
             gl_FragColor = vec4(shaded, surfaceAlpha);
           }`;
         const vertexShader = huayuMountainSurfaceShader(gl, gl.VERTEX_SHADER, vertexSource);
@@ -20504,44 +21535,56 @@
         this.zoomLocation = gl.getUniformLocation(this.program, "u_zoom");
         this.coverageMaskLocation = gl.getUniformLocation(this.program, "u_coverage_mask");
         this.coverageBoundsLocation = gl.getUniformLocation(this.program, "u_coverage_bounds");
-        this.coverageTexture = gl.createTexture();
-        const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
-        gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.bindTexture(gl.TEXTURE_2D, previousTexture);
-        this.buffer = gl.createBuffer();
+        this.coverageResolutionLocation = gl.getUniformLocation(this.program, "u_coverage_resolution");
+        this.drawBoundsLocation = gl.getUniformLocation(this.program, "u_draw_bounds");
         this.onViewportChange = () => {
           if (this.enabled) this.scheduleRebuild();
         };
+        this.onInteractionEnd = () => {
+          this.interacting = false;
+          window.cancelAnimationFrame(this.interactionFrame);
+          const times = this.interactionFrameTimes || [];
+          if (times.length) {
+            times.sort((a, b) => a - b);
+            this.interactionFrameP95 = Math.round(times[Math.floor((times.length - 1) * 0.95)]);
+            this.interactionFrameMax = Math.round(times.at(-1));
+          }
+          if (this.enabled) this.scheduleRebuild();
+        };
+        // Leaflet moves MapLibre using jumpTo on every drag frame; MapLibre's
+        // own movestart/moveend pairs do not describe the actual gesture.
+        this.onInteractionStart = () => {
+          this.interacting = true; this.interactionFrameTimes = []; this.lastInteractionFrame = 0;
+          window.cancelAnimationFrame(this.interactionFrame);
+          const sample = now => {
+            if (!this.interacting) return;
+            if (this.lastInteractionFrame) this.interactionFrameTimes.push(now - this.lastInteractionFrame);
+            this.lastInteractionFrame = now;
+            this.interactionFrame = window.requestAnimationFrame(sample);
+          };
+          // MapLibre only renders changed frames. Time between its renders can
+          // include idle gaps between pointer events, so sample the UI clock.
+          this.interactionFrame = window.requestAnimationFrame(sample);
+        };
+        map.on("movestart", this.onInteractionStart);
+        map.on("moveend", this.onInteractionEnd);
         mapInstance.on("moveend", this.onViewportChange);
         if (this.enabled) this.rebuild();
       },
       render(gl, renderArgs) {
-        if (!this.enabled || !this.vertexCount || !this.program || !this.coverageBounds) return;
+        if (!this.enabled || !this.blocks.size || !this.program) return;
         const matrix = renderArgs?.defaultProjectionData?.mainMatrix
           || renderArgs?.projectionMatrix || renderArgs;
         if (!matrix || matrix.length !== 16) return;
+        const renderStartedAt = performance.now();
         const zoom = this.map?.getZoom?.() || HUAYU_TERRAIN_MIN_ZOOM;
         gl.useProgram(this.program);
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
         const stride = 9 * Float32Array.BYTES_PER_ELEMENT;
         gl.enableVertexAttribArray(this.positionLocation);
-        gl.vertexAttribPointer(this.positionLocation, 3, gl.FLOAT, false, stride, 0);
         gl.enableVertexAttribArray(this.normalLocation);
-        gl.vertexAttribPointer(this.normalLocation, 3, gl.FLOAT, false, stride,
-          3 * Float32Array.BYTES_PER_ELEMENT);
         gl.enableVertexAttribArray(this.reliefLocation);
-        gl.vertexAttribPointer(this.reliefLocation, 1, gl.FLOAT, false, stride,
-          6 * Float32Array.BYTES_PER_ELEMENT);
         gl.enableVertexAttribArray(this.elevationLocation);
-        gl.vertexAttribPointer(this.elevationLocation, 1, gl.FLOAT, false, stride,
-          7 * Float32Array.BYTES_PER_ELEMENT);
         gl.enableVertexAttribArray(this.contourIntervalLocation);
-        gl.vertexAttribPointer(this.contourIntervalLocation, 1, gl.FLOAT, false, stride,
-          8 * Float32Array.BYTES_PER_ELEMENT);
         gl.uniformMatrix4fv(this.matrixLocation, false, matrix);
         gl.uniform3fv(this.lowColorLocation, lowColor);
         gl.uniform3fv(this.highColorLocation, highColor);
@@ -20550,9 +21593,7 @@
         const previousActiveTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
         gl.activeTexture(gl.TEXTURE0);
         const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
-        gl.bindTexture(gl.TEXTURE_2D, this.coverageTexture);
         gl.uniform1i(this.coverageMaskLocation, 0);
-        gl.uniform4fv(this.coverageBoundsLocation, this.coverageBounds);
         const depthTestEnabled = gl.isEnabled(gl.DEPTH_TEST);
         const depthWriteEnabled = gl.getParameter(gl.DEPTH_WRITEMASK);
         const blendEnabled = gl.isEnabled(gl.BLEND);
@@ -20563,7 +21604,45 @@
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.disable(gl.CULL_FACE);
-        gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
+        const bounds = huayuAdministrativeQueryBounds(this.map);
+        const draw = (block, clip) => {
+          if (!block.vertexCount || !block.coverageBounds) return;
+          const northwest = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.west, lat: clip.north}, 0);
+          const southeast = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.east, lat: clip.south}, 0);
+          gl.uniform4fv(this.drawBoundsLocation, [northwest.x, northwest.y, southeast.x, southeast.y]);
+          gl.bindBuffer(gl.ARRAY_BUFFER, block.buffer);
+          gl.vertexAttribPointer(this.positionLocation, 3, gl.FLOAT, false, stride, 0);
+          gl.vertexAttribPointer(this.normalLocation, 3, gl.FLOAT, false, stride, 3 * Float32Array.BYTES_PER_ELEMENT);
+          gl.vertexAttribPointer(this.reliefLocation, 1, gl.FLOAT, false, stride, 6 * Float32Array.BYTES_PER_ELEMENT);
+          gl.vertexAttribPointer(this.elevationLocation, 1, gl.FLOAT, false, stride, 7 * Float32Array.BYTES_PER_ELEMENT);
+          gl.vertexAttribPointer(this.contourIntervalLocation, 1, gl.FLOAT, false, stride, 8 * Float32Array.BYTES_PER_ELEMENT);
+          gl.bindTexture(gl.TEXTURE_2D, block.texture);
+          gl.uniform4fv(this.coverageBoundsLocation, block.coverageBounds);
+          gl.uniform1f(this.coverageResolutionLocation, block.coverageResolution || 512);
+          gl.drawArrays(gl.TRIANGLES, 0, block.vertexCount);
+        };
+        for (const cell of huayuWoodlandMaterialCells(bounds, zoom)) {
+          if (!huayuWoodlandMaterialBoundsIntersect(cell.bounds, bounds)) continue;
+          if (zoom < 7) {
+            const prepared = [...this.blocks.values()].filter(candidate => candidate.publishedUrl
+              && huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds));
+            if (prepared.length) {
+              prepared.forEach(candidate => draw(candidate, cell.bounds));
+              continue;
+            }
+          }
+          const block = this.blocks.get(cell.key);
+          if (block) { draw(block, cell.bounds); continue; }
+          // A cached coarser/finer level remains visible while the missing
+          // cells build. Clip it to this cell so levels never stack or darken.
+          const fallbacks = [...this.blocks.values()].filter(candidate =>
+            huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds))
+            .sort((a, b) => Math.abs(Math.log(a.span / cell.span)) - Math.abs(Math.log(b.span / cell.span))
+              || b.usedAt - a.usedAt);
+          const fallback = fallbacks[0];
+          if (fallback) fallbacks.filter(candidate => candidate.span === fallback.span
+            && candidate.level === fallback.level).forEach(candidate => draw(candidate, cell.bounds));
+        }
         gl.bindTexture(gl.TEXTURE_2D, previousTexture);
         gl.activeTexture(previousActiveTexture);
         gl.depthMask(depthWriteEnabled);
@@ -20573,14 +21652,25 @@
         else gl.disable(gl.BLEND);
         if (cullEnabled) gl.enable(gl.CULL_FACE);
         else gl.disable(gl.CULL_FACE);
+        this.renderCpuMs = Math.round((performance.now() - renderStartedAt) * 10) / 10;
       },
       onRemove(mapInstance, gl) {
+        window.cancelAnimationFrame(this.interactionFrame);
+        if (this.onInteractionStart) map.off("movestart", this.onInteractionStart);
+        if (this.onInteractionEnd) map.off("moveend", this.onInteractionEnd);
         if (this.onViewportChange) mapInstance.off("moveend", this.onViewportChange);
         if (this.onSourceContextChange) mapInstance.off("sourcedata", this.onSourceContextChange);
         window.clearTimeout(this.rebuildTimer);
+        window.clearTimeout(this.contextTimer);
         this.rebuildRevision = (this.rebuildRevision || 0) + 1;
-        if (this.buffer) gl.deleteBuffer(this.buffer);
-        if (this.coverageTexture) gl.deleteTexture(this.coverageTexture);
+        this.meshWorker?.close(); this.meshWorker = null;
+        for (const block of this.blocks.values()) {
+          gl.deleteBuffer(block.buffer);
+          gl.deleteTexture(block.texture);
+        }
+        this.blocks.clear();
+        this.retainedOcclusions.clear();
+        this.waterContexts.clear();
         if (this.program) gl.deleteProgram(this.program);
         this.map = null;
         this.gl = null;
@@ -20809,7 +21899,7 @@
       id: HUAYU_LIVE_BASEMAP_LAYERS.waterway,
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
-      minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
+      minzoom: HUAYU_TERRAIN_MIN_ZOOM,
       filter: ["all", ["==", ["get", "renderKind"], "waterway"], ["==", ["get", "tunnel"], 0]],
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
@@ -20823,7 +21913,7 @@
       id: HUAYU_LIVE_BASEMAP_LAYERS.water,
       type: "fill",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
-      minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
+      minzoom: HUAYU_TERRAIN_MIN_ZOOM,
       filter: ["==", ["get", "renderKind"], "water"],
       paint: { "fill-color": palette.liveWater, "fill-opacity": 1 },
     }, waterBeforeId);
@@ -21251,19 +22341,34 @@
     mapElement.dataset.huayuTerrainNeighbors = String((state.terrainData?.features || [])
       .filter(feature => feature.properties?.reliefNeighbor === 1).length);
     mapElement.dataset.huayuTerrainRenderedNeighbors = String(terrainMaterialLayer?.renderedNeighbors || 0);
+    mapElement.dataset.huayuTerrainRenderCpuMs = String(terrainMaterialLayer?.renderCpuMs || 0);
+    mapElement.dataset.huayuTerrainPublishedBlocks = String(terrainMaterialLayer?.publishedBlocks || 0);
     mapElement.dataset.huayuTerrainTiles = `${terrainKeys.filter((key) => state.terrainTileCache.has(key)).length}/${terrainKeys.length}`;
     mapElement.dataset.huayuTerrainPending = String(terrainKeys.filter((key) => state.terrainPendingTiles.has(key)).length);
     mapElement.dataset.huayuTerrainQueued = String(state.terrainQueue.length);
     mapElement.dataset.huayuTerrainStoredTiles = String(terrainKeys.filter((key) =>
       state.terrainTileCache.get(key)?.source === "browser-cache").length);
     mapElement.dataset.huayuTerrainPreload = huayuTerrainPreload?.source
+      || (terrainMaterialLayer?.publishedBlocks > 0 ? "published-material" : "")
       || (huayuTerrainPreloadAttempted ? "unavailable" : "loading");
     mapElement.dataset.huayuTerrainPreloadGeneratedAt = huayuTerrainPreload
-      ? new Date(huayuTerrainPreload.loadedAt).toISOString() : "";
+      ? new Date(huayuTerrainPreload.loadedAt).toISOString() : huayuTerrainPreloadManifest?.generatedAt || "";
     mapElement.dataset.huayuTerrainPreloadLoadMs = String(state.terrainPreloadLoadMs || 0);
     mapElement.dataset.huayuTerrainStorage = huayuTerrainStorageStatus;
     mapElement.dataset.huayuTerrainLastLoadMs = String(state.terrainLastLoadMs || 0);
     mapElement.dataset.huayuTerrainRebuildMs = String(terrainMaterialLayer?.rebuildMs || 0);
+    mapElement.dataset.huayuTerrainCachedBlocks = String(terrainMaterialLayer?.blocks?.size || 0);
+    mapElement.dataset.huayuTerrainMeshBuilds = String(terrainMaterialLayer?.meshBuilds || 0);
+    mapElement.dataset.huayuTerrainMeshWorker = terrainMaterialLayer?.meshWorker ? "ready"
+      : terrainMaterialLayer?.workerError || "fallback";
+    mapElement.dataset.huayuTerrainDiskMeshHits = String(terrainMaterialLayer?.diskMeshHits || 0);
+    mapElement.dataset.huayuTerrainFirstMaterialMs = String(terrainMaterialLayer?.firstMaterialMs || 0);
+    mapElement.dataset.huayuTerrainFrameP95 = String(terrainMaterialLayer?.interactionFrameP95 || 0);
+    mapElement.dataset.huayuTerrainFrameMax = String(terrainMaterialLayer?.interactionFrameMax || 0);
+    mapElement.dataset.huayuTerrainCacheHits = String(terrainMaterialLayer?.cacheHits || 0);
+    mapElement.dataset.huayuTerrainDownloadedChunks = String(huayuTerrainPreloadChunks.size);
+    mapElement.dataset.huayuTerrainRebuildPhases = terrainMaterialLayer?.rebuildPhases
+      ? Object.entries(terrainMaterialLayer.rebuildPhases).map(([key, value]) => `${key}:${value}`).join(",") : "";
     mapElement.dataset.huayuTerrainOverviewLayer = String(terrainOverviewLayerIndex >= 0);
     mapElement.dataset.huayuTerrainOverviewLayerOrder = `${terrainOverviewLayerIndex}/${buildingLayerIndex}/${roadLayerIndex}`;
     mapElement.dataset.huayuTerrainLayer = String(Boolean(terrainMaterialLayer));
@@ -21347,6 +22452,18 @@
     syncHuayuSportsSnapshotLayers(glMap, state);
   }
 
+  function huayuTerrainSelectionBounds(bounds) {
+    if (!bounds) return null;
+    const longitudePadding = Math.max(0.12, (bounds.east - bounds.west) * 0.35);
+    const latitudePadding = Math.max(0.12, (bounds.north - bounds.south) * 0.35);
+    return {
+      west: Math.max(-180, bounds.west - longitudePadding),
+      east: Math.min(180, bounds.east + longitudePadding),
+      south: Math.max(-85, bounds.south - latitudePadding),
+      north: Math.min(85, bounds.north + latitudePadding),
+    };
+  }
+
   function rebuildHuayuTerrainData(state) {
     const features = [];
     const seen = new Set();
@@ -21357,7 +22474,18 @@
     ].flatMap(([sourceKind, cache]) => [...cache.entries()].map(([key, entry]) => ({sourceKind, key, entry})));
     const preload = huayuTerrainPreload;
     if (preload) entries.push({sourceKind: "published-snapshot", key: "preload", entry: preload});
+    if (state.publishedTerrainContext?.size) entries.push({sourceKind:"published-context",key:"context",entry:{
+      data:{features:[...state.publishedTerrainContext.values()]},revision:state.publishedTerrainContextRevision,
+      loadedAt:state.publishedTerrainContextAt,
+    }});
     const bounds = huayuAdministrativeQueryBounds(state.glMap);
+    if (bounds && !huayuAdministrativeBoundsContain(state.terrainSelectionBounds, bounds)) {
+      state.terrainSelectionBounds = huayuTerrainSelectionBounds(bounds);
+    }
+    const inputSignature = entries.map(({sourceKind, key, entry}) =>
+      `${sourceKind}:${key}@${entry.revision || 0}`).sort().join("|");
+    if (inputSignature === state.terrainInputSignature) return;
+    state.terrainInputSignature = inputSignature;
     entries.sort((first, second) => (second.entry.loadedAt || 0) - (first.entry.loadedAt || 0))
       .forEach(({sourceKind, key, entry}) => {
         let contributes = false;
@@ -21366,13 +22494,6 @@
           && preload.loadedAt > (entry.loadedAt || 0) && [z, x, y].every(Number.isFinite)
           && huayuTerrainPreloadCovers(huayuLiveBuildingTileBounds({z, x, y}), {allowStale: true});
         (entry.data?.features || []).forEach((feature) => {
-          if (sourceKind === "published-snapshot" && bounds) {
-            if (feature.geometry?.type === "Point") {
-              const [longitude, latitude] = feature.geometry.coordinates;
-              if (longitude < bounds.west || longitude > bounds.east
-                || latitude < bounds.south || latitude > bounds.north) return;
-            } else if (!huayuMountainSurfaceFeatureIntersectsViewport(feature, bounds)) return;
-          }
           const properties = feature.properties || {};
           if (newerSnapshotOwnsTile && (properties.reliefRole === "surface"
             || (properties.renderKind === "important-label"
@@ -21380,6 +22501,7 @@
           const terrainFeature = (properties.renderKind === "important-label"
             && ["mountain", "peak"].includes(properties.featureClass))
             || properties.reliefRole === "surface"
+            || properties.terrainContext === 1
             || ["water", "waterway"].includes(properties.renderKind);
           if (!terrainFeature) return;
           const featureKey = String(feature.id
@@ -21391,7 +22513,7 @@
         });
         if (contributes) terrainEntries.push(`${sourceKind}:${key}@${entry.revision || 0}`);
     });
-    const signature = terrainEntries.sort().join("|") + (preload ? `|view:${JSON.stringify(bounds)}` : "");
+    const signature = terrainEntries.sort().join("|");
     if (signature === state.terrainSignature) return;
     state.terrainData = { type: "FeatureCollection", features };
     state.terrainSignature = signature;
@@ -21408,11 +22530,56 @@
   }
 
   function huayuTerrainPreloadCovers(bounds, options = {}) {
-    if (!bounds || bounds.east < bounds.west || !huayuTerrainPreload
-      || (!options.allowStale && huayuTerrainPreload.refreshAt <= Date.now())) return false;
-    return (huayuTerrainPreload.data.coverage || []).some((region) => region.complete
+    if (!bounds || bounds.east < bounds.west) return false;
+    const preload = huayuTerrainPreloadManifest || huayuTerrainPreload?.data;
+    if (!preload || (!huayuTerrainPreloadManifest && !options.allowStale
+      && huayuTerrainPreload.refreshAt <= Date.now())) return false;
+    const snapshotBounds = !huayuTerrainPreloadManifest && preload.snapshotBounds;
+    if (snapshotBounds && !(bounds.south >= snapshotBounds[0][0] && bounds.west >= snapshotBounds[0][1]
+      && bounds.north <= snapshotBounds[1][0] && bounds.east <= snapshotBounds[1][1])) return false;
+    // A saved union of chunks may contain gaps. Never claim that its enclosing
+    // rectangle is complete when the required chunk was not downloaded.
+    if (!huayuTerrainPreloadManifest && preload.snapshotRegions) {
+      const regions = preload.snapshotRegions;
+      const latitudes = [...new Set([bounds.south, bounds.north, ...regions.flatMap((region) =>
+        [region[0][0], region[1][0]].filter((latitude) => latitude > bounds.south && latitude < bounds.north))])]
+        .sort((first, second) => first - second);
+      for (let index = 1; index < latitudes.length; index += 1) {
+        const latitude = (latitudes[index - 1] + latitudes[index]) / 2;
+        let coveredEast = bounds.west;
+        const strips = regions.filter((region) => region[0][0] <= latitude && region[1][0] >= latitude)
+          .sort((first, second) => first[0][1] - second[0][1]);
+        for (const region of strips) {
+          if (region[0][1] > coveredEast) break;
+          coveredEast = Math.max(coveredEast, region[1][1]);
+        }
+        if (coveredEast < bounds.east) return false;
+      }
+    }
+    return (preload.coverage || []).some((region) => region.complete
       && bounds.south >= region.bounds[0][0] && bounds.west >= region.bounds[0][1]
       && bounds.north <= region.bounds[1][0] && bounds.east <= region.bounds[1][1]);
+  }
+
+  function validateHuayuTerrainPreloadManifest(payload) {
+    return payload?.format === 1 && payload.schema === "open-small-mountains-v1"
+      && Number.isFinite(Date.parse(payload.generatedAt))
+      && Array.isArray(payload.coverage) && payload.coverage.length > 0
+      && payload.coverage.every((region) => region.complete && Array.isArray(region.bounds)
+        && region.bounds.length === 2 && region.bounds.every((corner) => Array.isArray(corner)
+          && corner.length === 2 && corner.every(Number.isFinite)))
+      && Array.isArray(payload.chunks) && payload.chunks.length > 0
+      && payload.chunks.every((chunk) => chunk.id && String(chunk.url || "").endsWith(".json.gz")
+        && Array.isArray(chunk.bounds) && chunk.bounds.length === 2
+        && chunk.bounds.every((corner) => Array.isArray(corner)
+          && corner.length === 2 && corner.every(Number.isFinite)));
+  }
+
+  function huayuTerrainPreloadManifestChunks(bounds) {
+    if (!huayuTerrainPreloadManifest || !bounds) return [];
+    return huayuTerrainPreloadManifest.chunks.filter((chunk) =>
+      chunk.bounds[1][1] > bounds.west && chunk.bounds[0][1] < bounds.east
+      && chunk.bounds[1][0] > bounds.south && chunk.bounds[0][0] < bounds.north);
   }
 
   function validateHuayuTerrainPreload(payload) {
@@ -21432,14 +22599,133 @@
           ? ["Polygon", "MultiPolygon"].includes(feature.geometry.type)
             && Number.isFinite(feature.properties.reliefHeight) && feature.properties.reliefHeight > 0
             && Number.isFinite(feature.properties.reliefArea) && feature.properties.reliefArea > 0
-          : feature.properties?.renderKind === "important-label" && feature.geometry.type === "Point"
-            && ["mountain", "peak"].includes(feature.properties.featureClass)));
+          : (feature.properties?.renderKind === "important-label" && feature.geometry.type === "Point"
+            && ["mountain", "peak"].includes(feature.properties.featureClass))
+            || (feature.properties?.terrainContext === 1
+              && ["water", "building", "garden"].includes(feature.properties.materialOcclusion)
+              && ["water", "waterway", "terrain-context"].includes(feature.properties.renderKind)
+              && ["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry.type))));
+  }
+
+  function validateHuayuTerrainPreloadChunk(payload, manifest, chunk) {
+    return payload?.format === 1 && payload.schema === manifest.schema
+      && payload.generatedAt === manifest.generatedAt
+      && payload.classification === manifest.classification
+      && payload.chunkId === chunk.id && Array.isArray(payload.features)
+      && payload.features.length > 0;
+  }
+
+  async function fetchHuayuTerrainPreloadChunk(chunk) {
+    if (typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined") {
+      huayuTerrainSnapshotWorker ||= createHuayuTerrainMeshWorker();
+      if (huayuTerrainSnapshotWorker) {
+        try { return await huayuTerrainSnapshotWorker.load(new URL(chunk.url, window.location.href).href); }
+        catch { huayuTerrainSnapshotWorker.close(); huayuTerrainSnapshotWorker = null; }
+      }
+    }
+    return fetchJson(chunk.url, 30000, {cache: "force-cache"});
+  }
+
+  async function loadHuayuTerrainPreloadChunks(state, apply, prefetch = false) {
+    const currentBounds = huayuAdministrativeQueryBounds(state.glMap);
+    if (!currentBounds || !huayuTerrainPreloadManifest) return false;
+    const manifest = huayuTerrainPreloadManifest;
+    await huayuWoodlandMaterialLayers.get(state.glMap)?.loadPublishedSnapshot?.(manifest);
+    // Overview-only visits need finished material, not the full raw country
+    // geometry. Close views will fetch their spatial chunks when zoomed in.
+    if (state.glMap.getZoom() < HUAYU_TERRAIN_MIN_ZOOM && manifest.renderBlocks?.length) return true;
+    const selectionBounds = huayuAdministrativeBoundsContain(state.terrainSelectionBounds, currentBounds)
+      ? state.terrainSelectionBounds : huayuTerrainSelectionBounds(currentBounds);
+    state.terrainSelectionBounds = selectionBounds;
+    const chunks = huayuTerrainPreloadManifestChunks(prefetch ? selectionBounds : currentBounds);
+    if (!chunks.length) return false;
+    let cursor = 0;
+    let failed = false;
+    await Promise.all(Array.from({length: Math.min(4, chunks.length)}, async () => {
+      while (!failed && cursor < chunks.length) {
+        const chunk = chunks[cursor++];
+          const cacheKey = `${manifest.generatedAt}:${chunk.url}`;
+          const requestKey = `${manifest.classification}:${cacheKey}`;
+        if (huayuTerrainPreloadChunks.has(cacheKey)) continue;
+        try {
+          if (!huayuTerrainPreloadChunkRequests.has(requestKey)) {
+            const request = fetchHuayuTerrainPreloadChunk(chunk).then((payload) => {
+              if (!validateHuayuTerrainPreloadChunk(payload, manifest, chunk)) {
+                throw new Error("INVALID_TERRAIN_PRELOAD_CHUNK");
+              }
+              if (huayuTerrainPreloadManifest === manifest) huayuTerrainPreloadChunks.set(cacheKey, payload);
+              return payload;
+            }).finally(() => huayuTerrainPreloadChunkRequests.delete(requestKey));
+            huayuTerrainPreloadChunkRequests.set(requestKey, request);
+          }
+          await huayuTerrainPreloadChunkRequests.get(requestKey);
+        } catch {
+          failed = true;
+        }
+      }
+    }));
+    if (failed || huayuTerrainPreloadManifest !== manifest
+      || chunks.some(chunk => !huayuTerrainPreloadChunks.has(`${manifest.generatedAt}:${chunk.url}`))) return false;
+    const downloadedChunks = manifest.chunks.filter((chunk) =>
+      huayuTerrainPreloadChunks.has(`${manifest.generatedAt}:${chunk.url}`));
+    if (!prefetch && huayuTerrainPreloadManifestChunks(selectionBounds).some(chunk =>
+      !huayuTerrainPreloadChunks.has(`${manifest.generatedAt}:${chunk.url}`))) {
+      window.clearTimeout(state.terrainPrefetchTimer);
+      const prefetchNearby = () => {
+        if (!state.active || !terrainOverlayEnabled) return;
+        const material = huayuWoodlandMaterialLayers.get(state.glMap);
+        if (material?.interacting || material?.rebuildPromise || material?.rebuildTimer
+          || state.glMap.isMoving?.()) {
+          state.terrainPrefetchTimer = window.setTimeout(prefetchNearby, 1000);
+          return;
+        }
+        void loadHuayuTerrainPreloadChunks(state, apply, true);
+      };
+      state.terrainPrefetchTimer = window.setTimeout(prefetchNearby, 1500);
+    }
+    const selectionKey = `${manifest.generatedAt}:${downloadedChunks.map((chunk) => chunk.url).join("|")}`;
+    if (huayuTerrainPreload?.selectionKey === selectionKey) return true;
+    const features = [];
+    const seen = new Set();
+    downloadedChunks.forEach((chunk) => {
+      const payload = huayuTerrainPreloadChunks.get(`${manifest.generatedAt}:${chunk.url}`);
+      (payload?.features || []).forEach((feature) => {
+        const key = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
+        if (seen.has(key)) return;
+        seen.add(key);
+        features.push(feature);
+      });
+    });
+    const loadedAt = Date.parse(manifest.generatedAt);
+    const sameGeneration = huayuTerrainPreload?.data.generatedAt === manifest.generatedAt
+      && huayuTerrainPreload.data.classification === manifest.classification;
+    // Retain restored/downloaded regions of the same generation. A completely
+    // downloaded replacement region is required before dropping old-generation data.
+    if (sameGeneration) (huayuTerrainPreload.data.features || []).forEach((feature) => {
+      if (!seen.has(String(feature.id))) { seen.add(String(feature.id)); features.push(feature); }
+    });
+    const data = {type: "FeatureCollection", format: 1, schema: manifest.schema,
+      generatedAt: manifest.generatedAt,
+      classification: manifest.classification,
+      coverage: manifest.coverage,
+      snapshotRegions: [...new Map([...downloadedChunks.map((chunk) => chunk.bounds),
+        ...(sameGeneration ? huayuTerrainPreload.data.snapshotRegions || [] : [])]
+        .map(region => [JSON.stringify(region), region])).values()],
+      features};
+    huayuTerrainPreload = {data, loadedAt, cachedAt: Date.now(),
+      refreshAt: loadedAt + HUAYU_TERRAIN_CACHE_MS, source: "published-chunks",
+      selectionKey, revision: ++huayuTerrainTileRevision};
+    // Chunks have immutable content URLs and are retained in the HTTP cache.
+    // Do not clone and write the whole growing country snapshot after each pan.
+    apply();
+    return true;
   }
 
   async function loadHuayuTerrainPreload(state) {
     if (!state?.active || !terrainOverlayEnabled) return;
     const apply = () => {
       if (!state.active || !terrainOverlayEnabled) return;
+      if (state.interacting) return;
       rebuildHuayuTerrainData(state);
       mergeHuayuLiveBasemapTiles(state);
       scheduleHuayuLiveBasemap(state.glMap, 0);
@@ -21452,39 +22738,92 @@
       }, HUAYU_TERRAIN_PRELOAD_RECHECK_MS);
     };
     if (huayuTerrainPreloadPromise) {
+      const restoreAfterPending = !huayuTerrainPreloadAttempted && !huayuTerrainPreload;
       await huayuTerrainPreloadPromise;
-      apply();
+      if (restoreAfterPending && !huayuTerrainPreload) {
+        const stored = await loadHuayuTerrainStoredTile("published-preload");
+        if (stored && validateHuayuTerrainPreload(stored.data)) {
+          huayuTerrainPreload = {...stored, source: "published-browser-snapshot",
+            revision: ++huayuTerrainTileRevision};
+        }
+      }
+      if (huayuTerrainPreloadManifest) await loadHuayuTerrainPreloadChunks(state, apply);
+      else apply();
       schedule();
       return;
     }
     if (Date.now() - huayuTerrainPreloadLastCheckedAt < HUAYU_TERRAIN_PRELOAD_RECHECK_MS) {
+      if (huayuTerrainPreloadManifest) await loadHuayuTerrainPreloadChunks(state, apply);
       schedule();
       return;
     }
     huayuTerrainPreloadPromise = (async () => {
       const startedAt = Date.now();
-      if (!huayuTerrainPreloadAttempted) {
+      const shouldRestoreStored = !huayuTerrainPreloadAttempted;
+      const manifestPromise = fetchJson("./terrain-preload-manifest.json", 15000, {cache: "no-cache"});
+      if (shouldRestoreStored) {
+        try {
+          const cached = JSON.parse(window.localStorage.getItem("ogf-atlas-terrain-manifest-v1"));
+          if (validateHuayuTerrainPreloadManifest(cached)) huayuTerrainPreloadManifest = cached;
+        } catch { /* Browser storage is optional. */ }
+        if (huayuTerrainPreloadManifest) await loadHuayuTerrainPreloadChunks(state, apply);
+      }
+      let manifest;
+      try { manifest = await manifestPromise; } catch { manifest = null; }
+      if (validateHuayuTerrainPreloadManifest(manifest)) {
+        try { window.localStorage.setItem("ogf-atlas-terrain-manifest-v1", JSON.stringify(manifest)); } catch {}
+        if (!huayuTerrainPreloadManifest || manifest.generatedAt !== huayuTerrainPreloadManifest.generatedAt
+          || manifest.classification !== huayuTerrainPreloadManifest.classification
+          || manifest.chunks.map(chunk => chunk.url).join("|")
+            !== huayuTerrainPreloadManifest.chunks.map(chunk => chunk.url).join("|")
+          || (manifest.renderBlocks || []).map(block => block.url).join("|")
+            !== (huayuTerrainPreloadManifest.renderBlocks || []).map(block => block.url).join("|")) {
+          huayuTerrainPreloadManifest = manifest;
+          huayuTerrainPreloadChunks.clear();
+        }
+        if (await loadHuayuTerrainPreloadChunks(state, apply)) {
+          state.terrainPreloadLoadMs = Date.now() - startedAt;
+          return;
+        }
+      }
+      if (!manifest && huayuTerrainPreloadManifest
+        && await loadHuayuTerrainPreloadChunks(state, apply)) return;
+      if (shouldRestoreStored) {
         const stored = await loadHuayuTerrainStoredTile("published-preload");
         if (stored && validateHuayuTerrainPreload(stored.data)) {
-          huayuTerrainPreload = {...stored, source: "published-browser-snapshot",
-            revision: ++huayuTerrainTileRevision};
+          huayuTerrainPreload = {...stored, source: "published-browser-snapshot", revision: ++huayuTerrainTileRevision};
           apply();
         }
       }
-      const payload = await fetchJson("./terrain-preload.json.gz", 45000, {cache: "no-cache"});
+      // Compatibility fallback for an older deployment or a failed chunk.
+      let payload = await fetchJson("./terrain-preload.json.gz", 45000, {cache: "no-cache"});
       if (!validateHuayuTerrainPreload(payload)) throw new Error("INVALID_TERRAIN_PRELOAD");
+      if (payload.contextSnapshot) {
+        if (!/^\.\/terrain-preload-chunks\/context-[a-f0-9]{16}\.json\.gz$/u.test(payload.contextSnapshot.url)) {
+          throw new Error("INVALID_TERRAIN_CONTEXT_URL");
+        }
+        const context=await fetchJson(payload.contextSnapshot.url,45000,{cache:"force-cache"});
+        if (context.generatedAt!==payload.generatedAt || context.classification!==payload.classification
+          || !validateHuayuTerrainPreload({...context,coverage:payload.coverage})
+          || context.features.length!==payload.contextSnapshot.features
+          || !context.features.every(feature=>feature.properties?.terrainContext===1)) {
+          throw new Error("INVALID_TERRAIN_CONTEXT_SNAPSHOT");
+        }
+        payload={...payload,features:[...payload.features,...context.features]};
+      }
       state.terrainPreloadLoadMs = Date.now() - startedAt;
       const loadedAt = Date.parse(payload.generatedAt);
       if (!huayuTerrainPreload || loadedAt > huayuTerrainPreload.loadedAt
         || (loadedAt === huayuTerrainPreload.loadedAt
-          && payload.classification !== huayuTerrainPreload.data.classification)) {
+          && (payload.classification !== huayuTerrainPreload.data.classification
+            || huayuTerrainPreload.data.snapshotRegions || huayuTerrainPreload.data.snapshotBounds))) {
         huayuTerrainPreload = {data: {...payload, type: "FeatureCollection"}, loadedAt,
           cachedAt: Date.now(), refreshAt: loadedAt + HUAYU_TERRAIN_CACHE_MS,
           source: "published-snapshot", revision: ++huayuTerrainTileRevision};
         void storeHuayuTerrainTile("published-preload", huayuTerrainPreload);
         apply();
       }
-    })().catch(() => { /* Retain the last snapshot; live tiles remain available. */ })
+    })().catch(() => { /* Retain the last complete snapshot. */ })
       .finally(() => {
         huayuTerrainPreloadAttempted = true;
         huayuTerrainPreloadLastCheckedAt = Date.now();
@@ -21552,6 +22891,7 @@
   }
 
   function applyHuayuLiveBasemap(glMap, state) {
+    if (state.interacting) return;
     if (!ensureHuayuLiveBasemapLayers(glMap)) {
       if (state?.active) {
         window.clearTimeout(state.applyTimer);
@@ -21562,11 +22902,15 @@
     window.clearTimeout(state.applyTimer);
     state.applyTimer = null;
     if (state.appliedRevision !== state.renderRevision) {
-      glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)?.setData(state.data
-        || { type: "FeatureCollection", features: [] });
+      const data = state.data || {type: "FeatureCollection", features: []};
+      // The custom material already owns these polygons. Sending them through
+      // GeoJSON as well makes MapLibre index/tessellate the entire country twice.
+      glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)?.setData({type: "FeatureCollection",
+        features: data.features.filter(feature => feature.properties?.reliefRole !== "surface"
+          && feature.properties?.renderKind !== "terrain-context")});
+      huayuWoodlandMaterialLayers.get(glMap)?.setData(data.features);
       state.appliedRevision = state.renderRevision;
     }
-    huayuWoodlandMaterialLayers.get(glMap)?.setData(state.data?.features || []);
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
     updateHuayuLiveBasemapDiagnostics(state);
@@ -21620,13 +22964,15 @@
     return `[out:json][timeout:30];(`
       + `way["natural"="wood"](${bbox});`
       + `way["landuse"="forest"](${bbox});`
-      + `way["natural"~"^(grassland|scrub|heath|fell|bare_rock|scree)$"]${namedRelief}(${bbox});`
+      + `way["natural"~"^(scrub|heath|fell|bare_rock|scree)$"](${bbox});`
+      + `way["natural"="grassland"]${namedRelief}(${bbox});`
       + `way["landuse"~"^(grass|meadow)$"]${namedRelief}(${bbox});`
       + `way["leisure"="garden"]${namedRelief}(${bbox});`
       + `)->.terrainWays;(`
       + `rel["type"="multipolygon"]["natural"="wood"](${bbox});`
       + `rel["type"="multipolygon"]["landuse"="forest"](${bbox});`
-      + `rel["type"="multipolygon"]["natural"~"^(grassland|scrub|heath|fell|bare_rock|scree)$"]${namedRelief}(${bbox});`
+      + `rel["type"="multipolygon"]["natural"~"^(scrub|heath|fell|bare_rock|scree)$"](${bbox});`
+      + `rel["type"="multipolygon"]["natural"="grassland"]${namedRelief}(${bbox});`
       + `rel["type"="multipolygon"]["landuse"~"^(grass|meadow)$"]${namedRelief}(${bbox});`
       + `rel["type"="multipolygon"]["leisure"="garden"]${namedRelief}(${bbox});`
       + `)->.terrainRelations;`
@@ -21645,7 +22991,11 @@
         window.clearTimeout(timer);
         resolve(database);
       };
-      const timer = window.setTimeout(() => finish(null, "timed-out"), 250);
+      // IndexedDB startup can exceed one frame on a cold browser profile.
+      // A 250 ms deadline permanently disabled the published snapshot cache
+      // before the database had a chance to open, forcing every visit to start
+      // from the network again.
+      const timer = window.setTimeout(() => finish(null, "timed-out"), 3000);
       try {
         const request = window.indexedDB.open("ogf-atlas-terrain-v3", 1);
         request.onupgradeneeded = () => {
@@ -21683,7 +23033,7 @@
             || Date.now() - entry.cachedAt >= HUAYU_TERRAIN_RETENTION_MS) { finish(null); return; }
           // Reuse old forest geometry immediately while upgrading its missing
           // water context and omitted multipolygon parts in the background.
-          finish(entry.schema === "mountain-neighbors-v1" ? entry : { ...entry, refreshAt: 0 });
+          finish(entry.schema === "mountain-open-land-v1" ? entry : { ...entry, refreshAt: 0 });
         };
         request.onerror = () => finish(null);
       } catch { finish(null); }
@@ -21696,8 +23046,8 @@
     try {
       const transaction = database.transaction("tiles", "readwrite");
       const store = transaction.objectStore("tiles");
-      store.put({ key, data: entry.data, loadedAt: entry.loadedAt,
-        cachedAt: entry.cachedAt, refreshAt: entry.refreshAt, schema: "mountain-neighbors-v1" });
+      store.put({ key, data: entry.data, selectionKey: entry.selectionKey, loadedAt: entry.loadedAt,
+        cachedAt: entry.cachedAt, refreshAt: entry.refreshAt, schema: "mountain-open-land-v1" });
       const count = store.count();
       count.onsuccess = () => {
         let excess = count.result - HUAYU_TERRAIN_TILE_CACHE_LIMIT;
@@ -21850,6 +23200,7 @@
   function suspendHuayuTerrainTiles(state) {
     if (!state) return;
     window.clearTimeout(state.terrainPreloadTimer);
+    window.clearTimeout(state.terrainPrefetchTimer);
     state.terrainPreloadTimer = null;
     window.clearTimeout(state.terrainTimer);
     state.terrainTimer = null;
@@ -21950,15 +23301,26 @@
       suspendHuayuTerrainTiles(state);
       return;
     }
-    if (!visibleBounds || glMap.getZoom() < HUAYU_TERRAIN_MIN_ZOOM) {
+    if (!visibleBounds) {
       suspendHuayuTerrainTiles(state);
       return;
     }
     // Cold starts first load the published packet, without an Overpass request.
-    // Fresh overview coverage is complete; close views may refine it with live tiles.
+    // The scheduled packet is complete at every zoom; live queries are only a
+    // fallback outside published coverage, never a mandatory close-view step.
     void loadHuayuTerrainPreload(state);
+    if (glMap.getZoom() < HUAYU_TERRAIN_MIN_ZOOM) {
+      // Keep the five-minute snapshot check alive at small scales, while
+      // withholding live Overpass queries and raw-detail downloads.
+      state.terrainPendingTiles.forEach((pending) => pending.controller.abort());
+      window.clearTimeout(state.terrainTimer);
+      state.terrainQueue = [];
+      state.terrainQueuedTileKeys.clear();
+      state.terrainVisibleTileKeys = new Set();
+      return;
+    }
     if (!huayuTerrainPreloadAttempted) return;
-    if (glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM && huayuTerrainPreloadCovers(visibleBounds)) {
+    if (huayuTerrainPreloadCovers(visibleBounds, {allowStale: true})) {
       window.clearTimeout(state.terrainTimer);
       state.terrainTimer = null;
       state.terrainPendingTiles.forEach((pending) => pending.controller.abort());
@@ -22158,6 +23520,7 @@
   async function refreshHuayuLiveBasemap(glMap) {
     const state = huayuLiveBasemapStates.get(glMap);
     if (!state || !state.active || !isHuayuBasemapSelected()) return;
+    if (state.interacting) return;
     if (!ensureHuayuLiveBasemapLayers(glMap)) {
       scheduleHuayuLiveBasemap(glMap, 200);
       return;
@@ -22294,11 +23657,20 @@
       state.status = "loading";
       updateHuayuLiveBasemapDiagnostics(state);
     };
-    state.onMoveEnd = () => scheduleHuayuLiveBasemap(glMap, 0);
+    state.onMoveEnd = () => { if (!state.interacting) scheduleHuayuLiveBasemap(glMap, 0); };
+    state.onGestureStart = () => { state.interacting = true; };
+    state.onGestureEnd = () => {
+      state.interacting = false;
+      rebuildHuayuTerrainData(state);
+      mergeHuayuLiveBasemapTiles(state);
+      scheduleHuayuLiveBasemap(glMap, 0);
+    };
     huayuLiveBasemapStates.set(glMap, state);
     glMap.on("move", state.onMove);
     glMap.on("moveend", state.onMoveEnd);
     scheduleHuayuLiveBasemap(glMap, 0);
+    map.on("movestart", state.onGestureStart);
+    map.on("moveend", state.onGestureEnd);
   }
 
   function deactivateHuayuLiveBasemap(glMap) {
@@ -22318,6 +23690,8 @@
     syncHuayuLiveBasemapPrimaryLayers(glMap, state, false);
     glMap.off("move", state.onMove);
     glMap.off("moveend", state.onMoveEnd);
+    map.off("movestart", state.onGestureStart);
+    map.off("moveend", state.onGestureEnd);
     huayuLiveBasemapStates.delete(glMap);
     const publishedPoiFilters = huayuLiveBasemapPoiFilters.get(glMap);
     publishedPoiFilters?.forEach((filter, layerId) => {

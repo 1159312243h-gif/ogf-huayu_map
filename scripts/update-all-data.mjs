@@ -176,7 +176,12 @@ function validateTerrainPreload(payload, label) {
         && Number.isFinite(feature.properties.reliefArea) && feature.properties.reliefArea > 0
         && Number.isFinite(feature.properties.reliefHeight) && feature.properties.reliefHeight > 0,
         `${label} 山体参数错误`);
-    } else assert.ok(feature.properties?.renderKind === "important-label"
+    } else if (feature.properties?.terrainContext === 1) assert.ok(
+      ["water", "building", "garden"].includes(feature.properties.materialOcclusion)
+      && ["water", "waterway", "terrain-context"].includes(feature.properties.renderKind)
+      && ["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry.type),
+      `${label} 山上要素参数错误`);
+    else assert.ok(feature.properties?.renderKind === "important-label"
       && feature.geometry.type === "Point" && ["mountain", "peak"].includes(feature.properties.featureClass),
       `${label} 非地形要素`);
   }
@@ -398,9 +403,22 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
 
 async function replaceDatasetsAtomically(candidateDirectory, runDirectory) {
   const moved = [];
+  let committed = false;
   const suffix = timestampId();
+  const terrainManifest = JSON.parse(await fs.readFile(path.join(candidateDirectory, "terrain-preload-manifest.json"), "utf8"));
+  const terrainAssets = [...terrainManifest.chunks, ...(terrainManifest.renderBlocks || []),
+    ...(terrainManifest.contextSnapshot ? [terrainManifest.contextSnapshot] : [])].map(entry =>
+    String(entry.url).replace(/^\.\//u, ""));
   try {
-    for (const name of datasetNames) {
+    // Install immutable assets before swapping their manifest. Keeping old
+    // content until verification also makes rollback restore a complete snapshot.
+    for (const name of terrainAssets) {
+      assert.match(name, /^terrain-(?:preload-chunks|render-cache)\/[a-z\d-]+\.json\.gz$/u);
+      const target = path.join(site, name);
+      await fs.mkdir(path.dirname(target), {recursive:true});
+      await fs.copyFile(path.join(candidateDirectory, name), target);
+    }
+    for (const name of [...datasetNames, "terrain-preload-manifest.json"]) {
       const target = path.join(site, name);
       const next = path.join(site, `.${name}.${suffix}.next`);
       const previous = path.join(site, `.${name}.${suffix}.previous`);
@@ -418,8 +436,22 @@ async function replaceDatasetsAtomically(candidateDirectory, runDirectory) {
       path.join(runDirectory, "logs"));
     await runCommand("verify-package", process.execPath, [path.join("scripts", "verify-package.mjs")], root,
       path.join(runDirectory, "logs"));
+    committed = true;
     await Promise.all(moved.map(({ previous }) => fs.rm(previous, { force: true })));
+    const retained = new Set(terrainAssets);
+    for (const directory of ["terrain-preload-chunks", "terrain-render-cache"]) {
+      for (const name of await fs.readdir(path.join(site, directory))) {
+        if (name.endsWith(".json.gz") && !retained.has(`${directory}/${name}`)) {
+          await fs.unlink(path.join(site, directory, name));
+        }
+      }
+    }
+    // Pruning removes only obsolete content-addressed files, so update the
+    // package inventory after the complete new snapshot has passed validation.
+    await runCommand("update-manifest", process.execPath, [path.join("scripts", "update-manifest.mjs")], root,
+      path.join(runDirectory, "logs"));
   } catch (error) {
+    if (committed) throw error; // Cleanup failures must not roll back verified data after pruning old assets.
     for (const { target, previous } of moved.reverse()) {
       await fs.rm(target, { force: true });
       await fs.rename(previous, target);

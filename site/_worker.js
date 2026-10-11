@@ -110,13 +110,15 @@ function terrainOverpassQuery(bounds) {
   return `[out:json][timeout:30];(`
     + `way["natural"="wood"](${bbox});`
     + `way["landuse"="forest"](${bbox});`
-    + `way["natural"~"^(grassland|scrub|heath|fell|bare_rock|scree)$"]${namedRelief}(${bbox});`
+    + `way["natural"~"^(scrub|heath|fell|bare_rock|scree)$"](${bbox});`
+    + `way["natural"="grassland"]${namedRelief}(${bbox});`
     + `way["landuse"~"^(grass|meadow)$"]${namedRelief}(${bbox});`
     + `way["leisure"="garden"]${namedRelief}(${bbox});`
     + `)->.terrainWays;(`
     + `rel["type"="multipolygon"]["natural"="wood"](${bbox});`
     + `rel["type"="multipolygon"]["landuse"="forest"](${bbox});`
-    + `rel["type"="multipolygon"]["natural"~"^(grassland|scrub|heath|fell|bare_rock|scree)$"]${namedRelief}(${bbox});`
+    + `rel["type"="multipolygon"]["natural"~"^(scrub|heath|fell|bare_rock|scree)$"](${bbox});`
+    + `rel["type"="multipolygon"]["natural"="grassland"]${namedRelief}(${bbox});`
     + `rel["type"="multipolygon"]["landuse"~"^(grass|meadow)$"]${namedRelief}(${bbox});`
     + `rel["type"="multipolygon"]["leisure"="garden"]${namedRelief}(${bbox});`
     + `)->.terrainRelations;`
@@ -618,7 +620,7 @@ async function fetchTerrainTile(request, context, z, x, y) {
   }
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-terrain-v6-mountain-neighbors");
+  cacheUrl.searchParams.set("schema", "huayu-terrain-v7-open-land");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {
@@ -763,13 +765,17 @@ async function fetchTransitTile(request, context, kind, z, x, y) {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
-    if (url.pathname === "/terrain-preload.json.gz") {
+    if (url.pathname === "/terrain-preload.json.gz"
+      || (["/terrain-preload-chunks/", "/terrain-render-cache/"].some(prefix => url.pathname.startsWith(prefix))
+        && url.pathname.endsWith(".json.gz"))) {
       const asset = await environment.ASSETS.fetch(request);
       if (asset.status !== 200) return asset;
       const headers = new Headers(asset.headers);
       headers.set("Content-Type", "application/json; charset=UTF-8");
       headers.set("Content-Encoding", "gzip");
-      headers.set("Cache-Control", "public, max-age=300, must-revalidate, no-transform");
+      headers.set("Cache-Control", url.pathname !== "/terrain-preload.json.gz"
+        ? "public, max-age=31536000, immutable, no-transform"
+        : "public, max-age=300, must-revalidate, no-transform");
       // The asset body already contains gzip bytes. Do not gzip it again.
       return new Response(asset.body, { status: asset.status, headers, encodeBody: "manual" });
     }

@@ -157,23 +157,28 @@ const deniedContext = vm.createContext({huayuTerrainStoragePromise:null,
 install(["huayuTerrainStorage", "loadHuayuTerrainStoredTile"], deniedContext);
 assert.equal(await deniedContext.loadHuayuTerrainStoredTile(key), null);
 
-// Unchanged padded viewports reuse the buffer; cancelled async builds cannot overwrite it.
+// Fixed geographic blocks survive pans/zoom revisits; mask changes do not remesh buildings.
 let uploads = 0;
 let vertexCalls = 0;
 let cancelBuild = false;
 let clock = 0;
 let layer;
+let viewport = {west:0.08,east:0.11,south:0.08,north:0.11};
+let renderZoom = 11;
+let masks = [];
 const renderContext = vm.createContext({
   terrainOverlayEnabled:true, HUAYU_TERRAIN_MIN_ZOOM:7.5, HUAYU_MOUNTAIN_SURFACE_VERTEX_LIMIT:500000,
   HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA:400000000,
   HUAYU_LIVE_BASEMAP_LAYERS:{mountainOverviewTexture:"existing-material"},
   huayuMountainSurfaceRgb:() => [0.5,0.5,0.5],
   huayuMountainSurfaceViewportBounds:() => ({west:-0.2,east:1.2,south:-0.2,north:1.2}),
-  huayuAdministrativeQueryBounds:() => ({west:0,east:1,south:0,north:1}),
+  huayuAdministrativeQueryBounds:() => viewport,
   huayuMountainSurfaceFeatureIntersectsViewport:() => true,
   huayuMountainSurfaceOverviewFeatures: (features) => features,
+  huayuMountainRangeContext:(_surfaces,waterContext) => waterContext,
+  huayuMountainSurfaceMeshLevel: (zoom) => zoom >= 10.5 ? 4 : 3,
   huayuWoodlandMaterialCoverage:() => null,
-  huayuWoodlandMaterialOcclusions:() => [],
+  huayuWoodlandMaterialOcclusions:() => masks,
   huayuMountainSurfaceFeatureVertices:() => {
     vertexCalls++;
     if (cancelBuild) layer.rebuildRevision++;
@@ -181,13 +186,16 @@ const renderContext = vm.createContext({
   },
   huayuLiveBasemapStates:new WeakMap(), Float32Array,
   huayuMountainWaterContexts:new WeakMap(),
+  huayuMountainSurfaceModels:new WeakMap(),
   clamp:(value,min,max) => Math.max(min,Math.min(max,value)),
-  performance:{now:() => {clock+=20; return clock;}}, window:{setTimeout,clearTimeout},
+  performance:{now:() => {clock+=20; return clock;}}, setTimeout, window:{setTimeout,clearTimeout},
 });
-install(["huayuAdministrativeBoundsContain", "createHuayuWoodlandMaterialLayer"], renderContext);
+install(["huayuAdministrativeBoundsContain", "huayuWoodlandMaterialCells",
+  "huayuWoodlandMaterialBoundsIntersect", "huayuWoodlandMaterialBuildGeometry", "createHuayuWoodlandMaterialLayer"], renderContext);
 layer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
-layer.gl = {bindBuffer:() => {}, bufferData:() => {uploads++;}};
-layer.map = {getZoom:() => 11, triggerRepaint:() => {}};
+layer.gl = {bindBuffer:() => {}, bufferData:() => {uploads++;}, createBuffer:() => ({}),
+  createTexture:() => ({}),deleteBuffer:() => {},deleteTexture:() => {}};
+layer.map = {getZoom:() => renderZoom, triggerRepaint:() => {}};
 layer.features = [{id:1,properties:{reliefRole:"surface",reliefArea:1e8}}];
 layer.dataRevision = 1;
 layer.rebuildRevision = 1;
@@ -196,10 +204,79 @@ assert.equal(uploads, 1);
 assert.equal(vertexCalls, 1);
 await layer.rebuild();
 assert.equal(vertexCalls, 1, "same viewport must reuse the complete mesh");
+viewport = {west:0.38,east:0.41,south:0.08,north:0.11};
+await layer.rebuild();
+assert.equal(vertexCalls, 2, "panning into a new cell builds only that cell");
+viewport = {west:0.08,east:0.11,south:0.08,north:0.11};
+await layer.rebuild();
+assert.equal(vertexCalls, 2, "panning back reuses the original GPU buffer");
+renderZoom = 9;
+await layer.rebuild();
+assert.equal(vertexCalls, 3);
+renderZoom = 11;
+await layer.rebuild();
+assert.equal(vertexCalls, 3, "returning to an already built zoom level must not remesh");
+masks = [{id:"building",geometry:{type:"Polygon",coordinates:[]},properties:{materialOcclusion:"building"}}];
+layer.contextRevision = (layer.contextRevision || 0) + 1;
+await layer.rebuild();
+assert.equal(vertexCalls, 3, "building arrivals only update coverage, not elevation geometry");
+layer.features = [{id:2,properties:{reliefRole:"surface",reliefArea:1e8}}];
 layer.dataRevision++;
 cancelBuild = true;
+const completedUploads = uploads;
 await layer.rebuild();
-assert.equal(uploads, 1, "cancelled builds must retain the previous buffer");
+assert.equal(uploads, completedUploads, "cancelled builds must retain previously cached buffers");
+assert.ok(layer.blocks.size >= 3, "previous regions and levels must remain cached");
+
+// Existing cells provide a clipped fallback during an unbuilt zoom level, in
+// the same material. Empty completed cells must not resurrect old mountains.
+cancelBuild = false;
+let draws = 0;
+const drawBounds = [];
+Object.assign(layer.gl, Object.fromEntries(["useProgram","enableVertexAttribArray","uniformMatrix4fv",
+  "uniform3fv","uniform1f","activeTexture","bindTexture","uniform1i","depthMask","enable",
+  "disable","blendFunc","vertexAttribPointer"].map(name=>[name,()=>{}])));
+Object.assign(layer.gl,{getParameter:()=>0,isEnabled:()=>false,drawArrays:()=>{draws++;},
+  uniform4fv:(location,value)=>{if(location==="clip")drawBounds.push(value);}});
+renderContext.window.maplibregl = {MercatorCoordinate:{fromLngLat:({lng,lat})=>({x:lng,y:-lat})}};
+layer.program = {};
+layer.drawBoundsLocation = "clip";
+for (const block of layer.blocks.values()) block.coverageBounds = [0,0,1,1];
+renderZoom = 13;
+layer.render(layer.gl,Array(16).fill(0));
+assert.ok(draws>0,"a missing zoom level must keep cached terrain visible");
+assert.ok(drawBounds.every(bounds=>bounds[2]-bounds[0]<=0.0625),
+  "fallback draws must clip to individual target cells to prevent stacked levels");
+
+// A runtime overview cell must not replace the finer prepared range mesh.
+const overviewLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
+const overviewDraws = [];
+overviewLayer.gl = {...layer.gl, drawArrays:(_,__,count) => overviewDraws.push(count)};
+overviewLayer.map = {getZoom:()=>4,triggerRepaint:()=>{}};
+overviewLayer.program = {};
+overviewLayer.publishedManifest = {renderBlocks:[{url:"prepared"}]};
+overviewLayer.loadPublishedSnapshot = async () => {};
+const overviewCell = renderContext.huayuWoodlandMaterialCells(viewport,4)[0];
+const blockShape = {bounds:overviewCell.bounds,span:overviewCell.span,
+  coverageBounds:[0,0,1,1],renderedNeighbors:0,buffer:{},texture:{}};
+overviewLayer.blocks.set(overviewCell.key,{...blockShape,key:overviewCell.key,vertexCount:6});
+overviewLayer.blocks.set("published",{...blockShape,key:"published",publishedUrl:"prepared",vertexCount:12});
+const callsBeforeOverview = vertexCalls;
+await overviewLayer.rebuild();
+assert.equal(vertexCalls,callsBeforeOverview,"country-scale movement must reuse prepared geometry without remeshing");
+overviewLayer.render(overviewLayer.gl,Array(16).fill(0));
+assert.ok(overviewDraws.length>0 && overviewDraws.every(count=>count===12),
+  "a coarser runtime block must not hide the prepared terrain at small scales");
+
+let deletedBuffers = 0;
+layer.gl.deleteBuffer = () => {deletedBuffers++;};
+renderZoom = 11;
+for (let index=0;index<70;index++) {
+  viewport = {west:index*0.25+0.08,east:index*0.25+0.11,south:0.08,north:0.11};
+  await layer.rebuild();
+}
+assert.ok(layer.blocks.size<=64,"long pans must not accumulate unbounded GPU resources");
+assert.ok(deletedBuffers>0,"eviction must free buffers rather than only removing cache keys");
 
 // Regional ranges must vary throughout their extent, including far from a centre point.
 const surfaceContext = vm.createContext({clamp:(value,min,max) => Math.max(min,Math.min(max,value))});
@@ -242,8 +319,8 @@ surfaceContext.huayuMountainSurfaceAnchors = () => {
   return [{coordinates:[0.5,0.5],height:800,sigma:20000}];
 };
 surfaceContext.huayuMountainSurfaceNoise = () => 0.5;
-install(["huayuMountainOuterContains", "huayuMountainSegmentIndex",
-  "huayuMountainSurfaceFeatureIntersectsViewport", "huayuMountainSurfaceModel"], surfaceContext);
+install(["huayuMountainEdgeFadeLine", "huayuMountainOuterContains", "huayuMountainSegmentIndex",
+  "huayuMountainSurfaceFeatureIntersectsViewport", "huayuMountainWaterDistance", "huayuMountainSurfaceModel"], surfaceContext);
 const polygon = {type:"Polygon",coordinates:[[[0,0],[1,0],[1,1],[0,1],[0,0]]]};
 const smallModel = surfaceContext.huayuMountainSurfaceModel({id:"small",properties:{reliefArea:88e6,reliefHeight:800}},polygon);
 assert.equal(localAnchorCalls,1);
@@ -280,6 +357,14 @@ const notchedRing = [[0,0],[3,0],[3,1],[1.1,1],[1.1,3],[0.9,3],[0.9,1],[0,1],[0,
 const contains = surfaceContext.huayuMountainOuterContains(notchedRing,{west:0,east:3,south:0,north:3});
 assert.equal(contains([1,2.9]),true,"a narrow real mountain extension must remain covered");
 assert.equal(contains([2,2]),false,"exact footprint must not fill exterior clearings");
+const detailedEdge = Array.from({length:10000},(_,index) => {
+  const angle = index / 9999 * Math.PI * 2;
+  return [Math.cos(angle) * (1 + Math.sin(angle * 17) * 0.01),
+    Math.sin(angle) * (1 + Math.sin(angle * 17) * 0.01)];
+});
+detailedEdge.push(detailedEdge[0]);
+assert.ok(surfaceContext.huayuMountainEdgeFadeLine(detailedEdge,1,20).length<=2049,
+  "regional edge fading must not index every source vertex");
 
 // Rivers lower the same field used by slope shading and contours; distant hills stay unchanged.
 const valleyFeature = {id:"small",properties:{reliefArea:88e6,reliefHeight:800}};
@@ -311,9 +396,27 @@ for (const budget of [6,12,300,600]) {
   const positions = Array.from({length:vertices.length/9},(_,index) => vertices.slice(index*9,index*9+2));
   assert.ok(positions.length<=budget);
   assert.equal(Math.max(...positions.map((point) => point[0])),100);
-  assert.equal(Math.max(...positions.map((point) => point[1])),0.01,
+  assert.ok(Math.abs(Math.max(...positions.map((point) => point[1]))-0.01)<1e-7,
     "both ends must survive the vertex budget even for an elongated mountain");
 }
+
+// Different block budgets must share regional edge interpolation and slopes.
+meshContext.huayuMountainSurfaceModel = () => ({bounds:{west:0,east:2,south:0,north:1},cosine:1,
+  areaSquareMeters:2e10,peakHeight:800,regionalWavelength:10000,
+  heightAt:([x,y])=>200+80*Math.sin(x*9)+50*Math.sin(y*7)});
+const leftMesh = meshContext.huayuMountainSurfaceFeatureVertices({geometry:polygon},36000,
+  {west:0,east:1,south:0,north:1},9);
+const rightMesh = meshContext.huayuMountainSurfaceFeatureVertices({geometry:polygon},72000,
+  {west:1,east:2,south:0,north:1},9);
+const edgeValues = mesh => {
+  const values = new Map();
+  for(let index=0;index<mesh.length;index+=9) if(mesh[index]===1) {
+    values.set(mesh[index+1],Array.from(mesh.slice(index+3,index+8)));
+  }
+  return [...values].sort((first,second)=>first[0]-second[0]);
+};
+assert.deepEqual(edgeValues(leftMesh),edgeValues(rightMesh),
+  "adjacent regional blocks must have identical edge heights and normals despite different budgets");
 
 // Overview tiles cover every visible region; do not silently truncate the centre-priority list.
 const overviewState = state();
@@ -361,8 +464,19 @@ const maskContext = {globalCompositeOperation:"source-over",beginPath:() => {pat
       const inside = paths.filter((ring) => geometryContext.huayuWallPointInRing(probe.point,ring)).length % 2;
       if (inside) {
         probe.alpha=maskContext.globalCompositeOperation==="destination-out"?0:1;
-        probe.material = maskContext.fillStyle === "#000000" ? 0 : 1;
+        const rgb = maskContext.fillStyle.match(/^rgb\((\d+),(\d+),(\d+)\)$/u);
+        if (rgb) {
+          probe.material = Number(rgb[1]) / 255;
+          probe.owner = Number(rgb[2]) + Number(rgb[3]) * 256;
+        }
       }
+    }
+  },stroke:()=>{
+    for (const probe of probes) for (const ring of paths) for (let i=1;i<ring.length;i++) {
+      const [ax,ay]=ring[i-1], [bx,by]=ring[i];
+      const dx=bx-ax,dy=by-ay;
+      const ratio=Math.max(0,Math.min(1,((probe.point[0]-ax)*dx+(probe.point[1]-ay)*dy)/(dx*dx+dy*dy||1)));
+      if (Math.hypot(probe.point[0]-ax-ratio*dx,probe.point[1]-ay-ratio*dy)<=maskContext.lineWidth/2) probe.alpha=0;
     }
   }};
 maskCanvas.getContext = () => maskContext;
@@ -375,12 +489,30 @@ maskVm.huayuWoodlandMaterialCoverage([square(0,1)],{west:0,east:1,south:0,north:
   [square(0.2,0.4),square(0.6,0.8)]);
 assert.deepEqual(probes.map((probe) => probe.alpha),[1,0,0,1],
   "forest pixels must remain while exact water/building areas are excluded");
+maskVm.huayuWoodlandMaterialCoverage([square(0,1)],{west:0,east:1,south:0,north:1},[
+  {properties:{materialOcclusion:"water"},geometry:{type:"LineString",coordinates:[[0.3,0],[0.3,1]]}},
+]);
+assert.deepEqual(probes.map(probe=>probe.alpha),[1,0,1,1],
+  "a mapped mountain stream must be protected even without a water-area polygon");
 maskVm.huayuWoodlandMaterialCoverage([
   {...square(0,1),properties:{reliefLandKind:"open"}},
   {...square(0.2,0.4),properties:{reliefLandKind:"wood"}},
 ],{west:0,east:1,south:0,north:1});
 assert.deepEqual(probes.map((probe) => probe.material),[0,1,0,0],
   "open terrain must not repaint the woodland footprint inside its extent");
+assert.deepEqual(probes.map(probe=>probe.owner),[1,2,1,1],
+  "each terrain footprint must keep its own mesh owner even where two hills overlap");
+maskVm.huayuWoodlandMaterialCoverage([
+  {...square(0.2,0.4),properties:{reliefLandKind:"wood"}},
+  {...square(0,1),properties:{reliefLandKind:"open"}},
+],{west:0,east:1,south:0,north:1});
+assert.deepEqual(probes.map(probe=>probe.owner),[2,1,2,2],
+  "drawing open ground first must not reorder the indices used by mesh vertices");
+maskVm.huayuWoodlandMaterialCoverage([
+  ...Array.from({length:256},()=>({geometry:{type:"Polygon",coordinates:[]}})),square(0,1),
+],{west:0,east:1,south:0,north:1});
+assert.deepEqual(probes.map(probe=>probe.owner),[257,257,257,257],
+  "large geographic blocks must retain both bytes of the surface owner");
 const overlayVm = vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{water:"live-water"},
   HUAYU_LIVE_BUILDING_LAYER:"buildings",HUAYU_PAVILION_LAYER:"pavilions",HUAYU_PAVILION_BASE_LAYER:"pavilion-bases",
   huayuMountainSurfaceFeatureIntersectsViewport:() => true});
@@ -393,4 +525,9 @@ const overlays = overlayVm.huayuWoodlandMaterialOcclusions({
   querySourceFeatures:() => mixedSource},[],{west:0,east:1,south:0,north:1});
 assert.equal(overlays.length,1,"mixed live sources must not erase the mountain or woodland itself");
 assert.equal(overlays[0].properties.renderKind,"water");
+const structures=overlayVm.huayuWoodlandMaterialOcclusions({
+  getStyle:()=>({layers:[{id:"modeled-canopy",type:"fill-extrusion",source:"mixed-live-source"}]}),
+  querySourceFeatures:()=>[...mixedSource,{...square(0.6,0.8),properties:{renderKind:"tree-canopy"}}],
+},[],{west:0,east:1,south:0,north:1});
+assert.equal(structures.length,2,"modeled trees and structures must stay above terrain without masking the woodland itself");
 console.log("Terrain regressions passed: geometry, cache, retry, pan, mesh coverage, water valleys and layer order.");

@@ -134,6 +134,8 @@ try {
     "terrain coverage must not filter woodland by a narrow name suffix before classification");
   assert.match(upstreamQueries.at(-1), /natural"="wood/u);
   assert.match(upstreamQueries.at(-1), /landuse"="forest/u);
+  assert.match(upstreamQueries.at(-1), /natural"~"\^\(scrub\|heath\|fell\|bare_rock\|scree\)\$"\]\(/u,
+    "rough terrain must be queried without requiring a mountain name");
   assert.match(upstreamQueries.at(-1), /landuse"~"\^\(grass\|meadow\)\$"/u,
     "named highland grassland must be included in the terrain snapshot");
   assert.match(upstreamQueries.at(-1), /leisure"="garden/u,
@@ -147,7 +149,7 @@ try {
   const terrainHit = await worker.fetch(new Request(terrainUrl), { ASSETS: assets }, context);
   assert.equal(terrainHit.headers.get("x-ogf-terrain-cache"), "HIT");
   assert.equal(upstreamQueries.length, terrainQueriesBeforeMiss + 1);
-  assert.ok([...cache.keys()].some((key) => key.includes("huayu-terrain-v6-mountain-neighbors")),
+  assert.ok([...cache.keys()].some((key) => key.includes("huayu-terrain-v7-open-land")),
     "terrain tiles should use an independent edge cache schema");
   assert.doesNotMatch(upstreamQueries.at(-1), /waterway|natural"="water/u,
     "reuse basemap water so wider water queries cannot delay forest snapshots");
@@ -272,6 +274,13 @@ try {
   assert.match(terrainAsset.headers.get("cache-control"), /max-age=300.*no-transform/u);
   assert.equal(JSON.parse(gunzipSync(Buffer.from(await terrainAsset.arrayBuffer())))
     .features[0].id, "test-hill", "snapshot bytes must retain exactly one gzip encoding");
+  const terrainChunk = await worker.fetch(new Request("https://example.test/terrain-preload-chunks/f-3-37-test.json.gz"), {
+    ASSETS: { fetch: async () => new Response(compressedTerrain) },
+  }, context);
+  assert.equal(terrainChunk.headers.get("content-encoding"),"gzip",
+    "spatial terrain chunks must use the same single-encoding transport");
+  assert.match(terrainChunk.headers.get("cache-control"), /max-age=31536000.*immutable/u,
+    "content-addressed snapshot chunks must be reusable without a download on every visit");
   const absentTerrain = await worker.fetch(new Request("https://example.test/terrain-preload.json.gz"), {
     ASSETS: { fetch: async () => new Response("missing", { status: 404 }) },
   }, context);

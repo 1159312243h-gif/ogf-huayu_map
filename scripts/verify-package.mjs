@@ -2,13 +2,23 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
 const release = JSON.parse(await fs.readFile(path.join(root, "release.json"), "utf8"));
+
+// Windows can deny creation of new pipe handles while inherited console
+// handles work. Keep the exact checks and show their original diagnostics.
+function runCheck(args) {
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, args, {stdio:"inherit"});
+    child.on("error", error => resolve({status:null, stderr:String(error)}));
+    child.on("close", status => resolve({status, stderr:status ? `exit ${status}; see diagnostics above` : ""}));
+  });
+}
 
 async function listFiles(directory) {
   const entries = await fs.readdir(directory, { withFileTypes: true });
@@ -37,15 +47,16 @@ for (const file of files) {
 
 for (const required of ["_headers", "_worker.js", "app.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
-  "terrain-preload.json.gz"]) {
+  "terrain-preload.json.gz", "terrain-preload-manifest.json"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
 }
 
 const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
 const terrainPreload = await readDatasetFile(path.join(site,"terrain-preload.json.gz"));
+const terrainManifest = JSON.parse(await fs.readFile(path.join(site,"terrain-preload-manifest.json"),"utf8"));
 assert.equal(terrainPreload.schema,"open-small-mountains-v1");
-assert.equal(terrainPreload.classification,"mountain-neighbors-v1",
+assert.equal(terrainPreload.classification,"mountain-features-v2",
   "发布快照必须包含当前邻近山区分类");
 assert.ok(terrainPreload.features.some(feature => feature.properties?.reliefNeighbor === 1),
   "发布快照不得遗漏新增的邻近小山体");
@@ -53,10 +64,28 @@ assert.ok(terrainPreload.features.some((feature) => feature.properties?.reliefRo
   && terrainPreload.coverage.every((region) => region.complete), "发布地形快照必须完整且包含山体面");
 assert.ok((await fs.stat(path.join(site, "terrain-preload.json.gz"))).size < 25 * 1024 * 1024,
   "发布地形快照不得超过 Cloudflare Pages 单文件上限");
+assert.equal(terrainManifest.generatedAt,terrainPreload.generatedAt,"地形分片必须和完整快照属于同一代数据");
+assert.equal(terrainManifest.classification,"mountain-features-v2");
+const terrainContext=await readDatasetFile(path.join(site,terrainPreload.contextSnapshot.url.replace(/^\.\//u,"")));
+assert.equal(terrainContext.generatedAt,terrainPreload.generatedAt);
+assert.equal(terrainContext.features.length,terrainPreload.contextSnapshot.features);
+assert.deepEqual(terrainManifest.contextSnapshot,terrainPreload.contextSnapshot);
+assert.ok(terrainPreload.contextSnapshot.bytes<25*1024*1024,"山上要素包必须满足 Pages 单文件限制");
+assert.ok(terrainContext.features.some(feature=>feature.properties?.materialOcclusion==="water")
+  && terrainContext.features.some(feature=>feature.properties?.materialOcclusion==="building")
+  && terrainContext.features.some(feature=>feature.properties?.materialOcclusion==="garden"),
+  "山体快照必须提前包含山上的水体、建筑和花园");
+assert.ok(terrainManifest.chunks.length>0&&terrainManifest.chunks.every(chunk=>
+  manifest.has(String(chunk.url).replace(/^\.\//u,""))&&chunk.bytes>0&&chunk.bytes<25*1024*1024),
+"地形清单中的每个空间分片都必须被发布并满足 Pages 单文件限制");
+assert.ok(terrainManifest.renderBlocks?.length>0 && terrainManifest.renderBlocks.every(block =>
+  manifest.has(String(block.url).replace(/^\.\//u,"")) && block.bytes>0 && block.bytes<25*1024*1024),
+  "地形预加载必须发布已经计算好的概览材质，不能让新设备重新计算全国山体");
 assert.ok(app.includes("function loadHuayuTerrainPreload(state)")
-  && app.includes("huayuTerrainPreloadCovers(visibleBounds)")
+  && app.includes("huayuTerrainPreloadCovers(visibleBounds, {allowStale: true})")
+  && app.includes("terrain-preload-manifest.json")
   && app.includes(`HUAYU_TERRAIN_PRELOAD_RECHECK_MS = ${release.expectedTerrainPreloadRevalidateSeconds / 60} * 60 * 1000`),
-  "地形首次加载必须使用发布快照，并检查三小时脚本生成的替换包");
+  "地形首次加载必须使用空间发布快照，并检查三小时脚本生成的替换包");
 const styles = await fs.readFile(path.join(site, "styles.css"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
 const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
@@ -218,7 +247,8 @@ assert.ok(app.includes('mountainOverviewTexture: "ogf-atlas-huayu-mountain-overv
   && app.includes("0.86 + canopyTexture * 0.26 - canopyGrain * 0.1, textureAmount);")
   && app.includes("uniform vec3 u_contour_color;")
   && app.includes("float minorPhase = fract(max(0.0, v_elevation) / interval);")
-  && app.includes("vec3 shaded = mix(color * v_light * textureShade, u_contour_color, contour);")
+  && app.includes("float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));")
+  && app.includes("vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);")
   && app.includes("const model = huayuMountainSurfaceModel(feature, polygonGeometry)")
   && app.includes("const heightAt = (coordinate) =>")
   && app.includes("edgeDistance(coordinate, edgeFadeMeters)")
@@ -242,9 +272,9 @@ const flatWoodlandVerticesSource = app.match(
   /function huayuMountainSurfaceFeatureVertices\([\s\S]*?\n  \}(?=\n\n  function huayuMountainSurfaceRgb)/u,
 )?.[0];
 assert.ok(flatWoodlandVerticesSource, "缺少山林平面几何实现");
-const makeFlatWoodlandVertices = Function("HUAYU_TERRAIN_MIN_ZOOM", "clamp",
+const makeFlatWoodlandVertices = Function("HUAYU_TERRAIN_MIN_ZOOM", "HUAYU_MOUNTAIN_WOODLAND_MIN_AREA", "clamp",
   "huayuMountainSurfaceModel", "huayuMountainContourInterval", "window",
-  `return (${flatWoodlandVerticesSource});`)(7.5,
+  `return (${flatWoodlandVerticesSource});`)(7.5,1e6,
   (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value)),
   () => ({ bounds: { west: 0, east: 1, south: 0, north: 1 }, cosine: 1,
     areaSquareMeters: 1e8, peakHeight: 800, heightAt: ([x, y]) => 100 + 300 * x + 400 * y }),
@@ -356,7 +386,7 @@ assert.ok(worker.includes(`TERRAIN_TILE_ZOOM = ${release.expectedTerrainTileZoom
   && worker.includes(`TERRAIN_REFRESH_SECONDS = ${release.expectedTerrainRefreshSeconds}`)
   && worker.includes("function terrainOverpassQuery(bounds)")
   && worker.includes("fetchTerrainTile")
-  && worker.includes("huayu-terrain-v6-mountain-neighbors")
+  && worker.includes("huayu-terrain-v7-open-land")
   && worker.includes('node["natural"~"^(peak|volcano)$"](${bbox})->.terrainPeaks;')
   && !worker.includes("way(r.terrainRelations)")
   && worker.includes('"X-OGF-Terrain-Policy": "snapshot-3h"'),
@@ -1331,25 +1361,27 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
 for (const script of ["app.js", "_worker.js"]) {
-  const result = spawnSync(process.execPath, ["--check", path.join(site, script)], { encoding: "utf8" });
+  const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
 
-const workerTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-worker.mjs")], {
-  encoding: "utf8",
-});
+const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
-const terrainTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-loading.mjs")], {
-  encoding: "utf8",
-});
+const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
-const terrainPreloadTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-preload.mjs")], {
-  encoding: "utf8",
-});
+const terrainWorkerTest = await runCheck([path.join(root,"scripts","test-terrain-mesh-worker.mjs")]);
+const terrainContextTest = await runCheck([path.join(root,"scripts","test-terrain-context.mjs")]);
+assert.equal(terrainContextTest.status,0,terrainContextTest.stderr);
+assert.equal(terrainWorkerTest.status,0,`地形后台计算与缓存回归失败：${terrainWorkerTest.stderr || terrainWorkerTest.stdout}`);
+const terrainAtomicTest = await runCheck([path.join(root,"scripts","test-terrain-update-atomic.mjs")]);
+assert.equal(terrainAtomicTest.status,0,`地形快照原子替换回归失败：${terrainAtomicTest.stderr}`);
+const terrainPreloadTest = await runCheck([path.join(root, "scripts", "test-terrain-preload.mjs")]);
 assert.equal(terrainPreloadTest.status, 0,
   `地形发布快照回归测试失败：${terrainPreloadTest.stderr || terrainPreloadTest.stdout}`);
-const neighborsTest = spawnSync(process.execPath, [path.join(root, "scripts", "test-terrain-neighbors.mjs")], {encoding: "utf8"});
+const neighborsTest = await runCheck([path.join(root, "scripts", "test-terrain-neighbors.mjs")]);
 assert.equal(neighborsTest.status, 0, `邻近小山体回归失败：${neighborsTest.stderr || neighborsTest.stdout}`);
+const adminLabelsTest = await runCheck([path.join(root, "scripts", "test-administrative-labels.mjs")]);
+assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLabelsTest.stderr || adminLabelsTest.stdout}`);
 
 console.log(JSON.stringify({
   status: "passed",

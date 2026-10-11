@@ -52,6 +52,9 @@ jobs:
             site/station-access.json \
             site/airports.json \
             site/terrain-preload.json.gz \
+            site/terrain-preload-manifest.json \
+            site/terrain-preload-chunks \
+            site/terrain-render-cache \
             release/SHA256.txt
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

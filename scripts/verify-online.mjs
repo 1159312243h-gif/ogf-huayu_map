@@ -51,19 +51,26 @@ async function verify() {
   assert.ok(Array.isArray(transit.elements) && transit.elements.length > 0, "生产交通分片 API 没有返回 OGF 要素");
   assert.equal(transitResponse.headers.get("x-ogf-transit-policy"), "snapshot-3h",
     "生产交通分片没有使用三小时缓存策略");
-  const terrainResponse = await fetch(`${baseUrl}/terrain-preload.json.gz?verify=${encodeURIComponent(cacheKey)}`, {
+  const terrainManifestResponse = await fetch(`${baseUrl}/terrain-preload-manifest.json?verify=${encodeURIComponent(cacheKey)}`, {
+    signal: AbortSignal.timeout(30000),
+  });
+  const terrainManifest = await terrainManifestResponse.json();
+  assert.equal(terrainManifestResponse.status,200,"生产地形快照清单未返回 200");
+  assert.equal(terrainManifest.schema,"open-small-mountains-v1","生产地形快照规则不一致");
+  assert.equal(terrainManifest.classification,"mountain-features-v2","生产快照仍在使用旧分类");
+  assert.ok(terrainManifest.coverage?.every((region) => region.complete)
+    && terrainManifest.chunks?.length>0,"生产地形快照清单缺少完整覆盖");
+  const terrainChunkMeta = terrainManifest.chunks.find(chunk=>chunk.surfaces>0);
+  assert.ok(terrainChunkMeta,"生产地形清单没有山体分片");
+  const terrainResponse = await fetch(`${baseUrl}/${String(terrainChunkMeta.url).replace(/^\.\//u,"")}`, {
     signal: AbortSignal.timeout(30000),
   });
   const terrain = await terrainResponse.json();
-  assert.equal(terrainResponse.status,200,"生产地形快照未返回 200");
-  assert.equal(terrainResponse.headers.get("content-encoding"),"gzip","生产地形快照必须正确声明压缩传输");
-  assert.equal(terrain.schema,"open-small-mountains-v1","生产地形快照规则不一致");
-  assert.equal(terrain.classification,"mountain-neighbors-v1","生产快照仍在使用旧分类");
-  assert.ok(terrain.features.some(feature => feature.properties?.reliefNeighbor === 1),
-    "生产快照没有包含邻近小山体");
-  assert.ok(terrain.coverage?.every((region) => region.complete)
-    && terrain.features?.some((feature) => feature.properties?.reliefRole === "surface"),
-    "生产地形快照缺少完整山体覆盖");
+  assert.equal(terrainResponse.status,200,"生产地形分片未返回 200");
+  assert.equal(terrainResponse.headers.get("content-encoding"),"gzip","生产地形分片必须正确声明压缩传输");
+  assert.equal(terrain.generatedAt,terrainManifest.generatedAt,"生产地形分片与清单版本不一致");
+  assert.ok(terrain.features?.some((feature) => feature.properties?.reliefRole === "surface"),
+    "生产地形分片没有山体面");
 
   return {
     status: "passed",

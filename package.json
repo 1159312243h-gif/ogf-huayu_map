@@ -1,7 +1,7 @@
 {
   "name": "ogf-atlas-maintenance",
   "private": true,
-  "version": "5.5.62",
+  "version": "5.5.69",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
@@ -17,6 +17,6 @@
     "data:update:resume": "node scripts/update-all-data.mjs --resume",
     "data:update:check": "node scripts/update-all-data.mjs --check",
     "test:data-update": "node scripts/test-data-updater.mjs",
-    "test:terrain-preload": "node scripts/test-terrain-preload.mjs"
+    "test:terrain-preload": "node scripts/test-terrain-preload.mjs && node scripts/test-terrain-context.mjs"
   }
 }
