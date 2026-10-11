@@ -164,6 +164,7 @@ function validateTerrainPreload(payload, label) {
   assert.equal(uniqueCount(payload.features.map((feature) => feature.id)), payload.features.length,
     `${label} 要素 ID 重复`);
   let surfaces = 0;
+  const elevationObservations = new Set();
   const validCoordinates = (coordinates) => Array.isArray(coordinates) && coordinates.length > 0
     && (typeof coordinates[0] === "number" ? coordinates.length === 2 && coordinates.every(Number.isFinite)
       : coordinates.every(validCoordinates));
@@ -176,6 +177,14 @@ function validateTerrainPreload(payload, label) {
         && Number.isFinite(feature.properties.reliefArea) && feature.properties.reliefArea > 0
         && Number.isFinite(feature.properties.reliefHeight) && feature.properties.reliefHeight > 0,
         `${label} 山体参数错误`);
+      if (feature.properties.reliefSamples !== undefined) {
+        const samples = JSON.parse(feature.properties.reliefSamples);
+        assert.ok(Array.isArray(samples) && samples.every(sample => Array.isArray(sample.coordinates)
+          && sample.coordinates.length === 2 && sample.coordinates.every(Number.isFinite)
+          && Number.isFinite(sample.elevation) && sample.elevation >= -500 && sample.elevation <= 12000),
+          `${label} 高程约束损坏`);
+        samples.forEach(sample => elevationObservations.add(sample.id || JSON.stringify(sample.coordinates)));
+      }
     } else if (feature.properties?.terrainContext === 1) assert.ok(
       ["water", "building", "garden"].includes(feature.properties.materialOcclusion)
       && ["water", "waterway", "terrain-context"].includes(feature.properties.renderKind)
@@ -186,7 +195,7 @@ function validateTerrainPreload(payload, label) {
       `${label} 非地形要素`);
   }
   assert.ok(surfaces > 0, `${label} 没有山体面`);
-  return {surfaces, features: payload.features.length, regions: payload.coverage.length};
+  return {surfaces, features: payload.features.length, regions: payload.coverage.length, elevationObservations: elevationObservations.size};
 }
 
 const validators = {
@@ -278,17 +287,26 @@ async function runCommand(label, command, args, cwd, logDirectory) {
   await fs.mkdir(logDirectory, { recursive: true });
   const log = await fs.open(logPath, "w");
   console.log(`\n[${label}] ${command} ${args.join(" ")}`);
+  const directLog = process.platform === "win32";
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: { ...process.env, FORCE_COLOR: "0" }, windowsHide: true });
+    // Some Windows hosts deny new anonymous pipe handles. Direct file handles
+    // preserve command diagnostics without requiring those pipes.
+    const child = spawn(command, args, { cwd, env: { ...process.env, FORCE_COLOR: "0" }, windowsHide: true,
+      stdio: directLog ? ["ignore", log.fd, log.fd] : ["ignore", "pipe", "pipe"] });
     const forward = (chunk, target) => {
       target.write(chunk);
       log.write(chunk).catch(() => {});
     };
-    child.stdout.on("data", (chunk) => forward(chunk, process.stdout));
-    child.stderr.on("data", (chunk) => forward(chunk, process.stderr));
+    if (!directLog) {
+      child.stdout.on("data", (chunk) => forward(chunk, process.stdout));
+      child.stderr.on("data", (chunk) => forward(chunk, process.stderr));
+    }
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${label} 失败，退出码 ${code}`)));
-  }).finally(() => log.close());
+  }).finally(async () => {
+    await log.close();
+    if (directLog) process.stdout.write(await fs.readFile(logPath, "utf8"));
+  });
 }
 
 function step(name, ...args) {
@@ -464,6 +482,8 @@ async function replaceDatasetsAtomically(candidateDirectory, runDirectory) {
       .map((name) => fs.rm(path.join(site, name), { force: true })));
   }
 }
+
+export {replaceDatasetsAtomically};
 
 async function writeReport(runDirectory, report) {
   await fs.mkdir(runDirectory, { recursive: true });

@@ -149,7 +149,7 @@ try {
   const terrainHit = await worker.fetch(new Request(terrainUrl), { ASSETS: assets }, context);
   assert.equal(terrainHit.headers.get("x-ogf-terrain-cache"), "HIT");
   assert.equal(upstreamQueries.length, terrainQueriesBeforeMiss + 1);
-  assert.ok([...cache.keys()].some((key) => key.includes("huayu-terrain-v7-open-land")),
+  assert.ok([...cache.keys()].some((key) => key.includes("huayu-terrain-v8-height-field")),
     "terrain tiles should use an independent edge cache schema");
   assert.doesNotMatch(upstreamQueries.at(-1), /waterway|natural"="water/u,
     "reuse basemap water so wider water queries cannot delay forest snapshots");

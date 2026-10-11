@@ -20,10 +20,11 @@ for (const file of ["huayu-style.json", "huayu-night-style.json"]) {
   const order = style.layers.map(layer => layer.id);
   const listeners = new Map();
   let moves = 0;
+  let styleReads = 0;
   const glMap = {
     // Loading sources must not delay repair until idle.
     isStyleLoaded: () => false,
-    getStyle: () => ({layers: order.map(id => definitions.get(id)).filter(layer => layer.type !== "custom")}),
+    getStyle: () => {styleReads++; return {layers: order.map(id => definitions.get(id)).filter(layer => layer.type !== "custom")};},
     getLayersOrder: () => order,
     getLayer: id => definitions.get(id),
     getPaintProperty: (id, property) => definitions.get(id).paint?.[property],
@@ -86,9 +87,11 @@ for (const file of ["huayu-style.json", "huayu-night-style.json"]) {
   assert.equal(definitions.get("tree-canopy").paint["fill-extrusion-base"], 7);
   assert.equal(definitions.get("pavilion").paint["fill-extrusion-base"], 3, "do not fill pavilion hollows");
   const oldMoves = moves;
+  const oldStyleReads = styleReads;
   listeners.get("styledata")();
   context.activateHuayuModelOcclusion(glMap);
   assert.equal(moves, oldMoves, "stable frames must not repeatedly move layers");
+  assert.equal(styleReads, oldStyleReads, "stable styles must not repeatedly clone the full layer definitions");
   // A subsequent snapshot/overlay update may reinsert a road above models.
   glMap.moveLayer("traffic-line");
   verify();

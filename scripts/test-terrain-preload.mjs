@@ -247,6 +247,7 @@ const built = await buildTerrainPreload({siteDirectory:testDirectory,cacheDirect
     if (query.includes("out tags bb;")) {
       assert.ok(query.includes('way["natural"~"^(scrub|heath|fell|bare_rock|scree)$"]('),
         "scheduled inventories must fetch unnamed rough land before shared classification");
+      assert.ok(query.includes('node["ele"]('), "three-hour inventories must collect non-peak elevations");
       if (inventoryRateLimited) {
         inventoryRateLimited = false;
         return new Response("busy",{status:429});
@@ -257,6 +258,8 @@ const built = await buildTerrainPreload({siteDirectory:testDirectory,cacheDirect
           bounds:{minlat:1,maxlat:2,minlon:1,maxlon:2}},
         {type:"node",id:4,lat:1.05,lon:1.05,tags:{natural:"peak",name:"测试峰",ele:"400"}},
         {type:"node",id:5,lat:2,lon:2,tags:{natural:"peak",name:"远处峰",ele:"999"}},
+        {type:"node",id:9,lat:1.03,lon:1.04,tags:{natural:"saddle",ele:"200"}},
+        {type:"node",id:10,lat:1.08,lon:1.02,tags:{ele:"0"}},
         {type:"way",id:6,tags:nearbyHill.tags,bounds:{minlat:1.02,maxlat:1.023,minlon:1.105,maxlon:1.108}},
         {type:"way",id:8,tags:unnamedHeath.tags,bounds:{minlat:1,maxlat:1.1,minlon:1.3,maxlon:1.4}}]}));
     }
@@ -274,12 +277,18 @@ assert.ok(built.features.every(item=>/^[a-f0-9]{64}$/u.test(item.terrainDigest))
   "three-hour generation must prepare stable digests rather than hash country geometry in the browser");
 assert.equal(built.features.find((item) => item.properties.reliefRole === "surface").properties.reliefHeight,400,
   "national peak filtering must retain local elevation while excluding distant peaks");
+assert.equal(built.heightField.mountainObservations,3,
+  "scheduled snapshots must keep peaks, saddles and zero-metre spot elevations together");
+assert.equal(built.heightField.flatland,"deferred");
+assert.equal(JSON.parse(built.features.find(item=>item.properties.sourceOsmId==="1").properties.reliefSamples).length,3);
 assert.ok(validateDataset("terrain-preload.json.gz",built).surfaces > 0);
 const target = path.join(testDirectory,"terrain-preload.json.gz");
 assert.equal((await readDatasetFile(target)).features.length,built.features.length,
   "the compressed published asset must decode to the complete GeoJSON packet");
 const chunkManifest = JSON.parse(await fs.readFile(path.join(testDirectory,"terrain-preload-manifest.json"),"utf8"));
 assert.equal(chunkManifest.generatedAt,built.generatedAt);
+assert.equal(chunkManifest.heightField.mountainObservations,3,
+  "the manifest must retain height-field metadata for browser caches");
 assert.ok(chunkManifest.renderBlocks?.length>0,"three-hour generation must prepare renderable geometry as well as raw polygons");
 for (const block of chunkManifest.renderBlocks) {
   const packet=await readDatasetFile(path.join(testDirectory,block.url.replace(/^\.\//u,"")));

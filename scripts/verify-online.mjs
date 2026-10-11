@@ -57,7 +57,10 @@ async function verify() {
   const terrainManifest = await terrainManifestResponse.json();
   assert.equal(terrainManifestResponse.status,200,"生产地形快照清单未返回 200");
   assert.equal(terrainManifest.schema,"open-small-mountains-v1","生产地形快照规则不一致");
-  assert.equal(terrainManifest.classification,"mountain-features-v2","生产快照仍在使用旧分类");
+  assert.equal(terrainManifest.classification,"mountain-height-field-v1","生产快照仍在使用旧高度场分类");
+  assert.equal(terrainManifest.heightField?.model,"mapped-elevation-v1","生产快照缺少高程约束高度场");
+  assert.equal(terrainManifest.heightField?.scope,"mountains-only","生产高度场范围不一致");
+  assert.equal(terrainManifest.heightField?.flatland,"deferred","生产快照未保留平地高度暂缓规则");
   assert.ok(terrainManifest.coverage?.every((region) => region.complete)
     && terrainManifest.chunks?.length>0,"生产地形快照清单缺少完整覆盖");
   const terrainChunkMeta = terrainManifest.chunks.find(chunk=>chunk.surfaces>0);
@@ -85,6 +88,8 @@ async function verify() {
     terrainFeatures: terrain.features.length,
     terrainNeighborFeatures: terrain.features.filter(feature => feature.properties?.reliefNeighbor === 1).length,
     terrainGeneratedAt: terrain.generatedAt,
+    terrainHeightModel: terrainManifest.heightField.model,
+    terrainElevationObservations: terrainManifest.heightField.mountainObservations,
   };
 }
 

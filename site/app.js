@@ -712,10 +712,12 @@
   const HUAYU_LIVE_BUILDING_MIN_TILE_ZOOM = 11;
   const HUAYU_LIVE_BUILDING_MAX_TILE_ZOOM = 15;
   const HUAYU_LIVE_BUILDING_TILE_CONCURRENCY = 3;
-  const HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT = 72;
+  const HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT = 256;
+  const HUAYU_LIVE_BUILDING_CACHE_BYTES = 48 * 1024 * 1024;
   const HUAYU_LIVE_BUILDING_CACHE_MS = 3 * 60 * 60 * 1000;
   const HUAYU_STRUCTURE_TILE_CONCURRENCY = 3;
-  const HUAYU_STRUCTURE_TILE_CACHE_LIMIT = 72;
+  const HUAYU_STRUCTURE_TILE_CACHE_LIMIT = 256;
+  const HUAYU_STRUCTURE_CACHE_BYTES = 16 * 1024 * 1024;
   const HUAYU_STRUCTURE_CACHE_MS = 3 * 60 * 60 * 1000;
   const HUAYU_SUPPLEMENTAL_POI_SOURCE = "ogf-atlas-huayu-supplemental-pois";
   const HUAYU_SUPPLEMENTAL_POI_LAYER = "ogf-atlas-huayu-supplemental-pois";
@@ -892,6 +894,8 @@
   const huayuStructureStates = new WeakMap();
   const huayuStructureSharedTileCache = new Map();
   let huayuStructureTileRevision = 0;
+  let huayuModelTileWorker = null;
+  let huayuModelTileWorkerFailed = false;
   const huayuSupplementalPoiStates = new WeakMap();
   try {
     const storedBasemapId = window.localStorage.getItem(BASEMAP_STORAGE_KEY);
@@ -17675,10 +17679,14 @@
   }
 
   function syncHuayuModelOcclusion(glMap) {
-    const style = glMap?.getStyle?.();
-    if (!style) return;
     const state = huayuModelOcclusionStates.get(glMap);
     if (state?.syncing) return;
+    const layerOrder = glMap?.getLayersOrder?.();
+    const orderSignature = layerOrder?.join("|");
+    if (state && orderSignature && state.orderSignature === orderSignature
+      && state.models?.every(id => glMap.getPaintProperty(id, "fill-extrusion-opacity") === 1)) return;
+    const style = glMap?.getStyle?.();
+    if (!style) return;
     if (state) state.syncing = true;
     try {
       // MapLibre disables 2D depth testing after the FIRST extrusion, including
@@ -17686,7 +17694,7 @@
       // ground surfaces (including the existing flat mountain material) before
       // one shared 3D pass, with cartographic symbols above it.
       const definitions = new Map(style.layers.map(layer => [layer.id, layer]));
-      const order = [...(glMap.getLayersOrder?.() || style.layers.map(layer => layer.id))];
+      const order = [...(layerOrder || style.layers.map(layer => layer.id))];
       const ground = [], models = [], annotations = [];
       for (const id of order) {
         const layer = definitions.get(id) || glMap.getLayer(id);
@@ -17728,6 +17736,7 @@
         order.splice(currentIndex, 1);
         order.splice(beforeId ? order.indexOf(beforeId) : order.length, 0, id);
       }
+      if (state) { state.orderSignature = order.join("|"); state.models = models; }
     } finally {
       if (state) state.syncing = false;
     }
@@ -18418,13 +18427,15 @@
     if (!glMap?.getStyle?.()) return;
     const perspective = glMap.getPitch() > 0.5;
     [HUAYU_WALL_LAYERS.extrusion, HUAYU_WALL_LAYERS.fenceExtrusion].forEach((layerId) => {
-      if (glMap.getLayer(layerId)) {
+      if (glMap.getLayer(layerId)
+        && glMap.getLayoutProperty?.(layerId, "visibility") !== (perspective ? "visible" : "none")) {
         glMap.setLayoutProperty(layerId, "visibility", perspective ? "visible" : "none");
       }
     });
     [HUAYU_WALL_LAYERS.casing, HUAYU_WALL_LAYERS.line,
       HUAYU_WALL_LAYERS.fenceCasing, HUAYU_WALL_LAYERS.fenceLine].forEach((layerId) => {
-      if (glMap.getLayer(layerId)) {
+      if (glMap.getLayer(layerId)
+        && glMap.getLayoutProperty?.(layerId, "visibility") !== (perspective ? "none" : "visible")) {
         // MapLibre line layers are screen-ordered and can paint across 3D
         // buildings. Use them only in the flat view; perspective is owned by
         // the matching extrusion so the same barrier is never drawn twice.
@@ -18457,7 +18468,7 @@
   }
 
   function ensureHuayuWallLayers(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    if (!glMap?.getStyle?.()?.layers?.length) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_WALL_SOURCE)) {
       glMap.addSource(HUAYU_WALL_SOURCE, {
@@ -19298,12 +19309,13 @@
 
   function huayuTerrainElevationMeters(value) {
     const text = String(value ?? "").trim().toLocaleLowerCase();
-    const parsed = Number.parseFloat(text.replace(",", "."));
-    if (!Number.isFinite(parsed)) return null;
-    return /(?:ft|feet|foot)\b/u.test(text) ? parsed * 0.3048 : parsed;
+    const match = text.replace(",", ".").match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(m|meters?|metres?|米|ft|feet|foot)?$/u);
+    if (!match) return null;
+    const meters = Number(match[1]) * (/^(?:ft|feet|foot)$/u.test(match[2] || "") ? 0.3048 : 1);
+    return Number.isFinite(meters) && meters >= -500 && meters <= 12000 ? meters : null;
   }
 
-  function huayuMountainReliefParts(element, geometry, areaSquareMeters, terrainPeaks = []) {
+  function huayuMountainReliefParts(element, geometry, areaSquareMeters, terrainPeaks = [], terrainElevations = terrainPeaks) {
     const polygons = geometry?.type === "Polygon" ? [geometry.coordinates]
       : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
     if (!polygons.length) return [];
@@ -19321,17 +19333,20 @@
       .sort((first, second) => second.polygonArea - first.polygonArea)
       .forEach(({ polygonGeometry, polygonArea, index: polygonIndex }) => {
         const polygonPeaks = terrainPeaks.filter((peak) =>
-          huayuPointInPolygonGeometry(peak.coordinates, polygonGeometry)).slice(0, 8);
+          huayuPointInPolygonGeometry(peak.coordinates, polygonGeometry));
+        const polygonSamples = terrainElevations.filter((sample) => sample.elevation !== null
+          && Number.isFinite(sample.elevation)
+          && huayuPointInPolygonGeometry(sample.coordinates, polygonGeometry));
         const taggedElevation = huayuTerrainElevationMeters(element?.tags?.ele);
-        const measuredPeak = Math.max(taggedElevation || 0,
-          ...polygonPeaks.map((peak) => peak.elevation || 0));
+        const measuredPeak = polygonSamples.reduce((maximum, sample) => Math.max(maximum, sample.elevation),
+          polygonPeaks.reduce((maximum, peak) => Math.max(maximum, peak.elevation || 0), taggedElevation || 0));
         const random = huayuTreeRandom(`${element?.type}:${element?.id}:mountain:${polygonIndex}`);
         const smallHill = polygonArea < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA;
         const inferredPeak = Math.sqrt(polygonArea) * (smallHill ? 0.18 : 0.048) * valleyScale
           * (0.82 + random() * 0.4);
-        const surfacePeakHeight = Math.round(clamp(measuredPeak || inferredPeak,
+        const surfacePeakHeight = measuredPeak > 0 ? Math.max(4, measuredPeak) : Math.round(clamp(inferredPeak,
           smallHill ? 4 : landKind === "open" ? 60 : 120,
-          measuredPeak ? 2500 : smallHill ? 90 : landKind === "open" ? 420 : 2500));
+          smallHill ? 90 : landKind === "open" ? 420 : 2500));
         parts.push({
           element: { ...element, id: `${element.id}:mountain:${polygonIndex}:surface` },
           geometry: polygonGeometry,
@@ -19345,6 +19360,9 @@
             reliefHeight: surfacePeakHeight,
             reliefArea: Math.round(polygonArea),
             reliefPeaks: JSON.stringify(polygonPeaks),
+            reliefSamples: JSON.stringify(polygonSamples),
+            ...(taggedElevation !== null ? {reliefTaggedElevation: taggedElevation} : {}),
+            reliefHeightModel: "mapped-elevation-v1",
             contourMajor: 0,
           },
         });
@@ -19361,6 +19379,12 @@
         coordinates: [Number(element.lon), Number(element.lat)],
         elevation: huayuTerrainElevationMeters(element.tags?.ele),
       })).filter((peak) => peak.coordinates.every(Number.isFinite));
+    // Elevation observations constrain already-qualified mountains; they never
+    // promote ordinary woods, plains or forest parks into mountain surfaces.
+    const terrainElevations = sourceElements.filter(element => element.type === "node" && element.tags?.ele !== undefined)
+      .map(element => ({id: `node:${element.id}`, kind: String(element.tags?.natural || (element.tags?.mountain_pass === "yes" ? "pass" : "spot")),
+        coordinates: [Number(element.lon), Number(element.lat)], elevation: huayuTerrainElevationMeters(element.tags.ele)}))
+      .filter(sample => sample.elevation !== null && sample.coordinates.every(Number.isFinite));
     const universityNames = [...new Set(sourceElements
       .filter((element) => String(element.tags?.amenity || "").toLocaleLowerCase() === "university")
       .map((element) => String(element.tags?.name || "").trim()).filter(Boolean))];
@@ -19455,7 +19479,7 @@
       const area = huayuGeometryAreaSquareMeters(geometry);
       const parent = !huayuMountainWoodlandEligible(element, geometry, terrainPeaks)
         ? mountainNeighborhood.findNearby(geometry) : null;
-      huayuMountainReliefParts(element, geometry, area, terrainPeaks).forEach((part) => {
+      huayuMountainReliefParts(element, geometry, area, terrainPeaks, terrainElevations).forEach((part) => {
         addFeature(part.element, "mountain-surface", "mountain", part.geometry, {
           ...part.properties, ...(parent ? {reliefNeighbor: 1, reliefParent: `${parent.type}:${parent.id}`} : {}),
         });
@@ -19509,7 +19533,7 @@
           addFeature(element, "important-label", importantLabel.featureClass, pointGeometry,
             { eleLabel: importantLabel.eleLabel || "", labelPriority: importantLabel.labelPriority });
         }
-        if (String(tags.natural || "").toLocaleLowerCase() === "tree" && pointGeometry) {
+        if (!includeMountainRelief && String(tags.natural || "").toLocaleLowerCase() === "tree" && pointGeometry) {
           addTreeModel(element, pointGeometry.coordinates);
         }
         const placeClass = String(tags.place || "").toLocaleLowerCase();
@@ -19699,7 +19723,7 @@
         if (!Array.isArray(peak?.coordinates) || peak.coordinates.length < 2) return;
         anchors.push({
           coordinates: peak.coordinates.slice(0, 2),
-          height: clamp(Number(peak.elevation) || peakHeight, smallHill ? 4 : 80, 2500),
+          height: Number.isFinite(peak.elevation) ? peak.elevation : peakHeight,
           sigma: clamp(Number(peak.sigma) || Math.sqrt(areaSquareMeters) * 0.18, smallHill ? 8 : 180, 12000),
         });
       });
@@ -19779,6 +19803,64 @@
       .test(String(value || ""));
   }
 
+  function huayuMountainHeightSamples(features) {
+    const locations = new Map();
+    for (const feature of features) {
+      let samples = [];
+      try { samples = JSON.parse(feature.properties?.reliefSamples || feature.properties?.reliefPeaks || "[]"); } catch {}
+      if (!Array.isArray(samples)) continue;
+      for (const sample of samples) {
+        const point = sample?.coordinates;
+        if (!Array.isArray(point) || point.length < 2 || !point.slice(0, 2).every(Number.isFinite)
+          || !Number.isFinite(sample.elevation) || sample.elevation < -500 || sample.elevation > 12000) continue;
+        const key = `${point[0]}/${point[1]}`;
+        if (!locations.has(key)) locations.set(key, {coordinates: point.slice(0, 2), observations: new Map()});
+        // A point copied into parent/child land cover still has one vote.
+        locations.get(key).observations.set(String(sample.id || `${sample.kind || "peak"}:${sample.elevation}`), sample.elevation);
+      }
+    }
+    return [...locations.values()].map(({coordinates, observations}) => {
+      const heights = [...observations.values()].sort((a, b) => a - b);
+      return {coordinates, elevation: heights.reduce((sum, value) => sum + value, 0) / heights.length};
+    }).sort((a, b) => a.coordinates[0] - b.coordinates[0] || a.coordinates[1] - b.coordinates[1]);
+  }
+
+  function huayuMountainConstrainedHeightField(features, baseline, cosine, areaSquareMeters) {
+    const samples = huayuMountainHeightSamples(features);
+    if (!samples.length) return {heightAt: baseline, sampleCount: 0, samples, model: "mapped-elevation-v1"};
+    // Interpolate residuals on the continuous ridge/valley prior. Compact,
+    // smooth supports keep sparse areas usable without inventing measured DEM.
+    // Exact observations are applied AFTER edge fading and valley shaping, so
+    // rivers and material boundaries cannot silently lower a tagged elevation.
+    const supportMeters = clamp(Math.sqrt(areaSquareMeters) / (Math.sqrt(samples.length) + 1) * 1.6, 24, 18000);
+    const origin = samples[0].coordinates;
+    const project = point => [(point[0] - origin[0]) * 111320 * cosine, (point[1] - origin[1]) * 111320];
+    const cells = new Map();
+    for (const sample of samples) {
+      const [x, y] = project(sample.coordinates);
+      const key = `${Math.floor(x / supportMeters)}/${Math.floor(y / supportMeters)}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push({x, y, target: sample.elevation, residual: sample.elevation - baseline(sample.coordinates)});
+    }
+    const heightAt = point => {
+      const [x, y] = project(point);
+      const column = Math.floor(x / supportMeters), row = Math.floor(y / supportMeters);
+      let correction = 0, weights = 1;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        for (const sample of cells.get(`${column + dx}/${row + dy}`) || []) {
+          const distance = Math.hypot(x - sample.x, y - sample.y);
+          if (distance < 0.001) return sample.target;
+          const ratio = distance / supportMeters;
+          if (ratio >= 1) continue;
+          const weight = (1 - ratio) ** 4 * (1 + 4 * ratio) / (ratio * ratio);
+          correction += sample.residual * weight; weights += weight;
+        }
+      }
+      return baseline(point) + correction / weights;
+    };
+    return {heightAt, samples, sampleCount: samples.length, supportMeters, model: "mapped-elevation-v1"};
+  }
+
   function huayuRegionalMountainSurface(feature, bounds, cosine, areaSquareMeters, peakHeight) {
     const seed = huayuTreeHash(`${feature.id}:regional-ridge-field`);
     const origin = [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
@@ -19790,12 +19872,7 @@
       + ((seed % 1000) / 1000 - 0.5) * Math.PI * 0.35;
     const sine = Math.sin(angle);
     const cosineAngle = Math.cos(angle);
-    let mappedPeaks = [];
-    try { mappedPeaks = JSON.parse(feature.properties?.reliefPeaks || "[]"); } catch {}
-    if (!Array.isArray(mappedPeaks)) mappedPeaks = [];
-    mappedPeaks = mappedPeaks.filter((peak) => Array.isArray(peak?.coordinates)
-      && peak.coordinates.length >= 2).slice(0, 8);
-    const heightAt = (coordinate) => {
+    const rawHeightAt = (coordinate) => {
       const east = (coordinate[0] - origin[0]) * 111320 * cosine;
       const north = (coordinate[1] - origin[1]) * 111320;
       const x = (east * cosineAngle + north * sine) / wavelength;
@@ -19820,18 +19897,10 @@
         + detail * detail * 0.11);
       if (openLand) elevation = peakHeight * (0.18 + regionalBase * 0.26
         + mainRange * mainRange * 0.34 + tributary * tributary * 0.18 + detail * detail * 0.04);
-      // Actual mapped peaks remain local constraints; inferred centre points do not.
-      mappedPeaks.forEach((peak) => {
-        const dx = (coordinate[0] - peak.coordinates[0]) * 111320 * cosine;
-        const dy = (coordinate[1] - peak.coordinates[1]) * 111320;
-        const sigma = Math.max(800, wavelength * 0.55);
-        const influence = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
-        const target = clamp(Number(peak.elevation) || peakHeight, 80, peakHeight);
-        elevation += Math.max(0, target - elevation) * influence;
-      });
       return clamp(elevation, 0, peakHeight);
     };
-    return { wavelength, heightAt };
+    const field = huayuMountainConstrainedHeightField([feature], rawHeightAt, cosine, areaSquareMeters);
+    return { wavelength, heightAt: field.heightAt, rawHeightAt };
   }
 
   function huayuMountainEdgeFadeLine(line, cosine, toleranceMeters, maximumPoints = 2048) {
@@ -20047,7 +20116,9 @@
       return model;
     }
     const smallHill = areaSquareMeters < HUAYU_MOUNTAIN_WOODLAND_MIN_AREA;
-    const peakHeight = clamp(Number(feature.properties?.reliefHeight) || 240, smallHill ? 4 : 80, 2500);
+    const samples = huayuMountainHeightSamples([feature]);
+    const peakHeight = samples.reduce((maximum, sample) => Math.max(maximum, sample.elevation),
+      clamp(Number(feature.properties?.reliefHeight) || 240, smallHill ? 4 : 80, 12000));
     // Clearings are clipped by the exact material mask, not treated as zero-altitude
     // valleys. Thousands of tiny holes must not be scanned for every relief sample.
     const samplingPolygon = huayuMountainSurfaceSamplingPolygon([outer]);
@@ -20074,7 +20145,7 @@
     const detailWavelength = smallHill ? clamp(Math.sqrt(areaSquareMeters) * 0.35, 30, 350)
       : clamp(Math.sqrt(areaSquareMeters) * 0.09, 700, 9000);
     const rawHeightAt = (coordinate) => {
-      if (regionalSurface) return regionalSurface.heightAt(coordinate);
+      if (regionalSurface) return regionalSurface.rawHeightAt(coordinate);
       let relief = peakHeight * 0.035;
       anchors.forEach((anchor) => {
         const dx = (coordinate[0] - anchor.coordinates[0]) * 111320 * cosine;
@@ -20094,13 +20165,15 @@
       const variation = broad * 0.5 + ridgeDetail * 0.32 + fine * 0.18;
       return Math.min(peakHeight, relief * (0.7 + variation * 0.42));
     };
-    const heightAt = (coordinate) => {
+    const unconstrainedHeightAt = (coordinate) => {
       if (!contains(coordinate)) return 0;
       const ratio = clamp(edgeDistance(coordinate, edgeFadeMeters) / edgeFadeMeters, 0, 1);
       return rawHeightAt(coordinate) * ratio * ratio * (3 - 2 * ratio) * valleyFactor(coordinate);
     };
+    const heightField = huayuMountainConstrainedHeightField([feature], unconstrainedHeightAt, cosine, areaSquareMeters);
+    const heightAt = coordinate => contains(coordinate) ? heightField.heightAt(coordinate) : 0;
     const model = { bounds, cosine, areaSquareMeters, peakHeight, heightAt, contains, waterContext,
-      rawHeightAt, edgeDistance, edgeFadeMeters, valleyFactor,
+      rawHeightAt, edgeDistance, edgeFadeMeters, valleyFactor, heightField,
       regionalWavelength: regionalSurface?.wavelength || 0 };
     const models = cachedModels || new Map();
     models.set(polygon, model);
@@ -20181,39 +20254,28 @@
       const base=huayuMountainSurfaceModel(root.feature,root.feature.geometry);
       if(!base) continue;
       const members=[root,...children], memberCells=new Map();
-      const peakConstraints=[];
       for(const member of members) {
         const latitude=(member.bounds.south+member.bounds.north)/2;
         member.edgeDistance=member===root ? base.edgeDistance : huayuMountainSegmentIndex(
           [huayuMountainEdgeFadeLine(member.feature.geometry.coordinates[0],Math.cos(latitude*Math.PI/180),
             clamp(base.edgeFadeMeters*0.035,12,240))], member.bounds,Math.cos(latitude*Math.PI/180),base.edgeFadeMeters);
         visit(member.bounds,key=>{if(!memberCells.has(key))memberCells.set(key,[]);memberCells.get(key).push(member);});
-        if(member!==root) {
-          try {
-            for(const peak of JSON.parse(member.feature.properties?.reliefPeaks||"[]")) {
-              if(Array.isArray(peak.coordinates) && Number(peak.elevation)>0) peakConstraints.push({
-                coordinates:peak.coordinates,height:clamp(Number(peak.elevation),4,2500),
-                sigma:clamp(Math.sqrt(member.area)*0.18,180,12000)});
-            }
-          } catch { /* Optional malformed peak metadata cannot split a continuous range. */ }
-        }
       }
-      const heightAt = point => {
+      const unconstrainedHeightAt = point => {
         let distance=0;
         for(const member of memberCells.get(`${Math.floor(point[1])}/${Math.floor(point[0])}`)||[]) {
           if(member.outerContains(point)) distance=Math.max(distance,member.edgeDistance(point,base.edgeFadeMeters));
         }
         if(!distance) return 0;
         const ratio=clamp(distance/base.edgeFadeMeters,0,1);
-        let height=base.rawHeightAt(point);
-        for(const peak of peakConstraints) {
-          const dx=(point[0]-peak.coordinates[0])*111320*base.cosine;
-          const dy=(point[1]-peak.coordinates[1])*111320;
-          height+=(peak.height-height)*Math.exp(-(dx*dx+dy*dy)/(2*peak.sigma*peak.sigma));
-        }
-        return height*ratio*ratio*(3-2*ratio)*base.valleyFactor(point);
+        return base.rawHeightAt(point)*ratio*ratio*(3-2*ratio)*base.valleyFactor(point);
       };
-      const range={heightAt,peakHeight:base.peakHeight,regionalWavelength:base.regionalWavelength};
+      const heightField=huayuMountainConstrainedHeightField(members.map(member=>member.feature),
+        unconstrainedHeightAt,base.cosine,root.area);
+      const heightAt=point=>(memberCells.get(`${Math.floor(point[1])}/${Math.floor(point[0])}`)||[])
+        .some(member=>member.outerContains(point)) ? heightField.heightAt(point) : 0;
+      const peakHeight=heightField.samples.reduce((maximum,sample)=>Math.max(maximum,sample.elevation),base.peakHeight);
+      const range={heightAt,peakHeight,heightField,regionalWavelength:base.regionalWavelength};
       for(const member of members) {
         context.ranges.set(member.feature,range);
         huayuMountainSurfaceModels.delete(member.feature);
@@ -20338,6 +20400,7 @@
     // Named garden hills are already in the terrain inventory. Use the same
     // rule even before their duplicate garden context/vector tiles arrive.
     const candidates = [...surfaces.filter(feature => feature.properties?.reliefLandKind === "garden"), ...gardens];
+    if (!candidates.length) return result;
     const parents = surfaces.filter(feature => feature.properties?.reliefLandKind !== "garden")
       .flatMap(feature => (feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates)
         .map(polygon => {
@@ -20423,6 +20486,8 @@
       if (!(east > west && north > south)) return;
       const widthMeters = (east - west) * 111320 * cosine;
       const heightMeters = (north - south) * 111320;
+      const mappedSamples = (model.heightField?.samples || []).filter(sample => sample.coordinates[0] >= west
+        && sample.coordinates[0] <= east && sample.coordinates[1] >= south && sample.coordinates[1] <= north);
       const closeTerrain = zoom >= 10.5;
       let idealCells = closeTerrain
         ? clamp(Math.round(650 + Math.log10(Math.max(10, areaSquareMeters)) * 110), 900, 1700)
@@ -20431,7 +20496,8 @@
         idealCells = Math.max(idealCells, clamp(Math.round(widthMeters * heightMeters
           / (model.regionalWavelength * 0.12) ** 2), 6000, 28000));
       }
-      const targetCells = Math.min(idealCells, Math.floor((remainingVertices - vertexCount) / 6));
+      const sampleReserve = Math.min(Math.floor((remainingVertices - vertexCount) / 2), mappedSamples.length * 12);
+      const targetCells = Math.min(idealCells, Math.floor((remainingVertices - vertexCount - sampleReserve) / 6));
       if (targetCells < 1) return;
       const maximumGridSize = model.regionalWavelength ? 192 : closeTerrain ? 64 : 42;
       let columns = clamp(Math.round(Math.sqrt(targetCells * widthMeters / Math.max(1, heightMeters))), 1,
@@ -20484,7 +20550,7 @@
         }
       }
       const gridPoint = (row, column) => grid[row * (columns + 1) + column];
-      grid.forEach((point, index) => {
+      const shadePoint = (point, index) => {
         const row = Math.floor(index / (columns + 1));
         const column = index % (columns + 1);
         let left = gridPoint(row, Math.max(0, column - 1));
@@ -20512,8 +20578,9 @@
         const slopeY = (up.height - down.height) / dyMeters * shadingScale;
         const magnitude = Math.hypot(slopeX, slopeY, 1);
         point.normal = [-slopeX / magnitude, -slopeY / magnitude, 1 / magnitude];
-      });
-      const maximumPolygonVertices = Math.min(rows * columns * 6, remainingVertices - vertexCount);
+      };
+      grid.forEach(shadePoint);
+      const maximumPolygonVertices = Math.min(rows * columns * 6 + mappedSamples.length * 12, remainingVertices - vertexCount);
       const boundaryCells = new Set();
       const gridIndex = (value, axis, first, last, count) => {
         if (!axis) return clamp(Math.floor((value-first)/(last-first)*count),0,count-1);
@@ -20535,6 +20602,23 @@
       }
       const polygonVertices = new Float32Array(maximumPolygonVertices * 9);
       let polygonOffset = 0;
+      const sampleCells = new Map();
+      for (const sample of mappedSamples) {
+        const coordinate = sample.coordinates;
+        const point = {coordinate, height: heightAt(coordinate), mercator: window.maplibregl.MercatorCoordinate.fromLngLat({
+          lng: coordinate[0], lat: coordinate[1]}, 0)};
+        // The finite-difference branch uses the field, independent of grid index.
+        shadePoint(point, 0);
+        const column = gridIndex(coordinate[0], longitudeGrid, west, east, columns);
+        const row = gridIndex(coordinate[1], latitudeGrid, south, north, rows);
+        for (let y = Math.max(0, row - 1); y <= Math.min(rows - 1, row + 1); y++) {
+          for (let x = Math.max(0, column - 1); x <= Math.min(columns - 1, column + 1); x++) {
+            const key = `${x}/${y}`;
+            if (!sampleCells.has(key)) sampleCells.set(key, []);
+            sampleCells.get(key).push(point);
+          }
+        }
+      }
       const emitTriangle = (first, second, third, boundary) => {
         if (polygonOffset / 9 + 3 > maximumPolygonVertices) return;
         // Thin boundary parts need coverage even with no interior grid samples.
@@ -20557,6 +20641,27 @@
           polygonVertices[polygonOffset++] = contourInterval;
         });
       };
+      const emitConstrainedTriangle = (first, second, third, boundary, samples) => {
+        let triangles = [[first, second, third]];
+        for (const point of samples || []) {
+          const split = [];
+          for (const [a, b, c] of triangles) {
+            const [ax, ay] = a.coordinate, [bx, by] = b.coordinate, [cx, cy] = c.coordinate;
+            const [px, py] = point.coordinate;
+            const determinant = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+            if (!determinant) {split.push([a, b, c]); continue;}
+            const u = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / determinant;
+            const v = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / determinant;
+            const w = 1 - u - v;
+            if (Math.min(u, v, w) < -1e-9 || Math.max(u, v, w) >= 1 - 1e-9) {split.push([a, b, c]); continue;}
+            if (w > 1e-9) split.push([a, b, point]);
+            if (u > 1e-9) split.push([b, c, point]);
+            if (v > 1e-9) split.push([c, a, point]);
+          }
+          triangles = split;
+        }
+        for (const triangle of triangles) emitTriangle(...triangle, boundary);
+      };
       for (let row = 0; row < rows; row += 1) {
         for (let column = 0; column < columns; column += 1) {
           const southwest = gridPoint(row, column);
@@ -20564,8 +20669,9 @@
           const northwest = gridPoint(row + 1, column);
           const northeast = gridPoint(row + 1, column + 1);
           const boundary=boundaryCells.has(`${column}/${row}`);
-          emitTriangle(southwest, southeast, northeast, boundary);
-          emitTriangle(southwest, northeast, northwest, boundary);
+          const samples = sampleCells.get(`${column}/${row}`);
+          emitConstrainedTriangle(southwest, southeast, northeast, boundary, samples);
+          emitConstrainedTriangle(southwest, northeast, northwest, boundary, samples);
         }
       }
       if (polygonOffset) {
@@ -20589,8 +20695,10 @@
   }
 
   function huayuWoodlandMaterialOcclusions(glMap, waterFeatures, viewportBounds) {
-    const features = (waterFeatures || []).map((feature) => ({ ...feature,
-      properties: { ...feature.properties, materialOcclusion: feature.properties?.materialOcclusion || "water" } }));
+    const features = (waterFeatures || []).filter(feature =>
+      huayuMountainSurfaceFeatureIntersectsViewport(feature, viewportBounds)).map(feature =>
+      feature.properties?.materialOcclusion ? feature : {...feature,
+        properties:{...feature.properties, materialOcclusion:"water"}});
     const sources = new Map();
     (glMap?.getStyle?.()?.layers || []).forEach((layer) => {
       if (!["fill", "fill-extrusion", "line"].includes(layer.type)) return;
@@ -20617,6 +20725,7 @@
             && (["land","road","railway","important-label","place","mountain-surface"].includes(kind)
               || feature.properties?.reliefRole==="surface")) continue;
           if (["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry?.type)) {
+            if (!huayuMountainSurfaceFeatureIntersectsViewport(feature, viewportBounds)) continue;
             features.push({ ...feature, properties: { ...feature.properties,
               materialOcclusion: feature.properties?.materialOcclusion
                 || (["water", "waterway"].includes(layer["source-layer"])
@@ -20866,19 +20975,84 @@
     return {values, renderedNeighbors};
   }
 
+  function observeHuayuMapGestures(glMap, onStart, onEnd) {
+    // The tilted view uses MapLibre directly; the overhead view uses Leaflet
+    // and synchronizes MapLibre with jumpTo on each frame.
+    const vectorStart = () => {if (vectorPerspectiveActive && vectorPerspectiveMap === glMap) onStart();};
+    const vectorEnd = () => {if (vectorPerspectiveActive && vectorPerspectiveMap === glMap) onEnd();};
+    map.on("movestart", onStart); map.on("moveend", onEnd);
+    glMap.on("movestart", vectorStart); glMap.on("moveend", vectorEnd);
+    return () => {
+      map.off("movestart", onStart); map.off("moveend", onEnd);
+      glMap.off("movestart", vectorStart); glMap.off("moveend", vectorEnd);
+    };
+  }
+
+  function waitForHuayuMapGestureEnd(glMap) {
+    const activeMap = vectorPerspectiveActive && vectorPerspectiveMap === glMap ? glMap : map;
+    return new Promise(resolve => activeMap.once("moveend", resolve));
+  }
+
+  function huayuTerrainRawCellReady(manifest, data, bounds) {
+    if (!manifest?.chunks?.length) return true;
+    const required = manifest.chunks.filter(chunk => chunk.bounds[1][1] > bounds.west && chunk.bounds[0][1] < bounds.east
+      && chunk.bounds[1][0] > bounds.south && chunk.bounds[0][0] < bounds.north);
+    if (!required.length) return true;
+    if (!data || data.generatedAt !== manifest.generatedAt || data.classification !== manifest.classification) return false;
+    if (!data.snapshotRegions && !data.snapshotBounds) return true;
+    if (data.snapshotBounds) {
+      return data.snapshotBounds[0][1] <= bounds.west && data.snapshotBounds[1][1] >= bounds.east
+        && data.snapshotBounds[0][0] <= bounds.south && data.snapshotBounds[1][0] >= bounds.north;
+    }
+    return required.every(chunk => data.snapshotRegions.some(region => region[0][0] <= chunk.bounds[0][0]
+        && region[0][1] <= chunk.bounds[0][1] && region[1][0] >= chunk.bounds[1][0] && region[1][1] >= chunk.bounds[1][1]));
+  }
+
+  function huayuTerrainDrawBatches(values) {
+    // Keep the actual triangles and their order. Bound short contiguous runs
+    // so a close view does not send an entire regional mesh to the GPU.
+    const batches = [];
+    const vertices = values.length / 9;
+    for (let first = 0; first < vertices; first += 768) {
+      const count = Math.min(768, vertices - first);
+      const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+      for (let vertex = first; vertex < first + count; vertex++) {
+        const x = values[vertex * 9], y = values[vertex * 9 + 1];
+        bounds[0] = Math.min(bounds[0], x); bounds[1] = Math.min(bounds[1], y);
+        bounds[2] = Math.max(bounds[2], x); bounds[3] = Math.max(bounds[3], y);
+      }
+      batches.push({first, count, bounds});
+    }
+    return batches;
+  }
+
+  function huayuTerrainVisibleDrawRanges(batches, bounds, vertexCount) {
+    if (!batches?.length) return vertexCount ? [{first:0, count:vertexCount}] : [];
+    const ranges = [];
+    for (const batch of batches) {
+      if (batch.bounds[2] < bounds[0] || batch.bounds[0] > bounds[2]
+        || batch.bounds[3] < bounds[1] || batch.bounds[1] > bounds[3]) continue;
+      const previous = ranges.at(-1);
+      if (previous && previous.first + previous.count === batch.first) previous.count += batch.count;
+      else ranges.push({first:batch.first, count:batch.count});
+    }
+    return ranges;
+  }
+
   function huayuTerrainMeshWorkerSource() {
     // Share the exact elevation, contours, holes and river-valley algorithms.
     // Only their execution moves off the UI thread.
     const functions = [clamp, huayuTreeHash, huayuTreeRandom, huayuWallPointInRing,
       huayuPointInPolygonGeometry, huayuGeometryInteriorPoint, huayuGeometryAreaSquareMeters,
       huayuMountainSurfaceSamplingPolygon, huayuMountainSurfaceAnchors, huayuMountainSurfaceNoise,
+      huayuMountainHeightSamples, huayuMountainConstrainedHeightField,
       huayuRegionalMountainSurface, huayuMountainEdgeFadeLine, huayuMountainSegmentIndex,
       huayuMountainOuterContains, huayuMountainSurfaceFeatureIntersectsViewport, huayuWoodlandMaterialBoundsIntersect,
       huayuMountainWaterDistance, huayuMountainSurfaceModel, huayuMountainRangeContext,
       huayuMountainContourInterval, huayuMountainMaterialOrigin, huayuMountainSurfaceModelBounds,
       huayuMountainSurfaceLandscapes, huayuMountainSurfaceFeatureVertices,
       huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
-      huayuWoodlandMaterialBuildGeometry, huayuTerrainMeshWorkerMain];
+      huayuWoodlandMaterialBuildGeometry, huayuTerrainDrawBatches, huayuTerrainMeshWorkerMain];
     return `const HUAYU_MOUNTAIN_WOODLAND_MIN_AREA=${HUAYU_MOUNTAIN_WOODLAND_MIN_AREA};
       const HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA=${HUAYU_REGIONAL_MOUNTAIN_SURFACE_MIN_AREA};
       const HUAYU_TERRAIN_MIN_ZOOM=${HUAYU_TERRAIN_MIN_ZOOM};
@@ -20898,6 +21072,7 @@
     const modelVersion = crypto.subtle.digest("SHA-256", new TextEncoder().encode([
       huayuMountainSurfaceModel, huayuMountainSurfaceFeatureVertices, huayuRegionalMountainSurface,
       huayuMountainSurfaceAnchors, huayuMountainWaterDistance, huayuMountainRangeContext,
+      huayuMountainHeightSamples, huayuMountainConstrainedHeightField,
       huayuMountainMaterialOrigin, huayuMountainSurfaceLandscapes,
       huayuWoodlandMaterialBuildGeometry, huayuWoodlandMaterialOwnership, huayuWoodlandMaterialCoverage,
     ].map(fn => fn.toString()).join("\n"))).then(bytes =>
@@ -20986,6 +21161,7 @@
               [...(payload.occlusions || []), ...(job.preparedOcclusions || [])], 1024);
             coverage.canvas = coverage.canvas.transferToImageBitmap();
             self.postMessage({id: job.id, cell: payload.cell, values, coverage,
+              drawBatches:values.length ? huayuTerrainDrawBatches(values) : null,
               waterFeatures:(payload.occlusions || []).filter(feature=>feature.properties?.materialOcclusion==="water"
                 && huayuMountainSurfaceFeatureIntersectsViewport(feature,job.maskBounds || payload.cell.bounds)),
               renderedNeighbors: payload.renderedNeighbors}, [values.buffer, coverage.canvas]);
@@ -21002,13 +21178,15 @@
             fingerprints.set(token, Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join(""));
           }
         }
-        const surfaceFeatures = job.surfaces.map(token => features.get(token));
+        let surfaceFeatures = job.surfaces.map(token => features.get(token));
         const occlusions = job.occlusions.map(token => features.get(token));
+        if (job.prepareLandscapes) surfaceFeatures = huayuMountainSurfaceLandscapes(surfaceFeatures, occlusions)
+          .sort((a,b) => Number(b.properties?.reliefArea || 0) - Number(a.properties?.reliefArea || 0));
         const waterKey = job.water.map(token => fingerprints.get(token)).sort().join("|");
         if (!waterContexts.has(waterKey)) waterContexts.set(waterKey, {features: job.water.map(token => features.get(token))});
         const waterContext = waterContexts.get(waterKey);
         const maskResolution = job.zoom >= 17 ? 1024 : 512;
-        const key = `v1:${await modelVersion}:${job.cell.key}:${job.surfaces.map(token => fingerprints.get(token)).join("|")}`
+        const key = `v1:${await modelVersion}:${job.cell.key}:landscapes:${Boolean(job.prepareLandscapes)}:${job.surfaces.map(token => fingerprints.get(token)).join("|")}`
           + `:water:${waterKey}:mask:${job.occlusions.map(token => fingerprints.get(token)).sort().join("|")}:resolution:${maskResolution}`;
         const previous = await stored(key);
         let values, renderedNeighbors, coverage, cacheHit = false;
@@ -21029,7 +21207,8 @@
           if (coverage) coverage.canvas = coverage.canvas.transferToImageBitmap();
         }
         const transfer = [...(values ? [values.buffer] : []), ...(coverage ? [coverage.canvas] : [])];
-        self.postMessage({id: job.id, values, renderedNeighbors, coverage, cacheHit}, transfer);
+        self.postMessage({id: job.id, values, renderedNeighbors, coverage, cacheHit,
+          drawBatches:values ? huayuTerrainDrawBatches(values) : null}, transfer);
         while (waterContexts.size > 8) waterContexts.delete(waterContexts.keys().next().value);
       } catch (error) { self.postMessage({id: job.id, error: String(error?.message || error)}); }
     };
@@ -21068,7 +21247,7 @@
             worker.postMessage({id, url});
           }).then(result => result.payload);
         },
-        build(layer, cell, surfaces, water, occlusions, zoom, needsMesh) {
+        build(layer, cell, surfaces, water, occlusions, zoom, needsMesh, prepareLandscapes = false) {
           const register = [];
           for (const feature of new Set([...surfaces, ...water, ...occlusions])) {
             if (registered.has(feature)) continue;
@@ -21080,7 +21259,7 @@
             const id = ++sequence;
             pending.set(id, {resolve, reject});
             try { worker.postMessage({id, register, cell, surfaces: tokens(surfaces), water: tokens(water),
-              occlusions: tokens(occlusions), zoom, needsMesh}); }
+              occlusions: tokens(occlusions), zoom, needsMesh, prepareLandscapes}); }
             catch (error) { pending.delete(id); reject(error); }
           });
         },
@@ -21146,10 +21325,14 @@
             || this.publishedRequests.has(entry.url)) continue;
           const contextRevision = this.contextRevision;
           const occlusions = huayuWoodlandMaterialOcclusions(this.map, this.contextFeatures || this.waterFeatures, maskBounds);
-          const request = this.meshWorker.loadPublished(new URL(entry.url, window.location.href).href, occlusions,
+          // Prepared geometry must not queue behind a running near-view height
+          // field. Reuse the snapshot decoder independently of mesh refinement.
+          huayuTerrainSnapshotWorker ||= createHuayuTerrainMeshWorker();
+          const snapshotWorker = huayuTerrainSnapshotWorker || this.meshWorker;
+          const request = snapshotWorker.loadPublished(new URL(entry.url, window.location.href).href, occlusions,
             maskBounds, existing?.publishedUrl !== entry.url)
             .then(async built => {
-              if (this.interacting) await new Promise(resolve => map.once("moveend", resolve));
+              if (this.interacting) await waitForHuayuMapGestureEnd(this.map);
               if (!this.gl || !huayuTerrainPreloadManifest?.renderBlocks?.some(next => next.url === entry.url) || !this.enabled) {
                 built.coverage.canvas.close(); return;
               }
@@ -21165,6 +21348,7 @@
                 maskGeographicBounds:maskBounds, maskZoom:Math.floor(zoom),
                 buffer: reuseGeometry ? previous.buffer : gl.createBuffer(), texture: gl.createTexture(),
                 vertexCount: reuseGeometry ? previous.vertexCount : built.values.length / 9,
+                drawBatches: reuseGeometry ? previous.drawBatches : built.drawBatches,
                 coverageBounds: built.coverage.bounds, coverageResolution: built.coverage.resolution,
                 renderedNeighbors: built.renderedNeighbors};
               if (!reuseGeometry) {
@@ -21237,7 +21421,9 @@
           vertices -= block.vertexCount;
         }
       },
-      setData(features) {
+      setData(features, rawSnapshotData = null) {
+        const rawSnapshotSignature = rawSnapshotData ? JSON.stringify([rawSnapshotData.generatedAt,
+          rawSnapshotData.classification, rawSnapshotData.snapshotRegions, rawSnapshotData.snapshotBounds]) : "";
         this.contextFeatures = (features || []).filter(feature => feature.properties?.materialOcclusion
           || ["water", "waterway"].includes(feature.properties?.renderKind));
         const waterFeatures = (features || []).filter((feature) =>
@@ -21255,12 +21441,15 @@
           `${feature.id}:${feature.properties?.reliefHeight || 0}:${feature.properties?.reliefPeaks || ""}:${feature.properties?.reliefLandKind || "wood"}`)
           .sort().join("|") + "|water:" + waterFeatures.map((feature) => feature.id).sort().join("|")
           + "|context:" + this.contextFeatures.map(feature=>feature.terrainDigest || feature.id).sort().join("|");
-        if (signature === this.signature && nextFeatures.length === this.features.length
+        if (signature === this.signature && rawSnapshotSignature === this.rawSnapshotSignature
+          && nextFeatures.length === this.features.length
           && nextFeatures.every((feature, index) => feature === this.features[index])
           && waterFeatures.length === this.waterFeatures?.length
           && waterFeatures.every((feature, index) => feature === this.waterFeatures[index])) return;
         this.waterFeatures = waterFeatures;
         this.features = nextFeatures;
+        this.rawSnapshotData = rawSnapshotData;
+        this.rawSnapshotSignature = rawSnapshotSignature;
         this.signature = signature;
         this.dataRevision = (this.dataRevision || 0) + 1;
         if (this.gl && this.enabled) this.scheduleRebuild();
@@ -21307,6 +21496,9 @@
           if (state) updateHuayuLiveBasemapDiagnostics(state);
           return;
         }
+        // Before raw data is applied, water/context arrivals are not evidence
+        // of a complete empty terrain inventory, even before the manifest loads.
+        if (!this.features.length && !this.rawSnapshotData) return;
         const currentBounds = huayuAdministrativeQueryBounds(this.map);
         const cells = huayuWoodlandMaterialCells(currentBounds, zoom);
         if (!cells.length) return;
@@ -21350,14 +21542,18 @@
         let maskUpdates = 0;
         for (const cell of cells) {
           if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
+          // An unloaded region is not an empty mountain region. Keep its
+          // prepared material until all required raw chunks can replace it.
+          if (this.publishedManifest?.chunks?.length
+            && !huayuTerrainRawCellReady(this.publishedManifest, this.rawSnapshotData, cell.bounds)) continue;
           const localOcclusions = [...this.retainedOcclusions.values()].filter(feature =>
             huayuMountainSurfaceFeatureIntersectsViewport(feature, cell.bounds));
           const landscapeKey = `${this.dataRevision}:${this.contextRevision}:${cell.key}`;
           this.landscapeSurfaces ||= new Map();
           let surfaces = this.landscapeSurfaces.get(landscapeKey);
           if (!surfaces) {
-            surfaces = huayuMountainSurfaceLandscapes(
-              huayuMountainSurfaceOverviewFeatures(candidates, cell.bounds, zoom), localOcclusions)
+            const selected = huayuMountainSurfaceOverviewFeatures(candidates, cell.bounds, zoom);
+            surfaces = (this.meshWorker ? selected : huayuMountainSurfaceLandscapes(selected, localOcclusions))
               .sort((first, second) => Number(second.properties?.reliefArea || 0)
                 - Number(first.properties?.reliefArea || 0));
             this.landscapeSurfaces.set(landscapeKey, surfaces);
@@ -21372,7 +21568,9 @@
             && huayuMountainSurfaceFeatureIntersectsViewport(feature, valleyBounds));
           const surfaceKey = surfaces.map(feature => this.featureToken(feature)).join(",");
           const waterKey = water.map(feature => this.featureToken(feature)).sort((a, b) => a - b).join(",");
-          const meshKey = `${surfaceKey}|water:${waterKey}`;
+          const gardenKey = localOcclusions.filter(feature => feature.properties?.materialOcclusion === "garden")
+            .map(feature => this.featureToken(feature)).sort((a,b) => a-b).join(",");
+          const meshKey = `${surfaceKey}|water:${waterKey}|garden:${gardenKey}`;
           const maskKey = `${surfaceKey}|mask:${localOcclusions.map(feature => this.featureToken(feature)).sort((a, b) => a - b).join(",")}`;
           let block = this.blocks.get(cell.key);
           const needsMesh = !block || block.meshKey !== meshKey;
@@ -21386,12 +21584,14 @@
           let values;
           let renderedNeighbors = block?.renderedNeighbors || 0;
           let coverage;
+          let drawBatches;
           if (this.meshWorker) {
             try {
-              const built = await this.meshWorker.build(this, cell, surfaces, water, localOcclusions, zoom, needsMesh);
+              const built = await this.meshWorker.build(this, cell, surfaces, water, localOcclusions, zoom, needsMesh, true);
               values = needsMesh ? built.values : undefined;
               if (needsMesh) renderedNeighbors = built.renderedNeighbors;
               coverage = built.coverage;
+              drawBatches = built.drawBatches;
               if (built.cacheHit) this.diskMeshHits = (this.diskMeshHits || 0) + 1;
             } catch (error) {
               this.meshWorker.close(); this.meshWorker = null;
@@ -21401,6 +21601,8 @@
           if (!coverage) {
             if (!this.gl || !this.enabled || revision !== (this.rebuildRevision || 0)) return;
             if (needsMesh) {
+              if (!this.meshWorker) surfaces = huayuMountainSurfaceLandscapes(surfaces, localOcclusions)
+                .sort((a,b) => Number(b.properties?.reliefArea || 0) - Number(a.properties?.reliefArea || 0));
               if (!this.waterContexts.has(waterKey)) this.waterContexts.set(waterKey, {features: water});
               const built = await huayuWoodlandMaterialBuildGeometry(surfaces, this.waterContexts.get(waterKey),
                 cell.bounds, zoom, () => Boolean(this.gl && this.enabled && revision === (this.rebuildRevision || 0)));
@@ -21417,6 +21619,7 @@
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, block.buffer);
             this.gl.bufferData(this.gl.ARRAY_BUFFER, values, this.gl.STATIC_DRAW);
             block.vertexCount = values.length / 9;
+            block.drawBatches = drawBatches || huayuTerrainDrawBatches(values);
             block.renderedNeighbors = renderedNeighbors;
             this.meshBuilds = (this.meshBuilds || 0) + 1;
             builds += 1;
@@ -21825,8 +22028,7 @@
           // include idle gaps between pointer events, so sample the UI clock.
           this.interactionFrame = window.requestAnimationFrame(sample);
         };
-        map.on("movestart", this.onInteractionStart);
-        map.on("moveend", this.onInteractionEnd);
+        this.unbindGestures = observeHuayuMapGestures(mapInstance, this.onInteractionStart, this.onInteractionEnd);
         mapInstance.on("moveend", this.onViewportChange);
         if (this.enabled) this.rebuild();
       },
@@ -21863,6 +22065,7 @@
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.disable(gl.CULL_FACE);
         const bounds = huayuAdministrativeQueryBounds(this.map);
+        this.drawnVertices = 0;
         const draw = (block, clip) => {
           if (!block.vertexCount || !block.coverageBounds) return;
           const northwest = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.west, lat: clip.north}, 0);
@@ -21884,7 +22087,22 @@
           gl.uniform4fv(this.coverageBoundsLocation, [block.coverageBounds[0] - origin[0],
             block.coverageBounds[1] - origin[1], block.coverageBounds[2], block.coverageBounds[3]]);
           gl.uniform1f(this.coverageResolutionLocation, block.coverageResolution || 512);
-          gl.drawArrays(gl.TRIANGLES, 0, block.vertexCount);
+          const clipBounds = [northwest.x - origin[0], northwest.y - origin[1],
+            southeast.x - origin[0], southeast.y - origin[1]];
+          // Cell clips can extend well beyond the screen, especially when an
+          // overview remains the fallback for a tiny new close-view cell.
+          if (bounds) {
+            const viewNW = window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.west,lat:bounds.north},0);
+            const viewSE = window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.east,lat:bounds.south},0);
+            clipBounds[0] = Math.max(clipBounds[0], viewNW.x - origin[0]);
+            clipBounds[1] = Math.max(clipBounds[1], viewNW.y - origin[1]);
+            clipBounds[2] = Math.min(clipBounds[2], viewSE.x - origin[0]);
+            clipBounds[3] = Math.min(clipBounds[3], viewSE.y - origin[1]);
+          }
+          for (const range of huayuTerrainVisibleDrawRanges(block.drawBatches, clipBounds, block.vertexCount)) {
+            gl.drawArrays(gl.TRIANGLES, range.first, range.count);
+            this.drawnVertices += range.count;
+          }
         };
         for (const cell of huayuWoodlandMaterialCells(bounds, zoom)) {
           if (!huayuWoodlandMaterialBoundsIntersect(cell.bounds, bounds)) continue;
@@ -21921,8 +22139,7 @@
       },
       onRemove(mapInstance, gl) {
         window.cancelAnimationFrame(this.interactionFrame);
-        if (this.onInteractionStart) map.off("movestart", this.onInteractionStart);
-        if (this.onInteractionEnd) map.off("moveend", this.onInteractionEnd);
+        this.unbindGestures?.();
         if (this.onViewportChange) mapInstance.off("moveend", this.onViewportChange);
         if (this.onSourceContextChange) mapInstance.off("sourcedata", this.onSourceContextChange);
         window.clearTimeout(this.rebuildTimer);
@@ -22607,6 +22824,7 @@
       .filter(feature => feature.properties?.reliefNeighbor === 1).length);
     mapElement.dataset.huayuTerrainRenderedNeighbors = String(terrainMaterialLayer?.renderedNeighbors || 0);
     mapElement.dataset.huayuTerrainRenderCpuMs = String(terrainMaterialLayer?.renderCpuMs || 0);
+    mapElement.dataset.huayuTerrainDrawnVertices = String(terrainMaterialLayer?.drawnVertices || 0);
     mapElement.dataset.huayuTerrainPublishedBlocks = String(terrainMaterialLayer?.publishedBlocks || 0);
     mapElement.dataset.huayuTerrainTiles = `${terrainKeys.filter((key) => state.terrainTileCache.has(key)).length}/${terrainKeys.length}`;
     mapElement.dataset.huayuTerrainPending = String(terrainKeys.filter((key) => state.terrainPendingTiles.has(key)).length);
@@ -22652,6 +22870,8 @@
       id.startsWith("ogf-atlas-huayu-mountain-")).length);
     mapElement.dataset.huayuTerrainRenderingMode = terrainMaterialLayer?.renderingMode || "";
     mapElement.dataset.huayuTerrainModel = "flat-textured-woodland-contours";
+    mapElement.dataset.huayuTerrainHeightModel = huayuTerrainPreload?.data.heightField?.model || "inferred-legacy";
+    mapElement.dataset.huayuTerrainElevationPoints = String(huayuTerrainPreload?.data.heightField?.mountainObservations || 0);
     mapElement.dataset.huayuLiveBasemapUpdatedAt = state.loadedAt
       ? new Date(state.loadedAt).toISOString() : "";
   }
@@ -22972,6 +23192,7 @@
     const data = {type: "FeatureCollection", format: 1, schema: manifest.schema,
       generatedAt: manifest.generatedAt,
       classification: manifest.classification,
+      ...(manifest.heightField ? {heightField: manifest.heightField} : {}),
       coverage: manifest.coverage,
       snapshotRegions: [...new Map([...downloadedChunks.map((chunk) => chunk.bounds),
         ...(sameGeneration ? huayuTerrainPreload.data.snapshotRegions || [] : [])]
@@ -23173,7 +23394,7 @@
       glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)?.setData({type: "FeatureCollection",
         features: data.features.filter(feature => feature.properties?.reliefRole !== "surface"
           && feature.properties?.renderKind !== "terrain-context")});
-      huayuWoodlandMaterialLayers.get(glMap)?.setData(data.features);
+      huayuWoodlandMaterialLayers.get(glMap)?.setData(data.features, huayuTerrainPreload?.data);
       state.appliedRevision = state.renderRevision;
     }
     applyHuayuSportsSnapshot(glMap, state);
@@ -23298,7 +23519,7 @@
             || Date.now() - entry.cachedAt >= HUAYU_TERRAIN_RETENTION_MS) { finish(null); return; }
           // Reuse old forest geometry immediately while upgrading its missing
           // water context and omitted multipolygon parts in the background.
-          finish(entry.schema === "mountain-open-land-v1" ? entry : { ...entry, refreshAt: 0 });
+          finish(entry.schema === "mountain-height-field-v1" ? entry : { ...entry, refreshAt: 0 });
         };
         request.onerror = () => finish(null);
       } catch { finish(null); }
@@ -23312,7 +23533,7 @@
       const transaction = database.transaction("tiles", "readwrite");
       const store = transaction.objectStore("tiles");
       store.put({ key, data: entry.data, selectionKey: entry.selectionKey, loadedAt: entry.loadedAt,
-        cachedAt: entry.cachedAt, refreshAt: entry.refreshAt, schema: "mountain-open-land-v1" });
+        cachedAt: entry.cachedAt, refreshAt: entry.refreshAt, schema: "mountain-height-field-v1" });
       const count = store.count();
       count.onsuccess = () => {
         let excess = count.result - HUAYU_TERRAIN_TILE_CACHE_LIMIT;
@@ -23747,7 +23968,9 @@
       if (!state.visibleTileKeys.has(tile.key) || state.pendingTiles.has(tile.key)) continue;
       const controller = new AbortController();
       const promise = fetchHuayuLiveBasemapTile(tile, controller.signal)
-        .then((result) => {
+        .then(async (result) => {
+          if (!state.active) return;
+          if (state.interacting) await waitForHuayuMapGestureEnd(glMap);
           if (!state.active) return;
           state.failedTiles.delete(tile.key);
           state.tileCache.set(tile.key, {
@@ -23934,8 +24157,7 @@
     glMap.on("move", state.onMove);
     glMap.on("moveend", state.onMoveEnd);
     scheduleHuayuLiveBasemap(glMap, 0);
-    map.on("movestart", state.onGestureStart);
-    map.on("moveend", state.onGestureEnd);
+    state.unbindGestures = observeHuayuMapGestures(glMap, state.onGestureStart, state.onGestureEnd);
   }
 
   function deactivateHuayuLiveBasemap(glMap) {
@@ -23955,8 +24177,7 @@
     syncHuayuLiveBasemapPrimaryLayers(glMap, state, false);
     glMap.off("move", state.onMove);
     glMap.off("moveend", state.onMoveEnd);
-    map.off("movestart", state.onGestureStart);
-    map.off("moveend", state.onGestureEnd);
+    state.unbindGestures?.();
     huayuLiveBasemapStates.delete(glMap);
     const publishedPoiFilters = huayuLiveBasemapPoiFilters.get(glMap);
     publishedPoiFilters?.forEach((filter, layerId) => {
@@ -23998,6 +24219,8 @@
       delete mapElement.dataset.huayuTerrainMaterialLayers;
       delete mapElement.dataset.huayuTerrainRenderingMode;
       delete mapElement.dataset.huayuTerrainModel;
+      delete mapElement.dataset.huayuTerrainHeightModel;
+      delete mapElement.dataset.huayuTerrainElevationPoints;
       delete mapElement.dataset.huayuTerrainEnabled;
     }
   }
@@ -24465,7 +24688,7 @@
   }
 
   function ensureHuayuPavilionLayer(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    if (!glMap?.getStyle?.()?.layers?.length) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_PAVILION_SOURCE)) {
       glMap.addSource(HUAYU_PAVILION_SOURCE, {
@@ -24554,14 +24777,16 @@
     ].forEach(([layerId, part]) => {
       if (!glMap.getLayer(layerId)) return;
       const partFilter = ["==", ["get", "pavilionPart"], part];
-      glMap.setFilter(layerId, liveOwner ? partFilter
-        : ["all", partFilter, ["==", ["get", "osmType"], "node"]]);
+      const filter = liveOwner ? partFilter : ["all", partFilter, ["==", ["get", "osmType"], "node"]];
+      if (JSON.stringify(glMap.getFilter?.(layerId)) !== JSON.stringify(filter)) glMap.setFilter(layerId, filter);
     });
     if (glMap.getLayer(HUAYU_BUS_FACILITY_LAYERS.model)) {
       const partFilter = ["has", "busFacilityPart"];
-      glMap.setFilter(HUAYU_BUS_FACILITY_LAYERS.model, liveOwner ? partFilter
-        : ["all", partFilter,
-          ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]]);
+      const filter = liveOwner ? partFilter : ["all", partFilter,
+        ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]];
+      if (JSON.stringify(glMap.getFilter?.(HUAYU_BUS_FACILITY_LAYERS.model)) !== JSON.stringify(filter)) {
+        glMap.setFilter(HUAYU_BUS_FACILITY_LAYERS.model, filter);
+      }
     }
   }
 
@@ -24569,13 +24794,15 @@
     if (!glMap || !state) return;
     const nextEnabled = Boolean(enabled);
     const syncPublishedLayers = (visibility) => HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
-      if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
+      if (glMap.getLayer(layerId) && glMap.getLayoutProperty?.(layerId, "visibility") !== visibility)
+        glMap.setLayoutProperty(layerId, "visibility", visibility);
     });
     const syncLiveLayers = (visibility) => [
       HUAYU_LIVE_BUILDING_LAYER,
       ...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS),
     ].forEach((layerId) => {
-      if (glMap.getLayer(layerId)) glMap.setLayoutProperty(layerId, "visibility", visibility);
+      if (glMap.getLayer(layerId) && glMap.getLayoutProperty?.(layerId, "visibility") !== visibility)
+        glMap.setLayoutProperty(layerId, "visibility", visibility);
     });
     // Never render published and live building owners in the same frame.
     if (nextEnabled) {
@@ -24587,6 +24814,7 @@
     }
     syncHuayuBuildingReplacementLayers(glMap, nextEnabled);
     state.primaryActive = nextEnabled;
+    if (nextEnabled && state.addedAt && !state.firstModelMs) state.firstModelMs = Math.round(performance.now() - state.addedAt);
   }
 
   function clearHuayuLiveBuildingPrimarySync(state) {
@@ -24607,7 +24835,7 @@
       return;
     }
     const activate = () => {
-      if (!state.active || revision !== state.primaryRevision || !state.dataReady
+      if (!state.active || state.interacting || revision !== state.primaryRevision || !state.dataReady
         || !state.snapshotReady
         || glMap.isSourceLoaded?.(HUAYU_LIVE_BUILDING_SOURCE) === false) return;
       clearHuayuLiveBuildingPrimarySync(state);
@@ -24628,7 +24856,7 @@
   }
 
   function ensureHuayuLiveBuildingLayer(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    if (!glMap?.getStyle?.()?.layers?.length) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)) {
       glMap.addSource(HUAYU_LIVE_BUILDING_SOURCE, {
@@ -24716,6 +24944,11 @@
   }
 
   function applyHuayuLiveBuildings(glMap, state) {
+    if (state.interacting) return;
+    if (state.appliedRevision === state.renderRevision && state.primaryActive && state.snapshotReady) {
+      updateHuayuLiveBuildingDiagnostics(state);
+      return;
+    }
     const layersReady = ensureHuayuLiveBuildingLayer(glMap);
     if (!layersReady) {
       if (state?.active) {
@@ -24759,6 +24992,15 @@
         ? new Date(state.timerRunAt).toISOString() : "";
       mapElement.dataset.huayuLiveBuildingTileZoom = state.tileZoom === null ? "" : String(state.tileZoom);
       mapElement.dataset.huayuLiveBuildingCache = [...sources].sort().join(",");
+      mapElement.dataset.huayuModelMemoryTiles = String(state.tileCache.size);
+      mapElement.dataset.huayuModelMemoryBytes = String([...state.tileCache.values()]
+        .reduce((sum, entry) => sum + huayuModelEntryBytes(entry), 0));
+      mapElement.dataset.huayuModelSourceUpdates = String(state.renderRevision);
+      mapElement.dataset.huayuModelResidentTiles = String(state.renderTileRevisions?.size || 0);
+      mapElement.dataset.huayuModelRequests = String(state.requestCount || 0);
+      mapElement.dataset.huayuModelCacheHits = String(state.cacheHits || 0);
+      mapElement.dataset.huayuModelWorker = huayuModelTileWorker ? "ready" : "fallback";
+      mapElement.dataset.huayuLiveBuildingFirstModelMs = String(state.firstModelMs || 0);
       mapElement.dataset.huayuLiveBuildingActive = String(Boolean(state.active));
       mapElement.dataset.huayuLiveBuildingLastMerge = `${state.lastMergeReadyCount || 0}/${state.lastMergeKeyCount || 0}`;
       mapElement.dataset.huayuLiveBuildingStatus = state.status || "loading";
@@ -24785,7 +25027,9 @@
   }
 
   function huayuLiveBuildingTileZoom(glMap) {
-    return clamp(Math.floor(glMap.getZoom()) + 1,
+    // Medium-scale models do not need dozens of tiny requests. Close views
+    // retain the finer tiles; every selected tile still has complete geometry.
+    return clamp(Math.floor(glMap.getZoom()) + (glMap.getZoom() >= 14 ? 1 : 0),
       HUAYU_LIVE_BUILDING_MIN_TILE_ZOOM, HUAYU_LIVE_BUILDING_MAX_TILE_ZOOM);
   }
 
@@ -24858,6 +25102,321 @@
       + `way(r.ancientRelations);way(r.ancientArchitectureRelations););out body geom;`;
   }
 
+  function huayuModelTileWorkerSource() {
+    const functions = [huayuLiveBuildingFeatureCollection, huayuPavilionKind, huayuLiveBuildingTags,
+      huayuAncientBuildingKind, huayuWallCoordinates, huayuWallPointKey, huayuIsPublicTransportShelter,
+      huayuPavilionNodeGeometry, huayuPavilionNodeRadius, huayuPavilionPointSegmentDistanceMeters,
+      parseHuayuWallMeasurement,
+      huayuPavilionRoadHalfWidth, huayuNormalizedWallRing, huayuWallRingArea,
+      huayuCityWallRelationGeometry, huayuWallJoinRings, huayuWallPointInRing,
+      huayuLiveBuildingHeight, huayuLiveBuildingMinHeight, huayuPavilionRoofDepth,
+      huayuBuildingColorProperties, huayuAncientRoofCapHeight, huayuPavilionColumnGeometry,
+      huayuPavilionRingPerimeter, huayuPavilionSampleRing, huayuPavilionInteriorPoint,
+      huayuPavilionPolygonContainsPoint, huayuPavilionDistanceToRings, huayuPavilionInsetColumnCenter,
+      huayuPavilionMoveTowardMeters, huayuPavilionColumnRing, huayuPavilionFeatureCollection,
+      huayuWallFeatureCollection, huayuFenceColor, huayuWallColor, huayuFenceNightColor,
+      huayuWallNightColor, huayuWallSegmentPolygons];
+    return `${functions.map(fn => fn.toString()).join("\n")}\n${huayuModelEntryBytes.toString()}\nconst huayuModelAlgorithms = [${functions.map(fn => fn.name).join(",")}];\n(${huayuModelTileWorkerMain.toString()})();`;
+  }
+
+  function huayuModelEntryBytes(entry) {
+    // Conservative serialized geometry estimate, computed once in the worker.
+    return entry.cacheBytes || JSON.stringify({data:entry.data,
+      pavilionData:entry.pavilionData, wallData:entry.wallData}).length * 2 + 512;
+  }
+
+  function huayuModelResidentTiles(state, readyKeys, byteLimit) {
+    const previous = state.renderTileRevisions;
+    if (previous?.size && readyKeys.every(key => previous.get(key) === state.tileCache.get(key)?.revision)
+      && [...previous].every(([key, revision]) => state.tileCache.get(key)?.revision === revision)) {
+      return [...previous.keys()];
+    }
+    // Keep only already visited neighbours on the source. No speculative API
+    // requests and no growing nationwide GeoJSON/GPU buffer during exploration.
+    const neighbours = new Set();
+    readyKeys.forEach(key => {
+      const [z, x, y] = key.split("/").map(Number);
+      const scale = 2 ** z;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (y + dy >= 0 && y + dy < scale) neighbours.add(`${z}/${(x + dx + scale) % scale}/${y + dy}`);
+      }
+    });
+    const selected = new Set(readyKeys);
+    let bytes = readyKeys.reduce((sum, key) => sum + huayuModelEntryBytes(state.tileCache.get(key)), 0);
+    const candidates = [...state.tileCache].filter(([key]) => neighbours.has(key) && !selected.has(key))
+      .sort((a, b) => (b[1].lastUsed || 0) - (a[1].lastUsed || 0));
+    for (const [key, entry] of candidates) {
+      const size = huayuModelEntryBytes(entry);
+      if (selected.size >= Math.max(readyKeys.length, 128) || bytes + size > byteLimit) continue;
+      bytes += size; selected.add(key);
+    }
+    return [...selected].sort();
+  }
+
+  function pruneHuayuModelTileCache(state, countLimit, byteLimit) {
+    const entries = [...state.tileCache];
+    let bytes = entries.reduce((sum, [, entry]) => sum + huayuModelEntryBytes(entry), 0);
+    const removable = entries.filter(([key]) => !state.visibleTileKeys.has(key)
+      && !state.pendingTiles.has(key) && !state.renderTileRevisions?.has(key))
+      .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0));
+    for (const [key, entry] of removable) {
+      if (state.tileCache.size <= countLimit && bytes <= byteLimit) break;
+      state.tileCache.delete(key); bytes -= huayuModelEntryBytes(entry);
+    }
+  }
+
+  function touchHuayuModelTiles(kind, state, tiles, now) {
+    const keys = [];
+    tiles.forEach(tile => {
+      const entry = state.tileCache.get(tile.key);
+      if (!entry) return;
+      entry.lastUsed = now;
+      if (now - (entry.lastDiskTouch || 0) >= 60000) {
+        entry.lastDiskTouch = now; keys.push(tile.key);
+      }
+    });
+    if (keys.length) getHuayuModelTileWorker()?.request({action:"touch", kind, keys}).catch(() => {});
+  }
+
+  function huayuModelTileWorkerMain() {
+    const schema = huayuModelAlgorithms.map(fn => fn.toString()).join("\n");
+    let hash = 2166136261;
+    for (let index = 0; index < schema.length; index++) hash = Math.imul(hash ^ schema.charCodeAt(index), 16777619);
+    const version = `models-v1-${hash >>> 0}`;
+    let storageStatus = "opening";
+    let databasePromise;
+    const database = () => databasePromise ||= new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) { value?.close?.(); return; }
+        settled = true; storageStatus = value ? "ready" : "unavailable"; clearTimeout(timer); resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), 3000);
+      try {
+        const request = indexedDB.open("ogf-atlas-models-v1", 2);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains("tiles")) db.createObjectStore("tiles", {keyPath:"key"})
+            .createIndex("cachedAt", "cachedAt");
+          const usage = db.createObjectStore("usage", {keyPath:"key"});
+          // Migrate the old, small cache without discarding visited models.
+          const cursor = request.transaction.objectStore("tiles").openCursor();
+          cursor.onsuccess = () => {
+            if (!cursor.result) return;
+            const entry = cursor.result.value;
+            usage.put({key:entry.key, bytes:huayuModelEntryBytes(entry),
+              cachedAt:entry.cachedAt, lastUsed:entry.lastUsed || entry.cachedAt});
+            cursor.result.continue();
+          };
+        };
+        request.onsuccess = () => {
+          request.result.onversionchange = () => request.result.close();
+          finish(request.result);
+        };
+        request.onerror = request.onblocked = () => finish(null);
+      } catch { finish(null); }
+    });
+    const read = async key => {
+      const db = await database();
+      if (!db) return null;
+      return new Promise(resolve => {
+        const timer = setTimeout(() => resolve(null), 1000);
+        try {
+          const request = db.transaction("tiles").objectStore("tiles").get(key);
+          request.onsuccess = () => {
+            clearTimeout(timer);
+            const entry = request.result;
+            if (entry && Date.now() - entry.cachedAt < 3 * 60 * 60 * 1000) {
+              entry.cacheBytes = huayuModelEntryBytes(entry);
+              // Touch lightweight metadata, never rewrite the model blob or
+              // change its age merely because the user returned to this area.
+              try {db.transaction("usage", "readwrite").objectStore("usage").put({key,
+                bytes:entry.cacheBytes, cachedAt:entry.cachedAt, lastUsed:Date.now()});} catch {}
+            }
+            resolve(entry || null);
+          };
+          request.onerror = () => {clearTimeout(timer); resolve(null);};
+        } catch {clearTimeout(timer); resolve(null);}
+      });
+    };
+    const write = async entry => {
+      const db = await database();
+      if (!db) return false;
+      return new Promise(resolve => {
+        try {
+          const transaction = db.transaction(["tiles", "usage"], "readwrite");
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = transaction.onabort = () => resolve(false);
+          const store = transaction.objectStore("tiles");
+          const usage = transaction.objectStore("usage");
+          const now = Date.now();
+          entry.cacheBytes = huayuModelEntryBytes(entry);
+          store.put(entry);
+          usage.put({key:entry.key, bytes:entry.cacheBytes, cachedAt:entry.cachedAt, lastUsed:now});
+          // Scan small metadata records only; model geometry stays on disk.
+          const records = usage.getAll();
+          records.onsuccess = () => {
+            const ordered = [];
+            for (const item of records.result) {
+              if (now - item.cachedAt >= 3 * 60 * 60 * 1000) {
+                store.delete(item.key); usage.delete(item.key);
+              } else ordered.push(item);
+            }
+            ordered.sort((a, b) => a.lastUsed - b.lastUsed);
+            let count = ordered.length;
+            let bytes = ordered.reduce((sum, item) => sum + item.bytes, 0);
+            for (const item of ordered) {
+              if (count <= 1024 && bytes <= 256 * 1024 * 1024) break;
+              store.delete(item.key); usage.delete(item.key);
+              count--; bytes -= item.bytes;
+            }
+          };
+        } catch {resolve(false);}
+      });
+    };
+    self.onmessage = async ({data: job}) => {
+      try {
+        const startedAt = Date.now();
+        let result;
+        const key = `${version}/${job.kind}/${job.key}`;
+        if (job.action === "read") {
+          result = await read(key);
+          if (result && Date.now() - result.cachedAt >= 3 * 60 * 60 * 1000) result = null;
+        } else if (job.action === "write") {
+          result = await write({...job.entry, key});
+        } else if (job.action === "touch") {
+          const db = await database();
+          result = Boolean(db);
+          if (db) {
+            const usage = db.transaction("usage", "readwrite").objectStore("usage");
+            job.keys.forEach(tileKey => {
+              const request = usage.get(`${version}/${job.kind}/${tileKey}`);
+              request.onsuccess = () => {
+                if (request.result) usage.put({...request.result, lastUsed:Date.now()});
+              };
+            });
+          }
+        } else {
+          const payload = JSON.parse(job.text);
+          if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_MODEL_TILE");
+          result = job.kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
+            : {pavilionData:huayuPavilionFeatureCollection(payload.elements), wallData:huayuWallFeatureCollection(payload.elements)};
+          result.cacheBytes = huayuModelEntryBytes(result);
+        }
+        self.postMessage({id:job.id, result, cacheRead:job.action === "read"
+          ? {status:storageStatus, hit:Boolean(result), elapsedMs:Date.now() - startedAt, version} : undefined,
+          cacheWrite:job.action === "write" ? {success:Boolean(result), status:storageStatus} : undefined});
+      } catch (error) {self.postMessage({id:job.id, error:String(error?.message || error)});}
+    };
+  }
+
+  function getHuayuModelTileWorker() {
+    if (huayuModelTileWorker || huayuModelTileWorkerFailed) return huayuModelTileWorker;
+    if (typeof Worker === "undefined") {huayuModelTileWorkerFailed = true; return null;}
+    try {
+      const url = URL.createObjectURL(new Blob([huayuModelTileWorkerSource()], {type:"text/javascript"}));
+      const worker = new Worker(url);
+      URL.revokeObjectURL(url);
+      const pending = new Map();
+      let sequence = 0;
+      const fail = error => {
+        worker.terminate(); huayuModelTileWorkerFailed = true; huayuModelTileWorker = null;
+        for (const request of pending.values()) {window.clearTimeout(request.timer); request.reject(error);}
+        pending.clear();
+      };
+      worker.onerror = () => fail(new Error("MODEL_WORKER_FAILED"));
+      worker.onmessage = ({data}) => {
+        if (data.cacheWrite) {
+          const element = document.getElementById("map");
+          if (element) element.dataset.huayuModelDiskWrite = data.cacheWrite.success ? "saved" : `failed-${data.cacheWrite.status}`;
+        }
+        if (data.cacheRead) {
+          const element = document.getElementById("map");
+          if (element) {
+            element.dataset.huayuModelDiskStatus = data.cacheRead.status;
+            element.dataset.huayuModelDiskReadMs = String(data.cacheRead.elapsedMs);
+            element.dataset.huayuModelDiskVersion = data.cacheRead.version;
+            element.dataset.huayuModelDiskReads = String((Number(element.dataset.huayuModelDiskReads) || 0) + 1);
+            if (data.cacheRead.hit) element.dataset.huayuModelDiskHits =
+              String((Number(element.dataset.huayuModelDiskHits) || 0) + 1);
+          }
+        }
+        const request = pending.get(data.id);
+        if (!request) return;
+        pending.delete(data.id); window.clearTimeout(request.timer);
+        if (data.error) request.reject(new Error(data.error)); else request.resolve(data.result);
+      };
+      huayuModelTileWorker = {request(job) {
+        return new Promise((resolve, reject) => {
+          const id = ++sequence;
+          const timer = window.setTimeout(() => fail(new Error("MODEL_WORKER_TIMEOUT")), 30000);
+          pending.set(id, {resolve, reject, timer});
+          try {worker.postMessage({...job, id});}
+          catch (error) {pending.delete(id); window.clearTimeout(timer); reject(error);}
+        });
+      }};
+      return huayuModelTileWorker;
+    } catch {huayuModelTileWorkerFailed = true; return null;}
+  }
+
+  async function decodeHuayuModelTile(response, kind) {
+    const text = await response.text();
+    const worker = getHuayuModelTileWorker();
+    if (worker) {
+      try {return await worker.request({action:"decode", kind, text});}
+      catch (error) {if (error.message === "INCOMPLETE_MODEL_TILE") throw error;}
+    }
+    const payload = JSON.parse(text);
+    if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_MODEL_TILE");
+    return kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
+      : {pavilionData:huayuPavilionFeatureCollection(payload.elements), wallData:huayuWallFeatureCollection(payload.elements)};
+  }
+
+  async function loadHuayuModelTile(kind, tile, fetchTile, signal) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const worker = getHuayuModelTileWorker();
+    let cacheRead, cacheReadSettled = false;
+    if (worker) {
+      let timer;
+      cacheRead = worker.request({action:"read", kind, key:tile.key}).catch(() => null)
+        .then(value => {cacheReadSettled = true; return value;});
+      const stored = await Promise.race([
+        cacheRead,
+        new Promise(resolve => {timer = window.setTimeout(() => resolve(null), 600);}),
+      ]);
+      window.clearTimeout(timer);
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (stored) return {...stored, source:"browser-cache"};
+    }
+    const networkController = new AbortController();
+    const abortNetwork = () => networkController.abort();
+    signal.addEventListener?.("abort", abortNetwork, {once:true});
+    let result;
+    try {
+      const network = fetchTile(tile, networkController.signal);
+      const networkResult = network.then(value => ({value}));
+      // Slow startup should not block an uncached area, but a late valid cache
+      // hit can still finish first and cancel the redundant network request.
+      const winner = cacheRead && !cacheReadSettled ? await Promise.race([
+        networkResult,
+        cacheRead.then(stored => stored ? {stored} : networkResult),
+      ]) : await networkResult;
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (winner.stored) {
+        networkController.abort();
+        return {...winner.stored, source:"browser-cache"};
+      }
+      result = winner.value;
+    } finally {signal.removeEventListener?.("abort", abortNetwork);}
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const prepared = result.data || result.pavilionData ? result
+      : {...result, ...(kind === "building" ? {data:huayuLiveBuildingFeatureCollection(result.payload.elements)}
+        : {pavilionData:huayuPavilionFeatureCollection(result.payload.elements), wallData:huayuWallFeatureCollection(result.payload.elements)})};
+    const entry = {...prepared, payload:undefined, cachedAt:Date.now(), cacheBytes:huayuModelEntryBytes(prepared)};
+    if (!signal.aborted) worker?.request({action:"write", kind, key:tile.key, entry}).catch(() => {});
+    return entry;
+  }
+
   async function fetchHuayuLiveBuildingTile(tile, externalSignal) {
     const canUseTileApi = ["http:", "https:"].includes(window.location.protocol);
     if (canUseTileApi) {
@@ -24873,12 +25432,11 @@
         });
         apiResponded = response.status !== 404;
         if (response.ok) {
-          const payload = await response.json();
-          if (!Array.isArray(payload?.elements)) throw new Error("INVALID_BUILDING_TILE");
+          const prepared = await decodeHuayuModelTile(response, "building");
           const cacheStatus = String(response.headers.get("X-OGF-Building-Cache") || "EDGE").toLocaleLowerCase();
           const fetchedAt = Date.parse(response.headers.get("X-OGF-Building-Fetched-At") || "");
           return {
-            payload,
+            ...prepared,
             source: `edge-${cacheStatus}`,
             loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
           };
@@ -24906,6 +25464,7 @@
   }
 
   function mergeHuayuLiveBuildingTiles(state) {
+    if (state.interacting) return;
     const keys = [...state.visibleTileKeys];
     const readyKeys = keys.filter((key) => state.tileCache.has(key));
     const ready = readyKeys.length > 0;
@@ -24927,10 +25486,6 @@
       updateHuayuLiveBuildingDiagnostics(state);
       return;
     }
-    const renderSignature = readyKeys.sort().map((key) => {
-      const entry = state.tileCache.get(key);
-      return `${key}@${entry?.revision || 0}`;
-    }).join("|");
     if (!complete) {
       state.coverageReady = false;
       state.status = state.snapshotReady ? "retained" : "partial";
@@ -24938,6 +25493,9 @@
       updateHuayuLiveBuildingDiagnostics(state);
       return;
     }
+    const renderKeys = huayuModelResidentTiles(state, readyKeys, 12 * 1024 * 1024);
+    const renderSignature = renderKeys.map(key => `${key}@${state.tileCache.get(key)?.revision || 0}`).join("|");
+    readyKeys.forEach(key => {state.tileCache.get(key).lastUsed = Date.now();});
     if (renderSignature === state.renderSignature && state.dataReady) {
       state.coverageReady = true;
       state.snapshotReady = true;
@@ -24948,10 +25506,9 @@
     const features = [];
     const seen = new Set();
     let loadedAt = 0;
-    readyKeys.forEach((key) => {
+    renderKeys.forEach((key) => {
       const entry = state.tileCache.get(key);
       if (!entry) return;
-      entry.lastUsed = Date.now();
       loadedAt = Math.max(loadedAt, entry.loadedAt || 0);
       (entry.data?.features || []).forEach((feature) => {
         const featureKey = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
@@ -24966,19 +25523,15 @@
     state.coverageReady = true;
     state.snapshotReady = true;
     state.renderSignature = renderSignature;
+    state.renderTileRevisions = new Map(renderKeys.map(key => [key, state.tileCache.get(key).revision]));
     state.renderRevision += 1;
     state.status = idle ? "ready" : "refreshing";
     applyHuayuLiveBuildings(state.glMap, state);
+    pruneHuayuLiveBuildingTileCache(state);
   }
 
   function pruneHuayuLiveBuildingTileCache(state) {
-    if (state.tileCache.size <= HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT) return;
-    const removable = [...state.tileCache.entries()]
-      .filter(([key]) => !state.visibleTileKeys.has(key) && !state.pendingTiles.has(key))
-      .sort((left, right) => (left[1].lastUsed || 0) - (right[1].lastUsed || 0));
-    while (state.tileCache.size > HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT && removable.length) {
-      state.tileCache.delete(removable.shift()[0]);
-    }
+    pruneHuayuModelTileCache(state, HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT, HUAYU_LIVE_BUILDING_CACHE_BYTES);
   }
 
   function scheduleNextHuayuLiveBuildingRefresh(state) {
@@ -25013,14 +25566,17 @@
       state.queuedTileKeys.delete(tile.key);
       if (!state.visibleTileKeys.has(tile.key) || state.pendingTiles.has(tile.key)) continue;
       const controller = new AbortController();
-      const promise = fetchHuayuLiveBuildingTile(tile, controller.signal)
+      const promise = loadHuayuModelTile("building", tile, fetchHuayuLiveBuildingTile, controller.signal)
         .then((result) => {
           if (!state.active) return;
           state.failedTiles.delete(tile.key);
+          if (result.source === "browser-cache") state.cacheHits = (state.cacheHits || 0) + 1;
+          else state.requestCount = (state.requestCount || 0) + 1;
           state.tileCache.set(tile.key, {
-            data: huayuLiveBuildingFeatureCollection(result.payload.elements),
+            data: result.data,
             loadedAt: result.loadedAt,
-            cachedAt: Date.now(),
+            cachedAt: result.cachedAt || Date.now(),
+            cacheBytes: result.cacheBytes,
             lastUsed: Date.now(),
             source: result.source,
             revision: ++huayuLiveBuildingTileRevision,
@@ -25047,6 +25603,7 @@
   async function refreshHuayuLiveBuildings(glMap) {
     const state = huayuLiveBuildingStates.get(glMap);
     if (!state || !state.active || !isHuayuBasemapSelected()) return;
+    if (state.interacting) {scheduleHuayuLiveBuildings(glMap, 160); return;}
     if (!ensureHuayuLiveBuildingLayer(glMap)) {
       scheduleHuayuLiveBuildings(glMap, 200);
       return;
@@ -25084,9 +25641,12 @@
     state.queuedTileKeys = new Set(state.queue.map((tile) => tile.key));
     if (visibleTilesChanged) mergeHuayuLiveBuildingTiles(state);
     const now = Date.now();
+    touchHuayuModelTiles("building", state, tiles, now);
     tiles.forEach((tile) => {
       const failedAt = state.failedTiles.get(tile.key) || 0;
-      if (huayuLiveBuildingEntryFresh(state.tileCache.get(tile.key))
+      const entry = state.tileCache.get(tile.key);
+      if (entry) entry.lastUsed = now;
+      if (huayuLiveBuildingEntryFresh(entry)
         || state.pendingTiles.has(tile.key) || state.queuedTileKeys.has(tile.key)
         || now - failedAt < 15000) return;
       state.queue.push(tile);
@@ -25123,6 +25683,7 @@
     const state = {
       active: true,
       glMap,
+      addedAt: performance.now(),
       timer: null,
       timerRunAt: 0,
       loadedAt: 0,
@@ -25162,11 +25723,18 @@
     };
     state.onMoveEnd = () => {
       state.moving = false;
+      if (!state.interacting) scheduleHuayuLiveBuildings(glMap, 120);
+    };
+    state.onGestureStart = () => {state.interacting = true;};
+    state.onGestureEnd = () => {
+      state.interacting = false;
+      mergeHuayuLiveBuildingTiles(state);
       scheduleHuayuLiveBuildings(glMap, 120);
     };
     huayuLiveBuildingStates.set(glMap, state);
     glMap.on("move", state.onMove);
     glMap.on("moveend", state.onMoveEnd);
+    state.unbindGestures = observeHuayuMapGestures(glMap, state.onGestureStart, state.onGestureEnd);
     syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
     scheduleHuayuLiveBuildings(glMap, 0);
   }
@@ -25186,6 +25754,7 @@
     syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
     glMap.off("move", state.onMove);
     glMap.off("moveend", state.onMoveEnd);
+    state.unbindGestures?.();
     huayuLiveBuildingStates.delete(glMap);
     const mapElement = document.getElementById("map");
     if (mapElement) {
@@ -25238,12 +25807,11 @@
         });
         apiResponded = response.status !== 404;
         if (response.ok) {
-          const payload = await response.json();
-          if (!Array.isArray(payload?.elements)) throw new Error("INVALID_STRUCTURE_TILE");
+          const prepared = await decodeHuayuModelTile(response, "structure");
           const cacheStatus = String(response.headers.get("X-OGF-Structure-Cache") || "EDGE").toLocaleLowerCase();
           const fetchedAt = Date.parse(response.headers.get("X-OGF-Structure-Fetched-At") || "");
           return {
-            payload,
+            ...prepared,
             source: `edge-${cacheStatus}`,
             loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
           };
@@ -25270,6 +25838,7 @@
   }
 
   function applyHuayuStructures(glMap, state) {
+    if (state.interacting) return;
     const layersReady = ensureHuayuWallLayers(glMap) && ensureHuayuPavilionLayer(glMap);
     if (!layersReady) {
       if (state?.active) {
@@ -25308,12 +25877,18 @@
     mapElement.dataset.huayuStructureTiles = `${loadedVisibleTiles.length}/${visibleKeys.length}`;
     mapElement.dataset.huayuStructurePending = String(pendingVisibleTiles.length);
     mapElement.dataset.huayuStructureCache = [...sources].sort().join(",");
+    mapElement.dataset.huayuStructureMemoryTiles = String(state.tileCache.size);
+    mapElement.dataset.huayuStructureSourceUpdates = String(state.renderRevision);
+    mapElement.dataset.huayuStructureResidentTiles = String(state.renderTileRevisions?.size || 0);
+    mapElement.dataset.huayuStructureRequests = String(state.requestCount || 0);
+    mapElement.dataset.huayuStructureCacheHits = String(state.cacheHits || 0);
     mapElement.dataset.huayuStructureStatus = state.status;
     mapElement.dataset.huayuStructureUpdatedAt = state.loadedAt
       ? new Date(state.loadedAt).toISOString() : "";
   }
 
   function mergeHuayuStructureTiles(state) {
+    if (state.interacting) return;
     const keys = [...state.visibleTileKeys];
     const readyKeys = keys.filter((key) => state.tileCache.has(key));
     const ready = readyKeys.length > 0;
@@ -25325,16 +25900,15 @@
       updateHuayuStructureDiagnostics(state);
       return;
     }
-    const renderSignature = readyKeys.sort().map((key) => {
-      const entry = state.tileCache.get(key);
-      return `${key}@${entry?.revision || 0}`;
-    }).join("|");
     const replacementReady = complete && idle;
     if (state.snapshotReady && !replacementReady) {
       state.status = "retained";
       updateHuayuStructureDiagnostics(state);
       return;
     }
+    const renderKeys = huayuModelResidentTiles(state, readyKeys, 4 * 1024 * 1024);
+    const renderSignature = renderKeys.map(key => `${key}@${state.tileCache.get(key)?.revision || 0}`).join("|");
+    readyKeys.forEach(key => {state.tileCache.get(key).lastUsed = Date.now();});
     if (renderSignature === state.renderSignature && state.dataReady) {
       state.snapshotReady = replacementReady;
       state.status = replacementReady ? "ready" : "progressive";
@@ -25346,10 +25920,9 @@
     const pavilionSeen = new Set();
     const wallSeen = new Set();
     let loadedAt = 0;
-    readyKeys.forEach((key) => {
+    renderKeys.forEach((key) => {
       const entry = state.tileCache.get(key);
       if (!entry) return;
-      entry.lastUsed = Date.now();
       loadedAt = Math.max(loadedAt, entry.loadedAt || 0);
       entry.pavilionData.features.forEach((feature) => {
         const featureKey = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
@@ -25370,19 +25943,15 @@
     state.dataReady = true;
     state.snapshotReady = replacementReady;
     state.renderSignature = renderSignature;
+    state.renderTileRevisions = new Map(renderKeys.map(key => [key, state.tileCache.get(key).revision]));
     state.renderRevision += 1;
     state.status = replacementReady ? "ready" : "progressive";
     applyHuayuStructures(state.glMap, state);
+    pruneHuayuStructureTileCache(state);
   }
 
   function pruneHuayuStructureTileCache(state) {
-    if (state.tileCache.size <= HUAYU_STRUCTURE_TILE_CACHE_LIMIT) return;
-    const removable = [...state.tileCache.entries()]
-      .filter(([key]) => !state.visibleTileKeys.has(key) && !state.pendingTiles.has(key))
-      .sort((left, right) => (left[1].lastUsed || 0) - (right[1].lastUsed || 0));
-    while (state.tileCache.size > HUAYU_STRUCTURE_TILE_CACHE_LIMIT && removable.length) {
-      state.tileCache.delete(removable.shift()[0]);
-    }
+    pruneHuayuModelTileCache(state, HUAYU_STRUCTURE_TILE_CACHE_LIMIT, HUAYU_STRUCTURE_CACHE_BYTES);
   }
 
   function scheduleNextHuayuStructureRefresh(state) {
@@ -25412,15 +25981,18 @@
       state.queuedTileKeys.delete(tile.key);
       if (!state.visibleTileKeys.has(tile.key) || state.pendingTiles.has(tile.key)) continue;
       const controller = new AbortController();
-      const promise = fetchHuayuStructureTile(tile, controller.signal)
+      const promise = loadHuayuModelTile("structure", tile, fetchHuayuStructureTile, controller.signal)
         .then((result) => {
           if (!state.active) return;
           state.failedTiles.delete(tile.key);
+          if (result.source === "browser-cache") state.cacheHits = (state.cacheHits || 0) + 1;
+          else state.requestCount = (state.requestCount || 0) + 1;
           state.tileCache.set(tile.key, {
-            pavilionData: huayuPavilionFeatureCollection(result.payload.elements),
-            wallData: huayuWallFeatureCollection(result.payload.elements),
+            pavilionData: result.pavilionData,
+            wallData: result.wallData,
             loadedAt: result.loadedAt,
-            cachedAt: Date.now(),
+            cachedAt: result.cachedAt || Date.now(),
+            cacheBytes: result.cacheBytes,
             lastUsed: Date.now(),
             source: result.source,
             revision: ++huayuStructureTileRevision,
@@ -25445,6 +26017,7 @@
   function refreshHuayuStructures(glMap) {
     const state = huayuStructureStates.get(glMap);
     if (!state || !state.active || !isHuayuBasemapSelected()) return;
+    if (state.interacting) {scheduleHuayuStructures(glMap, 160); return;}
     if (!ensureHuayuWallLayers(glMap) || !ensureHuayuPavilionLayer(glMap)) {
       scheduleHuayuStructures(glMap, 200);
       return;
@@ -25461,6 +26034,8 @@
       state.status = "zoom-in";
       state.pavilionData = { type: "FeatureCollection", features: [] };
       state.wallData = { type: "FeatureCollection", features: [] };
+      state.renderTileRevisions = null;
+      state.renderSignature = "";
       state.renderRevision += 1;
       applyHuayuStructures(glMap, state);
       return;
@@ -25478,9 +26053,12 @@
     state.queue = state.queue.filter((tile) => state.visibleTileKeys.has(tile.key));
     state.queuedTileKeys = new Set(state.queue.map((tile) => tile.key));
     const now = Date.now();
+    touchHuayuModelTiles("structure", state, tiles, now);
     tiles.forEach((tile) => {
       const failedAt = state.failedTiles.get(tile.key) || 0;
-      if (huayuStructureEntryFresh(state.tileCache.get(tile.key))
+      const entry = state.tileCache.get(tile.key);
+      if (entry) entry.lastUsed = now;
+      if (huayuStructureEntryFresh(entry)
         || state.pendingTiles.has(tile.key) || state.queuedTileKeys.has(tile.key)
         || now - failedAt < 15000) return;
       state.queue.push(tile);
@@ -25536,9 +26114,16 @@
       visibleTileSignature: "",
       onMoveEnd: null,
     };
-    state.onMoveEnd = () => scheduleHuayuStructures(glMap, 120);
+    state.onMoveEnd = () => {if (!state.interacting) scheduleHuayuStructures(glMap, 120);};
+    state.onGestureStart = () => {state.interacting = true;};
+    state.onGestureEnd = () => {
+      state.interacting = false;
+      mergeHuayuStructureTiles(state);
+      scheduleHuayuStructures(glMap, 120);
+    };
     huayuStructureStates.set(glMap, state);
     glMap.on("moveend", state.onMoveEnd);
+    state.unbindGestures = observeHuayuMapGestures(glMap, state.onGestureStart, state.onGestureEnd);
     scheduleHuayuStructures(glMap, 0);
   }
 
@@ -25551,6 +26136,7 @@
     state.pendingTiles.forEach((pending) => pending.controller.abort());
     glMap.off("moveend", state.onMoveEnd);
     huayuStructureStates.delete(glMap);
+    state.unbindGestures?.();
     const mapElement = document.getElementById("map");
     if (mapElement) {
       delete mapElement.dataset.huayuLivePavilions;
@@ -26100,9 +26686,10 @@
   }
 
   function positionHuayuSportsBelowBuildings(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return;
+    if (!glMap?.getStyle?.()?.layers?.length) return;
     const beforeBuildings = huayuSportsBuildingInsertionLayer(glMap);
     if (!beforeBuildings) return;
+    const order = glMap.getLayersOrder?.() || glMap.getStyle().layers.map(layer => layer.id);
     [
       HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewFill,
       HUAYU_SPORTS_LAYERS.runningOverview,
@@ -26112,14 +26699,15 @@
       HUAYU_SPORTS_LAYERS.markings,
       HUAYU_SPORTS_LAYERS.outline,
     ].forEach((layerId) => {
-      if (glMap.getLayer(layerId) && layerId !== beforeBuildings) {
+      if (glMap.getLayer(layerId) && layerId !== beforeBuildings
+        && order.indexOf(layerId) > order.indexOf(beforeBuildings)) {
         glMap.moveLayer(layerId, beforeBuildings);
       }
     });
   }
 
   function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap)) {
-    if (!glMap?.isStyleLoaded?.()) return;
+    if (!glMap?.getStyle?.()?.layers?.length) return;
     const liveVisible = Boolean(state?.sportsDataReady);
     [
       HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewFill,
@@ -26131,7 +26719,10 @@
       HUAYU_SPORTS_LAYERS.outline,
     ].forEach((layerId) => {
       if (glMap.getLayer(layerId)) {
-        glMap.setLayoutProperty(layerId, "visibility", liveVisible ? "visible" : "none");
+        const visibility = liveVisible ? "visible" : "none";
+        if ((glMap.getLayoutProperty(layerId, "visibility") || "visible") !== visibility) {
+          glMap.setLayoutProperty(layerId, "visibility", visibility);
+        }
       }
     });
     const mapElement = document.getElementById("map");
@@ -26507,7 +27098,7 @@
   }
 
   function ensureHuayuSupplementalPoiLayer(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    if (!glMap?.getStyle?.()?.layers?.length) return false;
     ensureHuayuPoiImages(glMap);
     if (!glMap.getSource(HUAYU_SUPPLEMENTAL_POI_SOURCE)) {
       glMap.addSource(HUAYU_SUPPLEMENTAL_POI_SOURCE, {

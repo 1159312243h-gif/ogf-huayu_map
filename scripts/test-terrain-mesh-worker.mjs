@@ -38,6 +38,41 @@ const worker=vm.createContext({Float32Array,Blob,TextEncoder,crypto:webcrypto,pe
   OffscreenCanvas:Canvas,indexedDB,createImageBitmap:async()=>({close(){}}),
   self:{postMessage:(message,transfer)=>{answer=message;transferred=transfer;}}});
 vm.runInContext(workerSource,worker);
+vm.runInContext(declaration("huayuTerrainVisibleDrawRanges"),worker);
+// Submission culling must retain every potentially visible triangle in its
+// original order, including long triangles that cross the viewport.
+const cullingVertices=[];
+for(let triangle=0;triangle<1024;triangle++) {
+  const x=Math.floor(triangle/256)*10;
+  const points=triangle===767 ? [[-5,0],[35,0],[15,2]] : [[x,0],[x+0.1,0],[x,0.1]];
+  points.forEach(([px,py])=>cullingVertices.push(px,py,0,0,0,1,0.5,100,20));
+}
+const cullingValues=new Float32Array(cullingVertices);
+const cullingOriginal=Array.from(cullingValues);
+const batches=worker.huayuTerrainDrawBatches(cullingValues);
+assert.deepEqual(Array.from(cullingValues),cullingOriginal,"batch indexing must not alter any geometry or material values");
+assert.equal(batches.reduce((count,batch)=>count+batch.count,0),cullingValues.length/9);
+for(let index=0;index<batches.length;index++) {
+  assert.equal(batches[index].first%3,0);
+  assert.equal(batches[index].count%3,0);
+  assert.equal(batches[index].first,index ? batches[index-1].first+batches[index-1].count : 0);
+}
+for(const view of [[-0.1,-0.1,0.2,0.2],[10,-1,10.2,1],[15,-1,15.2,1],[100,100,101,101]]) {
+  const ranges=worker.huayuTerrainVisibleDrawRanges(batches,view,cullingValues.length/9);
+  for(let triangle=0;triangle<cullingValues.length/27;triangle++) {
+    const xs=[0,9,18].map(offset=>cullingValues[triangle*27+offset]);
+    const ys=[1,10,19].map(offset=>cullingValues[triangle*27+offset]);
+    if(Math.max(...xs)<view[0]||Math.min(...xs)>view[2]||Math.max(...ys)<view[1]||Math.min(...ys)>view[3])continue;
+    assert.ok(ranges.some(range=>triangle*3>=range.first&&triangle*3+3<=range.first+range.count),
+      "every intersecting triangle, including one spanning distant cells, must be submitted");
+  }
+  for(let index=1;index<ranges.length;index++) assert.ok(ranges[index-1].first+ranges[index-1].count<ranges[index].first,
+    "adjacent selected batches should coalesce into one GPU draw");
+}
+assert.ok(worker.huayuTerrainVisibleDrawRanges(batches,[-0.1,-0.1,0.2,0.2],3072)
+  .reduce((count,range)=>count+range.count,0)<3072,"a close view should submit fewer vertices");
+assert.deepEqual(JSON.parse(JSON.stringify(worker.huayuTerrainVisibleDrawRanges(null,[0,0,1,1],6))),[{first:0,count:6}],
+  "older prepared assets without batch metadata must remain fully drawable");
 const hill={type:"Feature",id:"test-hill",properties:{reliefRole:"surface",reliefArea:88e6,
   reliefHeight:800,reliefNeighbor:1},geometry:{type:"Polygon",coordinates:[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}};
 const cell={key:"3/0.5/0/0",bounds:{west:0,east:0.5,south:0,north:0.5}};
@@ -54,6 +89,7 @@ const first=Array.from(answer.values);
 // The same shared algorithm must produce byte-identical geometry in the synchronous fallback.
 const fallback=await worker.huayuWoodlandMaterialBuildGeometry(hill ? [hill] : [],{features:[]},cell.bounds,9);
 assert.deepEqual(Array.from(fallback.values),first);
+assert.deepEqual(JSON.parse(JSON.stringify(answer.drawBatches)),JSON.parse(JSON.stringify(worker.huayuTerrainDrawBatches(fallback.values))));
 const neighbor={...hill,id:"neighbor",geometry:{type:"Polygon",coordinates:[
   [[0.25,0.25],[0.6,0.25],[0.6,0.6],[0.25,0.6],[0.25,0.25]]]}};
 const adjacent=await worker.huayuWoodlandMaterialBuildGeometry([hill,neighbor],{features:[]},cell.bounds,9);
@@ -162,12 +198,26 @@ await denied.self.onmessage({data:job});
 assert.equal(answer.error,undefined,"denied persistent storage must not suppress terrain");
 assert.deepEqual(Array.from(answer.values),first);
 
+// Moving garden containment to the worker must preserve its shared mountain
+// field, exact mesh and ownership coverage rather than turn gardens into holes.
+const garden={type:"Feature",id:"mapped-garden",properties:{terrainContext:1,materialOcclusion:"garden",
+  landscapeKind:"garden",osmType:"way",osmId:"garden",name:"山上花园"},geometry:{type:"Polygon",coordinates:[
+    [[0.2,0.2],[0.22,0.2],[0.22,0.22],[0.2,0.22],[0.2,0.2]]]}};
+await denied.self.onmessage({data:{...job,id:20,register:[[1,hill],[2,garden]],occlusions:[2],prepareLandscapes:true}});
+assert.equal(answer.error,undefined);
+const landscapeSurfaces=worker.huayuMountainSurfaceLandscapes([hill],[garden])
+  .sort((a,b)=>Number(b.properties?.reliefArea||0)-Number(a.properties?.reliefArea||0));
+assert.equal(landscapeSurfaces.length,2,"a mapped garden must receive the parent mountain slope");
+const landscapeFallback=await worker.huayuWoodlandMaterialBuildGeometry(landscapeSurfaces,{features:[]},cell.bounds,9);
+assert.deepEqual(Array.from(answer.values),Array.from(landscapeFallback.values),
+  "background containment and synchronous fallback must yield byte-identical garden slopes");
+
 // The ordinary GeoJSON renderer must receive labels/water, never duplicate terrain meshes.
 let vectorData, materialData, materialCalls=0;
 const map={getSource:()=>({setData:data=>{vectorData=data;}})};
 const layer={setData:data=>{materialData=data;materialCalls++;}};
 const ctx=vm.createContext({ensureHuayuLiveBasemapLayers:()=>true,
-  HUAYU_LIVE_BASEMAP_SOURCE:"live",huayuWoodlandMaterialLayers:new Map([[map,layer]]),
+  HUAYU_LIVE_BASEMAP_SOURCE:"live",huayuWoodlandMaterialLayers:new Map([[map,layer]]),huayuTerrainPreload:null,
   applyHuayuSportsSnapshot:()=>{},scheduleHuayuLiveBasemapPrimarySync:()=>{},
   updateHuayuLiveBasemapDiagnostics:()=>{},window:{clearTimeout(){}}});
 vm.runInContext(declaration("applyHuayuLiveBasemap"),ctx);

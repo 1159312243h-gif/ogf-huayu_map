@@ -118,7 +118,7 @@ function terrainOverpassQuery(bounds) {
     + `rel["type"="multipolygon"]["landuse"~"^(grass|meadow)$"]${namedRelief}(${bbox});`
     + `rel["type"="multipolygon"]["leisure"="garden"]${namedRelief}(${bbox});`
     + `)->.terrainRelations;`
-    + `node["natural"~"^(peak|volcano)$"](${bbox})->.terrainPeaks;`
+    + `(node["natural"~"^(peak|volcano|saddle)$"](${bbox});node["ele"](${bbox});)->.terrainPeaks;`
     + `(.terrainWays;.terrainRelations;.terrainPeaks;);out body geom;`;
 }
 
@@ -616,7 +616,7 @@ async function fetchTerrainTile(request, context, z, x, y) {
   }
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-terrain-v7-open-land");
+  cacheUrl.searchParams.set("schema", "huayu-terrain-v8-height-field");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {

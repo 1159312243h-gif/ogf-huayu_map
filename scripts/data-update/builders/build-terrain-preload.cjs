@@ -107,6 +107,44 @@ function terrainFeatureBounds(feature) {
   return Object.values(bounds).every(Number.isFinite) ? bounds : null;
 }
 
+function applyTerrainElevationObservations(payload, elements, runtime, observedAt) {
+  const samples = elements.filter(element => element.type === "node")
+    .map(element => ({id: `node:${element.id}`, kind: String(element.tags?.natural || (element.tags?.mountain_pass === "yes" ? "pass" : "spot")),
+      coordinates: [Number(element.lon), Number(element.lat)], elevation: runtime.huayuTerrainElevationMeters(element.tags?.ele)}))
+    .filter(sample => sample.elevation !== null && sample.coordinates.every(Number.isFinite));
+  const cells = new Map();
+  for (const sample of samples) {
+    const key = `${Math.floor(sample.coordinates[0])}/${Math.floor(sample.coordinates[1])}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(sample);
+  }
+  let constrainedSurfaces = 0;
+  const usedIds = new Set();
+  const features = payload.features.map(feature => {
+    if (feature.properties?.reliefRole !== "surface") return feature;
+    const bounds = terrainFeatureBounds(feature);
+    const selected = [];
+    for (let x = Math.floor(bounds.west); x <= Math.floor(bounds.east); x++) {
+      for (let y = Math.floor(bounds.south); y <= Math.floor(bounds.north); y++) {
+        for (const sample of cells.get(`${x}/${y}`) || []) {
+          if (runtime.huayuPointInPolygonGeometry(sample.coordinates, feature.geometry)) selected.push(sample);
+        }
+      }
+    }
+    selected.sort((a, b) => a.id.localeCompare(b.id));
+    if (selected.length) constrainedSurfaces++;
+    selected.forEach(sample => usedIds.add(sample.id));
+    const peakHeight = selected.reduce((maximum, sample) => Math.max(maximum, sample.elevation), 0);
+    return compactFeature({...feature, properties: {...feature.properties,
+      reliefHeight: peakHeight > 0 ? Math.max(4, peakHeight) : feature.properties.reliefHeight,
+      reliefPeaks: JSON.stringify(selected.filter(sample => ["peak", "volcano"].includes(sample.kind))),
+      reliefSamples: JSON.stringify(selected), reliefHeightModel: "mapped-elevation-v1"}});
+  });
+  return {...payload, features, classification: "mountain-height-field-v1", preparedAt: new Date().toISOString(),
+    heightField: {model: "mapped-elevation-v1", scope: "mountains-only", flatland: "deferred",
+      observationsGeneratedAt: observedAt, observations: samples.length, mountainObservations: usedIds.size, constrainedSurfaces}};
+}
+
 async function writeTerrainContextAsset(siteDirectory,payload) {
   const features=payload.features.filter(feature=>feature.properties?.terrainContext===1);
   if (!features.length) return null;
@@ -184,6 +222,7 @@ async function writeTerrainPreloadChunks(siteDirectory, payload) {
   const renderBlocks = await writeTerrainRenderCache(siteDirectory, payload);
   const manifest = {format: 1, schema: payload.schema, generatedAt: payload.generatedAt,
     classification: payload.classification, coverage: payload.coverage, chunks: manifestChunks, renderBlocks,
+    ...(payload.heightField ? {heightField: payload.heightField} : {}),
     ...(contextSnapshot ? {contextSnapshot} : {})};
   const manifestTarget = path.join(siteDirectory, "terrain-preload-manifest.json");
   await fs.writeFile(`${manifestTarget}.next`, JSON.stringify(manifest));
@@ -391,8 +430,15 @@ async function buildTerrainPreload(options = {}) {
     slices,runtime,cacheDirectory,fetch:options.fetch,resume:options.resume});
   const features = [...terrainFeatures,...contextFeatures.map(compactFeature)].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
   if (!features.some((feature) => feature.properties.reliefRole === "surface")) throw new Error("Empty terrain preload");
+  const usedElevationIds = new Set(features.filter(feature => feature.properties.reliefRole === "surface")
+    .flatMap(feature => JSON.parse(feature.properties.reliefSamples || "[]").map(sample => sample.id)));
   const payload = {format: 1, schema: "open-small-mountains-v1", generatedAt: new Date().toISOString(),
-    classification: "mountain-features-v2", coverage, features};
+    classification: "mountain-height-field-v1", heightField: {model: "mapped-elevation-v1", scope: "mountains-only",
+      observationsGeneratedAt: new Date().toISOString(), flatland: "deferred", mountainObservations: usedElevationIds.size,
+      observations: [...elements.values()].filter(element => element.type === "node"
+        && runtime.huayuTerrainElevationMeters(element.tags?.ele) !== null).length,
+      constrainedSurfaces: features.filter(feature => feature.properties.reliefRole === "surface"
+        && JSON.parse(feature.properties.reliefSamples || "[]").length).length}, coverage, features};
   const target = path.join(siteDirectory, "terrain-preload.json.gz");
   const next = `${target}.next`;
   // Commit only after every spatial slice succeeds; failures leave the published packet intact.
@@ -406,7 +452,7 @@ async function buildTerrainPreload(options = {}) {
 }
 
 module.exports = {terrainRuntime, terrainSlices, compactFeature, terrainFeatureBounds,writeTerrainContextAsset,terrainLegacyPacket,
-  writeTerrainPreloadChunks, buildTerrainPreload};
+  applyTerrainElevationObservations, writeTerrainPreloadChunks, buildTerrainPreload};
 if (require.main === module) {
   const siteIndex = process.argv.indexOf("--site");
   buildTerrainPreload({siteDirectory: siteIndex >= 0 ? process.argv[siteIndex + 1] : undefined,

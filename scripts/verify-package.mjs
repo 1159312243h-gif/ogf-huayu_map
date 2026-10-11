@@ -56,7 +56,7 @@ const app = await fs.readFile(path.join(site, "app.js"), "utf8");
 const terrainPreload = await readDatasetFile(path.join(site,"terrain-preload.json.gz"));
 const terrainManifest = JSON.parse(await fs.readFile(path.join(site,"terrain-preload-manifest.json"),"utf8"));
 assert.equal(terrainPreload.schema,"open-small-mountains-v1");
-assert.equal(terrainPreload.classification,"mountain-features-v2",
+assert.equal(terrainPreload.classification,"mountain-height-field-v1",
   "发布快照必须包含当前邻近山区分类");
 assert.ok(terrainPreload.features.some(feature => feature.properties?.reliefNeighbor === 1),
   "发布快照不得遗漏新增的邻近小山体");
@@ -65,7 +65,11 @@ assert.ok(terrainPreload.features.some((feature) => feature.properties?.reliefRo
 assert.ok((await fs.stat(path.join(site, "terrain-preload.json.gz"))).size < 25 * 1024 * 1024,
   "发布地形快照不得超过 Cloudflare Pages 单文件上限");
 assert.equal(terrainManifest.generatedAt,terrainPreload.generatedAt,"地形分片必须和完整快照属于同一代数据");
-assert.equal(terrainManifest.classification,"mountain-features-v2");
+assert.equal(terrainManifest.classification,"mountain-height-field-v1");
+assert.deepEqual(terrainManifest.heightField,terrainPreload.heightField,"高程约束与快照清单必须同代");
+assert.equal(terrainPreload.heightField.model,"mapped-elevation-v1");
+assert.equal(terrainPreload.heightField.scope,"mountains-only");
+assert.equal(terrainPreload.heightField.flatland,"deferred");
 const terrainContext=await readDatasetFile(path.join(site,terrainPreload.contextSnapshot.url.replace(/^\.\//u,"")));
 assert.equal(terrainContext.generatedAt,terrainPreload.generatedAt);
 assert.equal(terrainContext.features.length,terrainPreload.contextSnapshot.features);
@@ -250,7 +254,7 @@ assert.ok(app.includes('mountainOverviewTexture: "ogf-atlas-huayu-mountain-overv
   && app.includes("float reliefLight = mix(1.0, v_light, mix(0.4, 1.0, overviewDetail));")
   && app.includes("vec3 shaded = mix(color * reliefLight * textureShade, u_contour_color, contour);")
   && app.includes("const model = huayuMountainSurfaceModel(feature, polygonGeometry)")
-  && app.includes("const heightAt = (coordinate) =>")
+  && app.includes("const heightAt = coordinate => contains(coordinate) ? heightField.heightAt(coordinate) : 0")
   && app.includes("edgeDistance(coordinate, edgeFadeMeters)")
   && !app.includes("HUAYU_TOPOGRAPHIC_CONTOUR_IMAGE")
   && !app.includes("ensureHuayuTopographicContourImage")
@@ -386,8 +390,9 @@ assert.ok(worker.includes(`TERRAIN_TILE_ZOOM = ${release.expectedTerrainTileZoom
   && worker.includes(`TERRAIN_REFRESH_SECONDS = ${release.expectedTerrainRefreshSeconds}`)
   && worker.includes("function terrainOverpassQuery(bounds)")
   && worker.includes("fetchTerrainTile")
-  && worker.includes("huayu-terrain-v7-open-land")
-  && worker.includes('node["natural"~"^(peak|volcano)$"](${bbox})->.terrainPeaks;')
+  && worker.includes("huayu-terrain-v8-height-field")
+  && worker.includes('node["natural"~"^(peak|volcano|saddle)$"](${bbox})')
+  && worker.includes('node["ele"](${bbox})')
   && !worker.includes("way(r.terrainRelations)")
   && worker.includes('"X-OGF-Terrain-Policy": "snapshot-3h"'),
 "Worker 缺少独立低缩放山体接口或三小时缓存");
@@ -433,8 +438,8 @@ assert.ok(app.includes("const readyKeys = keys.filter((key) => state.tileCache.h
   && app.includes("syncHuayuLiveBuildingPrimaryLayers(state.glMap, state, state.snapshotReady)")
   && app.includes("scheduleHuayuLiveBuildingCoverageFinalize(state)"),
 "建筑分片必须完整后原子接管，冷启动的局部分片不得与发布建筑叠加");
-assert.ok(app.includes("return clamp(Math.floor(glMap.getZoom()) + 1"),
-  "建筑必须保留比底图细一级的分片，避免密集城区大分片阻塞");
+assert.ok(app.includes("return clamp(Math.floor(glMap.getZoom()) + (glMap.getZoom() >= 14 ? 1 : 0)"),
+  "中远景建筑减少请求，密集近景仍保留更细的完整分片");
 assert.ok(app.includes("visibleTileSignature")
   && app.includes("const visibleTilesChanged = nextVisibleTileSignature !== state.visibleTileSignature")
   && app.includes("if (visibleTilesChanged) mergeHuayuLiveBuildingTiles(state)"),
@@ -501,9 +506,16 @@ const mergeBuildingTilesSource = app.match(/function mergeHuayuLiveBuildingTiles
 assert.ok(mergeBuildingTilesSource, "无法读取实时建筑分片合并状态机");
 const buildingOwnershipCalls = [];
 const appliedBuildingStates = [];
+const modelCacheFunction = name => app.match(new RegExp(`function ${name}\\([^]*?\\n  \\}`, "u"))?.[0];
+const modelEntryBytes = Function(`"use strict"; return (${modelCacheFunction("huayuModelEntryBytes")});`)();
+const modelResidentTiles = Function("huayuModelEntryBytes",
+  `"use strict"; return (${modelCacheFunction("huayuModelResidentTiles")});`)(modelEntryBytes);
+const pruneModelTiles = Function("huayuModelEntryBytes",
+  `"use strict"; return (${modelCacheFunction("pruneHuayuModelTileCache")});`)(modelEntryBytes);
 const mergeBuildingTiles = Function("clearHuayuLiveBuildingPrimarySync",
   "syncHuayuLiveBuildingPrimaryLayers", "updateHuayuLiveBuildingDiagnostics",
-  "applyHuayuLiveBuildings", `"use strict"; return (${mergeBuildingTilesSource});`)(
+  "applyHuayuLiveBuildings", "huayuModelResidentTiles", "pruneHuayuLiveBuildingTileCache",
+  `"use strict"; return (${mergeBuildingTilesSource});`)(
   () => {},
   (_map, state, enabled) => {
     state.primaryActive = Boolean(enabled);
@@ -514,6 +526,7 @@ const mergeBuildingTiles = Function("clearHuayuLiveBuildingPrimarySync",
     snapshotReady: state.snapshotReady,
     featureCount: state.data.features.length,
   }),
+  modelResidentTiles, state => pruneModelTiles(state, 256, 48 * 1024 * 1024),
 );
 const buildingTileEntry = (key, revision) => ({
   revision,
@@ -570,7 +583,8 @@ assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM
 "普通墙与栅栏必须和建筑模型使用相同起始比例尺，并在远景使用克制线宽");
 assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
-  && app.includes("wallData: huayuWallFeatureCollection(result.payload.elements)")
+  && app.includes("wallData: result.wallData")
+  && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
   && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`")
   && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"')
   && worker.includes('schema", "huayu-building-v5"')
@@ -1399,6 +1413,8 @@ const buildingColorsTest = await runCheck([path.join(root, "scripts", "test-buil
 assert.equal(buildingColorsTest.status, 0, `建筑颜色标签与模型保留回归失败：${buildingColorsTest.stderr}`);
 const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
+const heightFieldTest = await runCheck([path.join(root, "scripts", "test-terrain-height-field.mjs")]);
+assert.equal(heightFieldTest.status, 0, `山地高程约束回归失败：${heightFieldTest.stderr || heightFieldTest.stdout}`);
 const terrainWorkerTest = await runCheck([path.join(root,"scripts","test-terrain-mesh-worker.mjs")]);
 const terrainContextTest = await runCheck([path.join(root,"scripts","test-terrain-context.mjs")]);
 assert.equal(terrainContextTest.status,0,terrainContextTest.stderr);
@@ -1416,6 +1432,8 @@ const adminLabelsTest = await runCheck([path.join(root, "scripts", "test-adminis
 assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLabelsTest.stderr || adminLabelsTest.stdout}`);
 const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);
 assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
+const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-loading.mjs")]);
+assert.equal(modelLoadingTest.status, 0, `模型加载回归失败：${modelLoadingTest.stderr}`);
 
 console.log(JSON.stringify({
   status: "passed",

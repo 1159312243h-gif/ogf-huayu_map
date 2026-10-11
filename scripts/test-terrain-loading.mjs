@@ -180,10 +180,12 @@ const renderContext = vm.createContext({
   huayuMountainSurfaceMeshLevel: (zoom) => zoom >= 10.5 ? 4 : 3,
   huayuWoodlandMaterialCoverage:() => null,
   huayuWoodlandMaterialOcclusions:() => masks,
-  huayuMountainSurfaceFeatureVertices:() => {
+  huayuMountainSurfaceFeatureVertices:(_feature,_budget,bounds) => {
     vertexCalls++;
     if (cancelBuild) layer.rebuildRevision++;
-    return Array(54).fill(0);
+    const x = (bounds.east-bounds.west)/2, y = (bounds.north-bounds.south)/2;
+    return [[-x,-y],[x,-y],[x,y],[-x,-y],[x,y],[-x,y]]
+      .flatMap(([px,py])=>[px,py,0,0,0,1,0.5,100,20]);
   },
   huayuLiveBasemapStates:new WeakMap(), Float32Array,
   huayuMountainWaterContexts:new WeakMap(),
@@ -192,7 +194,8 @@ const renderContext = vm.createContext({
   performance:{now:() => {clock+=20; return clock;}}, setTimeout, window:{setTimeout,clearTimeout},
 });
 install(["huayuMountainMaterialOrigin", "huayuAdministrativeBoundsContain", "huayuWoodlandMaterialCells",
-  "huayuWoodlandMaterialBoundsIntersect", "huayuWoodlandMaterialBuildGeometry", "createHuayuWoodlandMaterialLayer"], renderContext);
+  "huayuWoodlandMaterialBoundsIntersect", "huayuWoodlandMaterialBuildGeometry", "huayuTerrainDrawBatches",
+  "huayuTerrainVisibleDrawRanges", "huayuTerrainRawCellReady", "createHuayuWoodlandMaterialLayer"], renderContext);
 layer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
 layer.gl = {bindBuffer:() => {}, bufferData:() => {uploads++;}, createBuffer:() => ({}),
   createTexture:() => ({}),deleteBuffer:() => {},deleteTexture:() => {}};
@@ -269,6 +272,39 @@ overviewLayer.render(overviewLayer.gl,Array(16).fill(0));
 assert.ok(overviewDraws.length>0 && overviewDraws.every(count=>count===12),
   "a coarser runtime block must not hide the prepared terrain at small scales");
 
+// Prepared mountains must remain visible while a spatial raw chunk is absent.
+// Once the same generation is complete, a genuinely empty cell may take over.
+const startupLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
+startupLayer.gl = overviewLayer.gl;
+startupLayer.map = {getZoom:()=>11,triggerRepaint:()=>{}};
+startupLayer.program = {};
+startupLayer.publishedManifest = {generatedAt:"2026-10-11T00:00:00Z",classification:"test",renderBlocks:[{url:"prepared"}],
+  chunks:[{bounds:[[0,0],[1,1]]}]};
+startupLayer.blocks.set("published",{...blockShape,key:"published",publishedUrl:"prepared",vertexCount:12});
+const preparedBlockCount = startupLayer.blocks.size;
+await startupLayer.rebuild();
+assert.equal(startupLayer.blocks.size,preparedBlockCount,"missing raw chunks must not install empty replacement meshes");
+overviewDraws.length=0;
+startupLayer.render(startupLayer.gl,Array(16).fill(0));
+assert.ok(overviewDraws.length>0,"the ready overview must remain drawable while raw data loads");
+startupLayer.rawSnapshotData = {generatedAt:startupLayer.publishedManifest.generatedAt,
+  classification:"test",snapshotRegions:[[[0,0],[1,1]]]};
+await startupLayer.rebuild();
+overviewDraws.length=0;
+startupLayer.render(startupLayer.gl,Array(16).fill(0));
+assert.equal(overviewDraws.length,0,"complete empty data must suppress obsolete prepared mountains");
+assert.equal(renderContext.huayuTerrainRawCellReady(startupLayer.publishedManifest,
+  {...startupLayer.rawSnapshotData,generatedAt:"old"},viewport),false,"another generation cannot complete a replacement");
+assert.equal(renderContext.huayuTerrainRawCellReady(startupLayer.publishedManifest,
+  {...startupLayer.rawSnapshotData,snapshotRegions:[]},viewport),false,"downloaded regions cannot claim gaps as complete");
+assert.equal(renderContext.huayuTerrainRawCellReady(startupLayer.publishedManifest,null,
+  {west:2,east:3,south:2,north:3}),true,"live terrain outside published chunk coverage must still be drawable");
+const beforeManifestLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
+beforeManifestLayer.gl = overviewLayer.gl;
+beforeManifestLayer.map = startupLayer.map;
+await beforeManifestLayer.rebuild();
+assert.equal(beforeManifestLayer.blocks.size,0,"initial context must not create blank fine cells before the manifest arrives");
+
 let deletedBuffers = 0;
 layer.gl.deleteBuffer = () => {deletedBuffers++;};
 renderZoom = 11;
@@ -282,7 +318,8 @@ assert.ok(deletedBuffers>0,"eviction must free buffers rather than only removing
 // Regional ranges must vary throughout their extent, including far from a centre point.
 const surfaceContext = vm.createContext({clamp:(value,min,max) => Math.max(min,Math.min(max,value))});
 surfaceContext.HUAYU_MOUNTAIN_WOODLAND_MIN_AREA = 1000000;
-install(["huayuTreeHash", "huayuMountainSurfaceNoise", "huayuRegionalMountainSurface", "huayuMountainPlainName"], surfaceContext);
+install(["huayuTreeHash", "huayuMountainSurfaceNoise", "huayuMountainHeightSamples",
+  "huayuMountainConstrainedHeightField", "huayuRegionalMountainSurface", "huayuMountainPlainName"], surfaceContext);
 const bounds = {west:149.5,east:153.3,south:4.2,north:8.2};
 const rangeFeature = {id:"regional-range", properties:{reliefPeaks:"[]"}};
 const range = surfaceContext.huayuRegionalMountainSurface(rangeFeature,bounds,0.99,50e9,2500);
