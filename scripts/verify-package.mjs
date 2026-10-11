@@ -1411,6 +1411,8 @@ const pavilionTagsTest = await runCheck([path.join(root, "scripts", "test-pavili
 assert.equal(pavilionTagsTest.status, 0, `亭子明确标签与普通建筑分类回归失败：${pavilionTagsTest.stderr}`);
 const buildingColorsTest = await runCheck([path.join(root, "scripts", "test-building-colors.mjs")]);
 assert.equal(buildingColorsTest.status, 0, `建筑颜色标签与模型保留回归失败：${buildingColorsTest.stderr}`);
+const transitDisplayTest = await runCheck([path.join(root, "scripts", "test-transit-display.mjs")]);
+assert.equal(transitDisplayTest.status, 0, `铁路站显示去重与交通缓存回归失败：${transitDisplayTest.stderr || transitDisplayTest.stdout}`);
 const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
 const heightFieldTest = await runCheck([path.join(root, "scripts", "test-terrain-height-field.mjs")]);

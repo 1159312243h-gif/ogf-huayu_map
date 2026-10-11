@@ -152,6 +152,7 @@
   const TRANSIT_MAX_PATH_VARIANTS = 3;
   const TRANSIT_MAX_DISPLAY_PLANS = 10;
   const TRANSIT_STATION_GROUP_RADIUS_METERS = 180;
+  const RAIL_STATION_DISPLAY_RADIUS_METERS = 350;
   const CONFIRMED_TRANSIT_STATION_MAX_TRACK_OFFSET_METERS = 400;
   const TRANSIT_MAX_ADJACENT_STOP_DISTANCE_METERS = 50000;
   const TRAIN_SERVICE_MAX_ADJACENT_STOP_DISTANCE_METERS = 250000;
@@ -863,6 +864,8 @@
   const vectorTransitIconIds = new Set();
   let vectorTransitOverlaySignature = "";
   let vectorTransitOverlayMap = null;
+  let vectorTransitStyleWaitMap = null;
+  let vectorTransitViewCache = null;
   const huayuAdminLabelStates = new WeakMap();
   const huayuModelOcclusionStates = new WeakMap();
   const huayuCityWallStates = new WeakMap();
@@ -962,6 +965,13 @@
   let transitRenderTimer = null;
   let transitRenderedBounds = null;
   let transitRenderedFilterKey = "";
+  let transitRenderedNetwork = null;
+  let transitRenderedRailwayData = null;
+  let transitRenderedConnectionData = null;
+  const transitDisplayNetworkCache = new WeakMap();
+  let transitCollectionWorker = null;
+  let transitCollectionRequestId = 0;
+  const transitCollectionRequests = new Map();
   let focusedTransitStopMarkers = [];
   let networkTransitStopMarkers = [];
   let multimodalRouteSequences = new Map();
@@ -3638,9 +3648,22 @@
     const overrides = transitServiceRules.stationDisplayMergeOverrides || [];
     const unnamedMergeRules = (transitServiceRules.stationInterchangeOverrides || [])
       .filter((rule) => rule.mergeNearbyUnnamedWithinMeters > 0);
-    if (!overrides.length && !unnamedMergeRules.length) return stops;
     const merged = [];
+    const groups = new Map();
+    const sourcePoint = (stop) => ({
+      lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
+      lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
+    });
+    const railwayStation = (stop) => stop.isRail && (stop.routes || []).some((route) => route.type === "train");
     const mergeStopInto = (existing, stop) => {
+      existing.displaySourceIds = [...new Set([
+        ...(existing.displaySourceIds || [existing.id, existing.sourceId]),
+        ...(stop.displaySourceIds || [stop.id, stop.sourceId]),
+      ].filter((id) => id !== null && id !== undefined).map(String))];
+      existing.displayServiceRoutes = [...new Map([
+        ...(existing.displayServiceRoutes || [...(existing.routes || []), ...(existing.displayRoutes || [])]),
+        ...(stop.displayServiceRoutes || [...(stop.routes || []), ...(stop.displayRoutes || [])]),
+      ].map((route) => [route.id ?? route.identity, route])).values()];
       existing.isRail ||= stop.isRail;
       existing.isBus ||= stop.isBus;
       existing.isMainline ||= stop.isMainline;
@@ -3662,14 +3685,29 @@
     stops.forEach((stop) => {
       const key = transitStationComplexKey(stop.name);
       const override = overrides.find((item) => item.stationNames.includes(key));
-      const existing = override ? merged.find((item) => item.displayMergeKey === key
-        && distanceMeters(item, stop) <= override.maxMeters) : null;
+      // Display only: platform direction, service type and snapped track do
+      // not create separate railway stations. Never change routing node IDs.
+      // Exact names and a fixed original-position anchor prevent merging
+      // nearby differently named stations or chaining along a whole line.
+      const groupKey = override ? `override:${key}` : railwayStation(stop)
+        ? `rail:${String(stop.name || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN")}` : "";
+      const candidates = groupKey && key ? groups.get(groupKey) || [] : [];
+      const existing = candidates.find((item) => override
+        ? distanceMeters(item, stop) <= override.maxMeters
+        : distanceMeters(sourcePoint(item), sourcePoint(stop)) <= RAIL_STATION_DISPLAY_RADIUS_METERS);
       if (!existing) {
-        merged.push({ ...stop, displayMergeKey: override ? key : "" });
+        const displayStop = { ...stop,
+          displaySourceIds: [...new Set([...(stop.displaySourceIds || []), stop.id, stop.sourceId]
+            .filter((id) => id !== null && id !== undefined).map(String))] };
+        merged.push(displayStop);
+        if (groupKey && key) {
+          if (!groups.has(groupKey)) groups.set(groupKey, []);
+          groups.get(groupKey).push(displayStop);
+        }
         return;
       }
       const stopId = String(stop.sourceId ?? stop.id);
-      if (override.anchorStationId && stopId === String(override.anchorStationId)) {
+      if (override?.anchorStationId && stopId === String(override.anchorStationId)) {
         existing.id = stop.id;
         existing.sourceId = stop.sourceId;
         existing.lat = stop.lat;
@@ -3677,7 +3715,7 @@
         existing.sourceLat = stop.sourceLat;
         existing.sourceLon = stop.sourceLon;
       }
-      existing.isInterchange = true;
+      if (override) existing.isInterchange = true;
       mergeStopInto(existing, stop);
     });
 
@@ -3714,7 +3752,71 @@
         merged.splice(merged.indexOf(stop), 1);
       });
     });
-    return merged.map(({ displayMergeKey, ...stop }) => stop);
+    return merged;
+  }
+
+  function invalidateTransitDisplayNetwork(network) {
+    // The Node snapshot collector shares these functions without UI state.
+    if (typeof transitDisplayNetworkCache !== "undefined" && network) transitDisplayNetworkCache.delete(network);
+  }
+
+  function transitStationDetailRoutes(stop) {
+    const routes = [...new Map([
+      ...(stop.displayServiceRoutes || []), ...(stop.routes || []), ...(stop.displayRoutes || []),
+    ].map((route) => [route.id ?? route.identity, route])).values()];
+    const authoritativeTypes = new Set(routes
+      .filter((route) => !route.isFallback && !(typeof route.id === "number" && route.id < 0))
+      .map((route) => route.type));
+    return routes.filter((route) => !(route.isFallback || (typeof route.id === "number" && route.id < 0))
+      || !authoritativeTypes.has(route.type));
+  }
+
+  function getTransitDisplayNetwork(network) {
+    let cached = transitDisplayNetworkCache.get(network);
+    if (cached && cached.sourceStops === network.stops && cached.sourceLines === network.lines
+      && cached.rules === transitServiceRules) return cached;
+    const stops = mergeTransitStopsForDisplay(network.stops);
+    const stopsById = new Map();
+    const cells = new Map();
+    stops.forEach((stop) => {
+      (stop.displaySourceIds || [String(stop.id)]).forEach((id) => stopsById.set(String(id), stop));
+      const key = `${Math.floor(stop.lat * 10)}:${Math.floor(stop.lon * 10)}`;
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(stop);
+    });
+    const representedWayIds = new Set();
+    network.lines.forEach((line) => {
+      if (!(line.routes || []).some((route) => route.type === "train")) return;
+      String(line.id).replace(/^rail-infrastructure-/, "").split("+").forEach((id) => {
+        if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
+      });
+    });
+    cached = { stops, stopsById, cells, representedWayIds,
+      sourceStops: network.stops, sourceLines: network.lines, rules: transitServiceRules };
+    transitDisplayNetworkCache.set(network, cached);
+    return cached;
+  }
+
+  function transitDisplayStopsInBounds(network, bounds) {
+    const cached = getTransitDisplayNetwork(network);
+    const south = Math.floor(bounds.getSouth() * 10);
+    const north = Math.floor(bounds.getNorth() * 10);
+    const west = Math.floor(bounds.getWest() * 10);
+    const east = Math.floor(bounds.getEast() * 10);
+    // At country scale scanning the compact array is cheaper than probing
+    // thousands of empty grid cells. Retain every eligible station either way.
+    if (east < west || (north - south + 1) * (east - west + 1) > cached.cells.size) {
+      return cached.stops.filter((stop) => bounds.contains([stop.lat, stop.lon]));
+    }
+    const stops = [];
+    for (let lat = south; lat <= north; lat += 1) {
+      for (let lon = west; lon <= east; lon += 1) {
+        (cached.cells.get(`${lat}:${lon}`) || []).forEach((stop) => {
+          if (bounds.contains([stop.lat, stop.lon])) stops.push(stop);
+        });
+      }
+    }
+    return stops;
   }
 
   function isReasonableTransitTransfer(first, second, distance) {
@@ -4079,6 +4181,7 @@
 
   function enrichTransitNetworkRouteMetadata(network) {
     if (!network) return;
+    if (network.speedMetadataReady) return;
     const relationsById = new Map(transitPreloadSnapshots
       .flatMap((snapshot) => snapshot.elements || [])
       .filter((item) => item.type === "relation" && (item.tags?.route || item.tags?.route_master))
@@ -4091,7 +4194,6 @@
       const relation = relationsById.get(String(route.id));
       if (relation) route.color = getTransitColor(relation.tags || {});
     });
-    if (network.speedMetadataReady) return;
     const stats = new Map();
     const ensureStats = (route) => {
       if (!stats.has(route.identity)) stats.set(route.identity, { route, stopIds: new Set(), length: 0 });
@@ -4144,6 +4246,7 @@
       route.urbanRail = isUrbanRailTransitRoute(route);
     });
     network.speedMetadataReady = true;
+    invalidateTransitDisplayNetwork(network);
   }
 
   function buildMultimodalPlans(origin, destination, origins, destinations, graph, mode) {
@@ -9530,7 +9633,8 @@
       const infrastructureWays = (payload.elements || []).filter((item) => item.type === "way"
         && ["rail", "narrow_gauge"].includes(item.tags?.railway)
         && !item.tags?.service);
-      const network = collectTransitNetwork(payload.elements || [], bounds, false, infrastructureWays);
+      const network = await collectTransitNetworkInBackground(payload.elements || [], bounds, false, infrastructureWays);
+      if (requestId !== transitNetworkRequestId || selectedTransitId) return;
       network.stationDataUnavailable = false;
       network.source = "live";
       transitNetworkData = baseNetwork ? mergeTransitNetworks(baseNetwork, network) : network;
@@ -9613,7 +9717,8 @@
       if (!successfulResponses.length) throw new Error("BUS_STOP_QUERY_FAILED");
       const busElements = successfulResponses.flatMap((response) => response.payload.elements || []);
       enrichTransitRelationTypes(busElements);
-      const busNetwork = collectTransitNetwork(busElements, busBounds, true);
+      const busNetwork = await collectTransitNetworkInBackground(busElements, busBounds, true);
+      if (requestId !== transitBusRequestId || transitNetworkData !== targetNetwork) return;
       transitNetworkData.stops = mergeTransitStops([...transitNetworkData.stops, ...busNetwork.stops]);
       transitNetworkData.includeBus = true;
       invalidateTransitRoutingCaches();
@@ -9704,6 +9809,123 @@
       lat: item.center.lat,
       lon: item.center.lon,
     };
+  }
+
+  function transitCollectionBounds(south, west, north, east) {
+    return {
+      getSouth: () => south, getWest: () => west, getNorth: () => north, getEast: () => east,
+      contains(point) {
+        const lat = Array.isArray(point) ? point[0] : point.lat;
+        const lon = Array.isArray(point) ? point[1] : point.lng ?? point.lon;
+        return lat >= south && lat <= north && lon >= west && lon <= east;
+      },
+      pad(ratio) {
+        const latitude = (north - south) * ratio;
+        const longitude = (east - west) * ratio;
+        return transitCollectionBounds(south - latitude, west - longitude, north + latitude, east + longitude);
+      },
+    };
+  }
+
+  function transitCollectionWorkerSource() {
+    // Use exactly the collector used by the three-hour snapshot builder.
+    // Keep this dependency list under an executable worker parity check.
+    const functions = [
+      addRouteMembership, alignTransitSampleOrientation, applyPublicTransitRailSystem,
+      applyStationInterchangeOverrides, applyTransitRefCorrection, averageTransitGeometries, clamp,
+      collapseJoinedParallelTransitLines, collapseParallelTransitLines, collectTransitNetwork,
+      distanceMeters, findTransitRelationForRoute, getTransitColor, hasUrbanTrainRoute,
+      invalidateTransitDisplayNetwork, isBusStopNode, isMainlineStationNode,
+      isNonOperationalRailFacilityRelation, isRailStationCandidate, isRailStationNode,
+      isSyntheticSingleStationStub, isUrbanRailTransitRoute, joinConnectedTransitLines,
+      measureParallelTransitGeometries, mergeTransitStops, nearestPointOnTransitLines,
+      normalizeTransitRuleText, normalizeTransitStopName, parseTransitMaxspeed,
+      projectPointToTransitSegment, publicTransitRailSystemForRoute, sampleTransitGeometry,
+      speedFromRelationTags, trainRouteSetsConflict, transitDirectionSimilarity,
+      transitGeometryLength, transitLineBbox, transitOperatingSpeedKmh,
+      transitPathDirectionSimilarity, transitPublicRouteName, transitRelationRouteType,
+      transitRouteInfo, transitStationComplexKey, transitStationPointElement, transitCollectionBounds,
+      translateTransitType, uniqueTransitRoutes, urbanRailRelation, urbanRailText,
+    ];
+    return `
+      const RAIL_ROUTE_TYPES = new Set(${JSON.stringify([...RAIL_ROUTE_TYPES])});
+      const NON_OPERATIONAL_RAIL_NAME = ${NON_OPERATIONAL_RAIL_NAME};
+      const URBAN_TRAIN_ROUTE_LABEL = ${URBAN_TRAIN_ROUTE_LABEL};
+      const URBAN_TRAIN_SERVICE_LABEL = ${URBAN_TRAIN_SERVICE_LABEL};
+      const URBAN_TRAIN_OPERATOR_LABEL = ${URBAN_TRAIN_OPERATOR_LABEL};
+      const SYNTHETIC_STATION_STUB_MAX_METERS = ${SYNTHETIC_STATION_STUB_MAX_METERS};
+      const DISTINCT_STATION_AREA_METERS = ${DISTINCT_STATION_AREA_METERS};
+      const TRANSIT_NORMALIZATION_CACHE_LIMIT = ${TRANSIT_NORMALIZATION_CACHE_LIMIT};
+      const NORMALIZED_TRANSIT_TEXT_CACHE = new Map();
+      const NORMALIZED_TRANSIT_STOP_NAME_CACHE = new Map();
+      const PUBLIC_TRANSIT_RAIL_SELECTOR_CACHE = new WeakMap();
+      let transitServiceRules = {};
+      let multimodalRelationsById = new Map();
+      let selectedTransitItems = [];
+      let transitRelations = [];
+      let transitPreloadSnapshots = [];
+      ${functions.map((fn) => fn.toString()).join("\n")}
+      self.onmessage = ({data}) => {
+        const {id, items, extent, includeBus, infrastructure, rules} = data;
+        try {
+          transitServiceRules = rules;
+          multimodalRelationsById = new Map(items.filter(item => item.type === 'relation')
+            .map(item => [String(item.id), item]));
+          const [[south,west],[north,east]] = extent;
+          const bounds = transitCollectionBounds(south, west, north, east);
+          const network = collectTransitNetwork(items, bounds, includeBus, infrastructure);
+          self.postMessage({id, network});
+        } catch (error) {
+          self.postMessage({id, error: String(error?.message || error)});
+        } finally {
+          multimodalRelationsById.clear();
+        }
+      };`;
+  }
+
+  function stopTransitCollectionWorker(error) {
+    transitCollectionWorker?.terminate();
+    transitCollectionWorker = null;
+    transitCollectionRequests.forEach((request) => {
+      window.clearTimeout(request.timer);
+      request.reject(error);
+    });
+    transitCollectionRequests.clear();
+  }
+
+  async function collectTransitNetworkInBackground(items, bounds, includeBus, infrastructure = []) {
+    if (typeof Worker === "undefined") {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      return collectTransitNetwork(items, bounds, includeBus, infrastructure);
+    }
+    if (!transitCollectionWorker) {
+      const url = URL.createObjectURL(new Blob([transitCollectionWorkerSource()], {type: "text/javascript"}));
+      try {
+        transitCollectionWorker = new Worker(url);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      transitCollectionWorker.onmessage = ({data}) => {
+        const request = transitCollectionRequests.get(data.id);
+        if (!request) return;
+        window.clearTimeout(request.timer);
+        transitCollectionRequests.delete(data.id);
+        if (data.error) request.reject(new Error(data.error));
+        else request.resolve(data.network);
+      };
+      transitCollectionWorker.onerror = () => stopTransitCollectionWorker(new Error("TRANSIT_COLLECTION_WORKER_FAILED"));
+    }
+    const id = ++transitCollectionRequestId;
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => stopTransitCollectionWorker(new Error("TRANSIT_COLLECTION_TIMEOUT")), 30000);
+      transitCollectionRequests.set(id, {resolve, reject, timer});
+      try {
+        transitCollectionWorker.postMessage({id, items, includeBus, infrastructure, rules: transitServiceRules,
+          extent: [[bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getEast()]]});
+      } catch (error) {
+        stopTransitCollectionWorker(error);
+      }
+    });
   }
 
   function collectTransitNetwork(items, bounds, includeBus, railInfrastructure = []) {
@@ -9938,6 +10160,7 @@
       stationNetwork.stationIds.forEach((id) => stationSystems.set(String(id), stationNetwork.systemId));
     });
     if (!stationSystems.size) return;
+    invalidateTransitDisplayNetwork(network);
 
     const linesBySystem = new Map();
     network.lines.forEach((line) => {
@@ -10011,6 +10234,7 @@
   function applyStationInterchangeOverrides(network) {
     const overrides = transitServiceRules.stationInterchangeOverrides || [];
     if (!network || !overrides.length || !Array.isArray(network.stops)) return network;
+    invalidateTransitDisplayNetwork(network);
     const routePool = uniqueTransitRoutes([
       ...(network.lines || []).flatMap((line) => line.routes || []),
       ...network.stops.flatMap((stop) => stop.routes || []),
@@ -10102,6 +10326,7 @@
       Number(transitDisplayFilters.tram),
       Number(transitDisplayFilters.railway),
       Number(transitDisplayFilters.bus && zoom >= BUS_STOP_MIN_ZOOM),
+      Number(transitDisplayFilters.railway && inferredRailConnectionsEnabled()),
     ].join("");
   }
 
@@ -10109,7 +10334,9 @@
     if (mapViewMode !== "transit" || selectedTransitId || !transitNetworkData) return;
     const currentBounds = map.getBounds();
     const filterKey = transitRenderFilterKey(map.getZoom());
-    if (!options.force
+    if (transitRenderedNetwork === getTransitDisplayNetwork(transitNetworkData)
+      && transitRenderedRailwayData === railwayRoutingData
+      && transitRenderedConnectionData === railwayConnectionsData
       && transitRenderedBounds
       && transitRenderedFilterKey === filterKey
       && transitRenderedBounds.contains(currentBounds)) {
@@ -10134,6 +10361,9 @@
     networkTransitStopMarkers = [];
     transitRenderedBounds = null;
     transitRenderedFilterKey = "";
+    transitRenderedNetwork = null;
+    transitRenderedRailwayData = null;
+    transitRenderedConnectionData = null;
     if (!options.keepSelection) {
       selectedNetworkStationId = null;
       hideTransitStationDetail();
@@ -10166,6 +10396,15 @@
   }
 
   function renderTransitNetwork(network, zoom) {
+    if (vectorPerspectiveActive) {
+      // Perspective has its own symbols and hit testing. Building invisible
+      // Leaflet markers as well doubles the work and DOM allocations.
+      transitRenderedBounds = null;
+      syncVectorTransitOverlay();
+      return;
+    }
+    const renderStartedAt = performance.now();
+    const displayNetwork = getTransitDisplayNetwork(network);
     // Build the next frame off-map, then swap it in one synchronous step so a
     // slow pan/render cannot expose an empty traffic layer between frames.
     const nextTransitNetworkLayer = window.L.layerGroup();
@@ -10174,7 +10413,7 @@
     const renderBounds = map.getBounds().pad(TRANSIT_RENDER_PADDING);
     const selectedStop = selectedNetworkStationId === null
       ? null
-      : network.stops.find((stop) => stop.id === selectedNetworkStationId);
+      : displayNetwork.stopsById.get(String(selectedNetworkStationId));
     if (selectedNetworkStationId !== null && (!selectedStop || !transitStopMatchesFilters(selectedStop, zoom))) {
       selectedNetworkStationId = null;
       hideTransitStationDetail();
@@ -10219,8 +10458,8 @@
         routeLayers: [...new Set(routes.map((route) => transitLayerCategory(route)))].join(" ") });
     });
 
-    const visibleStops = mergeTransitStopsForDisplay(network.stops)
-      .filter((stop) => renderBounds.contains([stop.lat, stop.lon]) && transitStopMatchesFilters(stop, zoom));
+    const visibleStops = transitDisplayStopsInBounds(network, renderBounds)
+      .filter((stop) => transitStopMatchesFilters(stop, zoom));
     visibleStops.forEach((stop) => {
       const visibleRoutes = getVisibleTransitRoutes(stop.routes);
       const markerRoutes = getVisibleTransitRoutes([...(stop.routes || []), ...(stop.displayRoutes || [])]);
@@ -10262,6 +10501,9 @@
     networkTransitStopMarkers = nextNetworkTransitStopMarkers;
     transitRenderedBounds = renderBounds;
     transitRenderedFilterKey = transitRenderFilterKey(zoom);
+    transitRenderedNetwork = displayNetwork;
+    transitRenderedRailwayData = railwayRoutingData;
+    transitRenderedConnectionData = railwayConnectionsData;
     updateTransitNetworkLabels();
 
     const railStops = networkTransitStopMarkers.filter((entry) => entry.displayIsRail).length;
@@ -10289,6 +10531,8 @@
     elements.transitNetworkStatus.dataset.totalLines = String(network.lines.length);
     elements.transitNetworkStatus.dataset.renderedLines = String(visibleLines.length);
     elements.transitNetworkStatus.dataset.renderedRailwayWays = String(supplementaryRailways.actual);
+    elements.transitNetworkStatus.dataset.renderMs = (performance.now() - renderStartedAt).toFixed(1);
+    elements.transitNetworkStatus.dataset.renderCount = String((Number(elements.transitNetworkStatus.dataset.renderCount) || 0) + 1);
     setStatus(
       elements.transitNetworkStatus,
       `${sourceText}；${layerText}在当前视窗显示 ${visibleLines.length} 段关系中心线${railwayInfrastructureText}、${railStops} 个轨道站${busText}${railwayLoadingText}${transitDisplayFilters.railway && inferredRailConnectionsEnabled() ? "；灰褐虚线为推定／规划连接，未确认运营" : ""}`,
@@ -10309,13 +10553,7 @@
   function renderSupplementaryRailways(network, bounds, targetLayer = transitNetworkLayer) {
     const rendered = { actual: 0, inferred: 0 };
     if (!transitDisplayFilters.railway || !railwayConnectionsData) return rendered;
-    const representedWayIds = new Set();
-    network.lines.forEach((line) => {
-      if (!(line.routes || []).some((route) => route.type === "train")) return;
-      String(line.id).replace(/^rail-infrastructure-/, "").split("+").forEach((id) => {
-        if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
-      });
-    });
+    const { representedWayIds } = getTransitDisplayNetwork(network);
     const sourceWays = railwayRoutingData?.ways?.length
       ? railwayRoutingData.ways
       : railwayConnectionsData.ways;
@@ -10425,10 +10663,7 @@
 
     const configuredRouteOrder = new Map((stop.interchangeRouteRefs || [])
       .map((ref, index) => [String(ref).trim().toLocaleLowerCase("zh-CN"), index]));
-    const routes = preferAuthoritativeTransitRoutes(uniqueTransitRoutes([
-      ...(stop.routes || []),
-      ...(stop.displayRoutes || []),
-    ]))
+    const routes = transitStationDetailRoutes(stop)
       .sort((a, b) => {
         const first = configuredRouteOrder.get(String(a.ref || "").trim().toLocaleLowerCase("zh-CN"));
         const second = configuredRouteOrder.get(String(b.ref || "").trim().toLocaleLowerCase("zh-CN"));
@@ -14285,20 +14520,25 @@
       transitLabelFrame = null;
       const mapRect = map.getContainer().getBoundingClientRect();
       const occupied = [];
-      [...entries]
+      // Read every rectangle before changing layers. Alternating a layout
+      // read and DOM removal forces a fresh layout for each station label.
+      const labels = [...entries]
         .filter(({ labelMarker }) => labelMarker && group.hasLayer(labelMarker))
         .sort((a, b) => Number(b.stop?.id === selectedNetworkStationId) - Number(a.stop?.id === selectedNetworkStationId))
-        .forEach(({ labelMarker }) => {
+        .map(({ labelMarker }) => {
           const label = labelMarker.getElement()?.querySelector(".transit-stop-name");
-          if (!label) return;
+          if (!label) return null;
           const rect = label.getBoundingClientRect();
-          if (rect.right < mapRect.left || rect.left > mapRect.right || rect.bottom < mapRect.top || rect.top > mapRect.bottom) return;
+          if (rect.right < mapRect.left || rect.left > mapRect.right || rect.bottom < mapRect.top || rect.top > mapRect.bottom) return null;
           const padded = {
             left: rect.left - 3,
             right: rect.right + 3,
             top: rect.top - 2,
             bottom: rect.bottom + 2,
           };
+          return { labelMarker, padded };
+        }).filter(Boolean);
+      labels.forEach(({ labelMarker, padded }) => {
           const overlaps = occupied.some((item) => padded.left < item.right
             && padded.right > item.left
             && padded.top < item.bottom
@@ -28414,13 +28654,7 @@
     });
 
     if (transitDisplayFilters.railway && railwayConnectionsData) {
-      const representedWayIds = new Set();
-      transitNetworkData.lines.forEach((line) => {
-        if (!(line.routes || []).some((route) => route.type === "train")) return;
-        String(line.id).replace(/^rail-infrastructure-/, "").split("+").forEach((id) => {
-          if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
-        });
-      });
+      const { representedWayIds } = getTransitDisplayNetwork(transitNetworkData);
       const sourceWays = railwayRoutingData?.ways?.length ? railwayRoutingData.ways : railwayConnectionsData.ways;
       sourceWays.forEach((way) => {
         if (representedWayIds.has(String(way[0])) || !getRailwayRoutingWayBounds(way).intersects(renderBounds)) return;
@@ -28453,8 +28687,8 @@
       }
     }
 
-    transitNetworkData.stops.forEach((stop) => {
-      if (!renderBounds.contains([stop.lat, stop.lon]) || !transitStopMatchesFilters(stop, zoom)) return;
+    transitDisplayStopsInBounds(transitNetworkData, renderBounds).forEach((stop) => {
+      if (!transitStopMatchesFilters(stop, zoom)) return;
       const markerRoutes = getVisibleTransitRoutes([...(stop.routes || []), ...(stop.displayRoutes || [])]);
       const displayIsRail = markerRoutes.some((route) => route.type !== "bus");
       const displayIsBus = transitDisplayFilters.bus && zoom >= BUS_STOP_MIN_ZOOM && stop.isBus;
@@ -28609,7 +28843,7 @@
   function handleVectorTransitStationClick(event) {
     if (!mapFeatureSelectionEnabled) return;
     const stopId = String(event.features?.[0]?.properties?.stopId ?? "");
-    const stop = transitNetworkData?.stops?.find((item) => String(item.id) === stopId);
+    const stop = transitNetworkData && getTransitDisplayNetwork(transitNetworkData).stopsById.get(stopId);
     if (stop) showTransitStation(stop, null);
   }
 
@@ -28655,6 +28889,10 @@
     vectorTransitPopup = null;
     unbindVectorTransitOverlayEvents(glMap);
     if (!glMap) return;
+    if (vectorTransitStyleWaitMap === glMap) {
+      glMap.off("style.load", syncVectorTransitOverlay);
+      vectorTransitStyleWaitMap = null;
+    }
     try {
       Object.values(VECTOR_TRANSIT_LAYER_IDS).slice().reverse().forEach((id) => {
         if (glMap.getLayer(id)) glMap.removeLayer(id);
@@ -28671,6 +28909,7 @@
       vectorTransitOverlayMap = null;
       vectorTransitOverlaySignature = "";
     }
+    if (vectorTransitViewCache?.map === glMap) vectorTransitViewCache = null;
     elements.transitNetworkStatus.dataset.vectorLines = "0";
     elements.transitNetworkStatus.dataset.vectorStops = "0";
     delete elements.transitNetworkStatus.dataset.vectorSampleStop;
@@ -28684,13 +28923,46 @@
       return;
     }
     try {
-      if (!glMap.isStyleLoaded()) {
-        glMap.once("load", syncVectorTransitOverlay);
+      // Tile/model requests can keep isStyleLoaded() false long after the
+      // usable style exists. Waiting for another one-time map load then left
+      // all traffic symbols absent while unrelated features were loading.
+      if (!glMap.getStyle()?.layers?.length) {
+        if (vectorTransitStyleWaitMap !== glMap) {
+          vectorTransitStyleWaitMap?.off("style.load", syncVectorTransitOverlay);
+          vectorTransitStyleWaitMap = glMap;
+          glMap.once("style.load", syncVectorTransitOverlay);
+        }
         return;
       }
+      if (vectorTransitStyleWaitMap === glMap) {
+        glMap.off("style.load", syncVectorTransitOverlay);
+        vectorTransitStyleWaitMap = null;
+      }
+      const hadSources = Boolean(glMap.getSource(VECTOR_TRANSIT_LINE_SOURCE)
+        && glMap.getSource(VECTOR_TRANSIT_STOP_SOURCE));
       ensureVectorTransitOverlayLayers(glMap);
+      if (!hadSources) {
+        vectorTransitOverlaySignature = "";
+        vectorTransitViewCache = null;
+      }
+      enrichTransitNetworkRouteMetadata(transitNetworkData);
+      const displayNetwork = getTransitDisplayNetwork(transitNetworkData);
+      const zoom = glMap.getZoom() + 1;
+      const filters = `${transitRenderFilterKey(zoom)}:${Math.floor(zoom)}:${selectedNetworkStationId}`;
+      const cameraBounds = glMap.getBounds();
+      const retained = vectorTransitViewCache;
+      if (hadSources && retained?.map === glMap && retained.network === displayNetwork
+        && retained.filters === filters && retained.railway === railwayRoutingData
+        && retained.connections === railwayConnectionsData
+        && retained.bounds.getSouth() <= cameraBounds.getSouth()
+        && retained.bounds.getNorth() >= cameraBounds.getNorth()
+        && retained.bounds.getWest() <= cameraBounds.getWest()
+        && retained.bounds.getEast() >= cameraBounds.getEast()) return;
       const { lineFeatures, stopFeatures } = vectorTransitOverlayData(glMap);
       const signature = vectorTransitFeatureSignature(lineFeatures, stopFeatures);
+      vectorTransitViewCache = {map: glMap, network: displayNetwork, filters,
+        railway: railwayRoutingData, connections: railwayConnectionsData,
+        bounds: vectorTransitRenderBounds(glMap)};
       if (vectorTransitOverlayMap === glMap && vectorTransitOverlaySignature === signature) {
         // The camera moved, but the visible feature set and label eligibility
         // did not. The existing source follows the camera automatically.
@@ -28713,7 +28985,8 @@
       } else {
         delete elements.transitNetworkStatus.dataset.vectorSampleStop;
       }
-    } catch {
+    } catch (error) {
+      console.warn("交通透视图层更新失败", error);
       removeVectorTransitOverlay(glMap);
     }
   }
@@ -29732,11 +30005,11 @@
 
   function mergeTransitStops(stops) {
     const merged = [];
+    const byName = new Map();
     stops.forEach((stop) => {
       const normalizedName = String(stop.name || "").trim().toLocaleLowerCase("zh-CN");
       const existing = normalizedName
-        ? merged.find((item) => {
-          if (item.normalizedName !== normalizedName) return false;
+        ? (byName.get(normalizedName) || []).find((item) => {
           const distance = distanceMeters(item, stop);
           if (distance > 180) return false;
           if (trainRouteSetsConflict(item, stop, distance)) return false;
@@ -29746,7 +30019,12 @@
         })
         : null;
       if (!existing) {
-        merged.push({ ...stop, normalizedName });
+        const item = { ...stop, normalizedName };
+        merged.push(item);
+        if (normalizedName) {
+          if (!byName.has(normalizedName)) byName.set(normalizedName, []);
+          byName.get(normalizedName).push(item);
+        }
         return;
       }
       existing.isRail ||= stop.isRail;
