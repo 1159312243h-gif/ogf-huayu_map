@@ -1,6 +1,8 @@
-华域地图 v5.5
+华域地图 v6.5
 Released: 2026-10-11
 Cloudflare Pages project: ogf-atlas
+
+Version-6.5 Map rendering v1 (6.5.0): Publish explicit pavilion/gazebo tag classification and building/roof colour tags, preserving heights, hollow pavilion geometry and day/night defaults. Names containing the pavilion character no longer change ordinary buildings into pavilions; invalidate older structure caches. Consolidate the existing continuous mountain material, mapped mountain context, prepared spatial snapshots, background mesh caching, model depth ordering and independent transit/terrain switches. Keep forest-park exclusions, three-hour GitHub Actions data refresh and five-minute page checks. Terrain remains inferred cartographic relief: complete elevation constraints, saddle inputs, fine detail in all regions and a continuous plain-land height field are not yet implemented. Original terrain data generation time is unchanged.
 
 Version-5.5 Mountain landscape continuity v1 (5.5.71): Meiling and mapped gardens within Xishu mountain share the surrounding slope field, normals and contour intervals. Preserve garden colours and texture, water/building/path visibility and genuine holes; avoid transparent garden slots or separate sea-level summits. Use local-coordinate material vertices for sub-metre close-view precision and thin screen-space contours. Reprepare existing snapshot geometry without changing its original generatedAt. Keep flat integrated material, model occlusion, forest-park exclusions and three-hour refresh.
 

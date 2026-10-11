@@ -188,6 +188,11 @@ try {
   assert.deepEqual((await invalidBuilding.json()).requiredZooms, [11, 12, 13, 14, 15]);
 
   const structureUrl = "https://example.test/api/structures/15/30304/15036.json?probe=1";
+  const legacyStructureUrl = new URL(structureUrl);
+  legacyStructureUrl.search = "?schema=huayu-structures-v2-open-pavilions";
+  cache.set(legacyStructureUrl.toString(), new Response(JSON.stringify({elements:[]}), {
+    headers:{"X-OGF-Structure-Fetched-At":new Date().toISOString()},
+  }));
   const structure = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
   assert.equal(structure.status, 200);
   assert.equal(structure.headers.get("x-ogf-structure-cache"), "MISS");
@@ -195,13 +200,15 @@ try {
   assert.match(structure.headers.get("cache-control") || "", /max-age=60/u);
   assert.match(upstreamQueries.at(-1), /barrierWays/u);
   assert.match(upstreamQueries.at(-1), /pavilionStructures/u);
-  assert.match(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]/u,
-    "all non-transit shelter candidates should reach client-side classification");
+  assert.match(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]\["shelter_type"~"\^\(gazebo\|pavilion\|picnic_shelter\)\$"\]/u,
+    "only explicitly typed pavilion shelters should reach client-side classification");
+  assert.doesNotMatch(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]\(/u,
+    "untyped shelters must not be queried as pavilions");
   assert.match(upstreamQueries.at(-1), /leisure"="gazebo/u);
   assert.match(upstreamQueries.at(-1), /man_made"~"\^\(gazebo\|pavilion\)\$"/u);
   assert.match(upstreamQueries.at(-1), /building:part"~"\^\(gazebo\|pavilion\)\$"/u);
-  assert.match(upstreamQueries.at(-1), /nwr\["building"\]\["building"!="no"\]\["name"~/u,
-    "named pavilion buildings should reach client-side classification even without shelter tags");
+  assert.doesNotMatch(upstreamQueries.at(-1), /\["name"~/u,
+    "building and attraction names must not select pavilion candidates");
   assert.match(upstreamQueries.at(-1), /way\(r\.pavilionStructures\)/u,
     "pavilion relation member ways should be returned for polygon assembly");
   assert.match(upstreamQueries.at(-1), /pavilionClearanceWays/u,
@@ -210,7 +217,7 @@ try {
   const structureHit = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
   assert.equal(structureHit.headers.get("x-ogf-structure-cache"), "HIT");
   assert.equal(upstreamQueries.length, structureQueriesAfterMiss);
-  const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v2-open-pavilions"));
+  const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v3-tagged-pavilions"));
   assert.ok(structureCacheKey, "structures should use an independent edge snapshot cache");
 
   const invalidStructure = await worker.fetch(

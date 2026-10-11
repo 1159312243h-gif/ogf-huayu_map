@@ -68,8 +68,10 @@
 - 交通与地形是独立勾选功能，可以同时启用或同时关闭；交通视图继续允许选择显示的交通要素。
 - 切换到其他功能时显示对应面板，不能残留导航页面；保留地点选择开关及既有相机状态规则。
 - 行政名称锚定真实行政几何或标签位置；上京都等名称不能跟随视图中心漂移，不能被标到无关山地。
+- 亭子模型仅用于明确类型标签的点、面及多面关系：`building`、`building:part` 或 `man_made` 为 `pavilion/gazebo`，`leisure=gazebo`，或 `amenity=shelter` 且 `shelter_type=pavilion/gazebo/picnic_shelter`。名称含“亭”或以“亭”结尾不能作为识别依据，普通建筑、景点和未注明类型的遮蔽物保持其原有分类；公交候车亭继续单独处理。前端分类、结构物查询、缓存和数据刷新均遵守这条规则。
 - 亭子高度优先读取有效参数，否则使用既有默认值。面状亭子匹配原始面范围；点状亭子按可用空间调整大小并避让道路。
 - 保留亭子中空结构、薄底板、内收边柱和自适应中心柱，柱子不能跑出屋顶；不能回退为不通透的实心块。
+- 建筑模型使用有效颜色标签，优先级为 `building:colour`、`building:color`、`colour`、`color`；支持 CSS 颜色名、十六进制及 RGB/HSL 颜色，六位无井号色值补井号。屋顶专用 `roof:colour/roof:color` 优先用于已建模的独立屋顶，不改变墙面颜色。缺失或无效值逐级回退到现有普通建筑、古建筑和亭子配色；保持模型高度、实心遮挡、亭子中空结构和地台材质。点、面、关系及建筑部件经过快照接管、实时更新和日夜切换后同样遵守该规则，不为颜色另加图层。
 - 保留墙壁、栅栏、建筑和巴士站等已有显示。结构物与建筑快照完整接管，避免重复叠层；同一墙体不能同时重复绘制平面和立体表现。
 - 体育场等要素保留中心优先、逐块显示的加载方式，不因地形改动退回等待整片完成。
 - 透视中地面道路、河流、场地与贴地山体材质先于立体模型绘制；道路不能穿到树冠、建筑或亭子屋顶上。树木、建筑、墙、亭子、站棚及抬高的绿地共用真实深度遮挡，按位置与高度相互遮挡，实体表面不透出后方模型。标签和交通站点符号继续作为地图标注显示。
@@ -80,6 +82,8 @@
 | 涉及的规则 | 检查入口 |
 | --- | --- |
 | 整包、北沪换乘、市域铁路、铁路导航、交互与结构物不变量 | [scripts/verify-package.mjs](../scripts/verify-package.mjs) |
+| 亭子明确标签、名称误判排除、点面几何及普通建筑保留 | [scripts/test-pavilion-tags.mjs](../scripts/test-pavilion-tags.mjs) |
+| 建筑及屋顶颜色标签、关系颜色与既有模型保留 | [scripts/test-building-colors.mjs](../scripts/test-building-colors.mjs) |
 | 山体分类、森林公园、平原、荒原和邻近小山 | [scripts/test-terrain-neighbors.mjs](../scripts/test-terrain-neighbors.mjs) |
 | 连续山岭、共享坡面尺度、真实孔洞、分类归属与后台缓存 | [scripts/test-terrain-mesh-worker.mjs](../scripts/test-terrain-mesh-worker.mjs) |
 | 完整山体几何、加载保留、图层顺序和河谷 | [scripts/test-terrain-loading.mjs](../scripts/test-terrain-loading.mjs) |

@@ -572,7 +572,7 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;'
   && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
   && app.includes("wallData: huayuWallFeatureCollection(result.payload.elements)")
   && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`")
-  && worker.includes('schema", "huayu-structures-v2-open-pavilions"')
+  && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"')
   && worker.includes('schema", "huayu-building-v5"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
@@ -656,13 +656,13 @@ assert.ok(app.includes('function huayuPavilionKind(tags = {})')
   && app.includes('palette.pavilionRoof')
   && app.includes('palette.pavilionColumn')
   && app.includes('palette.pavilionBase')
-  && app.includes('nwr["amenity"="shelter"]')
+  && app.includes('nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"]')
   && app.includes('way["highway"](${bbox})->.pavilionClearanceWays;')
   && app.includes('way(r.pavilionStructures)')
-  && worker.includes('nwr["amenity"="shelter"]')
+  && worker.includes('nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"]')
   && worker.includes('way["highway"](${bbox})->.pavilionClearanceWays;')
   && worker.includes('way(r.pavilionStructures)')
-  && worker.includes('schema", "huayu-structures-v2-open-pavilions"'),
+  && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"'),
 "亭子与凉亭必须使用道路净距自适应节点轮廓、真实面屋顶、薄地台和开放立柱结构");
 const pavilionKindSource = app.match(/function huayuPavilionKind\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
 const liveBuildingHeightSource = app.match(/function huayuLiveBuildingHeight\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
@@ -682,22 +682,48 @@ const pavilionRoofDepth = Function("parseHuayuWallMeasurement",
 const pavilionMinHeight = Function("huayuPavilionKind", "huayuPavilionRoofDepth", "parseHuayuWallMeasurement",
   `"use strict"; return (${liveBuildingMinHeightSource});`)(pavilionKind, pavilionRoofDepth, parsePavilionMeasurement);
 assert.equal(pavilionKind({ leisure: "gazebo" }), "pavilion", "leisure=gazebo 未识别为凉亭");
+assert.equal(pavilionKind({ building: "pavilion" }), "pavilion", "building=pavilion 未识别为亭子");
+assert.equal(pavilionKind({ man_made: "gazebo", name: "休憩处" }), "pavilion", "明确凉亭标签不应依赖名称");
+assert.equal(pavilionKind({ building: "yes", "building:part": "gazebo" }), "pavilion",
+  "普通建筑标签不能掩盖明确的凉亭部件标签");
 assert.equal(pavilionKind({ amenity: "shelter", shelter_type: "picnic_shelter" }), "pavilion",
   "picnic_shelter 未识别为亭子");
-assert.equal(pavilionKind({ amenity: "shelter" }), "pavilion", "普通 amenity=shelter 未识别为亭子");
+for (const shelterType of ["pavilion", "gazebo"]) {
+  assert.equal(pavilionKind({ amenity: "shelter", shelter_type: shelterType }), "pavilion",
+    "明确亭子或凉亭类型的遮蔽物未识别");
+}
+for (const shelterType of [undefined, "basic_hut", "weather_shelter", "lean_to"]) {
+  assert.equal(pavilionKind({ amenity: "shelter", shelter_type: shelterType, name: "休息亭" }), "",
+    "普通遮蔽物不得因名称变为亭子");
+}
 assert.equal(pavilionKind({ amenity: "shelter", shelter_type: "public_transport" }), "",
   "公共交通候车亭不得识别为通用亭子");
-assert.equal(pavilionKind({ building: "roof", name: "望湖亭" }), "pavilion", "命名亭子屋顶未识别");
-assert.equal(pavilionKind({ tourism: "attraction", name: "睡莲亭" }), "pavilion", "景点节点亭子未识别");
-assert.equal(pavilionKind({ amenity: "shelter", building: "yes", name: "公明亭" }), "pavilion",
-  "带建筑轮廓的命名亭子未识别");
-assert.equal(pavilionKind({ building: "yes", name: "晴风亭" }), "pavilion",
-  "仅带普通建筑标签的命名亭子未识别");
+assert.equal(pavilionKind({ building: "roof", name: "望湖亭" }), "", "屋顶不得仅因名称变为亭子");
+assert.equal(pavilionKind({ tourism: "attraction", name: "睡莲亭" }), "", "景点不得仅因名称变为亭子");
+assert.equal(pavilionKind({ historic: "building", name: "归云亭" }), "", "历史建筑不得仅因名称变为亭子");
+assert.equal(pavilionKind({ amenity: "shelter", building: "yes", name: "公明亭" }), "",
+  "未注明亭子类型的建筑遮蔽物不得变为亭子");
+for (const name of ["晴风亭", "亭子", "凉亭", "亭湖大厦"]) {
+  assert.equal(pavilionKind({ building: "yes", name }), "", "普通建筑不得仅因名称变为亭子");
+}
 assert.equal(pavilionKind({ amenity: "police", building: "yes", name: "保安亭" }), "",
   "保安亭不得误识别为休憩亭子");
 assert.equal(pavilionKind({ public_transport: "station", railway: "station", name: "归云亭" }), "",
   "名称以亭结尾的车站不得误识别为亭子");
 assert.equal(pavilionKind({ building: "roof", name: "普通雨棚" }), "", "普通屋顶被误识别为亭子");
+const structureClientQuerySource = app.match(/function huayuStructureTileQuery\(tile\) \{[\s\S]*?\n  \}/u)?.[0];
+const structureWorkerQuerySource = worker.match(/function structureOverpassQuery\(bounds, zoom\) \{[\s\S]*?\n\}/u)?.[0];
+assert.ok(structureClientQuerySource && structureWorkerQuerySource, "无法读取亭子查询函数");
+const structureQueryBounds = {south:14.6, west:152.9, north:14.7, east:153};
+const structureClientQuery = Function("huayuLiveBuildingTileBounds",
+  `"use strict"; return (${structureClientQuerySource});`)(() => structureQueryBounds);
+const structureWorkerQuery = Function(`"use strict"; return (${structureWorkerQuerySource});`)();
+for (const zoom of [11, 14, 15]) {
+  const query = structureClientQuery({z:zoom});
+  assert.equal(query, structureWorkerQuery(structureQueryBounds, zoom), "前端与 Worker 亭子查询必须一致");
+  assert.doesNotMatch(query, /\["name"~/u, "亭子查询不能根据名称推断类型");
+  assert.doesNotMatch(query, /nwr\["amenity"="shelter"\]\(/u, "亭子查询不能包含未注明类型的遮蔽物");
+}
 assert.equal(pavilionHeight({ leisure: "gazebo", height: "5.2" }), 5.2, "亭子未优先使用 height");
 assert.equal(pavilionHeight({ man_made: "pavilion", "building:levels": "2" }), 6,
   "亭子未使用 building:levels 推导高度");
@@ -1367,6 +1393,10 @@ for (const script of ["app.js", "_worker.js"]) {
 
 const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
+const pavilionTagsTest = await runCheck([path.join(root, "scripts", "test-pavilion-tags.mjs")]);
+assert.equal(pavilionTagsTest.status, 0, `亭子明确标签与普通建筑分类回归失败：${pavilionTagsTest.stderr}`);
+const buildingColorsTest = await runCheck([path.join(root, "scripts", "test-building-colors.mjs")]);
+assert.equal(buildingColorsTest.status, 0, `建筑颜色标签与模型保留回归失败：${buildingColorsTest.stderr}`);
 const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
 const terrainWorkerTest = await runCheck([path.join(root,"scripts","test-terrain-mesh-worker.mjs")]);

@@ -56,17 +56,13 @@ function buildingOverpassQuery(bounds) {
 
 function structureOverpassQuery(bounds, zoom) {
   const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
-  const pavilionName = "(凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$";
   const clearanceWays = zoom >= 14
     ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
   return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
-    + `nwr["amenity"="shelter"](${bbox});nwr["leisure"="gazebo"](${bbox});`
+    + `nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"](${bbox});`
+    + `nwr["leisure"="gazebo"](${bbox});`
     + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
-    + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});`
-    + `nwr["building"]["building"!="no"]["name"~"${pavilionName}"](${bbox});`
-    + `nwr["building"~"^(roof|shelter)$"]["name"~"${pavilionName}"](${bbox});`
-    + `nwr["tourism"="attraction"]["name"~"${pavilionName}"](${bbox});`
-    + `nwr["historic"="building"]["name"~"${pavilionName}"](${bbox});)->.pavilionStructures;`
+    + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});)->.pavilionStructures;`
     + `(.barrierWays;.pavilionStructures;way(r.pavilionStructures);`
     + `${zoom >= 14 ? ".pavilionClearanceWays;" : ""});out body geom;`;
 }
@@ -377,7 +373,7 @@ async function fetchStructureTile(request, context, z, x, y) {
   }
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-structures-v2-open-pavilions");
+  cacheUrl.searchParams.set("schema", "huayu-structures-v3-tagged-pavilions");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {

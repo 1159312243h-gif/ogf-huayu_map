@@ -24003,31 +24003,26 @@
   }
 
   function huayuPavilionKind(tags = {}) {
-    const building = String(tags.building || tags["building:part"] || "").toLocaleLowerCase();
+    const building = String(tags.building || "").toLocaleLowerCase();
+    const buildingPart = String(tags["building:part"] || "").toLocaleLowerCase();
     const leisure = String(tags.leisure || "").toLocaleLowerCase();
     const manMade = String(tags.man_made || "").toLocaleLowerCase();
     const amenity = String(tags.amenity || "").toLocaleLowerCase();
-    const tourism = String(tags.tourism || "").toLocaleLowerCase();
-    const historic = String(tags.historic || "").toLocaleLowerCase();
     const publicTransport = String(tags.public_transport || "").toLocaleLowerCase();
     const railway = String(tags.railway || "").toLocaleLowerCase();
     const shelterType = String(tags.shelter_type || "").toLocaleLowerCase();
     const highway = String(tags.highway || "").toLocaleLowerCase();
-    const name = String(tags.name || "").trim();
-    const serviceBooth = /(?:保安亭|警亭|收费亭|售票亭|岗亭)$/u.test(name);
     const transitFeature = Boolean(publicTransport || ["station", "halt", "tram_stop"].includes(railway)
       || shelterType === "public_transport" || tags.subway === "yes" || tags.bus === "yes"
       || highway === "bus_stop" || amenity === "bus_station");
-    if (serviceBooth || transitFeature) return "";
+    if (transitFeature) return "";
     if (["pavilion", "gazebo"].includes(building) || leisure === "gazebo"
+      || ["pavilion", "gazebo"].includes(buildingPart)
       || ["pavilion", "gazebo"].includes(manMade)
-      || amenity === "shelter") {
+      || (amenity === "shelter" && ["pavilion", "gazebo", "picnic_shelter"].includes(shelterType))) {
       return "pavilion";
     }
-    const pavilionName = /(?:凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$/u.test(name);
-    return pavilionName
-      && ((building && building !== "no") || amenity === "shelter"
-        || tourism === "attraction" || historic === "building") ? "pavilion" : "";
+    return "";
   }
 
   function huayuLiveBuildingHeight(tags = {}) {
@@ -24329,6 +24324,23 @@
     return columns.length ? { type: "MultiPolygon", coordinates: columns } : null;
   }
 
+  function huayuBuildingColorProperties(tags = {}) {
+    const properties = {};
+    for (const key of ["building:colour", "building:color", "colour", "color", "roof:colour", "roof:color"]) {
+      const raw = typeof tags[key] === "string" ? tags[key].trim().toLowerCase() : "";
+      if (!raw || raw === "transparent") continue;
+      properties[key] = /^[0-9a-f]{6}$/u.test(raw) ? `#${raw}` : raw;
+    }
+    return properties;
+  }
+
+  function huayuBuildingColorExpression(fallback, roof = false) {
+    const keys = ["building:colour", "building:color", "colour", "color"];
+    if (roof) keys.unshift("roof:colour", "roof:color");
+    // MapLibre validates CSS colours and tries the next value before the existing palette.
+    return ["to-color", ...keys.map((key) => ["get", key]), fallback];
+  }
+
   function huayuLiveBuildingFeatureCollection(elements, pavilionOnly = false) {
     const sourceElements = Array.isArray(elements) ? elements : [];
     const matchesRequestedStructure = (tags = {}) => pavilionOnly
@@ -24386,6 +24398,7 @@
       const ancientKind = huayuAncientBuildingKind(element.tags);
       const structureKind = huayuPavilionKind(element.tags) || "building";
       const baseProperties = {
+        ...huayuBuildingColorProperties(element.tags),
         name: String(element.tags?.name || "").trim(),
         building: String(element.tags?.building || element.tags?.["building:part"] || "yes"),
         buildingPart: String(element.tags?.["building:part"] || ""),
@@ -24496,7 +24509,7 @@
           "huayu:geometry-source": "ogf-overpass-structure-tiles",
         },
         paint: {
-          "fill-extrusion-color": palette.pavilionColumn,
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionColumn),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": 1,
@@ -24517,7 +24530,7 @@
           "huayu:geometry-source": "ogf-overpass-structure-tiles",
         },
         paint: {
-          "fill-extrusion-color": palette.pavilionRoof,
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionRoof, true),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": palette.buildingOpacity,
@@ -24639,14 +24652,14 @@
           "huayu:vector-buildings": "disabled",
         },
         paint: {
-          "fill-extrusion-color": ["case", ["has", "ancientKind"], palette.ancientWall,
+          "fill-extrusion-color": huayuBuildingColorExpression(["case", ["has", "ancientKind"], ["to-color", palette.ancientWall],
             ["interpolate", ["linear"], ["get", "renderHeight"],
-              0, palette.buildingColors[0],
-              10, palette.buildingColors[1],
-              30, palette.buildingColors[2],
-              60, palette.buildingColors[3],
-              120, palette.buildingColors[4]],
-          ],
+              0, ["to-color", palette.buildingColors[0]],
+              10, ["to-color", palette.buildingColors[1]],
+              30, ["to-color", palette.buildingColors[2]],
+              60, ["to-color", palette.buildingColors[3]],
+              120, ["to-color", palette.buildingColors[4]]],
+          ]),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": palette.buildingOpacity,
@@ -24669,7 +24682,7 @@
           "huayu:geometry-source": "ogf-overpass-building-tiles",
         },
         paint: {
-          "fill-extrusion-color": palette.ancientRoof,
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.ancientRoof, true),
           "fill-extrusion-height": ["+", ["get", "renderHeight"], ["get", "roofCapHeight"]],
           "fill-extrusion-base": ["get", "renderHeight"],
           "fill-extrusion-opacity": 1,
@@ -25199,17 +25212,13 @@
   function huayuStructureTileQuery(tile) {
     const bounds = huayuLiveBuildingTileBounds(tile);
     const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
-    const pavilionName = "(凉亭|亭子|景观亭|观景亭|赏花亭|休憩亭|休息亭|廊亭|亭)$";
     const clearanceWays = tile.z >= 14
       ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
     return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
-      + `nwr["amenity"="shelter"](${bbox});nwr["leisure"="gazebo"](${bbox});`
+      + `nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"](${bbox});`
+      + `nwr["leisure"="gazebo"](${bbox});`
       + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
-      + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});`
-      + `nwr["building"]["building"!="no"]["name"~"${pavilionName}"](${bbox});`
-      + `nwr["building"~"^(roof|shelter)$"]["name"~"${pavilionName}"](${bbox});`
-      + `nwr["tourism"="attraction"]["name"~"${pavilionName}"](${bbox});`
-      + `nwr["historic"="building"]["name"~"${pavilionName}"](${bbox});)->.pavilionStructures;`
+      + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});)->.pavilionStructures;`
       + `(.barrierWays;.pavilionStructures;way(r.pavilionStructures);`
       + `${tile.z >= 14 ? ".pavilionClearanceWays;" : ""});out body geom;`;
   }
