@@ -683,6 +683,11 @@
   let satelliteAnnotationsEnabled = false;
   let vectorPerspectiveActive = false;
   let vectorPerspectiveMap = null;
+  let vectorHighlightState = null;
+  let mapHighlightFrame = null;
+  let mapHighlightRevision = 0;
+  let mapHighlightProjectionPending = false;
+  const VECTOR_HIGHLIGHT_SOURCE = "ogf-atlas-perspective-highlights";
   const leafletPerspectiveHandlerStates = new Map();
   const LEAFLET_PERSPECTIVE_HANDLERS = [
     "dragging", "scrollWheelZoom", "doubleClickZoom", "touchZoom", "boxZoom", "keyboard",
@@ -1555,6 +1560,19 @@
   const placeAdministrativeCenterLayer = window.L.layerGroup();
   const placeSearchResultLayer = window.L.layerGroup();
   const administrativeExportBoxLayer = window.L.layerGroup();
+  const mapHighlightGroups = [
+    {id: "road", group: roadSearchLayer, halo: roadSearchHaloLayer, order: 418, haloOrder: 414, haloWidth: 11},
+    {id: "boundary", group: placeBoundaryLayer, halo: placeBoundaryHaloLayer, order: 425, haloOrder: 420, haloWidth: 8},
+    {id: "division", group: placeSubdivisionLayer, halo: placeSubdivisionHaloLayer, order: 423, haloOrder: 421, haloWidth: 4.5},
+    {id: "export", group: placeExportSelectionLayer, order: 423, dashed: true},
+    {id: "feature", group: placeFeatureLayer, halo: placeFeatureHaloLayer, order: 435, haloOrder: 430, haloWidth: 8},
+    {id: "box", group: administrativeExportBoxLayer, order: 426, dashed: true},
+  ];
+  mapHighlightGroups.forEach(({group}) => {
+    group.on("layeradd layerremove", () => {mapHighlightRevision++; scheduleMapHighlightProjection();});
+    group.on("add remove", scheduleMapHighlightProjection);
+  });
+  map.on("zoomend resize", scheduleMapHighlightProjection);
   const measurementLayer = window.L.layerGroup();
   const routeEndpointLayer = window.L.layerGroup();
   const transitNetworkLayer = window.L.layerGroup();
@@ -14331,6 +14349,7 @@
     setLayerPresence(measurementLayer, view === "measure");
     if (placeMarker) setLayerPresence(placeMarker, view === "place");
     if (view !== "place") map.closePopup();
+    scheduleMapHighlightProjection();
   }
 
   function setLayerPresence(layer, visible) {
@@ -17886,6 +17905,140 @@
     return baseTileLayer.getMaplibreMap();
   }
 
+  function scheduleMapHighlightProjection(event) {
+    mapHighlightProjectionPending ||= event?.type === "zoomend" || event?.type === "resize";
+    if (mapHighlightFrame !== null) return;
+    mapHighlightFrame = window.requestAnimationFrame(() => {
+      mapHighlightFrame = null;
+      const reproject = mapHighlightProjectionPending;
+      mapHighlightProjectionPending = false;
+      if (vectorPerspectiveActive) {
+        syncVectorHighlightOverlay();
+      } else if (reproject) {
+        // Retained SVG paths and their viewport transform must be reset together,
+        // after Leaflet's zoom/resize listeners have finished. No data is refetched.
+        const renderers = new Set();
+        [...mapHighlightGroups.flatMap(({group, halo}) => [group, halo]), placeSubdivisionHitLayer]
+          .filter(group => group && map.hasLayer(group))
+          .forEach(group => group.eachLayer(layer => {if (layer._renderer) renderers.add(layer._renderer);}));
+        renderers.forEach(renderer => renderer._reset());
+      }
+    });
+  }
+
+  function vectorHighlightCollection() {
+    const features = [], layersById = new Map();
+    mapHighlightGroups.forEach(({id: groupId, group}) => {
+      if (!map.hasLayer(group)) return;
+      group.eachLayer(layer => {
+        if (typeof layer.toGeoJSON !== "function") return;
+        const feature = layer.toGeoJSON(false);
+        if (!["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry?.type)) return;
+        const id = window.L.stamp(layer), style = layer.options;
+        features.push({type: "Feature", id, geometry: feature.geometry, properties: {
+          group: groupId, color: style.color, width: style.weight,
+          opacity: style.stroke === false ? 0 : style.opacity,
+          fillColor: style.fillColor || style.color, fillOpacity: style.fill ? style.fillOpacity : 0,
+        }});
+        layersById.set(id, layer);
+      });
+    });
+    return {data: {type: "FeatureCollection", features}, layersById};
+  }
+
+  function syncVectorHighlightOverlay() {
+    const glMap = vectorPerspectiveMap;
+    if (!vectorPerspectiveActive || !glMap) return;
+    if (vectorHighlightState?.map !== glMap) {
+      removeVectorHighlightOverlay();
+      const state = vectorHighlightState = {map: glMap, signature: "", layerIds: [], layersById: new Map(), hoverId: null};
+      state.onStyle = () => {state.signature = ""; state.hoverId = null; syncVectorHighlightOverlay();};
+      state.onMove = event => {
+        const id = event.features?.[0]?.id;
+        if (id === state.hoverId) {if (event.lngLat) state.popup?.setLngLat(event.lngLat); return;}
+        if (state.hoverId != null && glMap.getSource(VECTOR_HIGHLIGHT_SOURCE)) {
+          glMap.setFeatureState({source: VECTOR_HIGHLIGHT_SOURCE, id: state.hoverId}, {hover: false});
+        }
+        state.hoverId = id ?? null;
+        if (state.hoverId != null) glMap.setFeatureState({source: VECTOR_HIGHLIGHT_SOURCE, id}, {hover: true});
+        glMap.getCanvas().style.cursor = state.hoverId != null && mapFeatureSelectionEnabled ? "pointer" : "";
+        state.popup?.remove(); state.popup = null;
+        const feature = state.layersById.get(id)?.feature;
+        if (feature && event.lngLat && window.maplibregl?.Popup) {
+          const name = feature.properties?.name || "未命名行政区";
+          const level = administrativeLevelLabel(feature.properties?.admin_level);
+          const area = formatAdministrativeArea(administrativeFeatureAreaSquareMeters(feature));
+          state.popup = new window.maplibregl.Popup({closeButton: false, closeOnClick: false, offset: 10})
+            .setLngLat(event.lngLat).setText(`${name} · ${level} · 面积约 ${area} · 点击跳转`).addTo(glMap);
+        }
+      };
+      state.onLeave = () => state.onMove({});
+      state.onClick = event => {
+        if (!mapFeatureSelectionEnabled || mapPickTarget || administrativeBoxPicking) return;
+        const layer = state.layersById.get(event.features?.[0]?.id);
+        if (!layer?.feature) return;
+        if (event.originalEvent) window.L.DomEvent.stopPropagation(event.originalEvent);
+        focusAdministrativeDivision(layer.feature, layer);
+      };
+      glMap.on("style.load", state.onStyle);
+      glMap.on("mousemove", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onMove);
+      glMap.on("mouseleave", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onLeave);
+      glMap.on("click", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onClick);
+    }
+    const state = vectorHighlightState;
+    // A usable style need not wait for every remote tile or model to finish.
+    if (!glMap.getStyle()?.layers?.length) return;
+    const signature = `${mapHighlightRevision}:${mapHighlightGroups.map(({group}) => Number(map.hasLayer(group))).join("")}`;
+    const source = glMap.getSource(VECTOR_HIGHLIGHT_SOURCE);
+    if (source && state.signature === signature) return;
+    const collection = vectorHighlightCollection();
+    state.layersById = collection.layersById;
+    state.onLeave();
+    if (source) source.setData(collection.data);
+    else glMap.addSource(VECTOR_HIGHLIGHT_SOURCE, {type: "geojson", data: collection.data, maxzoom: 19, tolerance: 0.375});
+    const definitions = [];
+    const hover = value => ["case", ["boolean", ["feature-state", "hover"], false], value];
+    mapHighlightGroups.forEach(({id, order, haloOrder, haloWidth, dashed}) => {
+      const filter = ["==", ["get", "group"], id];
+      const prefix = `${VECTOR_HIGHLIGHT_SOURCE}-${id}`;
+      if (haloWidth) definitions.push({order: haloOrder, layer: {id: `${prefix}-halo`, type: "line", source: VECTOR_HIGHLIGHT_SOURCE,
+        filter, layout: {"line-cap": "round", "line-join": "round"},
+        paint: {"line-color": "#ffffff", "line-width": haloWidth, "line-opacity": id === "division" ? 0.82 : 0.9}}});
+      definitions.push({order, layer: {id: `${prefix}-fill`, type: "fill", source: VECTOR_HIGHLIGHT_SOURCE,
+        filter: ["all", filter, ["==", ["geometry-type"], "Polygon"]], paint: {
+          "fill-color": id === "division" ? [...hover("#ffd166"), ["get", "fillColor"]] : ["get", "fillColor"],
+          "fill-opacity": id === "division" ? [...hover(0.28), ["get", "fillOpacity"]] : ["get", "fillOpacity"],
+          "fill-outline-color": "rgba(0,0,0,0)",
+        }}});
+      definitions.push({order, layer: {id: `${prefix}-line`, type: "line", source: VECTOR_HIGHLIGHT_SOURCE,
+        filter, layout: {"line-cap": "round", "line-join": "round"}, paint: {
+          "line-color": id === "division" ? [...hover("#ff9f1c"), ["get", "color"]] : ["get", "color"],
+          "line-width": id === "division" ? [...hover(3.5), ["get", "width"]] : ["get", "width"],
+          "line-opacity": ["get", "opacity"], ...(dashed ? {"line-dasharray": [2.8, 2]} : {}),
+        }}});
+    });
+    definitions.sort((a, b) => a.order - b.order).forEach(({layer}) => {
+      if (!glMap.getLayer(layer.id)) glMap.addLayer(layer);
+    });
+    state.layerIds = definitions.map(({layer}) => layer.id);
+    state.signature = signature;
+  }
+
+  function removeVectorHighlightOverlay() {
+    const state = vectorHighlightState;
+    if (!state) return;
+    vectorHighlightState = null;
+    state.popup?.remove();
+    const glMap = state.map;
+    glMap.off("style.load", state.onStyle);
+    glMap.off("mousemove", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onMove);
+    glMap.off("mouseleave", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onLeave);
+    glMap.off("click", `${VECTOR_HIGHLIGHT_SOURCE}-division-fill`, state.onClick);
+    glMap.getCanvas().style.cursor = "";
+    state.layerIds.slice().reverse().forEach(id => {if (glMap.getLayer(id)) glMap.removeLayer(id);});
+    if (glMap.getSource(VECTOR_HIGHLIGHT_SOURCE)) glMap.removeSource(VECTOR_HIGHLIGHT_SOURCE);
+  }
+
   function syncPublishedTransitStationLayers(glMap = currentVectorBasemap()) {
     if (!glMap?.getStyle?.()) return;
     if (!publishedTransitStationLayerStates.has(glMap)) {
@@ -21249,10 +21402,28 @@
     if (context.distance) return context.distance;
     // One shared geographic index per snapshot block, rather than duplicating
     // every river segment for each individual woodland fragment.
-    const span=0.025, cells=new Map();
+    const span=0.025, cells=new Map(), polygonCells=new Map(), broadPolygons=[];
+    const polygonSpan=0.25;
     for (const water of context.features) {
       if (water.properties?.terrainValley===0 || ["canal","drain","ditch"].includes(water.properties?.featureClass)) continue;
       const geometry=water.geometry;
+      // Rivers mapped as areas have a channel interior as well as two banks.
+      // Measuring only distance to their outline raised the middle of wide
+      // water surfaces into a false ridge. Holes remain real islands.
+      const polygons=geometry?.type==="Polygon" ? [geometry.coordinates]
+        : geometry?.type==="MultiPolygon" ? geometry.coordinates : [];
+      for (const polygon of polygons) {
+        const polygonBounds=huayuMountainSurfaceModelBounds(polygon[0]);
+        const contains=huayuMountainOuterContains(polygon[0],polygonBounds);
+        const holes=polygon.slice(1).map(ring=>huayuMountainOuterContains(ring,huayuMountainSurfaceModelBounds(ring)));
+        const entry={bounds:polygonBounds,contains:point=>contains(point) && !holes.some(hole=>hole(point))};
+        const firstX=Math.floor(polygonBounds.west/polygonSpan),lastX=Math.floor(polygonBounds.east/polygonSpan);
+        const firstY=Math.floor(polygonBounds.south/polygonSpan),lastY=Math.floor(polygonBounds.north/polygonSpan);
+        if ((lastX-firstX+1)*(lastY-firstY+1)>4096) broadPolygons.push(entry);
+        else for (let y=firstY;y<=lastY;y++) for (let x=firstX;x<=lastX;x++) {
+          const key=`${x}/${y}`;if(!polygonCells.has(key))polygonCells.set(key,[]);polygonCells.get(key).push(entry);
+        }
+      }
       const lines=geometry?.type==="LineString" ? [geometry.coordinates]
         : geometry?.type==="MultiLineString" || geometry?.type==="Polygon" ? geometry.coordinates
           : geometry?.type==="MultiPolygon" ? geometry.coordinates.flat() : [];
@@ -21272,6 +21443,12 @@
     }
     context.distance=(coordinate,radius)=>{
       const [longitude,latitude]=coordinate, cosine=Math.max(0.1,Math.cos(latitude*Math.PI/180));
+      const localPolygons=polygonCells.get(`${Math.floor(longitude/polygonSpan)}/${Math.floor(latitude/polygonSpan)}`) || [];
+      for (const polygon of [...localPolygons,...broadPolygons]) {
+        const box=polygon.bounds;
+        if (longitude>=box.west && longitude<=box.east && latitude>=box.south && latitude<=box.north
+          && polygon.contains(coordinate)) return 0;
+      }
       const dy=radius/111320,dx=dy/cosine;
       let best=radius*radius;
       for (let y=Math.floor((latitude-dy)/span);y<=Math.floor((latitude+dy)/span);y+=1) {
@@ -22415,6 +22592,8 @@
         }
         const transfer = [...(values ? [values.buffer] : []), ...(coverage ? [coverage.canvas] : [])];
         self.postMessage({id: job.id, values, renderedNeighbors, coverage, cacheHit,
+          cacheKey: key,
+          surfaceFeatures: values ? surfaceFeatures : null,
           drawBatches:values ? huayuTerrainDrawBatches(values) : null}, transfer);
         while (waterContexts.size > 8) waterContexts.delete(waterContexts.keys().next().value);
       } catch (error) { self.postMessage({id: job.id, error: String(error?.message || error)}); }
@@ -22473,6 +22652,43 @@
         close() { worker.terminate(); fail(new Error("TERRAIN_WORKER_CLOSED")); },
       };
     } catch { return null; }
+  }
+
+  function syncHuayuTerrainPerspective(glMap) {
+    const material = glMap && huayuWoodlandMaterialLayers.get(glMap);
+    if (!material) return;
+    const palette = huayuOverlayPalette(glMap);
+    const enabled = terrainOverlayEnabled && !palette.satellite
+      && vectorPerspectiveActive && vectorPerspectiveMap === glMap && glMap.getPitch() > 0.5;
+    if (enabled && !material.perspective && window.HuayuTerrainPerspective
+      && typeof Worker !== "undefined" && typeof OffscreenCanvas !== "undefined") {
+      const rgb = huayuMountainSurfaceRgb;
+      material.perspective = new window.HuayuTerrainPerspective.Controller(glMap, material, {
+        library: window.maplibregl,
+        palette: {low: rgb(palette.mountainRelief[1]), high: rgb(palette.mountainRelief[4]),
+          contour: rgb(palette.mountainContour),
+          openLow: rgb(palette.night ? "#374235" : "#d7dfbd"), openHigh: rgb(palette.night ? "#485342" : "#bfc9a2"),
+          gardenLow: rgb(palette.night ? "#344b3e" : "#91b288"), gardenHigh: rgb(palette.night ? "#42604a" : "#85a57c")},
+        onChange: () => {
+          syncHuayuMountainFeatureOrder(glMap);
+          syncHuayuModelOcclusion(glMap);
+          const state = huayuLiveBasemapStates.get(glMap);
+          if (state) updateHuayuLiveBasemapDiagnostics(state);
+        },
+        onTile: () => {
+          const element = document.getElementById("map");
+          if (!element) return;
+          const controller = material.perspective;
+          element.dataset.huayuTerrainDrapeTiles = String(controller?.tileCount || 0);
+          element.dataset.huayuTerrainDrapeTileMs = String(controller?.cpuMs || 0);
+          element.dataset.huayuTerrainDrapeLoadMs = String(controller?.loadMs || 0);
+          element.dataset.huayuTerrainDrapeRasterMs = String(controller?.rasterMs || 0);
+          element.dataset.huayuTerrainDrapeShadeMs = String(controller?.shadeMs || 0);
+          element.dataset.huayuTerrainDrapeError = controller?.lastError || "";
+        },
+      });
+    }
+    material.perspective?.setEnabled(enabled);
   }
 
   function createHuayuWoodlandMaterialLayer(palette) {
@@ -22575,6 +22791,7 @@
               gl.bindTexture(gl.TEXTURE_2D, previousTexture);
               built.coverage.canvas.close();
               this.blocks.set(block.key, block);
+              this.perspective?.schedule();
               if (!reuseGeometry) this.publishedBlocks = (this.publishedBlocks || 0) + 1;
               if (!this.firstMaterialMs) this.firstMaterialMs = Math.round(performance.now() - this.addedAt);
               this.map.triggerRepaint();
@@ -22792,6 +23009,8 @@
           let renderedNeighbors = block?.renderedNeighbors || 0;
           let coverage;
           let drawBatches;
+          let perspectiveSurfaces = surfaces;
+          let perspectiveCacheKey;
           if (this.meshWorker) {
             try {
               const built = await this.meshWorker.build(this, cell, surfaces, water, localOcclusions, zoom, needsMesh, true);
@@ -22799,6 +23018,8 @@
               if (needsMesh) renderedNeighbors = built.renderedNeighbors;
               coverage = built.coverage;
               drawBatches = built.drawBatches;
+              if (built.surfaceFeatures) perspectiveSurfaces = built.surfaceFeatures;
+              perspectiveCacheKey = built.cacheKey;
               if (built.cacheHit) this.diskMeshHits = (this.diskMeshHits || 0) + 1;
             } catch (error) {
               this.meshWorker.close(); this.meshWorker = null;
@@ -22810,6 +23031,7 @@
             if (needsMesh) {
               if (!this.meshWorker) surfaces = huayuMountainSurfaceLandscapes(surfaces, localOcclusions)
                 .sort((a,b) => Number(b.properties?.reliefArea || 0) - Number(a.properties?.reliefArea || 0));
+              perspectiveSurfaces = surfaces;
               if (!this.waterContexts.has(waterKey)) this.waterContexts.set(waterKey, {features: water});
               const built = await huayuWoodlandMaterialBuildGeometry(surfaces, this.waterContexts.get(waterKey),
                 cell.bounds, zoom, () => Boolean(this.gl && this.enabled && revision === (this.rebuildRevision || 0)));
@@ -22822,7 +23044,13 @@
             coverage?.canvas?.close?.(); return;
           }
           if (!block) block = {...cell, buffer: this.gl.createBuffer(), texture: this.gl.createTexture()};
+          if (!values && block.perspectivePacket) {
+            block.perspectivePacket = {...block.perspectivePacket, contexts: localOcclusions,
+              cacheKey: perspectiveCacheKey || `${block.perspectivePacket.cacheKey}|mask:${maskKey}`};
+          }
           if (values) {
+            block.perspectivePacket = {values, surfaces: perspectiveSurfaces, contexts: localOcclusions, bounds: cell.bounds,
+              cacheKey: perspectiveCacheKey, generation: this.rawSnapshotData?.generatedAt || this.publishedManifest?.generatedAt};
             this.gl.bindBuffer(this.gl.ARRAY_BUFFER, block.buffer);
             this.gl.bufferData(this.gl.ARRAY_BUFFER, values, this.gl.STATIC_DRAW);
             block.vertexCount = values.length / 9;
@@ -22873,6 +23101,7 @@
         this.triangleCount = Math.floor(this.vertexCount / 3);
         this.renderedNeighbors = visibleBlocks.reduce((sum, block) => sum + block.renderedNeighbors, 0);
         this.map?.triggerRepaint?.();
+        this.perspective?.schedule();
         const state = huayuLiveBasemapStates.get(this.map);
         if (state) updateHuayuLiveBasemapDiagnostics(state);
         if (this.contextDirty && !this.contextTimer) {
@@ -22886,6 +23115,9 @@
         }
       },
       onAdd(mapInstance, gl) {
+        // Switching the SAME material ID to a native draped raster preserves
+        // the completed overhead buffers, workers and gesture listeners.
+        if (this.map === mapInstance && this.gl === gl && this.program) return;
         this.map = mapInstance;
         this.gl = gl;
         this.addedAt = performance.now();
@@ -23345,7 +23577,9 @@
         this.renderCpuMs = Math.round((performance.now() - renderStartedAt) * 10) / 10;
       },
       onRemove(mapInstance, gl) {
+        if (this.presentationDetached) return;
         if (!this.gl) return;
+        this.perspective?.dispose(); this.perspective = null;
         this.enabled = false;
         window.cancelAnimationFrame(this.interactionFrame);
         this.unbindGestures?.();
@@ -23388,6 +23622,7 @@
     }
     const mapElement = document.getElementById("map");
     if (mapElement) mapElement.dataset.huayuTerrainEnabled = String(terrainOverlayEnabled);
+    syncHuayuTerrainPerspective(glMap);
   }
 
   function syncHuayuMountainFeatureOrder(glMap) {
@@ -24100,11 +24335,12 @@
     mapElement.dataset.huayuTerrainTriangles = String(terrainMaterialLayer?.triangleCount || 0);
     mapElement.dataset.huayuTerrainContours = String(terrainMaterialLayer?.features?.length || 0);
     mapElement.dataset.huayuTerrainContourMode = "woodland-material";
-    mapElement.dataset.huayuTerrainPerspectiveMode = "flat";
+    mapElement.dataset.huayuTerrainPerspectiveMode = terrainMaterialLayer?.perspective?.ready ? "shared-height-surface"
+      : terrainMaterialLayer?.perspective?.enabled ? "preparing-height-surface" : "flat";
     mapElement.dataset.huayuTerrainMaterialLayers = String(orderedLayerIds.filter((id) =>
       id.startsWith("ogf-atlas-huayu-mountain-")).length);
-    mapElement.dataset.huayuTerrainRenderingMode = terrainMaterialLayer?.renderingMode || "";
-    mapElement.dataset.huayuTerrainModel = "flat-textured-woodland-contours";
+    mapElement.dataset.huayuTerrainRenderingMode = terrainMaterialLayer?.perspective?.ready ? "native-draped" : terrainMaterialLayer?.renderingMode || "";
+    mapElement.dataset.huayuTerrainModel = "shared-textured-woodland-contours";
     mapElement.dataset.huayuTerrainHeightModel = huayuTerrainPreload?.data.heightField?.model || "inferred-legacy";
     mapElement.dataset.huayuTerrainElevationPoints = String(huayuTerrainPreload?.data.heightField?.mountainObservations || 0);
     mapElement.dataset.huayuLiveBasemapUpdatedAt = state.loadedAt
@@ -30084,6 +30320,7 @@
 
   function syncVectorCameraFromMap() {
     if (vectorPerspectiveActive) {
+      syncHuayuTerrainPerspective(vectorPerspectiveMap);
       syncHuayuCityWallPerspectiveLayers(vectorPerspectiveMap);
       syncHuayuWallPerspectiveLayers(vectorPerspectiveMap);
       syncHuayuElevatedGreenLayers(vectorPerspectiveMap);
@@ -30135,11 +30372,13 @@
       pitch,
       bearing,
     });
+    syncHuayuTerrainPerspective(glMap);
     syncHuayuCityWallPerspectiveLayers(glMap);
     syncHuayuWallPerspectiveLayers(glMap);
     syncHuayuElevatedGreenLayers(glMap);
     syncVectorTransitOverlay();
     syncVectorCameraControls();
+    syncVectorHighlightOverlay();
     return true;
   }
 
@@ -30155,6 +30394,7 @@
     glMap?.off?.("rotate", syncVectorCameraFromMap);
     glMap?.off?.("moveend", handleVectorPerspectiveMoveEnd);
     removeVectorTransitOverlay(glMap);
+    removeVectorHighlightOverlay();
     glMap?.stop?.();
     setMaplibrePerspectiveInteraction(glMap, false);
     glMap?.jumpTo?.({ pitch: 0, bearing: 0 });
@@ -30163,11 +30403,16 @@
     syncHuayuElevatedGreenLayers(glMap);
     vectorPerspectiveActive = false;
     vectorPerspectiveMap = null;
+    syncHuayuTerrainPerspective(glMap);
     elements.appShell.classList.remove("is-vector-perspective");
     restoreLeafletPerspectiveInteraction();
     if (center && Number.isFinite(zoom)) {
       map.setView([center.lat, center.lng], clamp(Math.round(zoom + 1), 2, 19), { animate: false });
     }
+    // setView emits nothing when rounding returns to Leaflet's retained view.
+    // Explicitly hand the native camera back to that view, including its scale.
+    const overheadCenter = map.getCenter();
+    glMap?.jumpTo?.({center: [overheadCenter.lng, overheadCenter.lat], zoom: map.getZoom() - 1, pitch: 0, bearing: 0});
     if (mapViewMode === "transit" && !selectedTransitId && transitNetworkData) {
       applyTransitPreloadForPoint(map.getCenter());
       scheduleTransitNetworkRender({ force: true, immediate: true });

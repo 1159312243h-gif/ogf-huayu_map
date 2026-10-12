@@ -357,7 +357,7 @@ surfaceContext.huayuMountainSurfaceAnchors = () => {
   return [{coordinates:[0.5,0.5],height:800,sigma:20000}];
 };
 surfaceContext.huayuMountainSurfaceNoise = () => 0.5;
-install(["huayuMountainEdgeFadeLine", "huayuMountainOuterContains", "huayuMountainSegmentIndex",
+install(["huayuMountainEdgeFadeLine", "huayuMountainOuterContains", "huayuMountainSegmentIndex", "huayuMountainSurfaceModelBounds",
   "huayuMountainSurfaceFeatureIntersectsViewport", "huayuMountainWaterDistance", "huayuMountainSurfaceModel"], surfaceContext);
 const polygon = {type:"Polygon",coordinates:[[[0,0],[1,0],[1,1],[0,1],[0,0]]]};
 const smallModel = surfaceContext.huayuMountainSurfaceModel({id:"small",properties:{reliefArea:88e6,reliefHeight:800}},polygon);

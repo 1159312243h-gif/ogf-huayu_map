@@ -460,11 +460,7 @@ select:focus-visible {
   accent-color: #1769e0;
 }
 
-.app-shell.is-vector-perspective .leaflet-overlay-pane,
-.app-shell.is-vector-perspective .leaflet-shadow-pane,
-.app-shell.is-vector-perspective .leaflet-marker-pane,
-.app-shell.is-vector-perspective .leaflet-tooltip-pane,
-.app-shell.is-vector-perspective .leaflet-popup-pane {
+.app-shell.is-vector-perspective .leaflet-map-pane > .leaflet-pane:not(.leaflet-tile-pane) {
   visibility: hidden;
   pointer-events: none;
 }

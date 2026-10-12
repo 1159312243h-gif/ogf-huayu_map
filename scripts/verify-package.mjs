@@ -233,9 +233,10 @@ assert.ok(app.includes('mountainOverviewTexture: "ogf-atlas-huayu-mountain-overv
   && app.includes("const woodlandBeforeId = huayuLiveBasemapFirstExistingLayer")
   && app.includes('glMap.moveLayer("landcover-grass-park", "landcover-farmland")')
   && app.includes("huayuTerrainOverviewLayerOrder")
-  && app.includes('mapElement.dataset.huayuTerrainModel = "flat-textured-woodland-contours"')
+  && app.includes('mapElement.dataset.huayuTerrainModel = "shared-textured-woodland-contours"')
   && app.includes('mapElement.dataset.huayuTerrainContourMode = "woodland-material"')
-  && app.includes('mapElement.dataset.huayuTerrainPerspectiveMode = "flat"')
+  && app.includes('perspective?.ready ? "shared-height-surface"')
+  && app.includes('perspective?.enabled ? "preparing-height-surface" : "flat"')
   && app.includes("function huayuMountainSurfaceModel(feature, polygonGeometry)")
   && !app.includes("huayuMountainContourInterpolatedElevation")
   && !app.includes("u_height_scale")
@@ -259,7 +260,7 @@ assert.ok(app.includes('mountainOverviewTexture: "ogf-atlas-huayu-mountain-overv
   && !app.includes("HUAYU_TOPOGRAPHIC_CONTOUR_IMAGE")
   && !app.includes("ensureHuayuTopographicContourImage")
   && !app.includes('visibility", nextEnabled ? "none" : "visible"'),
-"林冠纹理、明暗与等高线必须合成在原有二维山林材质中，不得抬升几何或另加图层");
+"俯视林冠、明暗与等高线保持原有二维材质；透视仅由准备完成的共享高程接管，不另加山体层");
 const flatWoodlandFactorySource = app.match(
   /function createHuayuWoodlandMaterialLayer\(palette\) \{[\s\S]*?\n  \}(?=\n\n  function syncHuayuTerrainOverlay)/u,
 )?.[0];
@@ -308,11 +309,11 @@ for (const enabled of [false, true]) {
     getLayoutProperty: () => "visible", setLayoutProperty: () => {},
     setPaintProperty: (...args) => paints.push(args) };
   const syncTerrain = Function("terrainOverlayEnabled", "currentVectorBasemap", "HUAYU_TERRAIN_LAYER_IDS",
-    "HUAYU_LIVE_BASEMAP_LAYERS", "huayuWoodlandMaterialLayers", "HUAYU_WOODLAND_TEXTURE_IMAGE", "document",
+    "HUAYU_LIVE_BASEMAP_LAYERS", "huayuWoodlandMaterialLayers", "HUAYU_WOODLAND_TEXTURE_IMAGE", "document", "syncHuayuTerrainPerspective",
     `return (${terrainSyncSource});`)(enabled, () => glMap, ["mountain-material"],
     { mountainOverviewTexture: "mountain-material" },
     { get: () => ({ setEnabled: (value) => materialStates.push(value) }) },
-    "base-woodland-texture", { getElementById: () => null });
+    "base-woodland-texture", { getElementById: () => null }, () => {});
   syncTerrain(glMap);
   assert.deepEqual(materialStates, [enabled], "地形开关应只控制山体材质");
   assert.deepEqual(paints, [["landcover-wood", "fill-pattern", "base-woodland-texture"]],
@@ -1405,7 +1406,7 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["app.js", "_worker.js"]) {
+for (const script of ["app.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
@@ -1422,6 +1423,8 @@ const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loa
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
 const heightFieldTest = await runCheck([path.join(root, "scripts", "test-terrain-height-field.mjs")]);
 assert.equal(heightFieldTest.status, 0, `山地高程约束回归失败：${heightFieldTest.stderr || heightFieldTest.stdout}`);
+const perspectiveTerrainTest = await runCheck([path.join(root, "scripts", "test-terrain-perspective.mjs")]);
+assert.equal(perspectiveTerrainTest.status, 0, `透视共享地表回归失败：${perspectiveTerrainTest.stderr || perspectiveTerrainTest.stdout}`);
 const terrainWorkerTest = await runCheck([path.join(root,"scripts","test-terrain-mesh-worker.mjs")]);
 const terrainContextTest = await runCheck([path.join(root,"scripts","test-terrain-context.mjs")]);
 assert.equal(terrainContextTest.status,0,terrainContextTest.stderr);
@@ -1437,6 +1440,8 @@ const neighborsTest = await runCheck([path.join(root, "scripts", "test-terrain-n
 assert.equal(neighborsTest.status, 0, `邻近小山体回归失败：${neighborsTest.stderr || neighborsTest.stdout}`);
 const adminLabelsTest = await runCheck([path.join(root, "scripts", "test-administrative-labels.mjs")]);
 assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLabelsTest.stderr || adminLabelsTest.stdout}`);
+const highlightProjectionTest = await runCheck([path.join(root, "scripts", "test-highlight-projection.mjs")]);
+assert.equal(highlightProjectionTest.status, 0, `高亮相机同步回归失败：${highlightProjectionTest.stderr}`);
 const adminExportTest = await runCheck([path.join(root, "scripts", "test-administrative-export.mjs")]);
 assert.equal(adminExportTest.status, 0, `行政区下载回归失败：${adminExportTest.stderr}`);
 const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);

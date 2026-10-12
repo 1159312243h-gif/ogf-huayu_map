@@ -33,6 +33,16 @@ vm.runInContext("huayuMountainWaterContexts.set(riverSurface,{features:[{geometr
 const riverModel = renderer.huayuMountainSurfaceModel(riverSurface, geometry);
 for (const node of nodes) assert.equal(riverModel.heightAt([node.lon, node.lat]), Number(node.tags.ele),
   "valley shaping and edge fading must preserve observations");
+const waterArea={features:[{properties:{terrainValley:1},geometry:{type:'Polygon',coordinates:[
+  [[0.05,0.05],[0.15,0.05],[0.15,0.15],[0.05,0.15],[0.05,0.05]],
+  [[0.09,0.09],[0.11,0.09],[0.11,0.11],[0.09,0.11],[0.09,0.09]]
+]}}]};
+const waterDistance=renderer.huayuMountainWaterDistance(waterArea);
+assert.equal(waterDistance([0.075,0.1],5000),0,'the whole mapped water interior belongs to the valley, not just its banks');
+assert.ok(waterDistance([0.1,0.1],5000)>100,'a real island hole must retain ground rather than become water');
+assert.ok(waterDistance([0.18,0.1],5000)>2000,'nearby unrelated land must not be lowered as river interior');
+const canalDistance=renderer.huayuMountainWaterDistance({features:[{...waterArea.features[0],properties:{terrainValley:0}}]});
+assert.equal(canalDistance([0.075,0.1],5000),5000,'landscaped water must remain excluded from natural erosion');
 for (const sample of model.heightField.samples) {
   const point = sample.coordinates;
   const nearby = model.heightAt([point[0] + 1e-8, point[1] + 1e-8]);
