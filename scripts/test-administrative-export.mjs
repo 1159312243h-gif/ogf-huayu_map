@@ -75,6 +75,7 @@ for (const name of ["administrativeExportResolution", "activeAdministrativeFeatu
 const plain = value => JSON.parse(JSON.stringify(value));
 const bounds = context.activeAdministrativeFeatureBounds(features);
 const centers = context.administrativeExportCenters(features);
+const centreAnnotation = `测试区 · ${context.administrativeLevelLabel(feature.properties.admin_level)}`;
 const original = JSON.stringify(features);
 const tiffTags = async blob => {
   const view = new DataView(await blob.arrayBuffer());
@@ -108,7 +109,11 @@ for (const resolution of [1200, 2400, 4800]) {
     assert.equal(symbols > before, includePoints, "point symbols and legend obey inclusion");
     assert.equal(rendered.canvas.texts.some(text => text.includes("中心未标注")), false,
       "excluding known centres must not mark their area labels as missing");
-    assert.ok(rendered.canvas.texts.some(text => text.includes("测试区")), "area name remains when points are omitted");
+    assert.equal(rendered.canvas.texts.includes(centreAnnotation), includePoints,
+      "centre annotations obey the point-feature choice");
+    assert.equal(rendered.canvas.texts.some(text => text.startsWith(centreAnnotation) && text !== centreAnnotation), false,
+      "omitting centres must not create replacement area annotations");
+    assert.ok(rendered.canvas.texts.includes("测试区"), "document title remains when map annotations are omitted");
     assert.deepEqual(plain(rendered.bounds), plain(bounds));
     if (previousBoundary) {
       assert.ok(Math.abs(rendered.geoReference.pixelScaleX * rendered.canvas.width
@@ -122,6 +127,10 @@ for (const resolution of [1200, 2400, 4800]) {
       { resolution, includePoints, includeCoordinates: true });
     assert.equal(Math.max(basemap.canvas.width, basemap.canvas.height), resolution);
     assert.equal(symbols > baseline, includePoints, "composited basemap also obeys point inclusion");
+    assert.equal(basemap.canvas.texts.includes(centreAnnotation), includePoints,
+      "basemap centre annotations obey the point-feature choice");
+    assert.equal(basemap.canvas.texts.some(text => text.startsWith(centreAnnotation) && text !== centreAnnotation), false,
+      "basemap export must not create replacement area annotations");
     const geo = basemap.geoReference, earth = Math.PI * 6378137 * 2;
     const northwest = context.administrativeMercatorNormalized(bounds.minLon, bounds.maxLat);
     const southeast = context.administrativeMercatorNormalized(bounds.maxLon, bounds.minLat);
@@ -155,6 +164,19 @@ assert.ok(maxActiveRequests <= 8, "basemap downloads stay within the concurrency
 assert.throws(() => context.administrativeTilePlan({ ...bounds, maxLon: NaN }), /INVALID_EXPORT_BOUNDS/u);
 assert.equal(context.administrativeExportResolution("invalid"), 2400);
 
+// Areas without confirmed centres previously kept a fallback label even when
+// point features were excluded. Both raster paths must suppress that label.
+const withoutCenter = { ...feature, properties: { name: "无中心测试区", osm_id: 11, admin_level: 6 } };
+for (const includePoints of [false, true]) {
+  const options = { includePoints, resolution: 1200 };
+  const images = [context.renderAdministrativeBoundaryCanvas([withoutCenter], "测试导出", options),
+    await context.renderAdministrativeBasemapCanvas([withoutCenter], "测试导出", bounds, options)];
+  for (const { canvas } of images) {
+    assert.equal(canvas.texts.some(text => text.startsWith("无中心测试区 ·")), includePoints,
+      "fallback area annotations also obey the point-feature choice");
+  }
+}
+
 for (const includePoints of [true, false]) {
   const options = { includePoints };
   const entries = context.buildAdministrativeShapefileEntries(features, centers, "测试区", options);
@@ -181,10 +203,17 @@ for (const format of ["png", "jpg", "tif", "osm", "shp"]) {
       elements.boundaryIncludeBasemap.checked = basemap;
       elements.boundaryIncludePoints.checked = includePoints;
       const queriesBefore = centerQueries, downloadsBefore = downloads.length, symbolsBefore = symbols;
+      const canvasesBefore = canvases.length;
       await context.downloadAdministrativeBoundary();
       assert.equal(downloads.length, downloadsBefore + 1, `${format}: a file was generated`);
       assert.equal(centerQueries - queriesBefore, includePoints ? 1 : 0, "excluded points skip supplementary network query");
       const file = downloads.at(-1);
+      if (!includePoints) {
+        for (const canvas of canvases.slice(canvasesBefore)) {
+          assert.equal(canvas.texts.some(text => text.startsWith(centreAnnotation)), false,
+            `${format}: excluding points must also exclude map annotations`);
+        }
+      }
       if (["png", "jpg", "tif"].includes(format)) {
         assert.equal(symbols > symbolsBefore, includePoints);
         if (format === "tif") {
@@ -219,5 +248,12 @@ elements.boundaryIncludeBasemap.checked = true;
 context.updateAdministrativeExportOptions();
 assert.equal(elements.boundaryResolution.disabled, false);
 assert.match(elements.boundaryResolutionNote.textContent, /1200/u);
+elements.boundaryIncludeBasemap.checked = false;
+elements.boundaryFormat.value = "png";
+elements.boundaryIncludePoints.checked = false;
+context.updateAdministrativeExportOptions();
+assert.match(elements.boundaryFormatNote.textContent, /不绘制点符号与地名注记/u);
+assert.match(elements.boundaryResolutionNote.textContent, /不绘制地名注记/u);
+assert.equal(elements.boundaryResolutionNote.textContent.includes("图例"), false);
 assert.equal(JSON.stringify(features), original, "export options do not mutate source features or centres");
-console.log("Administrative export passed: point inclusion in all formats, 1200/2400/4800 pixels, native tile detail, bounded requests, preserved boundaries and TIFF georeferencing.");
+console.log("Administrative export passed: point and annotation inclusion in all formats, 1200/2400/4800 pixels, native tile detail, bounded requests, preserved boundaries and TIFF georeferencing.");

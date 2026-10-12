@@ -12,10 +12,10 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=6.6-huayu-satellite-export-stations-v1" />
+    <link rel="stylesheet" href="./styles.css?v=6.8-huayu-export-annotations-v1" />
   </head>
   <body>
-    <main class="app-shell" data-app-version="6.6">
+    <main class="app-shell" data-app-version="6.8">
       <div id="map" class="map" aria-label="华域地图交互地图"></div>
 
       <nav class="side-rail" aria-label="地图主导航">
@@ -202,7 +202,7 @@
             <fieldset class="boundary-content-options">
               <legend>导出内容</legend>
               <label class="boundary-toggle-option"><input id="boundary-include-coordinates" type="checkbox" checked /><span><strong>地理坐标信息</strong><small>图片显示经纬网；TIF 写入空间参考</small></span></label>
-              <label class="boundary-toggle-option"><input id="boundary-include-points" type="checkbox" checked /><span><strong>下载点要素</strong><small>行政中心符号与点图层；底图自带标注不受影响</small></span></label>
+              <label class="boundary-toggle-option"><input id="boundary-include-points" type="checkbox" checked /><span><strong>下载点要素</strong><small>点符号、地名注记与点图层；底图自带标注不受影响</small></span></label>
               <label class="boundary-toggle-option"><input id="boundary-include-basemap" type="checkbox" /><span><strong>同步下载 OGF 底图</strong><small>位图同图合成；矢量 ZIP 附栅格底图</small></span></label>
             </fieldset>
             <fieldset id="boundary-extent-fieldset" class="boundary-extent-fieldset" hidden>
@@ -559,6 +559,6 @@
     <noscript>此地图需要启用 JavaScript。</noscript>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
-    <script src="./app.js?v=6.6-huayu-satellite-export-stations-v1"></script>
+    <script src="./app.js?v=6.8-huayu-export-annotations-v1"></script>
   </body>
 </html>
