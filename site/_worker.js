@@ -73,6 +73,8 @@ function liveBasemapOverpassQuery(bounds, zoom) {
     ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
   const treeNodes = zoom >= 15
     ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
+  const gardenNodes = zoom >= 15
+    ? `(node["leisure"="garden"](${bbox});node["landuse"="flowerbed"](${bbox});)->.basemapGardens;` : "";
   return `[out:json][timeout:${zoom <= 13 ? 45 : 25}];(`
     + `way${highwaySelector}(${bbox});`
     + `way["railway"~"^(rail|narrow_gauge|light_rail|tram|monorail)$"](${bbox});`
@@ -89,9 +91,10 @@ function liveBasemapOverpassQuery(bounds, zoom) {
     + `)->.basemapRelations;`
     + `node["place"~"^(city|town|village|suburb|neighbourhood|hamlet)$"](${bbox})->.basemapPlaces;`
     + treeNodes
+    + gardenNodes
     + `(node["natural"~"^(peak|volcano)$"]["name"](${bbox});`
     + `node["amenity"="university"]["name"](${bbox});)->.basemapImportantLabels;`
-    + `(.basemapWays;.basemapRelations;.basemapPlaces;${zoom >= 15 ? ".basemapTrees;" : ""}.basemapImportantLabels;`
+    + `(.basemapWays;.basemapRelations;.basemapPlaces;${zoom >= 15 ? ".basemapTrees;.basemapGardens;" : ""}.basemapImportantLabels;`
     + `way(r.basemapRelations););out body geom;`;
 }
 
@@ -489,7 +492,7 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
   const policy = liveBasemapCachePolicy(z);
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-live-basemap-v8-progressive-terrain");
+  cacheUrl.searchParams.set("schema", z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {

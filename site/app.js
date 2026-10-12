@@ -6,7 +6,11 @@
   const BASEMAP_TILE_TIMEOUT_MS = 1800;
   const BASEMAP_STORAGE_KEY = "ogf-atlas-basemap";
   const MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection";
+  const SATELLITE_ANNOTATIONS_STORAGE_KEY = "ogf-atlas-satellite-annotations";
   let vectorBasemapLibraryPromise = null;
+  let huayuSatelliteStyle = null;
+  let huayuSatelliteStylePromise = null;
+  const huayuSatelliteMaterialFields = new Map();
   const OGF_VECTOR_STYLE_URL = "https://openmaptiles.opengeofiction.net/styles/OGFBright/style.json";
   const BASEMAP_STYLES = {
     carto: {
@@ -37,7 +41,7 @@
       kind: "vector",
       family: "huayu",
       theme: "day",
-      url: "./huayu-style.json?v=22",
+      url: "./huayu-style.json?v=23",
       credit: ' · Schema <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>',
     },
     "huayu-night": {
@@ -45,8 +49,16 @@
       kind: "vector",
       family: "huayu",
       theme: "night",
-      url: "./huayu-night-style.json?v=8",
+      url: "./huayu-night-style.json?v=9",
       credit: ' · Schema <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>',
+    },
+    "huayu-satellite": {
+      label: "华域模拟卫星",
+      kind: "vector",
+      family: "huayu",
+      theme: "satellite",
+      url: "./huayu-style.json?v=23",
+      credit: ' · 华域模拟卫星（OGF 地物生成，非实拍影像）',
     },
     vector: {
       label: "Vector",
@@ -62,6 +74,83 @@
 
   function isHuayuBasemapSelected() {
     return isHuayuBasemapId(selectedBasemapId);
+  }
+
+  function createHuayuSatelliteStyle(baseStyle) {
+    // Share geographic data, but render an overhead surface rather than a 3D map.
+    const style = JSON.parse(JSON.stringify(baseStyle));
+    style.name = "华域模拟卫星";
+    style.metadata = { ...style.metadata, "ogf-atlas:theme": "huayu-satellite-v3",
+      "ogf-atlas:imagery": "simulated-from-ogf-features" };
+    const palette = huayuOverlayPalette({ getStyle: () => style });
+    const fills = {
+      "landcover-glacier": "#d0d6cb", "landcover-ice-shelf": "#d0d6cb",
+      "landcover-rock": "#898675", "landcover-sand": palette.liveLandSand,
+      "landuse-residential": palette.liveLandResidential,
+      "landuse-commercial": palette.liveLandCommercial, "landuse-retail": palette.liveLandRetail,
+      "landuse-industrial": palette.liveLandIndustrial, "landuse-railway": palette.liveLandIndustrial,
+      "landuse-cemetery": palette.liveLandCemetery, "landuse-hospital": palette.liveLandHealthcare,
+      "landuse-school": palette.liveLandEducation, "landuse-military": "#777d6b",
+      "landuse-quarry": "#a69b82", "landuse-sports": palette.liveLandSports,
+      "landcover-grass-park": palette.liveLandPark, "landcover-grass": palette.liveLandGrass,
+      "landcover-wood": palette.liveLandWood, "landcover-farmland": palette.liveLandFarm,
+      "water": palette.liveWater, "water-intermittent": palette.liveWater,
+      "water-pattern": palette.liveWater, "parks_fill": palette.liveLandPark,
+      "building": "#b5b2a7", "building-top": "#c0bcaf", "aeroway_fill": "#90928a",
+      "aeroway-area": "#90928a", "road_area_pier": "#b0a68e", "highway-area": palette.liveRoadMinor,
+    };
+    for (const layer of style.layers) {
+      const paint = layer.paint ||= {};
+      if (layer.type === "background") paint["background-color"] = palette.satelliteGround;
+      if (layer.type === "fill" && fills[layer.id]) {
+        paint["fill-color"] = fills[layer.id];
+        if (paint["fill-outline-color"]) paint["fill-outline-color"] = "rgba(0,0,0,0)";
+      }
+      if (layer.type === "fill-extrusion") {
+        const colors = palette.buildingColors;
+        paint["fill-extrusion-color"] = ["interpolate", ["linear"],
+          ["to-number", ["get", "render_height"], 3.2],
+          0, ["to-color", colors[0]], 10, ["to-color", colors[1]], 30, ["to-color", colors[2]],
+          60, ["to-color", colors[3]], 120, ["to-color", colors[4]]];
+        paint["fill-extrusion-opacity"] = 0;
+        paint["fill-extrusion-opacity-transition"] = {duration: 0, delay: 0};
+      }
+      if (layer.id === "building-top") paint["fill-translate"] = [0, 0];
+      if (layer.type === "line") {
+        if (layer["source-layer"] === "transportation") {
+          paint["line-color"] = /rail|cablecar/u.test(layer.id) ? palette.liveRailway
+            : /casing/u.test(layer.id) ? palette.liveRoadCasingMinor
+            : /path|track/u.test(layer.id) ? "#b2a88d" : palette.liveRoadMinor;
+          if (/hatching|^tunnel/u.test(layer.id)) paint["line-opacity"] = 0;
+          if (/casing/u.test(layer.id)) paint["line-opacity"] = 0.25;
+        } else if (layer["source-layer"] === "waterway") paint["line-color"] = palette.liveWaterway;
+        if (/boundary|^parks_/u.test(layer.id) || /tunnel/u.test(layer.id)) paint["line-opacity"] = 0;
+      }
+      if (layer.type === "symbol") {
+        if (layer.layout?.["icon-image"]) paint["icon-opacity"] = 0;
+        if (layer.layout?.["text-field"]) paint["text-opacity"] = satelliteAnnotationsEnabled ? 0.88 : 0;
+        if (paint["text-color"]) paint["text-color"] = /water/u.test(layer.id) ? "#c4d5ce" : palette.livePlace;
+        if (paint["text-halo-color"]) paint["text-halo-color"] = palette.textHalo;
+      }
+    }
+    return style;
+  }
+
+  async function prepareVectorBasemap(id) {
+    await ensureVectorBasemapLibrary();
+    if (id !== "huayu-satellite" || huayuSatelliteStyle) return;
+    if (!huayuSatelliteStylePromise) {
+      huayuSatelliteStylePromise = (async () => {
+        const response = await fetch(BASEMAP_STYLES[id].url, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) throw new Error("SATELLITE_STYLE_UNAVAILABLE");
+        const style = await response.json();
+        if (style.version !== 8 || !Array.isArray(style.layers) || !style.sources?.openmaptiles) {
+          throw new Error("SATELLITE_STYLE_INVALID");
+        }
+        huayuSatelliteStyle = createHuayuSatelliteStyle(style);
+      })().finally(() => { huayuSatelliteStylePromise = null; });
+    }
+    await huayuSatelliteStylePromise;
   }
   const TRANSIT_ATLAS_RAILWAY_CONTEXT_METERS = 80000;
   const NOMINATIM_URL = "https://ogfnominatim-api.infinatio.us";
@@ -415,7 +504,10 @@
     boundaryAreaTableCaption: document.getElementById("boundary-area-table-caption"),
     boundaryAreaTableBody: document.getElementById("boundary-area-table-body"),
     boundaryIncludeCoordinates: document.getElementById("boundary-include-coordinates"),
+    boundaryIncludePoints: document.getElementById("boundary-include-points"),
     boundaryIncludeBasemap: document.getElementById("boundary-include-basemap"),
+    boundaryResolution: document.getElementById("boundary-resolution"),
+    boundaryResolutionNote: document.getElementById("boundary-resolution-note"),
     boundaryExtentFieldset: document.getElementById("boundary-extent-fieldset"),
     boundaryExtentModes: [...document.querySelectorAll('input[name="boundary-extent"]')],
     boundaryCoordinateFields: document.getElementById("boundary-coordinate-fields"),
@@ -441,6 +533,8 @@
     basemapOptions: [...document.querySelectorAll('input[name="basemap-style"]')],
     basemapStatus: document.getElementById("basemap-status"),
     mapFeatureSelection: document.getElementById("map-feature-selection"),
+    satelliteAnnotationOption: document.getElementById("satellite-annotation-option"),
+    satelliteAnnotations: document.getElementById("satellite-annotations"),
     vectorCameraControls: document.getElementById("vector-camera-controls"),
     vectorPerspectivePreset: document.getElementById("vector-perspective-preset"),
     vectorCameraReset: document.getElementById("vector-camera-reset"),
@@ -586,6 +680,7 @@
   let terrainOverlayEnabled = true;
   let selectedBasemapId = "huayu";
   let mapFeatureSelectionEnabled = true;
+  let satelliteAnnotationsEnabled = false;
   let vectorPerspectiveActive = false;
   let vectorPerspectiveMap = null;
   const leafletPerspectiveHandlerStates = new Map();
@@ -630,6 +725,7 @@
   };
   const HUAYU_ELEVATED_GREEN_ROOF_OFFSET_METERS = 0.25;
   const HUAYU_LIVE_BASEMAP_SOURCE = "ogf-atlas-huayu-live-basemap";
+  const HUAYU_GARDEN_PLANT_SOURCE = "ogf-atlas-huayu-garden-planting";
   const HUAYU_LIVE_BASEMAP_LAYERS = {
     land: "ogf-atlas-huayu-live-land",
     facility: "ogf-atlas-huayu-live-facility-area",
@@ -646,6 +742,7 @@
     mountainRelief: "ogf-atlas-huayu-mountain-relief",
     treeTrunk: "ogf-atlas-huayu-tree-trunk",
     treeCanopy: "ogf-atlas-huayu-tree-canopy",
+    gardenPlants: "ogf-atlas-huayu-garden-plants",
     importantUniversity: "ogf-atlas-huayu-important-university",
     importantParkLarge: "ogf-atlas-huayu-important-park-large",
     importantParkMedium: "ogf-atlas-huayu-important-park-medium",
@@ -874,6 +971,7 @@
   const huayuLiveBasemapStates = new WeakMap();
   const huayuWoodlandMaterialLayers = new WeakMap();
   const huayuLiveBasemapSharedTileCache = new Map();
+  const huayuGardenModels = createHuayuGardenModels();
   const huayuTerrainSharedTileCache = new Map();
   let huayuTerrainStoragePromise = null;
   let huayuTerrainStorageStatus = "pending";
@@ -908,9 +1006,12 @@
     const storedFeatureSelection = window.localStorage.getItem(MAP_FEATURE_SELECTION_STORAGE_KEY);
     if (storedFeatureSelection !== null) mapFeatureSelectionEnabled = storedFeatureSelection !== "false";
   } catch {}
+  try {
+    satelliteAnnotationsEnabled = window.localStorage.getItem(SATELLITE_ANNOTATIONS_STORAGE_KEY) === "true";
+  } catch {}
   if (BASEMAP_STYLES[selectedBasemapId]?.kind === "vector") {
     try {
-      await ensureVectorBasemapLibrary();
+      await prepareVectorBasemap(selectedBasemapId);
     } catch {
       selectedBasemapId = "carto";
       try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, selectedBasemapId); } catch {}
@@ -963,11 +1064,13 @@
   let selectedNetworkStationId = null;
   let transitLabelFrame = null;
   let transitRenderTimer = null;
+  let transitInteractionActive = false;
   let transitRenderedBounds = null;
   let transitRenderedFilterKey = "";
   let transitRenderedNetwork = null;
   let transitRenderedRailwayData = null;
   let transitRenderedConnectionData = null;
+  let transitRenderedLayerCache = new Map();
   const transitDisplayNetworkCache = new WeakMap();
   let transitCollectionWorker = null;
   let transitCollectionRequestId = 0;
@@ -1040,10 +1143,9 @@
     maxZoom: 19,
   });
 
-  const transitCanvasRenderer = window.L.canvas({
-    padding: 0.2,
-    tolerance: 7,
-  });
+  const transitCanvasRenderer = createTransitCanvasRenderer();
+  let transitCanvasProjectionFrame = null;
+  map.on("zoomend resize", scheduleTransitCanvasProjection);
 
   window.L.control.zoom({ position: "topright" }).addTo(map);
   window.L.control.scale({
@@ -1074,7 +1176,7 @@
     if (style.kind === "vector") {
       if (typeof window.L.maplibreGL !== "function") throw new Error("MapLibre layer is unavailable");
       const layer = window.L.maplibreGL({
-        style: style.url,
+        style: id === "huayu-satellite" ? JSON.parse(JSON.stringify(huayuSatelliteStyle)) : style.url,
         interactive: false,
         maxPitch: VECTOR_MAX_PITCH,
         pane: "tilePane",
@@ -1104,6 +1206,7 @@
           syncPublishedTransitStationLayers(glMap);
           if (isHuayuBasemapId(id)) {
             ensureHuayuPoiImages(glMap);
+            applyHuayuSatelliteTextures(glMap);
             activateHuayuLiveBasemap(glMap);
             activateHuayuAdministrativeLabels(glMap);
             activateHuayuCityWalls(glMap);
@@ -1518,7 +1621,13 @@
     renderMeasurement();
   });
 
+  map.on("movestart", () => {
+    transitInteractionActive = true;
+    window.clearTimeout(transitRenderTimer);
+    transitRenderTimer = null;
+  });
   map.on("moveend", () => {
+    transitInteractionActive = false;
     const center = map.getCenter();
     writeHash({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
     updateOgfEditorLink();
@@ -1637,6 +1746,8 @@
   elements.boundaryLoadButton.addEventListener("click", loadSelectedAdministrativeDivisions);
   elements.boundaryIncludeBasemap.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryIncludeCoordinates.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryIncludePoints.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryResolution.addEventListener("change", updateAdministrativeExtentStatus);
   elements.boundaryExtentModes.forEach((input) => input.addEventListener("change", updateAdministrativeExportOptions));
   [elements.boundaryWest, elements.boundarySouth, elements.boundaryEast, elements.boundaryNorth]
     .forEach((input) => input.addEventListener("input", updateAdministrativeExtentStatus));
@@ -1683,6 +1794,11 @@
     if (!mapFeatureSelectionEnabled) clearActiveMapFeatureSelection();
     updateMapFeatureSelectionControl();
     showToast(mapFeatureSelectionEnabled ? "已开启地图要素选择" : "已关闭地图要素选择");
+  });
+  elements.satelliteAnnotations.addEventListener("change", () => {
+    satelliteAnnotationsEnabled = elements.satelliteAnnotations.checked;
+    try { window.localStorage.setItem(SATELLITE_ANNOTATIONS_STORAGE_KEY, String(satelliteAnnotationsEnabled)); } catch {}
+    syncHuayuModelOcclusion(currentVectorBasemap());
   });
   elements.vectorPerspectivePreset.addEventListener("click", () => {
     elements.vectorPitch.value = String(VECTOR_PERSPECTIVE_PRESET_PITCH);
@@ -3273,6 +3389,7 @@
         const busNetwork = collectTransitNetwork(payload.elements || [], unionBounds, true);
         items.forEach((item) => { transitBusRoutingElements.set(`${item.type}:${item.id}`, item); });
         stationConnectorCache.clear();
+        transitNetworkData.displayStops = mergeTransitDisplaySources(transitNetworkData, busNetwork);
         transitNetworkData.stops = mergeTransitStops([...transitNetworkData.stops, ...busNetwork.stops]);
         transitNetworkData.includeBus = true;
         invalidateTransitRoutingCaches();
@@ -3639,8 +3756,9 @@
 
   function transitStationDisplayMergeRadius(name) {
     const key = transitStationComplexKey(name);
+    // Scoped overview anchors must not broaden focused route member matching.
     const override = (transitServiceRules.stationDisplayMergeOverrides || [])
-      .find((item) => item.stationNames.includes(key));
+      .find((item) => !item.anchorPoint && item.stationNames.includes(key));
     return override?.maxMeters || TRANSIT_STATION_GROUP_RADIUS_METERS;
   }
 
@@ -3654,7 +3772,6 @@
       lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
       lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
     });
-    const railwayStation = (stop) => stop.isRail && (stop.routes || []).some((route) => route.type === "train");
     const mergeStopInto = (existing, stop) => {
       existing.displaySourceIds = [...new Set([
         ...(existing.displaySourceIds || [existing.id, existing.sourceId]),
@@ -3682,19 +3799,23 @@
         ...(stop.displayRoutes || []),
       ]);
     };
-    stops.forEach((stop) => {
+    stops.flatMap(splitTransitStationDisplaySystems).forEach((stop) => {
       const key = transitStationComplexKey(stop.name);
-      const override = overrides.find((item) => item.stationNames.includes(key));
+      const exactName = String(stop.name || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
+      const override = overrides.find((item) => item.stationNames.includes(key)
+        && stop.displaySystem !== "bus" && (!item.anchorPoint || (stop.isRail
+          && distanceMeters(sourcePoint(stop), item.anchorPoint) <= item.maxMeters)));
       // Display only: platform direction, service type and snapped track do
       // not create separate railway stations. Never change routing node IDs.
       // Exact names and a fixed original-position anchor prevent merging
       // nearby differently named stations or chaining along a whole line.
-      const groupKey = override ? `override:${key}` : railwayStation(stop)
-        ? `rail:${String(stop.name || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN")}` : "";
+      // Even a manual display override may only group the same name and
+      // transport system. Nearby railway and metro facilities remain distinct.
+      const groupKey = `${stop.displaySystem}:${exactName}:${override?.id || "ordinary"}`;
       const candidates = groupKey && key ? groups.get(groupKey) || [] : [];
-      const existing = candidates.find((item) => override
-        ? distanceMeters(item, stop) <= override.maxMeters
-        : distanceMeters(sourcePoint(item), sourcePoint(stop)) <= RAIL_STATION_DISPLAY_RADIUS_METERS);
+      const radius = override?.maxMeters || (stop.displaySystem === "railway"
+        ? RAIL_STATION_DISPLAY_RADIUS_METERS : 180);
+      const existing = candidates.find((item) => distanceMeters(sourcePoint(item), sourcePoint(stop)) <= radius);
       if (!existing) {
         const displayStop = { ...stop,
           displaySourceIds: [...new Set([...(stop.displaySourceIds || []), stop.id, stop.sourceId]
@@ -3707,7 +3828,10 @@
         return;
       }
       const stopId = String(stop.sourceId ?? stop.id);
-      if (override?.anchorStationId && stopId === String(override.anchorStationId)) {
+      const nearerAnchor = override?.anchorPoint
+        && distanceMeters(sourcePoint(stop), override.anchorPoint)
+          < distanceMeters(sourcePoint(existing), override.anchorPoint);
+      if (nearerAnchor || (override?.anchorStationId && stopId === String(override.anchorStationId))) {
         existing.id = stop.id;
         existing.sourceId = stop.sourceId;
         existing.lat = stop.lat;
@@ -3740,7 +3864,8 @@
               lon: Number.isFinite(candidate.sourceLon) ? candidate.sourceLon : candidate.lon,
             }, sourcePoint),
           }))
-          .filter((entry) => entry.distance <= rule.mergeNearbyUnnamedWithinMeters)
+          .filter((entry) => entry.candidate.displaySystem === stop.displaySystem
+            && entry.distance <= rule.mergeNearbyUnnamedWithinMeters)
           .sort((a, b) => a.distance - b.distance)[0]?.candidate;
         if (!anchor) return;
         const anchorRouteKeys = new Set([...(anchor.routes || []), ...(anchor.displayRoutes || [])]
@@ -3753,6 +3878,115 @@
       });
     });
     return merged;
+  }
+
+  function transitStationSourceSystem(node) {
+    const tags = node?.tags || {};
+    if (tags.subway === "yes" || tags.station === "subway" || tags.railway === "subway"
+      || tags.light_rail === "yes" || tags.monorail === "yes"
+      || ["light_rail", "monorail"].includes(tags.railway)) return "metro";
+    if (tags.tram === "yes" || tags.railway === "tram_stop") return "tram";
+    if (tags.train === "yes" || ["station", "halt"].includes(tags.railway)) return "railway";
+    if (isBusStopNode(node)) return "bus";
+    return "";
+  }
+
+  function splitTransitStationDisplaySystems(stop) {
+    const allRoutes = [...(stop.routes || []), ...(stop.displayRoutes || [])];
+    const systems = stop.displaySystems?.length ? [...stop.displaySystems] : stop.displaySystem ? [stop.displaySystem]
+      : [...new Set(allRoutes.map(transitLayerCategory).filter(Boolean))];
+    if (!systems.length) systems.push(stop.isBus && !stop.isRail ? "bus" : "railway");
+    return systems.map((system) => {
+      const routes = (stop.routes || []).filter((route) => transitLayerCategory(route) === system);
+      const displayRoutes = (stop.displayRoutes || []).filter((route) => transitLayerCategory(route) === system);
+      const refs = new Set([...routes, ...displayRoutes].map((route) => route.ref).filter(Boolean));
+      return { ...stop,
+        id: systems.length > 1 ? `${stop.id}:display:${system}` : stop.id,
+        sourceId: stop.sourceId ?? stop.id,
+        displaySystem: system, displaySystems: [system], routes, displayRoutes,
+        displayServiceRoutes: [...new Map([
+          ...(stop.displayServiceRoutes || []), ...allRoutes,
+        ].filter((route) => transitLayerCategory(route) === system)
+          .map((route) => [route.id ?? route.identity, route])).values()],
+        isRail: system !== "bus", isBus: system === "bus",
+        isMainline: system === "railway" && Boolean(stop.isMainline),
+        isInterchange: uniqueTransitRoutes([...routes, ...displayRoutes]).length > 1,
+        interchangeRouteRefs: (stop.interchangeRouteRefs || []).filter((ref) => refs.has(ref)),
+      };
+    }).filter((part) => part.routes.length || part.displayRoutes.length || part.isBus);
+  }
+
+  function transitStationDisplaySystems(node, directSystems = []) {
+    const tags = node.tags || {};
+    const native = transitStationSourceSystem(node);
+    const explicit = ["train", "subway", "tram", "light_rail", "monorail", "bus"]
+      .some((tag) => tags[tag] === "yes") || tags.station === "subway"
+      || ["subway", "light_rail", "monorail", "tram_stop"].includes(tags.railway);
+    // Authoritative source membership can describe a shared station. Generic
+    // railway=station alone must not erase an actual metro route membership.
+    const systems = [...new Set([...(explicit || !directSystems.length ? [native] : []),
+      ...directSystems].filter(Boolean))];
+    return systems.length ? systems : [native].filter(Boolean);
+  }
+
+  function reconcileTransitDisplayStations(network, items) {
+    // Reconstruct only display provenance. The navigation graph, station IDs,
+    // route memberships and track projections are deliberately left intact.
+    const sources = new Map([
+      ...items.filter((item) => item.type === "node" && Number.isFinite(item.lat) && Number.isFinite(item.lon)),
+      ...items.filter((item) => item.type !== "node").map(transitStationPointElement).filter(Boolean),
+    ].map((item) => [String(item.id), item]));
+    const directSystems = new Map();
+    items.forEach((item) => {
+      if (item.type !== "relation" || item.tags?.["ogf_atlas:source"]) return;
+      const system = transitLayerCategory(transitRelationRouteType(item));
+      if (!system) return;
+      (item.members || []).filter((member) => member.type === "node").forEach((member) => {
+        const id = String(member.ref);
+        if (!directSystems.has(id)) directSystems.set(id, new Set());
+        directSystems.get(id).add(system);
+      });
+    });
+    const byName = new Map();
+    network.stops.forEach((stop) => {
+      const name = normalizeTransitRuleText(stop.name);
+      if (!name) return;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(stop);
+    });
+    const sourcePoint = (stop) => ({lat: stop.sourceLat ?? stop.lat, lon: stop.sourceLon ?? stop.lon});
+    const displayStops = new Map();
+    const fromSource = (stop, node) => {
+      const systems = transitStationDisplaySystems(node, [...(directSystems.get(String(node.id)) || [])]);
+      return { ...stop,
+        id: node.id, sourceId: node.sourceElementType ? `${node.sourceElementType}:${node.sourceElementId}` : node.id,
+        name: node.tags?.name || stop.name,
+        // Use the original facility position for display; the routing stop
+        // keeps its existing projection onto the appropriate railway track.
+        lat: node.lat, lon: node.lon, sourceLat: node.lat, sourceLon: node.lon,
+        displaySystem: systems.length === 1 ? systems[0] : "", displaySystems: systems,
+      };
+    };
+    (network.displayStops || network.stops).forEach((stop) => {
+      const node = sources.get(String(stop.id));
+      displayStops.set(String(stop.id), node ? fromSource(stop, node) : { ...stop });
+    });
+    sources.forEach((node, id) => {
+      if (displayStops.has(id) || !isRailStationCandidate(node) || !node.tags?.name
+        || node.tags.public_transport === "platform" || node.tags.railway === "platform"
+        || node.tags.railway === "subway_entrance") return;
+      const system = transitStationSourceSystem(node);
+      if (!system) return;
+      // A source stop lost in the old name-only navigation merge can still
+      // have its own display. Never add unrelated stations from proximity.
+      const existing = (byName.get(normalizeTransitRuleText(node.tags.name)) || [])
+        .find((stop) => distanceMeters(sourcePoint(stop), node) <= 180
+          && stop.routes.some((route) => transitLayerCategory(route) === system));
+      if (existing) displayStops.set(id, fromSource(existing, node));
+    });
+    network.displayStops = [...displayStops.values()];
+    invalidateTransitDisplayNetwork(network);
+    return network;
   }
 
   function invalidateTransitDisplayNetwork(network) {
@@ -3773,9 +4007,24 @@
 
   function getTransitDisplayNetwork(network) {
     let cached = transitDisplayNetworkCache.get(network);
-    if (cached && cached.sourceStops === network.stops && cached.sourceLines === network.lines
+    if (cached && cached.sourceStops === network.stops && cached.sourceDisplayStops === network.displayStops
+      && cached.sourceLines === network.lines
       && cached.rules === transitServiceRules) return cached;
-    const stops = mergeTransitStopsForDisplay(network.stops);
+    const routingStops = new Map(network.stops.map((stop) => [String(stop.id), stop]));
+    const displayStops = (network.displayStops || network.stops).map((stop) => {
+      const current = routingStops.get(String(stop.id));
+      return { ...current, ...stop,
+        displayServiceRoutes: [...(stop.displayServiceRoutes || []), ...(stop.routes || []), ...(current?.routes || []),
+          ...(stop.displayRoutes || []), ...(current?.displayRoutes || [])],
+        routes: uniqueTransitRoutes([...(stop.routes || []), ...(current?.routes || [])]),
+        displayRoutes: uniqueTransitRoutes([...(stop.displayRoutes || []), ...(current?.displayRoutes || [])]) };
+    });
+    const displayIds = new Set(displayStops.map((stop) => String(stop.id)));
+    network.stops.forEach((stop) => {
+      if (!displayIds.has(String(stop.id))) displayStops.push({ ...stop });
+    });
+    applyStationInterchangeOverrides({ ...network, stops: displayStops });
+    const stops = mergeTransitStopsForDisplay(displayStops);
     const stopsById = new Map();
     const cells = new Map();
     stops.forEach((stop) => {
@@ -3791,8 +4040,9 @@
         if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
       });
     });
-    cached = { stops, stopsById, cells, representedWayIds,
-      sourceStops: network.stops, sourceLines: network.lines, rules: transitServiceRules };
+    cached = { stops, stopsById, cells, representedWayIds, stopAppearances: new WeakMap(),
+      sourceStops: network.stops, sourceDisplayStops: network.displayStops,
+      sourceLines: network.lines, rules: transitServiceRules };
     transitDisplayNetworkCache.set(network, cached);
     return cached;
   }
@@ -5163,13 +5413,12 @@
   async function ensureNationalRailwayDisplayLoaded() {
     if (!transitDisplayFilters.railway || mapViewMode !== "transit") return false;
     if (railwayRoutingData) {
-      scheduleTransitNetworkRender({ force: true, immediate: true });
       return true;
     }
     setStatus(elements.transitNetworkStatus, "已显示正式铁路关系，正在加载全国铁路基础设施…");
     const loaded = await ensureRailwayRoutingLoaded();
     if (mapViewMode !== "transit" || !transitDisplayFilters.railway) return loaded;
-    scheduleTransitNetworkRender({ force: true, immediate: true });
+    scheduleTransitNetworkRender();
     if (!loaded) {
       setStatus(elements.transitNetworkStatus, "正式铁路关系仍可用；全国铁路基础设施包加载失败，请关闭后重新开启铁路图层重试。", true);
     }
@@ -5220,7 +5469,7 @@
         railwayConnectionsData.displayLinks = payload.links.map((link) => ({...link,
           geometry: link.geometry.map(([lat, lon]) => ({lat, lon}))}));
         mergeRailwayConnectionWays();
-        if (transitNetworkData && mapViewMode === "transit") renderTransitNetwork(transitNetworkData, map.getZoom());
+        if (transitNetworkData && mapViewMode === "transit") scheduleTransitNetworkRender();
         return true;
       } catch {
         return false;
@@ -8989,7 +9238,10 @@
       stationDisplayMergeOverrides: (Array.isArray(rules.stationDisplayMergeOverrides)
         ? rules.stationDisplayMergeOverrides : [])
         .filter((rule) => rule && rule.source === "user_confirmed"
-          && Array.isArray(rule.stationNames) && rule.stationNames.length)
+          && Array.isArray(rule.stationNames) && rule.stationNames.length
+          && (rule.anchorPoint === undefined || (Number.isFinite(rule.anchorPoint?.lat)
+            && Math.abs(rule.anchorPoint.lat) <= 90 && Number.isFinite(rule.anchorPoint.lon)
+            && Math.abs(rule.anchorPoint.lon) <= 180)))
         .map((rule) => ({
           id: typeof rule.id === "string" ? rule.id.trim() : "",
           stationNames: [...new Set(rule.stationNames.map((name) => transitStationComplexKey(name)).filter(Boolean))],
@@ -8997,6 +9249,7 @@
             ? Math.min(350, Math.max(180, rule.maxMeters)) : TRANSIT_STATION_GROUP_RADIUS_METERS,
           anchorStationId: Number.isSafeInteger(rule.anchorStationId) && rule.anchorStationId > 0
             ? rule.anchorStationId : null,
+          anchorPoint: rule.anchorPoint ? { lat: rule.anchorPoint.lat, lon: rule.anchorPoint.lon } : null,
         })).filter((rule) => rule.id && rule.stationNames.length),
       stationInterchangeOverrides: (Array.isArray(rules.stationInterchangeOverrides)
         ? rules.stationInterchangeOverrides : [])
@@ -9319,7 +9572,7 @@
       ensureTransitRelationsLoaded().then((loaded) => {
         if (!loaded || mapViewMode !== "transit" || selectedTransitId || !transitNetworkData) return;
         enrichTransitNetworkRouteMetadata(transitNetworkData);
-        scheduleTransitNetworkRender({ force: true, immediate: true });
+        scheduleTransitNetworkRender();
         syncVectorTransitOverlay();
       }).catch(() => {});
     }, 900);
@@ -9356,6 +9609,16 @@
         || (typeof route[0] === "number" && route[0] < 0),
     })));
     const routesFor = (indexes) => (indexes || []).map((index) => routeTable[index]).filter(Boolean);
+    const hydrateStop = (stop) => ({
+      id: stop[0], lat: stop[1], lon: stop[2],
+      sourceLat: Number.isFinite(stop[3]) ? stop[3] : undefined,
+      sourceLon: Number.isFinite(stop[4]) ? stop[4] : undefined,
+      name: stop[5], isRail: Boolean(stop[6]), isBus: Boolean(stop[7]),
+      routes: routesFor(stop[8]), isMainline: Boolean(stop[9]), sourceId: stop[10] ?? undefined,
+      displayRoutes: routesFor(stop[11]), nationalRailwayEligible: stop[12] !== 0,
+      isInterchange: stop[13] === 1, displaySystem: stop[14] || "",
+      displaySystems: Array.isArray(stop[15]) ? stop[15] : undefined,
+    });
     const meta = network.meta || {};
     return applyStationInterchangeOverrides({
       lines: (network.lines || []).map((line) => ({
@@ -9364,22 +9627,8 @@
         routes: routesFor(line[2]),
         bbox: line[3],
       })),
-      stops: (network.stops || []).map((stop) => ({
-        id: stop[0],
-        lat: stop[1],
-        lon: stop[2],
-        sourceLat: Number.isFinite(stop[3]) ? stop[3] : undefined,
-        sourceLon: Number.isFinite(stop[4]) ? stop[4] : undefined,
-        name: stop[5],
-        isRail: Boolean(stop[6]),
-        isBus: Boolean(stop[7]),
-        routes: routesFor(stop[8]),
-        isMainline: Boolean(stop[9]),
-        sourceId: stop[10] ?? undefined,
-        displayRoutes: routesFor(stop[11]),
-        nationalRailwayEligible: stop[12] !== 0,
-        isInterchange: stop[13] === 1,
-      })),
+      stops: (network.stops || []).map(hydrateStop),
+      displayStops: Array.isArray(network.displayStops) ? network.displayStops.map(hydrateStop) : undefined,
       routeCount: meta.routeCount || 0,
       includeBus: Boolean(meta.includeBus),
       stationDataUnavailable: Boolean(meta.stationDataUnavailable),
@@ -9719,6 +9968,7 @@
       enrichTransitRelationTypes(busElements);
       const busNetwork = await collectTransitNetworkInBackground(busElements, busBounds, true);
       if (requestId !== transitBusRequestId || transitNetworkData !== targetNetwork) return;
+      transitNetworkData.displayStops = mergeTransitDisplaySources(transitNetworkData, busNetwork);
       transitNetworkData.stops = mergeTransitStops([...transitNetworkData.stops, ...busNetwork.stops]);
       transitNetworkData.includeBus = true;
       invalidateTransitRoutingCaches();
@@ -9797,8 +10047,16 @@
 
   function transitStationPointElement(item) {
     if (item?.type === "node" && Number.isFinite(item.lat) && Number.isFinite(item.lon)) return item;
+    const tags = item?.tags || {};
+    // A platform may carry subway=yes and ref=1/2, but it is not another
+    // station. Mode tags alone must not promote infrastructure areas into
+    // station centres. Keep the established node/routing rules unchanged.
+    const stationArea = ["station", "halt", "tram_stop"].includes(tags.railway)
+      || tags.public_transport === "station" || tags.station === "subway";
     if (!["way", "relation"].includes(item?.type)
       || !Number.isFinite(item.center?.lat) || !Number.isFinite(item.center?.lon)
+      || !stationArea || tags.public_transport === "platform"
+      || ["platform", "subway_entrance"].includes(tags.railway)
       || !isRailStationCandidate(item)) return null;
     return {
       ...item,
@@ -9845,10 +10103,12 @@
       transitGeometryLength, transitLineBbox, transitOperatingSpeedKmh,
       transitPathDirectionSimilarity, transitPublicRouteName, transitRelationRouteType,
       transitRouteInfo, transitStationComplexKey, transitStationPointElement, transitCollectionBounds,
+      transitStationSourceSystem, transitStationDisplaySystems, transitLayerCategory,
       translateTransitType, uniqueTransitRoutes, urbanRailRelation, urbanRailText,
     ];
     return `
       const RAIL_ROUTE_TYPES = new Set(${JSON.stringify([...RAIL_ROUTE_TYPES])});
+      const METRO_ROUTE_TYPES = new Set(${JSON.stringify([...METRO_ROUTE_TYPES])});
       const NON_OPERATIONAL_RAIL_NAME = ${NON_OPERATIONAL_RAIL_NAME};
       const URBAN_TRAIN_ROUTE_LABEL = ${URBAN_TRAIN_ROUTE_LABEL};
       const URBAN_TRAIN_SERVICE_LABEL = ${URBAN_TRAIN_SERVICE_LABEL};
@@ -10093,12 +10353,17 @@
           isMainline,
           routes: uniqueTransitRoutes(routes),
           displayRoutes,
+          displaySystem: transitStationSourceSystem(node),
+          displaySystems: transitStationDisplaySystems(node,
+            (nodeMemberships.get(node.id) || []).map(transitLayerCategory)),
         };
       }).filter(Boolean);
 
     return applyStationInterchangeOverrides({
       lines,
       stops: mergeTransitStops(stops),
+      displayStops: stops.map((stop) => ({ ...stop,
+        lat: stop.sourceLat, lon: stop.sourceLon })),
       routeCount: topRailRelations.length,
       includeBus,
     });
@@ -10216,6 +10481,20 @@
     if (additions.length) network.stops = mergeTransitStops([...network.stops, ...additions]);
   }
 
+  function mergeTransitDisplaySources(base, update) {
+    const sources = new Map();
+    [...(base.displayStops || base.stops), ...(update.displayStops || update.stops)].forEach((stop) => {
+      const previous = sources.get(String(stop.id));
+      sources.set(String(stop.id), { ...previous, ...stop,
+        displaySystem: stop.displaySystem || previous?.displaySystem || "",
+        routes: [...new Map([...(previous?.routes || []), ...(stop.routes || [])]
+          .map((route) => [route.id ?? route.identity, route])).values()],
+        displayRoutes: uniqueTransitRoutes([...(previous?.displayRoutes || []), ...(stop.displayRoutes || [])]),
+      });
+    });
+    return [...sources.values()];
+  }
+
   function mergeTransitNetworks(base, update) {
     const lines = new Map(base.lines.map((line) => [String(line.id), line]));
     update.lines.forEach((line) => lines.set(String(line.id), line));
@@ -10223,6 +10502,7 @@
       ...base,
       lines: [...lines.values()],
       stops: mergeTransitStops([...base.stops, ...update.stops]),
+      displayStops: mergeTransitDisplaySources(base, update),
       routeCount: Math.max(base.routeCount || 0, update.routeCount || 0),
       includeBus: Boolean(base.includeBus || update.includeBus),
       stationDataUnavailable: Boolean(base.stationDataUnavailable && update.stationDataUnavailable),
@@ -10330,16 +10610,48 @@
     ].join("");
   }
 
+  function createTransitCanvasRenderer() {
+    // Leaflet's cached paths and its canvas transform must use the same view.
+    // Keep this correction local to traffic; do not modify the vendor renderer.
+    const TransitCanvas = window.L.Canvas.extend({
+      refreshProjection() {
+        if (!this._map || !this._container) return;
+        // Use the same postponement as Leaflet's viewprereset: do not draw
+        // old pixel paths into the new canvas before every path is projected.
+        this._postponeUpdatePaths = true;
+        this._reset();
+      },
+    });
+    return new TransitCanvas({ padding: 0.2, tolerance: 7 });
+  }
+
+  function scheduleTransitCanvasProjection() {
+    if (transitCanvasProjectionFrame !== null) return;
+    transitCanvasProjectionFrame = window.requestAnimationFrame(() => {
+      transitCanvasProjectionFrame = null;
+      // Run after Leaflet has finished all zoom/resize/reset handlers. Reuse
+      // the same geographic paths and symbols, without rebuilding the network.
+      if (!vectorPerspectiveActive && map.hasLayer(transitCanvasRenderer)) {
+        transitCanvasRenderer.refreshProjection();
+      }
+    });
+  }
+
   function scheduleTransitNetworkRender(options = {}) {
     if (mapViewMode !== "transit" || selectedTransitId || !transitNetworkData) return;
+    // Keep the existing complete display while a gesture is active. Data and
+    // filter changes are picked up by the completed move's render below.
+    if (transitInteractionActive) return;
     const currentBounds = map.getBounds();
     const filterKey = transitRenderFilterKey(map.getZoom());
-    if (transitRenderedNetwork === getTransitDisplayNetwork(transitNetworkData)
+    if (!options.force && transitRenderedNetwork === getTransitDisplayNetwork(transitNetworkData)
       && transitRenderedRailwayData === railwayRoutingData
       && transitRenderedConnectionData === railwayConnectionsData
       && transitRenderedBounds
       && transitRenderedFilterKey === filterKey
       && transitRenderedBounds.contains(currentBounds)) {
+      window.clearTimeout(transitRenderTimer);
+      transitRenderTimer = null;
       updateTransitNetworkLabels();
       return;
     }
@@ -10348,6 +10660,7 @@
     const run = () => {
       transitRenderTimer = null;
       if (mapViewMode !== "transit" || selectedTransitId || !transitNetworkData) return;
+      if (transitInteractionActive) return;
       renderTransitNetwork(transitNetworkData, map.getZoom());
     };
     if (options.immediate) run();
@@ -10357,7 +10670,10 @@
   function clearTransitNetworkRenderedLayers(options = {}) {
     window.clearTimeout(transitRenderTimer);
     transitRenderTimer = null;
+    if (transitLabelFrame !== null) window.cancelAnimationFrame(transitLabelFrame);
+    transitLabelFrame = null;
     transitNetworkLayer.clearLayers();
+    transitRenderedLayerCache.clear();
     networkTransitStopMarkers = [];
     transitRenderedBounds = null;
     transitRenderedFilterKey = "";
@@ -10396,6 +10712,7 @@
   }
 
   function renderTransitNetwork(network, zoom) {
+    if (transitInteractionActive && !vectorPerspectiveActive) return;
     if (vectorPerspectiveActive) {
       // Perspective has its own symbols and hit testing. Building invisible
       // Leaflet markers as well doubles the work and DOM allocations.
@@ -10405,9 +10722,10 @@
     }
     const renderStartedAt = performance.now();
     const displayNetwork = getTransitDisplayNetwork(network);
-    // Build the next frame off-map, then swap it in one synchronous step so a
-    // slow pan/render cannot expose an empty traffic layer between frames.
+    // Prepare additions off-map and retain unchanged objects. Removing and
+    // recreating the whole DOM on each packet or move stalls dense cities.
     const nextTransitNetworkLayer = window.L.layerGroup();
+    const nextLayerCache = new Map();
     const nextNetworkTransitStopMarkers = [];
     const nextTransitLineMetadata = [];
     const renderBounds = map.getBounds().pad(TRANSIT_RENDER_PADDING);
@@ -10423,15 +10741,21 @@
       const visibleRoutes = getVisibleTransitRoutes(item.routes);
       return visibleRoutes.length && getTransitLineBounds(item).intersects(renderBounds);
     });
-    const visibleLines = collapseParallelPublicTransitRailLinesForDisplay(visibleSourceLines);
-    const supplementaryRailways = renderSupplementaryRailways(network, renderBounds, nextTransitNetworkLayer);
+    const retainedLines = displayNetwork.lineSelection;
+    const visibleLines = retainedLines && retainedLines.sources.length === visibleSourceLines.length
+      && retainedLines.sources.every((line, index) => line === visibleSourceLines[index])
+      ? retainedLines.lines : collapseParallelPublicTransitRailLinesForDisplay(visibleSourceLines);
+    displayNetwork.lineSelection = { sources: visibleSourceLines, lines: visibleLines };
+    const preparedAt = performance.now();
+    const supplementaryRailways = renderSupplementaryRailways(network, renderBounds, nextTransitNetworkLayer, nextLayerCache);
+    let reusedStops = 0;
     visibleLines.forEach((item) => {
-      const latLngs = item.geometry.map((point) => [point.lat, point.lon]);
       const routes = getVisibleTransitRoutes(item.routes);
       const color = routes[0].color;
       const routeLabel = routes.map((route) => route.label).join(" / ");
       const railwayOnly = routes.every((route) => transitLayerCategory(route) === "railway");
-      window.L.polyline(latLngs, {
+      const signature = `${color}:${routeLabel}:${railwayOnly}`;
+      reuseTransitRenderedLayer(`line-casing:${item.id}`, item.geometry, signature, () => window.L.polyline(item.geometry.map((point) => [point.lat, point.lon]), {
         color: "#ffffff",
         weight: railwayOnly ? 5.5 : 7,
         opacity: railwayOnly ? 0.76 : 0.88,
@@ -10440,8 +10764,8 @@
         interactive: false,
         renderer: transitCanvasRenderer,
         smoothFactor: 1.35,
-      }).addTo(nextTransitNetworkLayer);
-      const line = window.L.polyline(latLngs, {
+      }), nextTransitNetworkLayer, nextLayerCache);
+      const line = reuseTransitRenderedLayer(`line:${item.id}`, item.geometry, signature, () => window.L.polyline(item.geometry.map((point) => [point.lat, point.lon]), {
         color,
         weight: railwayOnly ? 2.7 : 3.5,
         opacity: railwayOnly ? 0.86 : 0.92,
@@ -10449,48 +10773,79 @@
         lineJoin: "round",
         renderer: transitCanvasRenderer,
         smoothFactor: 1.35,
-      }).addTo(nextTransitNetworkLayer);
-      line.bindTooltip(routeLabel, {
+      }).bindTooltip(routeLabel, {
         sticky: true,
         className: "transit-label",
-      });
+      }), nextTransitNetworkLayer, nextLayerCache);
       nextTransitLineMetadata.push({ line, routeLabel,
         routeLayers: [...new Set(routes.map((route) => transitLayerCategory(route)))].join(" ") });
     });
 
     const visibleStops = transitDisplayStopsInBounds(network, renderBounds)
       .filter((stop) => transitStopMatchesFilters(stop, zoom));
+    const appearanceKey = transitRenderFilterKey(zoom);
     visibleStops.forEach((stop) => {
-      const visibleRoutes = getVisibleTransitRoutes(stop.routes);
-      const markerRoutes = getVisibleTransitRoutes([...(stop.routes || []), ...(stop.displayRoutes || [])]);
-      const displayIsRail = markerRoutes.some((route) => route.type !== "bus");
-      const displayIsBus = transitDisplayFilters.bus && zoom >= BUS_STOP_MIN_ZOOM && stop.isBus;
-      const shouldShowLabel = shouldShowTransitStopLabel(stop, displayIsRail, zoom);
-      const marker = window.L.marker([stop.lat, stop.lon], {
-        icon: createTransitStopIcon(stop, markerRoutes, displayIsRail),
-        riseOnHover: true,
-        keyboard: true,
-        title: stop.name || (displayIsRail ? "轨道交通站" : "公交站"),
-      }).addTo(nextTransitNetworkLayer);
-      if (stop.name) {
-        marker.bindTooltip(stop.name, {
-          permanent: false,
-          direction: "top",
-          offset: [0, -8],
-          className: displayIsRail ? "transit-stop-label rail-stop-label" : "transit-stop-label bus-stop-label",
-        });
+      const state = `${appearanceKey}:${stop.id === selectedNetworkStationId}`;
+      let appearance = displayNetwork.stopAppearances.get(stop);
+      if (!appearance || appearance.state !== state) {
+        const markerRoutes = getVisibleTransitRoutes([...(stop.routes || []), ...(stop.displayRoutes || [])]);
+        const displayIsRail = markerRoutes.some((route) => route.type !== "bus");
+        appearance = { state, displayIsRail,
+          displayIsBus: transitDisplayFilters.bus && zoom >= BUS_STOP_MIN_ZOOM && stop.isBus,
+          icon: createTransitStopIcon(stop, markerRoutes, displayIsRail) };
+        displayNetwork.stopAppearances.set(stop, appearance);
       }
+      const { displayIsRail, displayIsBus, icon } = appearance;
+      const shouldShowLabel = shouldShowTransitStopLabel(stop, displayIsRail, zoom);
+      const key = `stop:${stop.id}`;
+      const position = `${stop.lat}:${stop.lon}:${stop.name || ""}`;
+      const previous = transitRenderedLayerCache.get(key);
+      if (previous?.source === position && previous.signature === icon.options.html) reusedStops += 1;
+      const marker = reuseTransitRenderedLayer(key, position, icon.options.html, () => {
+        const nextMarker = window.L.marker([stop.lat, stop.lon], {
+          icon,
+          riseOnHover: true,
+          keyboard: true,
+          title: stop.name || (displayIsRail ? "轨道交通站" : "公交站"),
+        });
+        if (stop.name) {
+          nextMarker.bindTooltip(stop.name, {
+            permanent: false,
+            direction: "top",
+            offset: [0, -8],
+            className: displayIsRail ? "transit-stop-label rail-stop-label" : "transit-stop-label bus-stop-label",
+          });
+        }
+        nextMarker.on("click", () => {
+          if (mapFeatureSelectionEnabled) showTransitStation(transitRenderedLayerCache.get(key)?.stop || stop, nextMarker);
+        });
+        return nextMarker;
+      }, nextTransitNetworkLayer, nextLayerCache);
+      nextLayerCache.get(key).stop = stop;
       const labelMarker = stop.name
         && shouldShowLabel
-        ? createTransitStopLabel(stop, displayIsRail ? "rail-stop-name" : "bus-stop-name")
+        ? reuseTransitRenderedLayer(`label:${stop.id}`, position, String(displayIsRail),
+          () => createTransitStopLabel(stop, displayIsRail ? "rail-stop-name" : "bus-stop-name"),
+          nextTransitNetworkLayer, nextLayerCache)
         : null;
-      marker.on("click", () => {
-        if (mapFeatureSelectionEnabled) showTransitStation(stop, marker);
-      });
       nextNetworkTransitStopMarkers.push({ marker, labelMarker, stop, displayIsRail, displayIsBus });
     });
-    transitNetworkLayer.clearLayers();
-    nextTransitNetworkLayer.eachLayer((layer) => transitNetworkLayer.addLayer(layer));
+    const objectsReadyAt = performance.now();
+    let addedLayers = 0, removedLayers = 0, pathsChanged = false;
+    nextTransitNetworkLayer.eachLayer((layer) => {
+      if (transitNetworkLayer.hasLayer(layer)) return;
+      transitNetworkLayer.addLayer(layer);
+      addedLayers += 1;
+      pathsChanged ||= layer.options?.renderer === transitCanvasRenderer;
+    });
+    transitNetworkLayer.eachLayer((layer) => {
+      if (nextTransitNetworkLayer.hasLayer(layer)) return;
+      transitNetworkLayer.removeLayer(layer);
+      removedLayers += 1;
+      pathsChanged ||= layer.options?.renderer === transitCanvasRenderer;
+    });
+    transitRenderedLayerCache = nextLayerCache;
+    if (pathsChanged) scheduleTransitCanvasProjection();
     nextTransitLineMetadata.forEach(({ line, routeLabel, routeLayers }) => {
       const lineElement = line.getElement();
       if (!lineElement) return;
@@ -10532,6 +10887,11 @@
     elements.transitNetworkStatus.dataset.renderedLines = String(visibleLines.length);
     elements.transitNetworkStatus.dataset.renderedRailwayWays = String(supplementaryRailways.actual);
     elements.transitNetworkStatus.dataset.renderMs = (performance.now() - renderStartedAt).toFixed(1);
+    elements.transitNetworkStatus.dataset.prepareMs = (preparedAt - renderStartedAt).toFixed(1);
+    elements.transitNetworkStatus.dataset.objectsMs = (objectsReadyAt - preparedAt).toFixed(1);
+    elements.transitNetworkStatus.dataset.reusedStops = String(reusedStops);
+    elements.transitNetworkStatus.dataset.addedLayers = String(addedLayers);
+    elements.transitNetworkStatus.dataset.removedLayers = String(removedLayers);
     elements.transitNetworkStatus.dataset.renderCount = String((Number(elements.transitNetworkStatus.dataset.renderCount) || 0) + 1);
     setStatus(
       elements.transitNetworkStatus,
@@ -10539,6 +10899,18 @@
     );
     syncMapLayers(currentView);
     syncVectorTransitOverlay();
+  }
+
+  function reuseTransitRenderedLayer(key, source, signature, create, group, cache) {
+    const previous = transitRenderedLayerCache.get(key);
+    const sameGeometry = previous && Array.isArray(source) && Number.isFinite(source[0]?.lat)
+      && Array.isArray(previous.source) && source.length === previous.source.length
+      && source.every((point, index) => point.lat === previous.source[index].lat && point.lon === previous.source[index].lon);
+    const entry = previous && (previous.source === source || sameGeometry) && previous.signature === signature
+      ? { ...previous, source } : { source, signature, layer: create() };
+    cache.set(key, entry);
+    group.addLayer(entry.layer);
+    return entry.layer;
   }
 
   function getRailwayRoutingWayBounds(way) {
@@ -10550,7 +10922,7 @@
     return bounds;
   }
 
-  function renderSupplementaryRailways(network, bounds, targetLayer = transitNetworkLayer) {
+  function renderSupplementaryRailways(network, bounds, targetLayer = transitNetworkLayer, nextLayerCache = new Map()) {
     const rendered = { actual: 0, inferred: 0 };
     if (!transitDisplayFilters.railway || !railwayConnectionsData) return rendered;
     const { representedWayIds } = getTransitDisplayNetwork(network);
@@ -10560,26 +10932,26 @@
     const visibleWays = sourceWays.filter((way) => !representedWayIds.has(String(way[0]))
       && getRailwayRoutingWayBounds(way).intersects(bounds));
     const actualGeometries = visibleWays.map((way) => way[2]);
+    const signature = visibleWays.map((way) => way[0]).join(",");
     if (actualGeometries.length) {
-      window.L.polyline(actualGeometries, {
+      reuseTransitRenderedLayer("railway-casing", sourceWays, signature, () => window.L.polyline(actualGeometries, {
         color: "#ffffff", weight: 4.4, opacity: 0.68,
         lineCap: "round", lineJoin: "round", interactive: false,
         renderer: transitCanvasRenderer, smoothFactor: 1.35,
-      }).addTo(targetLayer);
-      window.L.polyline(actualGeometries, {
+      }), targetLayer, nextLayerCache);
+      reuseTransitRenderedLayer("railway-lines", sourceWays, signature, () => window.L.polyline(actualGeometries, {
         color: "#4e5e66", weight: 2.1, opacity: 0.82,
         lineCap: "round", lineJoin: "round", interactive: false,
         renderer: transitCanvasRenderer, smoothFactor: 1.35,
-      }).addTo(targetLayer);
+      }), targetLayer, nextLayerCache);
       rendered.actual = actualGeometries.length;
     }
     const addInferredLine = (line) => {
       if (!getTransitLineBounds(line).intersects(bounds)) return;
-      window.L.polyline(line.geometry.map((point) => [point.lat, point.lon]), {
+      reuseTransitRenderedLayer(`inferred:${line.id}`, line.geometry, line.label, () => window.L.polyline(line.geometry.map((point) => [point.lat, point.lon]), {
         color: "#806761", weight: 3, opacity: 0.85, dashArray: "7 6", renderer: transitCanvasRenderer,
         smoothFactor: 1.35,
-      }).bindTooltip(`${line.label} · 非真实 OGF 轨道，未确认运营`, {sticky: true})
-        .addTo(targetLayer);
+      }).bindTooltip(`${line.label} · 非真实 OGF 轨道，未确认运营`, {sticky: true}), targetLayer, nextLayerCache);
       rendered.inferred += 1;
     };
     if (inferredRailConnectionsEnabled()) railwayConnectionsData.displayLinks.forEach(addInferredLine);
@@ -13750,6 +14122,7 @@
 
   function createFocusedTransitRouteResolver() {
     const selectedRoute = transitRouteInfo(selectedTransitRoot);
+    const selectedSystem = transitLayerCategory(selectedRoute);
     const relationsById = new Map(selectedTransitItems
       .filter((item) => item.type === "relation")
       .map((item) => [item.id, item]));
@@ -13757,7 +14130,7 @@
     const routeMembershipsByNode = new Map();
     selectedTransitItems.forEach((item) => {
       if (item.type !== "node" || !Number.isFinite(item.lat) || !Number.isFinite(item.lon)) return;
-      const name = normalizeTransitStopName(item.tags?.name || item.tags?.local_ref || item.tags?.ref || "");
+      const name = normalizeTransitRuleText(item.tags?.name || item.tags?.local_ref || item.tags?.ref || "");
       if (!name) return;
       if (!nodesByName.has(name)) nodesByName.set(name, []);
       nodesByName.get(name).push(item);
@@ -13798,7 +14171,7 @@
     };
     return (stop) => {
       const memberIds = new Set(Array.isArray(stop.allRouteMemberIds) ? stop.allRouteMemberIds : []);
-      const normalizedName = normalizeTransitStopName(stop.name || "");
+      const normalizedName = normalizeTransitRuleText(stop.name || "");
       const sourcePoint = {
         lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
         lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
@@ -13814,7 +14187,8 @@
         .map((relationId) => relationsById.get(relationId))
         .flatMap(canonicalRouteRelations)
         .map((relation) => transitRouteInfo(relation));
-      return preferAuthoritativeTransitRoutes([selectedRoute, ...memberRoutes]);
+      return preferAuthoritativeTransitRoutes([selectedRoute, ...memberRoutes])
+        .filter((route) => transitLayerCategory(route) === selectedSystem);
     };
   }
 
@@ -14519,7 +14893,7 @@
     transitLabelFrame = window.requestAnimationFrame(() => {
       transitLabelFrame = null;
       const mapRect = map.getContainer().getBoundingClientRect();
-      const occupied = [];
+      const occupied = new Map();
       // Read every rectangle before changing layers. Alternating a layout
       // read and DOM removal forces a fresh layout for each station label.
       const labels = [...entries]
@@ -14529,23 +14903,35 @@
           const label = labelMarker.getElement()?.querySelector(".transit-stop-name");
           if (!label) return null;
           const rect = label.getBoundingClientRect();
-          if (rect.right < mapRect.left || rect.left > mapRect.right || rect.bottom < mapRect.top || rect.top > mapRect.bottom) return null;
           const padded = {
             left: rect.left - 3,
             right: rect.right + 3,
             top: rect.top - 2,
             bottom: rect.bottom + 2,
           };
-          return { labelMarker, padded };
+          const outside = rect.right < mapRect.left || rect.left > mapRect.right
+            || rect.bottom < mapRect.top || rect.top > mapRect.bottom;
+          return { label, padded, outside };
         }).filter(Boolean);
-      labels.forEach(({ labelMarker, padded }) => {
-          const overlaps = occupied.some((item) => padded.left < item.right
-            && padded.right > item.left
-            && padded.top < item.bottom
-            && padded.bottom > item.top);
-          if (overlaps) group.removeLayer(labelMarker);
-          else occupied.push(padded);
+      labels.forEach(({ label, padded, outside }) => {
+        const cells = [];
+        if (!outside) {
+          for (let x = Math.floor(padded.left / 64); x <= Math.floor(padded.right / 64); x += 1) {
+            for (let y = Math.floor(padded.top / 64); y <= Math.floor(padded.bottom / 64); y += 1) {
+              cells.push(`${x}:${y}`);
+            }
+          }
+        }
+        const overlaps = cells.some((key) => (occupied.get(key) || []).some((item) => padded.left < item.right
+          && padded.right > item.left && padded.top < item.bottom && padded.bottom > item.top));
+        const visibility = outside || overlaps ? "hidden" : "";
+        if (label.style.visibility !== visibility) label.style.visibility = visibility;
+        if (outside || overlaps) return;
+        cells.forEach((key) => {
+          if (!occupied.has(key)) occupied.set(key, []);
+          occupied.get(key).push(padded);
         });
+      });
     });
   }
 
@@ -15682,16 +16068,22 @@
 
   function updateAdministrativeExportOptions() {
     const raster = ["png", "jpg", "tif"].includes(elements.boundaryFormat.value);
+    const points = elements.boundaryIncludePoints.checked;
     if (!raster) {
       elements.boundaryIncludeCoordinates.checked = true;
       elements.boundaryIncludeCoordinates.disabled = true;
-      elements.boundaryFormatNote.textContent = "SHP 包含边界面和行政中心点；OSM 包含边界关系及中心节点。勾选底图时 ZIP 内附独立 GeoTIFF。";
+      elements.boundaryFormatNote.textContent = points
+        ? "SHP 包含边界面和行政中心点；OSM 包含边界关系及中心节点。勾选底图时 ZIP 内附独立 GeoTIFF。"
+        : "仅导出边界，不附行政中心点；OSM 保留构成边界的几何节点。勾选底图时 ZIP 内附独立 GeoTIFF。";
     } else {
       elements.boundaryIncludeCoordinates.disabled = false;
-      elements.boundaryFormatNote.textContent = "边界与已确认的行政中心按等级标注；勾选底图时合成一张图片。数据来自 OpenGeofiction。";
+      elements.boundaryFormatNote.textContent = points
+        ? "边界与已确认的行政中心按等级标注；勾选底图时合成一张图片。数据来自 OpenGeofiction。"
+        : "仅绘制边界与行政区名称，不绘制行政中心点。勾选底图时合成一张图片。数据来自 OpenGeofiction。";
     }
     elements.boundaryIncludeBasemap.disabled = false;
     const basemap = elements.boundaryIncludeBasemap.checked;
+    elements.boundaryResolution.disabled = !raster && !basemap;
     elements.boundaryFormat.querySelector('option[value="osm"]').textContent = basemap ? "OSM + 底图（ZIP）" : "OSM XML";
     elements.boundaryFormat.querySelector('option[value="tif"]').textContent = elements.boundaryIncludeCoordinates.checked
       ? (basemap ? "TIF（EPSG:3857）" : "TIF（WGS84）") : "TIF 图片";
@@ -15725,9 +16117,11 @@
   function updateAdministrativeExtentStatus() {
     if (!elements.boundaryExtentStatus) return;
     updateAdministrativeExportAvailability();
+    updateAdministrativeResolutionNote();
     const basemap = elements.boundaryIncludeBasemap.checked && !elements.boundaryIncludeBasemap.disabled;
     if (!basemap) {
-      setStatus(elements.boundaryExtentStatus, "未启用底图下载。导出边界与已确认的行政中心。", false);
+      setStatus(elements.boundaryExtentStatus, elements.boundaryIncludePoints.checked
+        ? "未启用底图下载。导出边界与已确认的行政中心。" : "未启用底图下载。仅导出边界，不导出行政中心点。", false);
       return;
     }
     const coordinateMode = elements.boundaryExtentModes.find((input) => input.checked)?.value === "coordinates";
@@ -15743,6 +16137,33 @@
     }
     setStatus(elements.boundaryExtentStatus,
       `坐标范围：${bounds.minLon.toFixed(5)}, ${bounds.minLat.toFixed(5)} 至 ${bounds.maxLon.toFixed(5)}, ${bounds.maxLat.toFixed(5)}。`);
+  }
+
+  function administrativeExportResolution(value = elements.boundaryResolution.value) {
+    const resolution = Number(value);
+    return [1200, 2400, 4800].includes(resolution) ? resolution : 2400;
+  }
+
+  function updateAdministrativeResolutionNote() {
+    const raster = ["png", "jpg", "tif"].includes(elements.boundaryFormat.value);
+    const basemap = elements.boundaryIncludeBasemap.checked;
+    elements.boundaryResolution.disabled = !raster && !basemap;
+    if (!raster && !basemap) {
+      elements.boundaryResolutionNote.textContent = "矢量边界和点要素不受图片分辨率影响。";
+      return;
+    }
+    const features = administrativeExportFeatures();
+    const coordinateMode = basemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates");
+    try {
+      const bounds = coordinateMode ? administrativeCoordinateBounds()
+        : features.length ? activeAdministrativeFeatureBounds([...features, ...administrativeExportCenters(features)]) : null;
+      if (!bounds) throw new Error("INVALID_EXPORT_BOUNDS");
+      const resolution = administrativeExportResolution();
+      const size = basemap ? administrativeTilePlan(bounds, resolution) : administrativeBoundaryImageLayout(bounds, resolution);
+      elements.boundaryResolutionNote.textContent = `导出尺寸：${size.width} × ${size.height} 像素。${basemap ? "较高分辨率会下载更多底图瓦片。" : "包含标题、图例与页脚。"}`;
+    } catch {
+      elements.boundaryResolutionNote.textContent = "选择有效范围后显示图片尺寸；保持范围比例。";
+    }
   }
 
   function applyAdministrativeCoordinateBounds() {
@@ -16293,7 +16714,9 @@
     const format = elements.boundaryFormat.value;
     const raster = ["png", "jpg", "tif"].includes(format);
     const includeCoordinates = !raster || elements.boundaryIncludeCoordinates.checked;
+    const includePoints = elements.boundaryIncludePoints.checked;
     const includeBasemap = elements.boundaryIncludeBasemap.checked;
+    const resolution = administrativeExportResolution();
     const coordinateExtent = includeBasemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates")
       ? administrativeCoordinateBounds() : null;
     if ((!raster && !features.length) || (includeBasemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates") && !coordinateExtent)) {
@@ -16312,14 +16735,17 @@
     elements.boundaryDownloadButton.disabled = true;
     setStatus(elements.boundaryLevelStatus, `正在生成 ${format.toUpperCase()} 文件…`);
     try {
-      const centerWarning = await ensureAdministrativeExportCenters(features);
-      const centers = administrativeExportCenters(features);
-      const missing = features.filter((feature) => !feature.properties.admin_center).length;
-      const extent = includeBasemap ? coordinateExtent || activeAdministrativeFeatureBounds([...features, ...centers]) : null;
+      const centerWarning = includePoints ? await ensureAdministrativeExportCenters(features) : "";
+      const centers = includePoints ? administrativeExportCenters(features) : [];
+      const missing = includePoints ? features.filter((feature) => !feature.properties.admin_center).length : 0;
+      const extent = includeBasemap ? coordinateExtent || activeAdministrativeFeatureBounds([...features, ...administrativeExportCenters(features)]) : null;
+      const options = { includeCoordinates, includePoints, resolution };
+      let imageSize = "";
       if (format === "png" || format === "jpg" || format === "tif") {
         const rendered = includeBasemap
-          ? await renderAdministrativeBasemapCanvas(features, title, extent, includeCoordinates)
-          : renderAdministrativeBoundaryCanvas(features, title, { includeCoordinates });
+          ? await renderAdministrativeBasemapCanvas(features, title, extent, options)
+          : renderAdministrativeBoundaryCanvas(features, title, options);
+        imageSize = ` 图片尺寸 ${rendered.canvas.width} × ${rendered.canvas.height} 像素。`;
         if (format === "tif") {
           downloadBlob(buildAdministrativeGeoTiff(rendered, includeCoordinates), `${baseName}.tif`);
         } else {
@@ -16329,26 +16755,28 @@
         }
       } else {
         const encoder = new TextEncoder();
-        const xml = format === "osm" ? buildAdministrativeOsmXml(features, centers, centerWarning) : "";
+        const xml = format === "osm" ? buildAdministrativeOsmXml(features, centers, centerWarning, options) : "";
         if (format === "osm" && !includeBasemap) {
           downloadBlob(new Blob([xml], { type: "application/xml;charset=utf-8" }), `${baseName}.osm`);
         } else {
-          const entries = format === "shp" ? buildAdministrativeShapefileEntries(features, centers, title)
+          const entries = format === "shp" ? buildAdministrativeShapefileEntries(features, centers, title, options)
             : [{ name: "administrative-boundaries.osm", data: encoder.encode(xml) }];
-          const report = administrativeExportManifest(features, centers, title, centerWarning);
+          const report = administrativeExportManifest(features, centers, title, centerWarning, options);
           if (includeBasemap) {
-            const rendered = await renderAdministrativeBasemapCanvas([], title, extent, false);
+            const rendered = await renderAdministrativeBasemapCanvas([], title, extent, { includeCoordinates: false, includePoints: false, resolution });
             entries.push({ name: "ogf-basemap.tif", data: new Uint8Array(await buildAdministrativeGeoTiff(rendered, true).arrayBuffer()) });
-            report.basemap = { file: "ogf-basemap.tif", epsg: 3857, bounds: extent, missingTiles: rendered.missingTiles };
+            report.basemap = { file: "ogf-basemap.tif", epsg: 3857, bounds: extent, missingTiles: rendered.missingTiles,
+              width: rendered.canvas.width, height: rendered.canvas.height, resolution };
+            imageSize = ` 底图尺寸 ${rendered.canvas.width} × ${rendered.canvas.height} 像素。`;
           }
           entries.push({ name: "export-info.json", data: encoder.encode(JSON.stringify(report, null, 2)) });
-          if (format === "osm") entries.push({ name: "README.txt", data: encoder.encode(administrativeExportReadme(title)) });
+          if (format === "osm") entries.push({ name: "README.txt", data: encoder.encode(administrativeExportReadme(title, options)) });
           downloadBlob(buildStoredZip(entries), `${baseName}-${format}.zip`);
         }
       }
       setStatus(elements.boundaryLevelStatus, features.length
-        ? `已生成 ${boundaries.length} 个已选行政区、共 ${features.length} 个边界和 ${centers.length} 个行政中心的 ${format.toUpperCase()} 下载。${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
-        : `已生成 OGF 底图 ${format.toUpperCase()} 下载。`, Boolean(missing || centerWarning));
+        ? `已生成 ${boundaries.length} 个已选行政区、共 ${features.length} 个边界${includePoints ? `和 ${centers.length} 个行政中心` : "（不含行政中心点）"}的 ${format.toUpperCase()} 下载。${imageSize}${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
+        : `已生成 OGF 底图 ${format.toUpperCase()} 下载。${imageSize}`, Boolean(missing || centerWarning));
       showToast(features.length ? "行政区划边界文件已生成" : "地图文件已生成");
     } catch (error) {
       const message = error?.message === "INVALID_EXPORT_BOUNDS"
@@ -16360,6 +16788,7 @@
     } finally {
       administrativeExportBusy = false;
       updateAdministrativeExportAvailability();
+      updateAdministrativeResolutionNote();
     }
   }
 
@@ -16378,9 +16807,7 @@
     return bounds;
   }
 
-  function renderAdministrativeBoundaryCanvas(features, title, options = {}) {
-    const centers = administrativeExportCenters(features);
-    const bounds = activeAdministrativeFeatureBounds([...features, ...centers]);
+  function administrativeBoundaryImageLayout(bounds, resolution = 2400) {
     const midLatitude = (bounds.minLat + bounds.maxLat) / 2;
     const longitudeFactor = Math.max(0.15, Math.cos(midLatitude * Math.PI / 180));
     const longitudeSpan = Math.max(1e-8, (bounds.maxLon - bounds.minLon) * longitudeFactor);
@@ -16393,19 +16820,35 @@
     const margin = 90;
     const titleHeight = 148;
     const footerHeight = 76;
+    const logicalWidth = mapWidth + margin * 2;
+    const logicalHeight = mapHeight + titleHeight + footerHeight;
+    const outputScale = administrativeExportResolution(resolution) / Math.max(logicalWidth, logicalHeight);
+    const width = Math.max(1, Math.round(logicalWidth * outputScale));
+    const height = Math.max(1, Math.round(logicalHeight * outputScale));
+    return { longitudeFactor, longitudeSpan, latitudeSpan, mapWidth, mapHeight, margin, titleHeight,
+      logicalWidth, logicalHeight, width, height, scaleX: width / logicalWidth, scaleY: height / logicalHeight };
+  }
+
+  function renderAdministrativeBoundaryCanvas(features, title, options = {}) {
+    const allCenters = administrativeExportCenters(features);
+    const centers = options.includePoints === false ? [] : allCenters;
+    const bounds = activeAdministrativeFeatureBounds([...features, ...allCenters]);
+    const { longitudeFactor, longitudeSpan, latitudeSpan, mapWidth, mapHeight, margin, titleHeight,
+      logicalWidth, logicalHeight, width, height, scaleX, scaleY } = administrativeBoundaryImageLayout(bounds, options.resolution);
     const canvas = document.createElement("canvas");
-    canvas.width = mapWidth + margin * 2;
-    canvas.height = mapHeight + titleHeight + footerHeight;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
+    context.scale(scaleX, scaleY);
     context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillRect(0, 0, logicalWidth, logicalHeight);
     context.fillStyle = "#202124";
     context.font = "500 34px system-ui, sans-serif";
     context.fillText(title, margin, 50);
     context.fillStyle = "#687176";
     context.font = "20px system-ui, sans-serif";
     context.fillText(`行政区划边界 · ${features.length} 个行政区`, margin, 79);
-    drawAdministrativeCenterLegend(context, features, margin, 100, mapWidth);
+    if (options.includePoints !== false) drawAdministrativeCenterLegend(context, features, margin, 100, mapWidth);
     const scale = Math.min(mapWidth / longitudeSpan, mapHeight / latitudeSpan);
     const offsetX = margin + (mapWidth - longitudeSpan * scale) / 2;
     const offsetY = titleHeight + (mapHeight - latitudeSpan * scale) / 2;
@@ -16421,30 +16864,33 @@
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
     if (features.length <= 80) {
-      features.filter((feature) => !feature.properties.admin_center).forEach((feature) => drawAdministrativeCanvasLabel(context, feature, project));
+      features.filter((feature) => options.includePoints === false || !feature.properties.admin_center)
+        .forEach((feature) => drawAdministrativeCanvasLabel(context, feature, project, options));
     }
-    drawAdministrativeCanvasCenters(context, centers, project, { left: margin, top: titleHeight, right: margin + mapWidth, bottom: titleHeight + mapHeight });
+    if (options.includePoints !== false) drawAdministrativeCanvasCenters(context, centers, project,
+      { left: margin, top: titleHeight, right: margin + mapWidth, bottom: titleHeight + mapHeight });
     context.fillStyle = "#687176";
     context.font = "18px system-ui, sans-serif";
-    context.fillText("数据：OpenGeofiction · 导出：华域地图", margin, canvas.height - 22);
-    context.fillText(`已确认 ${centers.length} 个行政中心；${features.filter((feature) => !feature.properties.admin_center).length} 个行政区中心缺失`, margin, canvas.height - 46);
+    context.fillText("数据：OpenGeofiction · 导出：华域地图", margin, logicalHeight - 22);
+    context.fillText(options.includePoints === false ? "未包含行政中心点"
+      : `已确认 ${centers.length} 个行政中心；${features.filter((feature) => !feature.properties.admin_center).length} 个行政区中心缺失`, margin, logicalHeight - 46);
     return {
       canvas,
       bounds,
       geoReference: {
         epsg: 4326,
-        pixelScaleX: 1 / (longitudeFactor * scale),
-        pixelScaleY: 1 / scale,
-        tieX: offsetX,
-        tieY: offsetY,
+        pixelScaleX: 1 / (longitudeFactor * scale * scaleX),
+        pixelScaleY: 1 / (scale * scaleY),
+        tieX: offsetX * scaleX,
+        tieY: offsetY * scaleY,
         tieLon: bounds.minLon,
         tieLat: bounds.maxLat,
       },
     };
   }
 
-  async function renderAdministrativeBasemapCanvas(features, title, bounds, includeCoordinates) {
-    const plan = administrativeTilePlan(bounds);
+  async function renderAdministrativeBasemapCanvas(features, title, bounds, options = {}) {
+    const plan = administrativeTilePlan(bounds, options.resolution);
     const canvas = document.createElement("canvas");
     canvas.width = plan.width;
     canvas.height = plan.height;
@@ -16461,52 +16907,58 @@
       const batch = jobs.slice(index, index + 8);
       const loaded = await Promise.all(batch.map(async (job) => ({ ...job, image: await loadAdministrativeTile(plan.zoom, job.tileX, job.tileY) })));
       loaded.forEach(({ tileX, tileY, image }) => {
-        const x = tileX * 256 - plan.pixelLeft;
-        const y = tileY * 256 - plan.pixelTop;
-        if (image) context.drawImage(image, x, y, 256, 256);
+        const x = (tileX * 256 - plan.pixelLeft) * plan.scaleX;
+        const y = (tileY * 256 - plan.pixelTop) * plan.scaleY;
+        if (image) context.drawImage(image, x, y, 256 * plan.scaleX, 256 * plan.scaleY);
         else {
           failed += 1;
           context.fillStyle = "#eef2f2";
-          context.fillRect(x, y, 256, 256);
+          context.fillRect(x, y, 256 * plan.scaleX, 256 * plan.scaleY);
         }
       });
     }
+    // Scale annotation sizes together with the image, after sampling native
+    // tiles at the selected detail. The geographic extent stays unchanged.
+    const styleScale = administrativeExportResolution(options.resolution) / 2400;
+    context.scale(styleScale, styleScale);
+    const frameWidth = canvas.width / styleScale;
+    const frameHeight = canvas.height / styleScale;
     const project = (coordinate) => {
       const normalized = administrativeMercatorNormalized(coordinate[0], coordinate[1]);
-      return [normalized.x * plan.worldSize - plan.pixelLeft, normalized.y * plan.worldSize - plan.pixelTop];
+      return [(normalized.x * plan.worldSize - plan.pixelLeft) * plan.scaleX / styleScale,
+        (normalized.y * plan.worldSize - plan.pixelTop) * plan.scaleY / styleScale];
     };
-    if (includeCoordinates) drawAdministrativeCoordinateGrid(context, bounds, project, {
-      left: 0, top: 0, right: canvas.width, bottom: canvas.height,
+    if (options.includeCoordinates) drawAdministrativeCoordinateGrid(context, bounds, project, {
+      left: 0, top: 0, right: frameWidth, bottom: frameHeight,
     });
     const parentKeys = new Set(administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
     administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
-    if (features.length <= 80) features.filter((feature) => !feature.properties.admin_center)
-      .forEach((feature) => drawAdministrativeCanvasLabel(context, feature, project));
-    if (features.length) drawAdministrativeCenterLegend(context, features, 8, 8, canvas.width - 16, true);
-    drawAdministrativeCanvasCenters(context, administrativeExportCenters(features), project,
-      { left: 0, top: 0, right: canvas.width, bottom: canvas.height });
+    if (features.length <= 80) features.filter((feature) => options.includePoints === false || !feature.properties.admin_center)
+      .forEach((feature) => drawAdministrativeCanvasLabel(context, feature, project, options));
+    if (features.length && options.includePoints !== false) drawAdministrativeCenterLegend(context, features, 8, 8, frameWidth - 16, true);
+    if (options.includePoints !== false) drawAdministrativeCanvasCenters(context, administrativeExportCenters(features), project,
+      { left: 0, top: 0, right: frameWidth, bottom: frameHeight });
     context.save();
     context.font = "16px system-ui, sans-serif";
     const attribution = `${title} · OpenGeofiction · 华域地图`;
-    const attributionWidth = Math.min(canvas.width - 16, context.measureText(attribution).width + 20);
+    const attributionWidth = Math.min(frameWidth - 16, context.measureText(attribution).width + 20);
     context.fillStyle = "rgba(255, 255, 255, 0.88)";
-    context.fillRect(8, canvas.height - 34, attributionWidth, 26);
+    context.fillRect(8, frameHeight - 34, attributionWidth, 26);
     context.fillStyle = "#4f595e";
-    context.fillText(attribution, 17, canvas.height - 15);
+    context.fillText(attribution, 17, frameHeight - 15);
     context.restore();
     if (failed) showToast(`${failed} 张底图瓦片不可用，已保留空白位置`);
     const earthHalf = Math.PI * 6378137;
-    const pixelScale = earthHalf * 2 / plan.worldSize;
     return {
       canvas,
       bounds,
       missingTiles: failed,
       geoReference: {
         epsg: 3857,
-        pixelScaleX: pixelScale,
-        pixelScaleY: pixelScale,
+        pixelScaleX: earthHalf * 2 / plan.worldSize / plan.scaleX,
+        pixelScaleY: earthHalf * 2 / plan.worldSize / plan.scaleY,
         tieX: 0,
         tieY: 0,
         tieLon: plan.pixelLeft / plan.worldSize * earthHalf * 2 - earthHalf,
@@ -16515,17 +16967,20 @@
     };
   }
 
-  function administrativeTilePlan(bounds) {
+  function administrativeTilePlan(bounds, resolution = 2400) {
     const northWest = administrativeMercatorNormalized(bounds.minLon, Math.min(85.05112878, bounds.maxLat));
     const southEast = administrativeMercatorNormalized(bounds.maxLon, Math.max(-85.05112878, bounds.minLat));
-    if (southEast.x <= northWest.x || southEast.y <= northWest.y) throw new Error("INVALID_EXPORT_BOUNDS");
-    let zoom = 2;
-    for (let candidate = 2; candidate <= 19; candidate += 1) {
+    if (![northWest.x, northWest.y, southEast.x, southEast.y].every(Number.isFinite)
+      || southEast.x <= northWest.x || southEast.y <= northWest.y) throw new Error("INVALID_EXPORT_BOUNDS");
+    const target = administrativeExportResolution(resolution);
+    const spanX = southEast.x - northWest.x;
+    const spanY = southEast.y - northWest.y;
+    const width = Math.max(1, Math.round(target * spanX / Math.max(spanX, spanY)));
+    const height = Math.max(1, Math.round(target * spanY / Math.max(spanX, spanY)));
+    let zoom = 19;
+    for (let candidate = 0; candidate <= 19; candidate += 1) {
       const world = 256 * 2 ** candidate;
-      const width = (southEast.x - northWest.x) * world;
-      const height = (southEast.y - northWest.y) * world;
-      if (Math.max(width, height) <= 2200) zoom = candidate;
-      else break;
+      if (Math.max(spanX, spanY) * world >= target) { zoom = candidate; break; }
     }
     let plan;
     do {
@@ -16539,18 +16994,20 @@
         worldSize,
         pixelLeft,
         pixelTop,
-        width: Math.max(1, Math.ceil(pixelRight - pixelLeft)),
-        height: Math.max(1, Math.ceil(pixelBottom - pixelTop)),
+        width,
+        height,
+        scaleX: width / (pixelRight - pixelLeft),
+        scaleY: height / (pixelBottom - pixelTop),
         firstTileX: Math.floor(pixelLeft / 256),
         lastTileX: Math.floor((pixelRight - 1e-6) / 256),
         firstTileY: Math.max(0, Math.floor(pixelTop / 256)),
         lastTileY: Math.min(2 ** zoom - 1, Math.floor((pixelBottom - 1e-6) / 256)),
       };
       const count = (plan.lastTileX - plan.firstTileX + 1) * (plan.lastTileY - plan.firstTileY + 1);
-      if (count <= 64 || zoom <= 2) break;
+      if (count <= 512 || zoom <= 0) break;
       zoom -= 1;
     } while (true);
-    if (plan.width * plan.height > 9000000) throw new Error("EXPORT_BOUNDS_TOO_LARGE");
+    if (plan.width * plan.height > 4800 * 4800) throw new Error("EXPORT_BOUNDS_TOO_LARGE");
     return plan;
   }
 
@@ -16666,12 +17123,12 @@
     context.restore();
   }
 
-  function drawAdministrativeCanvasLabel(context, feature, project) {
+  function drawAdministrativeCanvasLabel(context, feature, project, options = {}) {
     const bounds = activeAdministrativeFeatureBounds([feature]);
     const [x, y] = project([(bounds.minLon + bounds.maxLon) / 2, (bounds.minLat + bounds.maxLat) / 2]);
     const areaName = String(feature.properties?.name || "").trim();
     if (!areaName) return;
-    const name = `${areaName} · ${administrativeLevelLabel(feature.properties.admin_level)}（中心未标注）`;
+    const name = `${areaName} · ${administrativeLevelLabel(feature.properties.admin_level)}${options.includePoints === false ? "" : "（中心未标注）"}`;
     context.save();
     context.font = "500 16px system-ui, sans-serif";
     context.textAlign = "center";
@@ -16934,35 +17391,39 @@
     return new Blob([buffer], { type: "image/tiff" });
   }
 
-  function administrativeExportReadme(title) {
+  function administrativeExportReadme(title, options = {}) {
     return `${title}\r\nGenerated by Huayu Map 2.2.4\r\nSource: OpenGeofiction and its contributors\r\n`
       + "Boundary polygons and administrative-centre points: WGS 84 (EPSG:4326).\r\n"
+      + `Administrative-centre point features: ${options.includePoints === false ? "excluded by user" : "included when confirmed"}.\r\n`
       + "LEVEL is the source admin_level; LEVEL_NAME is the display label. AREA_ID links centres to boundaries.\r\n"
       + "METHOD identifies relation_admin_centre or same_name_place. Missing centres are not fabricated.\r\n"
       + "See export-info.json for centre coverage, missing areas and query warnings.\r\n"
       + "When included, ogf-basemap.tif is an independent raster in EPSG:3857, not editable roads/buildings.\r\n"
+      + "Labels baked into the OGF basemap are independent of the point-feature option.\r\n"
       + "GIS software must reproject the vector and raster layers to a common display CRS.\r\n"
       + "OSM exports are derived geometry with temporary IDs, not an original database download; do not upload.\r\n";
   }
 
-  function administrativeExportManifest(features, centers, title, warning) {
+  function administrativeExportManifest(features, centers, title, warning, options = {}) {
+    const includePoints = options.includePoints !== false;
+    if (!includePoints) centers = [];
     const covered = new Set(centers.map((center) => center.properties.area_key));
     return { generator: "Huayu Map 2.2.4", title, source: "OpenGeofiction", vectorEpsg: 4326,
-      boundaryCount: features.length, centerCount: centers.length, warning: warning || null,
+      boundaryCount: features.length, centerCount: centers.length, includePoints, warning: warning || null,
       centers: centers.map((center) => ({ ...center.properties, coordinates: center.geometry.coordinates })),
-      unresolvedCenterMembers: features.filter((feature) => feature.properties.unresolved_center_members?.length)
+      unresolvedCenterMembers: (includePoints ? features : []).filter((feature) => feature.properties.unresolved_center_members?.length)
         .map((feature) => ({ osm_id: feature.properties.osm_id, name: feature.properties.name, members: feature.properties.unresolved_center_members })),
-      missingCenters: features.filter((feature) => !covered.has(administrativeBoundaryFeatureKey(feature)))
+      missingCenters: (includePoints ? features : []).filter((feature) => !covered.has(administrativeBoundaryFeatureKey(feature)))
         .map((feature) => ({ name: feature.properties.name, osm_id: feature.properties.osm_id,
           admin_level: feature.properties.admin_level, level_name: administrativeLevelLabel(feature.properties.admin_level) })),
     };
   }
 
-  function buildAdministrativeShapefileEntries(features, centers, title) {
+  function buildAdministrativeShapefileEntries(features, centers, title, options = {}) {
     const encoder = new TextEncoder();
     return [...encodeAdministrativeShapefileLayer(features, "administrative-boundaries", 5),
-      ...encodeAdministrativeShapefileLayer(centers, "administrative-centres", 1),
-      { name: "README.txt", data: encoder.encode(administrativeExportReadme(title)) }];
+      ...(options.includePoints === false ? [] : encodeAdministrativeShapefileLayer(centers, "administrative-centres", 1)),
+      { name: "README.txt", data: encoder.encode(administrativeExportReadme(title, options)) }];
   }
 
   function encodeAdministrativeShapefileLayer(features, stem, shapeType) {
@@ -17213,7 +17674,8 @@
     return (crc ^ 0xffffffff) >>> 0;
   }
 
-  function buildAdministrativeOsmXml(features, centers = administrativeExportCenters(features), warning = "") {
+  function buildAdministrativeOsmXml(features, centers = administrativeExportCenters(features), warning = "", options = {}) {
+    if (options.includePoints === false) centers = [];
     let nodeId = -1;
     let wayId = -1;
     let relationId = -1;
@@ -17267,7 +17729,7 @@
         ["name", properties.name || "未命名行政区"],
         ["admin_level", properties.admin_level ?? ""],
         ["huayu:level_name", administrativeLevelLabel(properties.admin_level)],
-        ["huayu:admin_centre_status", properties.admin_center ? "included" : "unresolved"],
+        ["huayu:admin_centre_status", options.includePoints === false ? "excluded" : centersByArea.has(administrativeBoundaryFeatureKey(feature)) ? "included" : "unresolved"],
         ["source", "OpenGeofiction"],
         ["generator", "Huayu Map 2.2.4"],
         ["source:osm_id", properties.osm_id ?? ""],
@@ -17276,7 +17738,7 @@
       relations.push(`<relation id="${relationId}" visible="true">${members.join("")}${tags}</relation>`);
       relationId -= 1;
     });
-    const note = `${warning ? `${warning}。` : ""}已导出 ${features.length} 个边界和 ${centers.length} 个行政中心；未找到的中心不补造坐标。`;
+    const note = `${warning ? `${warning}。` : ""}已导出 ${features.length} 个边界和 ${centers.length} 个行政中心；${options.includePoints === false ? "行政中心点已按选择排除，边界几何节点仍保留" : "未找到的中心不补造坐标"}。`;
     return `<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6" generator="Huayu Map 2.2.4" upload="false">\n<note>${xmlEscape(note)}</note>\n${nodes.join("\n")}\n${ways.join("\n")}\n${relations.join("\n")}\n</osm>\n`;
   }
 
@@ -17452,8 +17914,9 @@
   }
 
   function huayuOverlayPalette(glMap) {
-    const night = String(glMap?.getStyle?.()?.metadata?.["ogf-atlas:theme"] || "").startsWith("huayu-night");
-    return night ? {
+    const theme = String(glMap?.getStyle?.()?.metadata?.["ogf-atlas:theme"] || "");
+    const night = theme.startsWith("huayu-night");
+    const palette = night ? {
       night: true,
       adminProvince: "#b5d3dc",
       adminRoad: "#9fc7d2",
@@ -17638,10 +18101,34 @@
       importantWaterLabel: "#3d7898",
       importantPeak: "#62685f",
     };
+    if (theme.startsWith("huayu-satellite")) Object.assign(palette, {
+      satellite: true, satelliteGround: "#697254",
+      adminProvince: "#e0e2cd", adminRoad: "#d4d9c7", textHalo: "#293629",
+      buildingColors: ["#c1bbb0", "#b6b2a6", "#aaa99d", "#9ea295", "#939b91"],
+      liveLandResidential: "#73746b", liveLandCommercial: "#808077", liveLandRetail: "#878275",
+      liveLandIndustrial: "#878980", liveLandEducation: "#747c6b", liveLandHealthcare: "#858178",
+      liveLandPark: "#506341", liveLandGrass: "#6b744a", liveLandWood: "#30452c",
+      liveLandFarm: "#9a925a", liveLandCemetery: "#5d7050", liveLandSports: "#5f7848",
+      liveLandSand: "#b2a17b", liveLandParking: "#96968b",
+      treeCanopy: ["#345333", "#45633a", "#587647"], treeTrunk: "#6e6047",
+      mountainRelief: ["#405a36", "#435d39", "#4a653d", "#587247", "#6c8054"],
+      mountainContour: "#a6b292", gardenFill: "#60794c", gardenOutline: "#76895f",
+      gardenLeaf: "#7e9465", gardenBloom: "#bc9a99", gardenBloomAccent: "#c4b370",
+      facilityFire: "#777b6d", facilityRecycling: "#6b7166", facilityFuel: "#818276",
+      facilityOther: "#767c6e", fountainWater: "#345b58",
+      sportsRunning: "#a06751", sportsSoccer: "#5f7b48", sportsTennis: "#677d4e",
+      sportsGeneric: "#6c8056", sportsOutline: "#89977c", sportsMarking: "#dedfc9",
+      liveWater: "#284041", liveWaterway: "#3e5957",
+      liveRoadCasingMinor: "#55584e", liveRoadMinor: "#797b71",
+      liveRailway: "#636961", liveRailwayHatching: "#b9b9a8",
+      livePlace: "#ececdb", importantPeak: "#e5e2cb", importantWaterLabel: "#c4d5ce",
+      importantUniversity: "#e0e4cf", busLabel: "#c8dbd2", cityWallLabel: "#d9cdbc",
+    });
+    return palette;
   }
 
   function applyHuayuPublishedUrbanLandScale(glMap, palette) {
-    const neutral = palette.night ? "#0d1217" : "#fbfdfc";
+    const neutral = palette.satellite ? palette.liveLandResidential : palette.night ? "#0d1217" : "#fbfdfc";
     const detailedColors = {
       "landuse-residential": palette.liveLandResidential,
       "landuse-commercial": palette.liveLandCommercial,
@@ -17923,8 +18410,16 @@
     if (state?.syncing) return;
     const layerOrder = glMap?.getLayersOrder?.();
     const orderSignature = layerOrder?.join("|");
+    const modelOpacity = state?.satellite ? 0 : 1;
     if (state && orderSignature && state.orderSignature === orderSignature
-      && state.models?.every(id => glMap.getPaintProperty(id, "fill-extrusion-opacity") === 1)) return;
+      && state.models?.every(id => glMap.getPaintProperty(id, "fill-extrusion-opacity") === modelOpacity)) {
+      if (state.satellite) {
+        state.syncing = true;
+        try { syncHuayuSatelliteSurfaces(glMap, state); syncHuayuSatelliteAnnotations(glMap, state); }
+        finally { state.syncing = false; }
+      }
+      return;
+    }
     const style = glMap?.getStyle?.();
     if (!style) return;
     if (state) state.syncing = true;
@@ -17935,7 +18430,8 @@
       // one shared 3D pass, with cartographic symbols above it.
       const definitions = new Map(style.layers.map(layer => [layer.id, layer]));
       const order = [...(layerOrder || style.layers.map(layer => layer.id))];
-      const ground = [], models = [], annotations = [];
+      const satellite = state?.satellite ?? huayuOverlayPalette(glMap).satellite;
+      const ground = [], models = [], annotations = [], surfaces = [], shadows = [];
       for (const id of order) {
         const layer = definitions.get(id) || glMap.getLayer(id);
         if (!layer) continue;
@@ -17943,10 +18439,15 @@
           models.push(id);
           // Solids must not show roads or farther models through their faces.
           // Keep holes, roof bases and model heights in the actual geometry.
-          if (glMap.getPaintProperty(id, "fill-extrusion-opacity") !== 1) {
+          const opacity = satellite ? 0 : 1;
+          if (glMap.getPaintProperty(id, "fill-extrusion-opacity") !== opacity) {
             glMap.setPaintProperty(id, "fill-extrusion-opacity-transition", {duration: 0, delay: 0});
-            glMap.setPaintProperty(id, "fill-extrusion-opacity", 1);
+            glMap.setPaintProperty(id, "fill-extrusion-opacity", opacity);
           }
+        } else if (layer.metadata?.["huayu:satellite-shadow"]) {
+          shadows.push(id);
+        } else if (layer.metadata?.["huayu:satellite-model"]) {
+          surfaces.push(id);
         } else if (["background", "fill", "line", "raster", "hillshade", "color-relief"].includes(layer.type)
           || (layer.type === "custom"
             && (layer.renderingMode || layer.implementation?.renderingMode || "2d") === "2d")) {
@@ -17956,6 +18457,23 @@
         }
       }
       if (!models.length) return;
+      if (satellite && state) {
+        state.surfaceModels = models.map(id => definitions.get(id)).filter(Boolean);
+        state.annotationLayers = style.layers.filter(layer => layer.type === "symbol"
+          && !String(layer.source).startsWith("ogf-atlas-vector-transit"));
+        syncHuayuSatelliteAnnotations(glMap, state);
+        syncHuayuSatelliteSurfaces(glMap, state);
+        for (const model of state.surfaceModels) {
+          for (const part of ["surface", "grain", "shadow"]) {
+            const id = `${model.id}-satellite-${part}`;
+            const collection = part === "shadow" ? shadows : surfaces;
+            if (glMap.getLayer(id) && !collection.includes(id)) {
+              collection.push(id);
+              order.splice(order.indexOf(model.id), 0, id);
+            }
+          }
+        }
+      }
       // Garden ground inherits mountain shading, but its transparent planting
       // pattern and outline are surface details and must remain above it.
       const materialId = HUAYU_LIVE_BASEMAP_LAYERS.mountainOverviewTexture;
@@ -17965,7 +18483,14 @@
         for (const id of details) ground.splice(ground.indexOf(id), 1);
         ground.splice(ground.indexOf(materialId) + 1, 0, ...details);
       }
-      const wanted = [...ground, ...models, ...annotations];
+      // Roofs and tree crowns are overhead surfaces, above the ground but with
+      // no sides, posts or vertical projection. Crowns finish the surface pass.
+      const canopy = `${HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy}-satellite-surface`;
+      if (surfaces.includes(canopy)) {
+        surfaces.splice(surfaces.indexOf(canopy), 1);
+        surfaces.push(canopy);
+      }
+      const wanted = [...ground, ...shadows, ...surfaces, ...models, ...annotations];
       // Repair only inversions. No sorting by feature or camera on pan/rotate;
       // all extrusion layers share MapLibre's real depth buffer.
       for (let index = wanted.length - 1; index >= 0; index -= 1) {
@@ -17984,7 +18509,8 @@
 
   function activateHuayuModelOcclusion(glMap) {
     if (huayuModelOcclusionStates.has(glMap)) return;
-    const state = {syncing: false, onStyleData: () => syncHuayuModelOcclusion(glMap)};
+    const state = {syncing: false, satellite: Boolean(huayuOverlayPalette(glMap).satellite),
+      onStyleData: () => syncHuayuModelOcclusion(glMap)};
     huayuModelOcclusionStates.set(glMap, state);
     // Sources and model layers arrive asynchronously and may be reinserted on
     // snapshot handoff. Repair before drawing, without waiting for full idle.
@@ -17997,6 +18523,94 @@
     if (!state) return;
     glMap.off("styledata", state.onStyleData);
     huayuModelOcclusionStates.delete(glMap);
+  }
+
+  function huayuSatelliteSurfaceLayer(model, glMap) {
+    const kind = {
+      "building-3d": "roof",
+      [HUAYU_LIVE_BUILDING_LAYER]: "roof",
+      [HUAYU_ANCIENT_BUILDING_LAYERS.roof]: "roof",
+      [HUAYU_PAVILION_LAYER]: "roof",
+      [HUAYU_BUS_FACILITY_LAYERS.model]: "bus-roof",
+      [HUAYU_SUBWAY_ENTRANCE_MODEL_LAYER]: "entrance-roof",
+      [HUAYU_ELEVATED_GREEN_LAYERS.surface]: "grass",
+      [HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy]: "wood",
+    }[model.id];
+    // No overhead equivalent for trunks, posts, bases, fences or flower models.
+    if (!kind) return null;
+    const filter = glMap.getFilter(model.id);
+    const part = kind === "bus-roof" ? ["==", ["get", "busFacilityPart"], "shelter-roof"]
+      : kind === "entrance-roof" ? ["==", ["get", "entranceModelPart"], "canopy"] : null;
+    const color = glMap.getPaintProperty(model.id, "fill-extrusion-color") || "#b5b2a7";
+    // Stable surface tones, with explicit roof/building colours taking priority.
+    // Variation represents material grain, never additional roof geometry.
+    const roofColor = ["match", ["%", ["to-number", ["get", "osmId"], ["id"], 0], 5],
+      0, ["to-color", "#aaa89e"], 1, ["to-color", "#90978f"],
+      2, ["to-color", "#b7b1a3"], 3, ["to-color", "#9e8f7c"], ["to-color", "#a5a99b"]];
+    const ordinaryRoof = model.id === "building-3d" || model.id === HUAYU_LIVE_BUILDING_LAYER;
+    const layer = {id: `${model.id}-satellite-surface`, type: "fill", source: model.source,
+      metadata: {"huayu:satellite-model": model.id},
+      layout: {visibility: glMap.getLayoutProperty(model.id, "visibility") || "visible"},
+      paint: {"fill-color": kind === "roof" ? huayuBuildingColorExpression(ordinaryRoof ? roofColor : color, true) : color,
+        "fill-opacity": 1}};
+    for (const key of ["source-layer", "minzoom", "maxzoom"]) {
+      if (model[key] !== undefined) layer[key] = model[key];
+    }
+    if (filter || part) layer.filter = part ? ["all", ...(filter ? [filter] : []), part] : filter;
+    if (["wood", "grass"].includes(kind)) {
+      const palette = huayuOverlayPalette(glMap);
+      const image = huayuSatelliteTextureImage(glMap, kind, kind === "wood" ? palette.liveLandWood : palette.gardenFill);
+      if (image) layer.paint["fill-pattern"] = image;
+    } else layer.paint["fill-outline-color"] = "rgba(0,0,0,0)";
+    return layer;
+  }
+
+  function syncHuayuSatelliteSurfaces(glMap, state) {
+    for (const model of state.surfaceModels || []) {
+      if (!glMap.getLayer(model.id)) continue;
+      const id = `${model.id}-satellite-surface`;
+      if (!glMap.getLayer(id)) {
+        const layer = huayuSatelliteSurfaceLayer(model, glMap);
+        if (!layer) continue;
+        glMap.addLayer(layer, model.id);
+        glMap.addLayer({...layer, id: `${model.id}-satellite-shadow`,
+          metadata: {"huayu:satellite-shadow": model.id},
+          paint: {"fill-color": "#111a13", "fill-opacity": 0.28,
+            "fill-translate": {stops: [[12, [0.3, 0.5]], [16, [1.3, 2]], [20, [4, 6]]]},
+            "fill-translate-anchor": "map"}}, model.id);
+        if (!layer.paint["fill-pattern"]) {
+          const image = huayuSatelliteTextureImage(glMap, "roof-grain", "#aaa89e");
+          if (image) glMap.addLayer({...layer, id: `${model.id}-satellite-grain`,
+            paint: {"fill-pattern": image, "fill-opacity": 0.8}}, model.id);
+        }
+      }
+      // Follow the existing atomic snapshot owner and pavilion dedup filters.
+      const current = glMap.getFilter(model.id);
+      const part = model.id === HUAYU_BUS_FACILITY_LAYERS.model
+        ? ["==", ["get", "busFacilityPart"], "shelter-roof"]
+        : model.id === HUAYU_SUBWAY_ENTRANCE_MODEL_LAYER
+          ? ["==", ["get", "entranceModelPart"], "canopy"] : null;
+      const filter = part ? ["all", ...(current ? [current] : []), part] : current;
+      const visibility = glMap.getLayoutProperty(model.id, "visibility") || "visible";
+      for (const surfaceId of [id, `${model.id}-satellite-grain`, `${model.id}-satellite-shadow`]) {
+        if (!glMap.getLayer(surfaceId)) continue;
+        if (JSON.stringify(glMap.getFilter(surfaceId)) !== JSON.stringify(filter)) glMap.setFilter(surfaceId, filter || null);
+        if (glMap.getLayoutProperty(surfaceId, "visibility") !== visibility) glMap.setLayoutProperty(surfaceId, "visibility", visibility);
+      }
+    }
+  }
+
+  function syncHuayuSatelliteAnnotations(glMap, state) {
+    for (const layer of state.annotationLayers || []) {
+      if (!glMap.getLayer(layer.id)) continue;
+      if (layer.layout?.["text-field"]) {
+        const opacity = satelliteAnnotationsEnabled ? 0.88 : 0;
+        if (glMap.getPaintProperty(layer.id, "text-opacity") !== opacity) glMap.setPaintProperty(layer.id, "text-opacity", opacity);
+      }
+      if (layer.layout?.["icon-image"] && glMap.getPaintProperty(layer.id, "icon-opacity") !== 0) {
+        glMap.setPaintProperty(layer.id, "icon-opacity", 0);
+      }
+    }
   }
 
   function syncHuayuCityWallPerspectiveLayers(glMap) {
@@ -19081,7 +19695,7 @@
       return "sports";
     }
     if (landuse === "forest") return "wood";
-    if (["grass", "meadow", "village_green", "recreation_ground"].includes(landuse)) return "grass";
+    if (["grass", "meadow", "flowerbed", "village_green", "recreation_ground"].includes(landuse)) return "grass";
     if (landuse === "cemetery") return "cemetery";
     if (["farmland", "farmyard", "orchard", "vineyard", "plant_nursery", "greenhouse_horticulture"].includes(landuse)) {
       return "farm";
@@ -19431,6 +20045,256 @@
         return null;
       },
     };
+  }
+
+  function createHuayuGardenModels() {
+    // This same factory runs in the model worker. Garden algorithms have their
+    // own cache version so new planting never discards valid building geometry.
+    const kind = tags => String(tags?.landuse || "").toLowerCase() === "flowerbed" ? "flowerbed"
+      : String(tags?.leisure || "").toLowerCase() === "garden" ? "garden" : "";
+    const hash = value => {
+      let result = 2166136261;
+      for (const c of String(value)) result = Math.imul(result ^ c.charCodeAt(0), 16777619);
+      result = Math.imul(result ^ (result >>> 16), 0x7feb352d);
+      result = Math.imul(result ^ (result >>> 15), 0x846ca68b);
+      result ^= result >>> 16;
+      return result >>> 0;
+    };
+    const coordinates = element => (element.geometry || []).map(p => [Number(p.lon), Number(p.lat)])
+      .filter(p => p.every(Number.isFinite));
+    const boundsOf = geometry => {
+      const bounds = {west:Infinity,east:-Infinity,south:Infinity,north:-Infinity};
+      const visit = value => {
+        if (!Array.isArray(value)) return;
+        if (typeof value[0] === "number") {
+          bounds.west = Math.min(bounds.west,value[0]); bounds.east = Math.max(bounds.east,value[0]);
+          bounds.south = Math.min(bounds.south,value[1]); bounds.north = Math.max(bounds.north,value[1]);
+        } else value.forEach(visit);
+      };
+      visit(geometry?.coordinates); return bounds;
+    };
+    const polygons = geometry => geometry?.type === "Polygon" ? [geometry.coordinates]
+      : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
+    const inRing = (point, ring) => {
+      let inside = false;
+      for (let i=0,j=ring.length-1;i<ring.length;j=i++) {
+        const a=ring[i],b=ring[j];
+        if ((a[1]>point[1]) !== (b[1]>point[1])
+          && point[0] < (b[0]-a[0])*(point[1]-a[1])/(b[1]-a[1])+a[0]) inside=!inside;
+      }
+      return inside;
+    };
+    const contains = (point, geometry) => polygons(geometry).some(rings => inRing(point,rings[0])
+      && !rings.slice(1).some(ring => inRing(point,ring)));
+    const segmentDistance = (point,a,b) => {
+      const cosine=Math.max(0.1,Math.cos(point[1]*Math.PI/180));
+      const x=(a[0]-point[0])*111320*cosine,y=(a[1]-point[1])*111320;
+      const dx=(b[0]-a[0])*111320*cosine,dy=(b[1]-a[1])*111320;
+      const t=Math.max(0,Math.min(1,-(x*dx+y*dy)/(dx*dx+dy*dy||1)));
+      return Math.hypot(x+dx*t,y+dy*t);
+    };
+    const edgeDistance = (point, geometry) => {
+      let distance=Infinity;
+      const rings=geometry?.type === "LineString" ? [geometry.coordinates] : polygons(geometry).flat();
+      for (const ring of rings) for (let i=1;i<ring.length;i++)
+        distance=Math.min(distance,segmentDistance(point,ring[i-1],ring[i]));
+      return distance;
+    };
+    const offset = (point,x,y) => [point[0]+x/(111320*Math.max(0.1,Math.cos(point[1]*Math.PI/180))),point[1]+y/111320];
+    const disk = (point,radius,count=10,lobes=false) => {
+      const ring=Array.from({length:count},(_,i) => {
+        const angle=i*Math.PI*2/count, r=radius*(lobes && i%2 ? 0.68 : 1);
+        return offset(point,Math.cos(angle)*r,Math.sin(angle)*r);
+      });
+      ring.push(ring[0].slice()); return [ring];
+    };
+    const geometryOf = (element, ways) => {
+      if (element.type === "node") {
+        const point=[Number(element.lon),Number(element.lat)];
+        return point.every(Number.isFinite) ? {type:"Polygon",coordinates:disk(point,3.2,16)} : null;
+      }
+      if (element.type === "way") {
+        const ring=coordinates(element);
+        return ring.length>=4 && ring[0][0]===ring.at(-1)[0] && ring[0][1]===ring.at(-1)[1]
+          ? {type:"Polygon",coordinates:[ring]} : null;
+      }
+      const join = role => {
+        const pieces=(element.members || []).filter(m => m.type === "way" && (role === "inner" ? m.role === role : m.role !== "inner"))
+          .map(m => coordinates(m.geometry?.length ? m : ways.get(String(m.ref)) || {})).filter(p => p.length>=2);
+        const rings=[],equal=(a,b) => a[0]===b[0] && a[1]===b[1];
+        while (pieces.length) {
+          let ring=pieces.shift(),changed=true;
+          while (!equal(ring[0],ring.at(-1)) && changed) {
+            changed=false;
+            for (let i=0;i<pieces.length;i++) {
+              let piece=pieces[i];
+              if (equal(ring.at(-1),piece.at(-1))) piece=piece.slice().reverse();
+              if (!equal(ring.at(-1),piece[0])) continue;
+              ring=ring.concat(piece.slice(1));pieces.splice(i,1);changed=true;break;
+            }
+          }
+          if (ring.length>=4 && equal(ring[0],ring.at(-1))) rings.push(ring);
+        }
+        return rings;
+      };
+      const outer=join("outer"),inner=join("inner");
+      const result=outer.map(ring => [ring,...inner.filter(hole => inRing(hole[0],ring))]);
+      return result.length ? {type:"MultiPolygon",coordinates:result} : null;
+    };
+    const obstacleIndex = obstacles => {
+      const cells=new Map(),global=[];
+      for (const item of obstacles) {
+        const bounds=boundsOf(item.geometry);
+        if (!Number.isFinite(bounds.west)) continue;
+        item.bounds=bounds;
+        const x0=Math.floor((bounds.west-0.0003)/0.001),x1=Math.floor((bounds.east+0.0003)/0.001);
+        const y0=Math.floor((bounds.south-0.0003)/0.001),y1=Math.floor((bounds.north+0.0003)/0.001);
+        if ((x1-x0+1)*(y1-y0+1)>4096) {global.push(item);continue;}
+        for (let x=x0;x<=x1;x++) for (let y=y0;y<=y1;y++) {
+          const key=`${x}/${y}`;if(!cells.has(key)) cells.set(key,[]);cells.get(key).push(item);
+        }
+      }
+      return (point,radius,base=0) => [...global,...cells.get(`${Math.floor(point[0]/0.001)}/${Math.floor(point[1]/0.001)}`) || []]
+        .some(item => {
+          if (Number.isFinite(item.top) && item.top<=base+0.1) return false;
+          const pad=(radius+(item.clearance || 0))/111320;
+          if (point[0]<item.bounds.west-pad*10 || point[0]>item.bounds.east+pad*10
+            || point[1]<item.bounds.south-pad || point[1]>item.bounds.north+pad) return false;
+          return contains(point,item.geometry) || edgeDistance(point,item.geometry)<radius+(item.clearance || 0);
+        });
+    };
+    const plantParts = (key,point,plantType,base,seed,origin,radius) => {
+      const variant=seed%3,parts=[];
+      const add=(suffix,polygons,low,high,color,nightColor) => parts.push({type:"Feature",id:`garden:${key}:${suffix}`,
+        properties:{renderKind:"garden-plant",plantType,plantKey:key,gardenOrigin:origin,plantX:point[0],plantY:point[1],plantRadius:radius,
+          plantGround:base,plantBase:base+low,plantHeight:base+high,color,nightColor},
+        geometry:{type:"MultiPolygon",coordinates:polygons}});
+      if (plantType === "tree") {
+        const height=3.8+(seed%19)/10;
+        add("trunk",[disk(point,0.12,8)],0,height*0.68,"#8c7860","#6b6254");
+        add("crown",[disk(point,radius,12)],height*0.42,height*0.78,"#629575","#42634e");
+        add("crown-top",[disk(offset(point,0.18,0.08),radius*0.72,12)],height*0.78,height,"#7ba483","#55785f");
+      } else if (plantType === "shrub") {
+        add("leaves",[disk(point,radius,12)],0.08,0.85,"#5d9368","#365b43");
+        add("tips",[disk(offset(point,0.12,-0.06),radius*0.74,12)],0.85,1.15,"#83aa74","#4e7252");
+      } else {
+        const scale=radius/1.23;
+        const clusters=Array.from({length:7},(_,i) => {
+          const angle=(i-1)*Math.PI/3;
+          return i ? offset(point,Math.cos(angle)*0.74*scale,Math.sin(angle)*0.74*scale) : point;
+        });
+        add("leaves",[disk(point,radius,12,true)],0.06,0.32,"#75a17a","#3e694d");
+        add("blooms",clusters.map(p => disk(p,0.28*scale,10,true)),0.32,0.62,
+          ["#db94ae","#d7bd78","#aea0cb"][variant],["#a1798a","#a58e56","#817997"][variant]);
+        add("centres",clusters.map(p => disk(p,0.08*scale,6)),0.62,0.65,"#eed89a","#b6a06a");
+      }
+      return parts;
+    };
+    const build = (elements,options={}) => {
+      if (options.zoom<15) return {type:"FeatureCollection",features:[]};
+      const ways=new Map(elements.filter(e => e.type === "way").map(e => [String(e.id),e]));
+      const gardens=elements.filter(e => kind(e.tags)).sort((a,b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`));
+      const memberIds=new Set(gardens.filter(e => e.type === "relation").flatMap(e => (e.members || []).map(m => String(m.ref))));
+      const obstacles=[];
+      for (const element of elements) {
+        const tags=element.tags || {};
+        if (tags.tunnel && tags.tunnel !== "no") continue;
+        if (tags.highway || tags.waterway || tags.railway) {
+          const ring=coordinates(element);if(ring.length<2) continue;
+          const width=Number.parseFloat(tags.width);
+          const clearance=Number.isFinite(width) && width>0 ? Math.min(20,width/2)+0.5
+            : tags.highway ? (/^(path|footway|steps|cycleway)$/.test(tags.highway) ? 1.4 : 4.5) : tags.railway ? 3.5 : 3;
+          obstacles.push({geometry:{type:"LineString",coordinates:ring},clearance});
+        } else if (tags.building && tags.building !== "no" || tags["building:part"]
+          || tags.natural === "water" || tags.natural === "tree" || tags.water || tags.leisure === "swimming_pool") {
+          const geometry=geometryOf(element,ways);if(geometry) obstacles.push({geometry,clearance:0.65});
+        }
+      }
+      const blocked=obstacleIndex(obstacles),features=[],plots=[];
+      for (const element of gardens) {
+        if (element.type === "way" && memberIds.has(String(element.id))) continue;
+        const geometry=geometryOf(element,ways);if(!geometry) continue;
+        const extent=boundsOf(geometry),bounds={...extent};
+        if (options.bounds) {
+          bounds.west=Math.max(bounds.west,options.bounds.west);bounds.east=Math.min(bounds.east,options.bounds.east);
+          bounds.south=Math.max(bounds.south,options.bounds.south);bounds.north=Math.min(bounds.north,options.bounds.north);
+        }
+        if (bounds.west>=bounds.east || bounds.south>=bounds.north) continue;
+        const cosine=Math.max(0.1,Math.cos((extent.south+extent.north)*Math.PI/360));
+        const area=(extent.east-extent.west)*111320*cosine*(extent.north-extent.south)*111320;
+        const clippedArea=(bounds.east-bounds.west)*111320*cosine*(bounds.north-bounds.south)*111320;
+        plots.push({element,geometry,bounds,cosine,area,weight:Math.sqrt(clippedArea),quota:0});
+      }
+      // Share the tile budget by size. Equal shares made a long garden vanish
+      // whenever the same tile also contained many tiny landscaped islands.
+      const totalWeight=plots.reduce((sum,plot) => sum+plot.weight,0);
+      const minimum=plots.length<=120 ? 2 : plots.length<=240 ? 1 : 0;
+      const remaining=240-minimum*plots.length;
+      for (const plot of plots) {
+        const share=remaining*plot.weight/(totalWeight || 1);
+        plot.quota=Math.min(120,minimum+Math.floor(share));
+        plot.fraction=share-Math.floor(share);
+      }
+      let spare=240-plots.reduce((sum,plot) => sum+plot.quota,0);
+      const priority=plots.slice().sort((a,b) => b.fraction-a.fraction || b.weight-a.weight);
+      while (spare>0 && priority.some(plot => plot.quota<120)) {
+        for (const plot of priority) if (plot.quota<120 && spare>0) {plot.quota++;spare--;}
+      }
+      let count=0;
+      for (const {element,geometry,bounds,cosine,area,quota} of plots) {
+        if (!quota) continue;
+        const flowerbed=kind(element.tags) === "flowerbed" || element.type === "node";
+        const spacing=flowerbed ? 3.4 : Math.max(5.5,Math.min(16,Math.sqrt(area/160)));
+        const sx=spacing/(111320*cosine),sy=spacing/111320;
+        const x0=Math.floor(bounds.west/sx),x1=Math.ceil(bounds.east/sx),y0=Math.floor(bounds.south/sy),y1=Math.ceil(bounds.north/sy);
+        const measurement=String(element.tags?.height || "").trim().match(/^([\d.]+)\s*(m|米|ft)?$/i);
+        const taggedBase=measurement ? Number(measurement[1])*(measurement[2] === "ft" ? 0.3048 : 1) : NaN;
+        const base=Number.isFinite(taggedBase) && taggedBase>0 && taggedBase<=1000 ? taggedBase+0.25 : 0;
+        let visited=0;
+        if (element.type === "node") {
+          const point=[Number(element.lon),Number(element.lat)];
+          if (point[0]>=bounds.west && point[0]<bounds.east && point[1]>=bounds.south && point[1]<bounds.north
+            && !blocked(point,1.23,base) && count<240) {
+            const key=`node:${element.id}:mapped`;
+            features.push(...plantParts(key,point,"flower",base,hash(key),`node:${element.id}`,1.23));count++;
+          }
+          continue;
+        }
+        const candidates=[];
+        for (let y=y0;y<=y1 && visited<18000;y++)
+          for (let x=x0;x<=x1;x++) {
+          if (++visited>18000) break;
+          const key=`${element.type}:${element.id}:${x}:${y}`,seed=hash(key);
+          const point=[(x+0.25+((seed>>>8)%501)/1000)*sx,(y+0.25+((seed>>>18)%501)/1000)*sy];
+          if (point[0]<bounds.west || point[0]>=bounds.east || point[1]<bounds.south || point[1]>=bounds.north) continue;
+          const plantType=flowerbed ? "flower" : seed%10===0 ? "tree" : seed%10<4 ? "shrub" : "flower";
+          const radius=plantType === "tree" ? 1.85 : plantType === "shrub" ? 1.5 : 1.8;
+          if (!contains(point,geometry) || edgeDistance(point,geometry)<radius+0.35 || blocked(point,radius,base)) continue;
+          candidates.push({key,point,plantType,seed,radius});
+        }
+        candidates.sort((a,b) => a.seed-b.seed);
+        for (const {key,point,plantType,seed,radius} of candidates.slice(0,Math.min(quota,240-count))) {
+          features.push(...plantParts(key,point,plantType,base,seed,`${element.type}:${element.id}`,radius));count++;
+        }
+      }
+      return {type:"FeatureCollection",features};
+    };
+    const filterBuildings = (features,buildings=[]) => {
+      const gardenFeatures=features.filter(f => f.properties?.renderKind === "garden-plant");
+      if (!gardenFeatures.length || !buildings.length) return features;
+      const blocked=obstacleIndex(buildings.filter(f => polygons(f.geometry).length).map(f => ({geometry:f.geometry,
+        top:Number(f.properties?.renderHeight ?? f.properties?.render_height ?? f.properties?.height) || Infinity,clearance:0.5})));
+      const hidden=new Map();
+      return features.filter(feature => {
+        const p=feature.properties;
+        if(p?.renderKind !== "garden-plant") return true;
+        if(!hidden.has(p.plantKey)) hidden.set(p.plantKey,blocked([p.plantX,p.plantY],p.plantRadius,p.plantGround));
+        return !hidden.get(p.plantKey);
+      });
+    };
+    const version=`gardens-v1-${hash([kind,hash,coordinates,boundsOf,polygons,inRing,contains,segmentDistance,edgeDistance,
+      offset,disk,geometryOf,obstacleIndex,plantParts,build,filterBuildings].map(fn => fn.toString()).join("\n"))}`;
+    return {kind,build,filterBuildings,version};
   }
 
   function huayuTreeHash(value) {
@@ -19844,8 +20708,107 @@
     return (glMap.getStyle()?.layers || []).find((layer) => candidates.has(layer.id))?.id;
   }
 
+  function huayuSatelliteMaterialPixels(kind, color, size = 256) {
+    const random = huayuTreeRandom(`satellite-material-v3-${kind}`);
+    const key = `${kind}-${size}`;
+    let heights = huayuSatelliteMaterialFields.get(key);
+    const weights = kind === "wood" ? [0.1, 0.13, 0.17, 0.23, 0.23, 0.14]
+      : [0.21, 0.23, 0.22, 0.16, 0.11, 0.07];
+    if (!heights) {
+      heights = new Float32Array(size * size);
+      const grids = [2, 4, 8, 16, 32, 64].map(count => ({count,
+        values: Float32Array.from({length: count * count}, () => random())}));
+      for (const [octave, grid] of grids.entries()) {
+        for (let y = 0; y < size; y++) {
+          const gy = y / size * grid.count, iy = Math.floor(gy), fy = gy - iy;
+          const sy = fy * fy * (3 - 2 * fy);
+          for (let x = 0; x < size; x++) {
+            const gx = x / size * grid.count, ix = Math.floor(gx), fx = gx - ix;
+            const sx = fx * fx * (3 - 2 * fx);
+            const a = iy * grid.count, b = ((iy + 1) % grid.count) * grid.count;
+            const right = (ix + 1) % grid.count;
+            heights[y * size + x] += ((grid.values[a + ix] * (1 - sx) + grid.values[a + right] * sx) * (1 - sy)
+              + (grid.values[b + ix] * (1 - sx) + grid.values[b + right] * sx) * sy) * weights[octave];
+          }
+        }
+      }
+      huayuSatelliteMaterialFields.set(key, heights);
+    }
+    const pixels = new Uint8ClampedArray(size * size * 4);
+    const grainRandom = huayuTreeRandom(`satellite-material-v3-grain-${kind}`);
+    const rgb = [1, 3, 5].map(start => parseInt(color.slice(start, start + 2), 16));
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const n = heights[y * size + x], grain = grainRandom() - 0.5;
+      const gradient = heights[((y + 1) % size) * size + (x + 1) % size]
+        - heights[((y + size - 1) % size) * size + (x + size - 1) % size];
+      let shade = 0.61 + n * 0.76 + gradient * (kind === "wood" ? 5.8 : 1.6) + grain * 0.15;
+      if (kind === "water") shade = 0.87 + n * 0.23 + grain * 0.028;
+      if (kind === "farm") shade += Math.sin(x * Math.PI / 3 + Math.sin(y / size * Math.PI * 2) * 0.25) * 0.065;
+      const offset = (y * size + x) * 4;
+      if (kind === "roof-grain") {
+        const bright = n + grain * 0.3 > 0.5;
+        const stripe = x % 7 === 0 ? 0.07 : 0;
+        pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = bright ? 231 : 22;
+        pixels[offset + 3] = Math.min(110, (Math.abs(n - 0.5) * 1.4 + Math.abs(grain) * 0.12 + stripe) * 255);
+      } else {
+        const dry = ["grass", "ground", "farm"].includes(kind) ? Math.max(0, n - 0.5) * 35 : 0;
+        pixels[offset] = rgb[0] * shade + dry;
+        pixels[offset + 1] = rgb[1] * shade;
+        pixels[offset + 2] = rgb[2] * shade - dry * 0.35;
+        pixels[offset + 3] = 255;
+      }
+    }
+    return pixels;
+  }
+
+  function huayuSatelliteTextureImage(glMap, kind, color, imageId = null) {
+    const id = imageId || `ogf-atlas-satellite-${kind}-${color}`;
+    if (glMap.hasImage(id)) return id;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 256;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return null;
+    // Continuous material variation only; geography is always supplied by OGF.
+    const pixels = context.createImageData(256, 256);
+    pixels.data.set(huayuSatelliteMaterialPixels(kind, color));
+    try {
+      glMap.addImage(id, pixels, { pixelRatio: 2 });
+      return id;
+    } catch { return null; }
+  }
+
+  function applyHuayuSatelliteTextures(glMap) {
+    const palette = huayuOverlayPalette(glMap);
+    if (!palette.satellite) return;
+    const materials = {
+      "background": ["grass", palette.satelliteGround],
+      "landcover-grass": ["grass", palette.liveLandGrass],
+      "landcover-grass-park": ["grass", palette.liveLandPark],
+      "parks_fill": ["grass", palette.liveLandPark],
+      "landcover-farmland": ["farm", palette.liveLandFarm],
+      "landcover-rock": ["ground", "#898675"], "landcover-sand": ["ground", palette.liveLandSand],
+      "landuse-residential": ["urban", palette.liveLandResidential],
+      "landuse-commercial": ["urban", palette.liveLandCommercial],
+      "landuse-retail": ["urban", palette.liveLandRetail],
+      "landuse-industrial": ["urban", palette.liveLandIndustrial],
+      "landuse-school": ["urban", palette.liveLandEducation],
+      "landuse-hospital": ["urban", palette.liveLandHealthcare],
+      "water": ["water", palette.liveWater], "water-pattern": ["water", palette.liveWater],
+    };
+    for (const [layerId, [kind, color]] of Object.entries(materials)) {
+      if (!glMap.getLayer(layerId)) continue;
+      const image = huayuSatelliteTextureImage(glMap, kind, color);
+      if (image) glMap.setPaintProperty(layerId, layerId === "background" ? "background-pattern" : "fill-pattern", image);
+    }
+    if (ensureHuayuWoodlandTextureImage(glMap, palette) && glMap.getLayer("landcover-wood")) {
+      glMap.setPaintProperty("landcover-wood", "fill-pattern", HUAYU_WOODLAND_TEXTURE_IMAGE);
+    }
+  }
+
   function ensureHuayuWoodlandTextureImage(glMap, palette) {
     if (glMap.hasImage(HUAYU_WOODLAND_TEXTURE_IMAGE)) return true;
+    if (palette.satellite) return Boolean(huayuSatelliteTextureImage(glMap, "wood",
+      palette.liveLandWood, HUAYU_WOODLAND_TEXTURE_IMAGE));
     const canvas = document.createElement("canvas");
     canvas.width = 256;
     canvas.height = 256;
@@ -19912,7 +20875,9 @@
     for (let index = 2; index < landColor.length - 1; index += 2) {
       const featureClass = landColor[index];
       const image = featureClass === "wood" ? HUAYU_WOODLAND_TEXTURE_IMAGE
-        : solidImage(landColor[index + 1]);
+        : palette.satellite ? huayuSatelliteTextureImage(glMap,
+          featureClass === "farm" ? "farm" : ["grass", "park", "cemetery"].includes(featureClass) ? "grass" : "ground",
+          landColor[index + 1]) : solidImage(landColor[index + 1]);
       if (!image) return null;
       expression.push(featureClass, image);
     }
@@ -21512,10 +22477,10 @@
     const lowColor = huayuMountainSurfaceRgb(palette.mountainRelief[1]);
     const highColor = huayuMountainSurfaceRgb(palette.mountainRelief[4]);
     const contourColor = huayuMountainSurfaceRgb(palette.mountainContour);
-    const openLowColor = huayuMountainSurfaceRgb(palette.night ? "#374235" : "#d7dfbd");
-    const openHighColor = huayuMountainSurfaceRgb(palette.night ? "#485342" : "#bfc9a2");
-    const gardenLowColor = huayuMountainSurfaceRgb(palette.night ? "#344b3e" : "#91b288");
-    const gardenHighColor = huayuMountainSurfaceRgb(palette.night ? "#42604a" : "#85a57c");
+    const openLowColor = huayuMountainSurfaceRgb(palette.satellite ? "#89876a" : palette.night ? "#374235" : "#d7dfbd");
+    const openHighColor = huayuMountainSurfaceRgb(palette.satellite ? "#777c5c" : palette.night ? "#485342" : "#bfc9a2");
+    const gardenLowColor = huayuMountainSurfaceRgb(palette.satellite ? "#627950" : palette.night ? "#344b3e" : "#91b288");
+    const gardenHighColor = huayuMountainSurfaceRgb(palette.satellite ? "#567044" : palette.night ? "#42604a" : "#85a57c");
     return {
       // Replace the existing woodland overview material; do not add a relief layer.
       id: HUAYU_LIVE_BASEMAP_LAYERS.mountainOverviewTexture,
@@ -21702,7 +22667,7 @@
         this.map?.triggerRepaint?.();
       },
       scheduleRebuild() {
-        if (!this.enabled) return;
+        if (!this.enabled || !this.gl || !this.map) return;
         this.rebuildRevision = (this.rebuildRevision || 0) + 1;
         window.clearTimeout(this.rebuildTimer);
         this.rebuildTimer = window.setTimeout(() => {
@@ -22378,6 +23343,8 @@
         this.renderCpuMs = Math.round((performance.now() - renderStartedAt) * 10) / 10;
       },
       onRemove(mapInstance, gl) {
+        if (!this.gl) return;
+        this.enabled = false;
         window.cancelAnimationFrame(this.interactionFrame);
         this.unbindGestures?.();
         if (this.onViewportChange) mapInstance.off("moveend", this.onViewportChange);
@@ -22447,7 +23414,7 @@
   }
 
   function ensureHuayuLiveBasemapLayers(glMap) {
-    if (!glMap?.isStyleLoaded?.()) return false;
+    if (!glMap?.getStyle?.()?.layers?.length) return false;
     const palette = huayuOverlayPalette(glMap);
     applyHuayuPublishedUrbanLandScale(glMap, palette);
     const empty = { type: "FeatureCollection", features: [] };
@@ -22456,6 +23423,11 @@
     }
     if (!glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)) {
       glMap.addSource(HUAYU_LIVE_BASEMAP_SOURCE, { type: "geojson", data: empty });
+    }
+    if (!glMap.getSource(HUAYU_GARDEN_PLANT_SOURCE)) {
+      // Preserve small petals at close scale without increasing the precision
+      // or indexing cost of roads, land cover and the rest of the live basemap.
+      glMap.addSource(HUAYU_GARDEN_PLANT_SOURCE, {type:"geojson",data:empty,maxzoom:20,tolerance:0.05});
     }
     if (!glMap.getSource(HUAYU_SPORTS_SOURCE)) {
       glMap.addSource(HUAYU_SPORTS_SOURCE, { type: "geojson", data: empty });
@@ -22602,6 +23574,21 @@
       },
     }, huayuCityWallInsertionLayer(glMap));
     addLayer({
+      id: HUAYU_LIVE_BASEMAP_LAYERS.gardenPlants,
+      type: "fill-extrusion",
+      source: HUAYU_GARDEN_PLANT_SOURCE,
+      minzoom: 16,
+      filter: ["==", ["get", "renderKind"], "garden-plant"],
+      metadata: { "huayu:component": "modeled-garden-planting", "huayu:schema": "1" },
+      paint: {
+        "fill-extrusion-color": ["get", palette.night ? "nightColor" : "color"],
+        "fill-extrusion-base": ["get", "plantBase"],
+        "fill-extrusion-height": ["get", "plantHeight"],
+        "fill-extrusion-opacity": 1,
+        "fill-extrusion-vertical-gradient": true,
+      },
+    }, huayuCityWallInsertionLayer(glMap));
+    addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy,
       type: "fill-extrusion",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
@@ -22637,7 +23624,8 @@
       source: HUAYU_LIVE_BASEMAP_SOURCE,
       minzoom: HUAYU_TERRAIN_MIN_ZOOM,
       filter: ["==", ["get", "renderKind"], "water"],
-      paint: { "fill-color": palette.liveWater, "fill-opacity": 1 },
+      paint: { "fill-color": palette.liveWater, "fill-opacity": 1,
+        ...(palette.satellite ? {"fill-pattern": huayuSatelliteTextureImage(glMap, "water", palette.liveWater)} : {}) },
     }, waterBeforeId);
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.facility,
@@ -22762,13 +23750,14 @@
       "tertiary", closeRoadSurface,
       "path", palette.night ? "#6d655c" : "#cdbfae",
       closeRoadSurface];
-    const roadCasingColor = palette.night
+    const roadCasingColor = palette.satellite ? palette.liveRoadCasingMinor : palette.night
       ? roadCasingColorAtZoom(palette.liveRoadCasingMinor)
       : ["interpolate", ["linear"], ["zoom"],
         15.5, roadCasingColorAtZoom(palette.liveRoadCasingMinor),
         18, roadCasingColorAtZoom("#bcc6c0"),
         20, roadCasingColorAtZoom("#adb9b2")];
-    const roadColor = palette.night
+    const roadColor = palette.satellite ? ["match", ["get", "featureClass"],
+      "path", "#91886c", palette.liveRoadMinor] : palette.night
       ? roadColorAtZoom(palette.liveRoadMinor)
       : ["interpolate", ["linear"], ["zoom"],
         15.5, roadColorAtZoom(palette.liveRoadMinor),
@@ -22782,7 +23771,7 @@
       minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
       filter: ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 0]],
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": roadCasingColor, "line-opacity": 1, "line-width": roadCasingWidth },
+      paint: { "line-color": roadCasingColor, "line-opacity": palette.satellite ? 0.25 : 1, "line-width": roadCasingWidth },
     }, roadBeforeId);
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.road,
@@ -22795,6 +23784,9 @@
         "line-color": roadColor,
         "line-opacity": 1,
         "line-width": roadWidth,
+        ...(palette.satellite ? {"line-pattern": ["match", ["get", "featureClass"],
+          "path", huayuSatelliteTextureImage(glMap, "ground", "#91886c"),
+          huayuSatelliteTextureImage(glMap, "urban", palette.liveRoadMinor)]} : {}),
       },
     }, roadBeforeId);
     const railwayWidthExpression = (hatching = false) => {
@@ -22835,7 +23827,7 @@
       filter: ["all", ["==", ["get", "renderKind"], "railway"], ["==", ["get", "underground"], 0]],
       paint: {
         "line-color": palette.liveRailwayHatching,
-        "line-opacity": ["case", ["==", ["get", "service"], 1], palette.night ? 0.72 : 0.68,
+        "line-opacity": palette.satellite ? 0 : ["case", ["==", ["get", "service"], 1], palette.night ? 0.72 : 0.68,
           palette.night ? 0.94 : 0.88],
         "line-dasharray": [0.2, 8],
         "line-width": railwayWidthExpression(true),
@@ -23032,6 +24024,7 @@
   }
 
   function updateHuayuLiveBasemapDiagnostics(state) {
+    if (!state?.active || !state.glMap?.getStyle?.()) return;
     const mapElement = document.getElementById("map");
     if (!mapElement) return;
     const visibleKeys = [...(state.visibleTileKeys || [])];
@@ -23627,15 +24620,39 @@
     }
     window.clearTimeout(state.applyTimer);
     state.applyTimer = null;
-    if (state.appliedRevision !== state.renderRevision) {
+    const buildings = huayuLiveBuildingStates.get(glMap)?.data;
+    const pavilions = huayuStructureStates.get(glMap)?.pavilionData;
+    const dataChanged = state.appliedRevision !== state.renderRevision;
+    const gardenSource = glMap.getSource(HUAYU_GARDEN_PLANT_SOURCE);
+    if (dataChanged || state.gardenBuildingData !== buildings || state.gardenPavilionData !== pavilions
+      || state.gardenAppliedSource !== gardenSource) {
       const data = state.data || {type: "FeatureCollection", features: []};
-      // The custom material already owns these polygons. Sending them through
-      // GeoJSON as well makes MapLibre index/tessellate the entire country twice.
-      glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)?.setData({type: "FeatureCollection",
-        features: data.features.filter(feature => feature.properties?.reliefRole !== "surface"
-          && feature.properties?.renderKind !== "terrain-context")});
-      huayuWoodlandMaterialLayers.get(glMap)?.setData(data.features, huayuTerrainPreload?.data);
-      state.appliedRevision = state.renderRevision;
+      const candidates = dataChanged ? data.features.filter(feature => feature.properties?.renderKind === "garden-plant")
+        : state.gardenCandidates || [];
+      state.gardenCandidates = candidates;
+      const visible = huayuGardenModels.filterBuildings(candidates,[...(buildings?.features || []),...(pavilions?.features || [])]);
+      if (state.gardenAppliedSource !== gardenSource || visible.length !== state.gardenRenderFeatures?.length
+        || visible.some((feature,index) => feature !== state.gardenRenderFeatures[index])) {
+        gardenSource?.setData({type: "FeatureCollection",features:visible});
+        state.gardenRenderFeatures = visible;
+        state.gardenAppliedSource = gardenSource;
+        const mapElement = document.getElementById("map");
+        if (mapElement) mapElement.dataset.huayuGardenPlants = String(new Set(visible.map(feature => feature.properties.plantKey)).size);
+      }
+      state.gardenBuildingData = buildings; state.gardenPavilionData = pavilions;
+      if (dataChanged) {
+        // The custom material owns terrain polygons. Garden geometry uses its
+        // own small, precise source, so neither is indexed in the ground source.
+        const ground = data.features.filter(feature => feature.properties?.reliefRole !== "surface"
+          && !["terrain-context","garden-plant"].includes(feature.properties?.renderKind));
+        if (ground.length !== state.groundRenderFeatures?.length
+          || ground.some((feature,index) => feature !== state.groundRenderFeatures[index])) {
+          glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE)?.setData({type: "FeatureCollection",features:ground});
+          state.groundRenderFeatures = ground;
+        }
+        huayuWoodlandMaterialLayers.get(glMap)?.setData(data.features, huayuTerrainPreload?.data);
+        state.appliedRevision = state.renderRevision;
+      }
     }
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
@@ -23654,6 +24671,8 @@
       ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
     const treeNodes = tile.z >= 15
       ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
+    const gardenNodes = tile.z >= 15
+      ? `(node["leisure"="garden"](${bbox});node["landuse"="flowerbed"](${bbox});)->.basemapGardens;` : "";
     return `[out:json][timeout:${tile.z <= 13 ? 45 : 25}];(`
       + `way${highwaySelector}(${bbox});`
       + `way["railway"~"^(rail|narrow_gauge|light_rail|tram|monorail)$"](${bbox});`
@@ -23670,9 +24689,10 @@
       + `)->.basemapRelations;`
       + `node["place"~"^(city|town|village|suburb|neighbourhood|hamlet)$"](${bbox})->.basemapPlaces;`
       + treeNodes
+      + gardenNodes
       + `(node["natural"~"^(peak|volcano)$"]["name"](${bbox});`
       + `node["amenity"="university"]["name"](${bbox});)->.basemapImportantLabels;`
-      + `(.basemapWays;.basemapRelations;.basemapPlaces;${tile.z >= 15 ? ".basemapTrees;" : ""}.basemapImportantLabels;`
+      + `(.basemapWays;.basemapRelations;.basemapPlaces;${tile.z >= 15 ? ".basemapTrees;.basemapGardens;" : ""}.basemapImportantLabels;`
       + `way(r.basemapRelations););out body geom;`;
   }
 
@@ -24200,6 +25220,31 @@
     scheduleHuayuLiveBasemap(state.glMap, delay);
   }
 
+  async function prepareHuayuGardenTileModels(tile, result) {
+    const elements = result.payload.elements;
+    if (tile.z<15 || !elements.some(element => huayuGardenModels.kind(element.tags)))
+      return {type:"FeatureCollection",features:[]};
+    const options = {zoom:tile.z,bounds:huayuLiveBuildingTileBounds(tile)};
+    const worker = getHuayuModelTileWorker();
+    if (!worker) {
+      await new Promise(resolve => window.setTimeout(resolve,0));
+      return huayuGardenModels.build(elements,options);
+    }
+    const key = `${tile.key}@${result.loadedAt}`;
+    try {
+      const stored = await Promise.race([worker.request({action:"read",kind:"garden",key}),
+        new Promise(resolve => window.setTimeout(() => resolve(null),250))]);
+      if (stored?.data) return stored.data;
+      const prepared = await worker.request({action:"decode",kind:"garden",text:JSON.stringify({elements}),options});
+      void worker.request({action:"write",kind:"garden",key,entry:{...prepared,
+        cachedAt:Math.min(Date.now(),result.loadedAt),loadedAt:result.loadedAt}}).catch(() => {});
+      return prepared.data;
+    } catch {
+      await new Promise(resolve => window.setTimeout(resolve,0));
+      return huayuGardenModels.build(elements,options);
+    }
+  }
+
   function pumpHuayuLiveBasemapTiles(state) {
     if (!state.active) return;
     while (state.pendingTiles.size < HUAYU_LIVE_BASEMAP_TILE_CONCURRENCY && state.queue.length) {
@@ -24210,10 +25255,10 @@
       const promise = fetchHuayuLiveBasemapTile(tile, controller.signal)
         .then(async (result) => {
           if (!state.active) return;
-          if (state.interacting) await waitForHuayuMapGestureEnd(glMap);
+          if (state.interacting) await waitForHuayuMapGestureEnd(state.glMap);
           if (!state.active) return;
           state.failedTiles.delete(tile.key);
-          state.tileCache.set(tile.key, {
+          const entry = {
             data: huayuLiveBasemapFeatureCollection(result.payload.elements),
             loadedAt: result.loadedAt,
             cachedAt: Date.now(),
@@ -24221,7 +25266,17 @@
             lastUsed: Date.now(),
             source: result.source,
             revision: ++huayuLiveBasemapTileRevision,
-          });
+          };
+          state.tileCache.set(tile.key, entry);
+          // Ground/paths appear immediately; bounded cached planting arrives
+          // independently without another OGF query or a main-thread mesh job.
+          void prepareHuayuGardenTileModels(tile,result).then(async plants => {
+            if (!plants.features.length || state.tileCache.get(tile.key) !== entry) return;
+            entry.data = {type:"FeatureCollection",features:[...entry.data.features,...plants.features]};
+            entry.revision = ++huayuLiveBasemapTileRevision;
+            if (state.interacting) await waitForHuayuMapGestureEnd(state.glMap);
+            if (state.active && state.tileCache.get(tile.key) === entry) mergeHuayuLiveBasemapTiles(state);
+          }).catch(error => console.warn("花园模型准备失败，保留现有地表",error));
           pruneHuayuLiveBasemapTileCache(state);
           rebuildHuayuTerrainData(state);
           applyHuayuSportsSnapshot(state.glMap, state);
@@ -24404,6 +25459,11 @@
     const state = glMap && huayuLiveBasemapStates.get(glMap);
     if (!state) return;
     state.active = false;
+    // MapLibre map.remove can discard the style without calling each custom
+    // layer's onRemove. Stop the old terrain worker and timers explicitly.
+    const material = huayuWoodlandMaterialLayers.get(glMap);
+    if (material?.gl) material.onRemove(glMap, material.gl);
+    huayuWoodlandMaterialLayers.delete(glMap);
     window.clearTimeout(state.timer);
     state.timer = null;
     state.timerRunAt = 0;
@@ -24438,6 +25498,7 @@
       delete mapElement.dataset.huayuLiveBasemapSessionCache;
       delete mapElement.dataset.huayuLiveBasemapPrimaryReady;
       delete mapElement.dataset.huayuLiveBasemapUpdatedAt;
+      delete mapElement.dataset.huayuGardenPlants;
       delete mapElement.dataset.huayuTerrainFeatures;
       delete mapElement.dataset.huayuTerrainNeighbors;
       delete mapElement.dataset.huayuTerrainRenderedNeighbors;
@@ -25206,6 +26267,8 @@
       glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data
         || { type: "FeatureCollection", features: [] });
       state.appliedRevision = state.renderRevision;
+      const basemap = huayuLiveBasemapStates.get(glMap);
+      if (basemap?.active && basemap.gardenCandidates?.length) applyHuayuLiveBasemap(glMap,basemap);
     }
     scheduleHuayuLiveBuildingPrimarySync(glMap, state);
     updateHuayuLiveBuildingDiagnostics(state);
@@ -25356,7 +26419,7 @@
       huayuPavilionMoveTowardMeters, huayuPavilionColumnRing, huayuPavilionFeatureCollection,
       huayuWallFeatureCollection, huayuFenceColor, huayuWallColor, huayuFenceNightColor,
       huayuWallNightColor, huayuWallSegmentPolygons];
-    return `${functions.map(fn => fn.toString()).join("\n")}\n${huayuModelEntryBytes.toString()}\nconst huayuModelAlgorithms = [${functions.map(fn => fn.name).join(",")}];\n(${huayuModelTileWorkerMain.toString()})();`;
+    return `const huayuGardenModels = (${createHuayuGardenModels.toString()})();\n${functions.map(fn => fn.toString()).join("\n")}\n${huayuModelEntryBytes.toString()}\nconst huayuModelAlgorithms = [${functions.map(fn => fn.name).join(",")}];\n(${huayuModelTileWorkerMain.toString()})();`;
   }
 
   function huayuModelEntryBytes(entry) {
@@ -25518,7 +26581,8 @@
       try {
         const startedAt = Date.now();
         let result;
-        const key = `${version}/${job.kind}/${job.key}`;
+        const cacheVersion = job.kind === "garden" ? huayuGardenModels.version : version;
+        const key = `${cacheVersion}/${job.kind}/${job.key}`;
         if (job.action === "read") {
           result = await read(key);
           if (result && Date.now() - result.cachedAt >= 3 * 60 * 60 * 1000) result = null;
@@ -25539,12 +26603,13 @@
         } else {
           const payload = JSON.parse(job.text);
           if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_MODEL_TILE");
-          result = job.kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
+          result = job.kind === "garden" ? {data:huayuGardenModels.build(payload.elements,job.options)}
+            : job.kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
             : {pavilionData:huayuPavilionFeatureCollection(payload.elements), wallData:huayuWallFeatureCollection(payload.elements)};
           result.cacheBytes = huayuModelEntryBytes(result);
         }
         self.postMessage({id:job.id, result, cacheRead:job.action === "read"
-          ? {status:storageStatus, hit:Boolean(result), elapsedMs:Date.now() - startedAt, version} : undefined,
+          ? {status:storageStatus, hit:Boolean(result), elapsedMs:Date.now() - startedAt, version:cacheVersion} : undefined,
           cacheWrite:job.action === "write" ? {success:Boolean(result), status:storageStatus} : undefined});
       } catch (error) {self.postMessage({id:job.id, error:String(error?.message || error)});}
     };
@@ -26096,6 +27161,8 @@
       glMap.getSource(HUAYU_WALL_SOURCE)?.setData(state.wallData);
       glMap.getSource(HUAYU_PAVILION_SOURCE)?.setData(state.pavilionData);
       state.appliedRevision = state.renderRevision;
+      const basemap = huayuLiveBasemapStates.get(glMap);
+      if (basemap?.active && basemap.gardenCandidates?.length) applyHuayuLiveBasemap(glMap,basemap);
     }
     syncHuayuWallPerspectiveLayers(glMap);
     updateHuayuStructureDiagnostics(state);
@@ -26392,7 +27459,8 @@
   }
 
   function huayuPoiIconColor(glMap) {
-    return huayuOverlayPalette(glMap).night ? "#c6d1d5" : "#46565c";
+    const palette = huayuOverlayPalette(glMap);
+    return palette.satellite ? "#d7dec8" : palette.night ? "#c6d1d5" : "#46565c";
   }
 
   function drawHuayuPoiIconNode(context, node) {
@@ -26682,8 +27750,8 @@
     context.scale(28 / 24, 28 / 24);
     const palette = huayuOverlayPalette(glMap);
     context.strokeStyle = id === "huayu-poi-fountain"
-      ? (palette.night ? "#9bd9ea" : "#348ca8")
-      : id === "huayu-poi-garden" ? (palette.night ? "#9bc5a5" : "#4f875b")
+      ? (palette.satellite ? "#b9d2cb" : palette.night ? "#9bd9ea" : "#348ca8")
+      : id === "huayu-poi-garden" ? (palette.satellite ? "#c2d4ad" : palette.night ? "#9bc5a5" : "#4f875b")
         : id === "huayu-poi-bus-stop" ? palette.busLabel
           : id.startsWith("huayu-sport-") ? palette.sportsIcon : huayuPoiIconColor(glMap);
     context.lineWidth = 2.15;
@@ -26723,18 +27791,27 @@
 
   function ensureHuayuGardenPatternImage(glMap, palette) {
     if (glMap.hasImage(HUAYU_GARDEN_PATTERN_IMAGE)) return true;
-    const gardenIcon = buildHuayuPoiIconImage(glMap,
-      HUAYU_POI_ICON_DEFINITIONS["huayu-poi-garden"], "huayu-poi-garden");
-    if (!gardenIcon) return false;
+    if (palette.satellite) return Boolean(huayuSatelliteTextureImage(glMap, "grass",
+      palette.gardenFill, HUAYU_GARDEN_PATTERN_IMAGE));
     const canvas = document.createElement("canvas");
     canvas.width = 360;
     canvas.height = 360;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) return false;
-    context.putImageData(gardenIcon, 76, 82);
-    context.putImageData(gardenIcon, 260, 86);
-    context.putImageData(gardenIcon, 86, 260);
-    context.putImageData(gardenIcon, 256, 256);
+    // A subtle planting material replaces the repeated large POI glyphs.
+    // Close-up flowers get their shape and height from the actual model pass.
+    const random=huayuTreeRandom("garden-ground-material-v1");
+    for (let i=0;i<48;i++) {
+      const x=12+random()*336,y=12+random()*336,r=2+random()*3;
+      context.fillStyle=palette.satellite ? "#668052" : palette.night ? "#527258" : "#8eb686";
+      context.beginPath();context.ellipse(x,y,r*1.5,r,random()*Math.PI,0,Math.PI*2);context.fill();
+      if (i%3) continue;
+      context.fillStyle=(palette.night ? ["#977482","#9d8c5b","#7d7394"] : ["#d2a1b1","#d6bf89","#b6a8c5"])[i%9/3];
+      for (let petal=0;petal<5;petal++) {
+        const angle=petal*Math.PI*2/5;
+        context.beginPath();context.arc(x+Math.cos(angle)*2,y+Math.sin(angle)*2,1.8,0,Math.PI*2);context.fill();
+      }
+    }
     try {
       glMap.addImage(HUAYU_GARDEN_PATTERN_IMAGE, context.getImageData(0, 0, 360, 360), { pixelRatio: 2 });
       return true;
@@ -26772,7 +27849,7 @@
         filter: gardenAreaFilter,
         paint: {
           "fill-pattern": HUAYU_GARDEN_PATTERN_IMAGE,
-          "fill-opacity": 1,
+          "fill-opacity": {stops:[[HUAYU_GARDEN_DETAIL_MIN_ZOOM,0.6],[18,0.45],[20,0.18]]},
         },
       }, beforeLandcover);
     }
@@ -26826,7 +27903,8 @@
           "symbol-sort-key": ["get", "rank"],
         },
         paint: {
-          "text-color": palette.night ? "#a8cbb0" : "#477353",
+          "icon-opacity": palette.satellite ? 0 : 1,
+          "text-color": palette.satellite ? palette.livePlace : palette.night ? "#a8cbb0" : "#477353",
           "text-halo-color": palette.textHalo,
           "text-halo-width": palette.night ? 1.35 : 1.2,
           "text-halo-blur": palette.night ? 0.2 : 0.15,
@@ -27208,7 +28286,7 @@
           "symbol-sort-key": ["get", "rank"],
         },
         paint: {
-          "text-color": palette.night ? "#bdd0cf" : "#49635e",
+          "text-color": palette.satellite ? palette.livePlace : palette.night ? "#bdd0cf" : "#49635e",
           "text-halo-color": palette.textHalo,
           "text-halo-width": palette.night ? 1.35 : 1.2,
           "text-halo-blur": palette.night ? 0.2 : 0.15,
@@ -27452,7 +28530,7 @@
           visibility: "visible",
         },
         paint: {
-          "text-color": palette.night ? "#bdc9ce" : "#526167",
+          "text-color": palette.satellite ? palette.livePlace : palette.night ? "#bdc9ce" : "#526167",
           "text-halo-color": palette.textHalo,
           "text-halo-width": palette.night ? 1.35 : 1.2,
           "text-halo-blur": palette.night ? 0.2 : 0.15,
@@ -27486,7 +28564,7 @@
           visibility: "visible",
         },
         paint: {
-          "text-color": palette.night ? "#bdc9ce" : "#526167",
+          "text-color": palette.satellite ? palette.livePlace : palette.night ? "#bdc9ce" : "#526167",
           "text-halo-color": palette.textHalo,
           "text-halo-width": palette.night ? 1.35 : 1.2,
           "text-halo-blur": palette.night ? 0.2 : 0.15,
@@ -28469,7 +29547,8 @@
   }
 
   function syncVectorCameraControls() {
-    const vectorSelected = BASEMAP_STYLES[selectedBasemapId]?.kind === "vector";
+    const vectorSelected = BASEMAP_STYLES[selectedBasemapId]?.kind === "vector"
+      && selectedBasemapId !== "huayu-satellite";
     elements.vectorCameraControls.hidden = !vectorSelected;
     const glMap = vectorPerspectiveActive ? vectorPerspectiveMap : null;
     const pitch = glMap ? Math.round(glMap.getPitch()) : 0;
@@ -29024,6 +30103,7 @@
   }
 
   function enterVectorPerspectiveMode(pitch, bearing, options = {}) {
+    if (selectedBasemapId === "huayu-satellite") return false;
     const glMap = currentVectorBasemap();
     if (!glMap) {
       showToast("矢量底图尚未就绪");
@@ -29121,7 +30201,7 @@
     const requestId = ++basemapStyleRequestId;
     let nextLayer;
     try {
-      if (BASEMAP_STYLES[id].kind === "vector") await ensureVectorBasemapLibrary();
+      if (BASEMAP_STYLES[id].kind === "vector") await prepareVectorBasemap(id);
       if (requestId !== basemapStyleRequestId) return;
       nextLayer = createBasemapTileLayer(id);
       nextLayer.addTo(map);
@@ -29144,7 +30224,7 @@
     selectedBasemapId = id;
     try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, id); } catch {}
     try { map.removeLayer(previousLayer); } catch {}
-    if (perspectiveSnapshot) {
+    if (perspectiveSnapshot && id !== "huayu-satellite") {
       enterVectorPerspectiveMode(perspectiveSnapshot.pitch, perspectiveSnapshot.bearing, {
         center: perspectiveSnapshot.center,
         zoom: perspectiveSnapshot.zoom,
@@ -29221,6 +30301,8 @@
       : (terrainOverlayEnabled ? "地形图" : "视图");
     elements.basemapOptions.forEach((input) => { input.checked = input.value === selectedBasemapId; });
     elements.basemapStatus.textContent = BASEMAP_STYLES[selectedBasemapId].label;
+    elements.satelliteAnnotationOption.hidden = selectedBasemapId !== "huayu-satellite";
+    elements.satelliteAnnotations.checked = satelliteAnnotationsEnabled;
     syncPublishedTransitStationLayers();
     updateMapFeatureSelectionControl();
     syncVectorCameraControls();
@@ -30134,40 +31216,35 @@
             const candidate = remaining[index];
             const candidateFirst = candidate.geometry[0];
             const candidateLast = candidate.geometry.at(-1);
-            const concatenate = (a, b) => certifyShortGaps && distanceMeters(a.at(-1), b[0]) > 1
-              ? [...a, ...b] : [...a, ...b.slice(1)];
+            // Check endpoints first. The former loop copied/reversed whole
+            // paths four times for every candidate, even when miles apart.
             const options = [
               {
                 distance: distanceMeters(last, candidateFirst),
-                similarity: transitPathDirectionSimilarity(geometry, candidate.geometry),
-                nextGeometry: concatenate(geometry, candidate.geometry),
+                direction: [geometry.at(-2), last, candidateFirst, candidate.geometry[1]],
                 gap: [last, candidateFirst],
               },
               {
                 distance: distanceMeters(last, candidateLast),
-                similarity: transitPathDirectionSimilarity(geometry, [...candidate.geometry].reverse()),
-                nextGeometry: concatenate(geometry, [...candidate.geometry].reverse()),
+                direction: [geometry.at(-2), last, candidateLast, candidate.geometry.at(-2)],
                 gap: [last, candidateLast],
               },
               {
                 distance: distanceMeters(first, candidateLast),
-                similarity: transitPathDirectionSimilarity(candidate.geometry, geometry),
-                nextGeometry: certifyShortGaps ? concatenate(candidate.geometry, geometry)
-                  : [...candidate.geometry.slice(0, -1), ...geometry],
+                direction: [candidate.geometry.at(-2), candidateLast, first, geometry[1]],
                 gap: [candidateLast, first],
               },
               {
                 distance: distanceMeters(first, candidateFirst),
-                similarity: transitPathDirectionSimilarity([...candidate.geometry].reverse(), geometry),
-                nextGeometry: certifyShortGaps ? concatenate([...candidate.geometry].reverse(), geometry)
-                  : [...candidate.geometry].reverse().slice(0, -1).concat(geometry),
+                direction: [candidate.geometry[1], candidateFirst, first, geometry[1]],
                 gap: [candidateFirst, first],
               },
             ];
             options.forEach((option, optionIndex) => {
               // Certified gaps keep both endpoints for separate estimated rendering.
               if (option.distance > maximumJoinDistance) return;
-              if (certifyShortGaps && option.distance > 1 && option.similarity < 0.8) return;
+              if (certifyShortGaps && option.distance > 1 && geometry.length > 1
+                && candidate.geometry.length > 1 && transitDirectionSimilarity(...option.direction) < 0.8) return;
               const score = option.distance;
               if (!bestCandidate || score < bestCandidate.score) {
                 bestCandidate = { ...option, score, index, optionIndex, id: candidate.id };
@@ -30175,7 +31252,12 @@
             });
           }
           if (bestCandidate) {
-            geometry = bestCandidate.nextGeometry;
+            let extension = remaining[bestCandidate.index].geometry;
+            if (bestCandidate.optionIndex === 1 || bestCandidate.optionIndex === 3) extension = [...extension].reverse();
+            const keepBothEndpoints = certifyShortGaps && bestCandidate.distance > 1;
+            geometry = bestCandidate.optionIndex < 2
+              ? [...geometry, ...(keepBothEndpoints ? extension : extension.slice(1))]
+              : [...(keepBothEndpoints ? extension : extension.slice(0, -1)), ...geometry];
             routingGaps.push(...(remaining[bestCandidate.index].routingGaps || []));
             if (certifyShortGaps && bestCandidate.distance > 1) routingGaps.push(bestCandidate.gap);
             ids.push(bestCandidate.id);

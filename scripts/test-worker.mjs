@@ -109,6 +109,11 @@ try {
   assert.match(upstreamQueries.at(-1), /node\["natural"="tree"\]/u,
     "z15 detail tiles should carry mapped tree points");
   assert.match(upstreamQueries.at(-1), /basemapTrees/u);
+  assert.match(upstreamQueries.at(-1), /node\["leisure"="garden"\]/u,
+    "z15 detail tiles carry mapped point gardens without a separate request");
+  assert.match(upstreamQueries.at(-1), /node\["landuse"="flowerbed"\]/u);
+  assert.ok([...cache.keys()].some(key=>key.includes("huayu-live-basemap-v9-garden-nodes")),
+    "old near-detail payloads must not hide newly included garden nodes");
 
   failNextUpstream = true;
   const beforeRetry = upstreamQueries.length;
@@ -119,6 +124,8 @@ try {
   assert.equal(upstreamQueries.length, beforeRetry + 2, "snapshot cold load should retry one transient upstream failure");
   assert.doesNotMatch(upstreamQueries.at(-1), /basemapTrees/u,
     "z14 snapshots should keep woodland polygons but skip expensive individual tree nodes");
+  assert.doesNotMatch(upstreamQueries.at(-1), /basemapGardens/u,
+    "regional snapshots must not fetch fine garden nodes");
 
   const terrainQueriesBeforeMiss = upstreamQueries.length;
   const terrainUrl = "https://example.test/api/terrain/9/473/235.json?probe=1";

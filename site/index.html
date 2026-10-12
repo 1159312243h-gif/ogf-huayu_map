@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=6.6-huayu-transit-display-cache-v1" />
+    <link rel="stylesheet" href="./styles.css?v=6.6-huayu-satellite-export-stations-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="6.6">
@@ -82,6 +82,12 @@
           <input id="map-feature-selection" type="checkbox" checked aria-label="允许点击地图选择地点、站点和线路" />
           <span class="map-selection-switch" aria-hidden="true"></span>
         </label>
+        <label id="satellite-annotation-option" class="map-selection-option" for="satellite-annotations" hidden>
+          <span class="map-selection-icon"><i data-lucide="tags" aria-hidden="true"></i></span>
+          <span>影像注记</span>
+          <input id="satellite-annotations" type="checkbox" aria-label="显示影像注记" />
+          <span class="map-selection-switch" aria-hidden="true"></span>
+        </label>
         <section id="vector-camera-controls" class="vector-camera-controls" aria-labelledby="vector-camera-heading" hidden>
           <header class="vector-camera-heading">
             <strong id="vector-camera-heading">矢量视角</strong>
@@ -103,6 +109,7 @@
           <legend>底图图层</legend>
           <label class="basemap-option"><input type="radio" name="basemap-style" value="huayu" checked /><img class="basemap-sample" src="./huayu-basemap-sample.png?v=1" loading="lazy" alt="" /><span>华域标准</span></label>
           <label class="basemap-option"><input type="radio" name="basemap-style" value="huayu-night" /><img class="basemap-sample" src="./huayu-night-basemap-sample.png?v=1" loading="lazy" alt="" /><span>华域深夜</span></label>
+          <label class="basemap-option" title="由 OGF 地物生成的模拟卫星底图，非实拍影像"><input type="radio" name="basemap-style" value="huayu-satellite" /><img class="basemap-sample" src="./huayu-satellite-sample.svg?v=1" loading="lazy" alt="" /><span>华域模拟卫星</span></label>
           <label class="basemap-option"><input type="radio" name="basemap-style" value="carto" /><img class="basemap-sample" src="https://tiles04.opengeofiction.net/ogf-carto/10/947/469.png" loading="lazy" alt="" /><span>OGF-Carto US</span></label>
           <label class="basemap-option"><input type="radio" name="basemap-style" value="carto-gb" /><img class="basemap-sample" src="https://tiles05.opengeofiction.net/ogf-carto/10/947/469.png" loading="lazy" alt="" /><span>OGF-Carto GB</span></label>
           <label class="basemap-option"><input type="radio" name="basemap-style" value="topo" /><img class="basemap-sample" src="https://tiles07.opengeofiction.net/ttopo/10/947/469.png" loading="lazy" alt="" /><span>Tracestrack Topo</span></label>
@@ -195,6 +202,7 @@
             <fieldset class="boundary-content-options">
               <legend>导出内容</legend>
               <label class="boundary-toggle-option"><input id="boundary-include-coordinates" type="checkbox" checked /><span><strong>地理坐标信息</strong><small>图片显示经纬网；TIF 写入空间参考</small></span></label>
+              <label class="boundary-toggle-option"><input id="boundary-include-points" type="checkbox" checked /><span><strong>下载点要素</strong><small>行政中心符号与点图层；底图自带标注不受影响</small></span></label>
               <label class="boundary-toggle-option"><input id="boundary-include-basemap" type="checkbox" /><span><strong>同步下载 OGF 底图</strong><small>位图同图合成；矢量 ZIP 附栅格底图</small></span></label>
             </fieldset>
             <fieldset id="boundary-extent-fieldset" class="boundary-extent-fieldset" hidden>
@@ -214,6 +222,15 @@
               </div>
               <p id="boundary-extent-status" class="boundary-extent-status" aria-live="polite">将使用下载清单内所有行政区的联合范围。</p>
             </fieldset>
+            <div class="boundary-resolution-row">
+              <label for="boundary-resolution">图片分辨率（长边）</label>
+              <select id="boundary-resolution" aria-describedby="boundary-resolution-note">
+                <option value="1200">1200 像素 · 标准</option>
+                <option value="2400" selected>2400 像素 · 高清</option>
+                <option value="4800">4800 像素 · 超高清</option>
+              </select>
+              <p id="boundary-resolution-note" class="boundary-resolution-note" aria-live="polite">保持范围比例，适用于图片和矢量包内的底图。</p>
+            </div>
             <div class="boundary-download-row">
               <label for="boundary-format">下载格式</label>
               <select id="boundary-format">
@@ -542,6 +559,6 @@
     <noscript>此地图需要启用 JavaScript。</noscript>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
-    <script src="./app.js?v=6.6-huayu-transit-display-cache-v1"></script>
+    <script src="./app.js?v=6.6-huayu-satellite-export-stations-v1"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-25",
+  "updatedAt": "2026-10-11",
   "source": "User-confirmed operating information and OGF-verified relation road supplements; original OGF elements remain unchanged.",
   "publicTransitRailSystems": [
     {
@@ -77,17 +77,17 @@
   ],
   "stationDisplayMergeOverrides": [
     {
-      "id": "jinchuan-main-station-interchange",
-      "stationNames": ["津川", "津川火车站"],
-      "maxMeters": 180,
-      "anchorStationId": 424888164,
-      "source": "user_confirmed"
-    },
-    {
       "id": "jinchuan-mingjin-avenue-interchange",
       "stationNames": ["铭金大街"],
       "maxMeters": 260,
       "anchorStationId": 432847690,
+      "source": "user_confirmed"
+    },
+    {
+      "id": "zhuwan-binhai-interchange",
+      "stationNames": ["滨海"],
+      "maxMeters": 300,
+      "anchorPoint": { "lat": 11.481797, "lon": 157.3142974 },
       "source": "user_confirmed"
     }
   ],

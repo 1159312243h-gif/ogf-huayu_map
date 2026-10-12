@@ -67,10 +67,17 @@ assert.ok(transitServices.stationInterchangeOverrides?.some((rule) => rule.id ==
 "人工换乘规则文件必须包含东南角和郁家桥设定");
 const jinchuanStationRule = transitServices.stationDisplayMergeOverrides
   ?.find((rule) => rule.id === "jinchuan-main-station-interchange");
-assert.deepEqual(jinchuanStationRule?.stationNames, ["津川", "津川火车站"],
-  "数据更新后必须继续把津川铁路站与津川火车站显示为换乘复合体");
-assert.equal(jinchuanStationRule?.anchorStationId, 424888164,
-  "数据更新后津川换乘符号必须继续锚定地铁站点");
+assert.equal(jinchuanStationRule, undefined,
+  "用户确认津川铁路站与津川火车站地铁站分别显示，不能恢复跨系统显示合并");
+assert.ok(updater.indexOf('step("preserve-transit-display-stations.cjs")')
+  > updater.indexOf('step("enforce-transit-service-rules.cjs")'),
+  "三小时重建须在修复线路与应用人工规则后保留原始站点的独立系统显示");
+const binhaiStationRule = transitServices.stationDisplayMergeOverrides
+  ?.find((rule) => rule.id === "zhuwan-binhai-interchange");
+assert.deepEqual(binhaiStationRule?.stationNames,["滨海"],"数据更新后必须保留筑湾滨海站的换乘显示规则");
+assert.equal(binhaiStationRule?.maxMeters,300,"滨海站的显示合并不能放宽为全图同名站合并");
+assert.deepEqual(binhaiStationRule?.anchorPoint,{lat:11.481797,lon:157.3142974},
+  "滨海换乘符号的位置与合并范围必须继续限定于筑湾交汇处");
 const jinchuanRailOperatingRule = transitServices.railOperatingRules
   ?.find((rule) => rule.id === "jinchuan-passenger-rail");
 const pingzhangYanhuaJourney = jinchuanRailOperatingRule?.requiredTransferJourneys

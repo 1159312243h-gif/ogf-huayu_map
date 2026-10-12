@@ -3583,6 +3583,18 @@ button.popup-route:focus-visible .popup-route-arrow {
   white-space: nowrap;
 }
 
+.boundary-resolution-row {
+  display: grid;
+  gap: 7px;
+}
+
+.boundary-resolution-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .boundary-download-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3590,14 +3602,16 @@ button.popup-route:focus-visible .popup-route-arrow {
   gap: 7px;
 }
 
-.boundary-download-row label {
+.boundary-download-row label,
+.boundary-resolution-row label {
   grid-column: 1 / -1;
   color: var(--text);
   font-size: 12px;
   font-weight: 500;
 }
 
-.boundary-download-row select {
+.boundary-download-row select,
+.boundary-resolution-row select {
   min-width: 0;
   height: 40px;
   padding: 7px 30px 7px 10px;
@@ -3605,6 +3619,11 @@ button.popup-route:focus-visible .popup-route-arrow {
   background: var(--surface);
   border: 1px solid #cbd2d6;
   border-radius: 4px;
+}
+
+.boundary-resolution-row select:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
 }
 
 .boundary-export-note {

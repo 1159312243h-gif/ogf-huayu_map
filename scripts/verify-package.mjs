@@ -170,7 +170,7 @@ assert.ok(worker.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
   && app.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
   && worker.includes("const treeNodes = zoom >= 15")
   && app.includes("const treeNodes = tile.z >= 15")
-  && worker.includes('schema", "huayu-live-basemap-v8-progressive-terrain"'),
+  && worker.includes('schema", z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain"'),
 "实时底图必须仅在 z15 查询树木点，并使用渐进地形缓存 schema");
 assert.ok(app.includes('treeTrunk: "ogf-atlas-huayu-tree-trunk"')
   && app.includes('treeCanopy: "ogf-atlas-huayu-tree-canopy"')
@@ -997,8 +997,11 @@ assert.ok(app.includes("let transitLiveCoverageAreas = []")
   && app.includes("const infrastructureWays = (payload.elements || []).filter")
   && !app.includes("const infrastructureWays = baseNetwork ? []")
   && app.includes("const nextTransitNetworkLayer = window.L.layerGroup()")
-  && app.includes("nextTransitNetworkLayer.eachLayer((layer) => transitNetworkLayer.addLayer(layer))"),
-"交通实时数据必须在移动后持续保留，分片失败时后台重试，并使用原子图层换帧");
+  && app.includes("function reuseTransitRenderedLayer")
+  && app.includes("if (transitNetworkLayer.hasLayer(layer)) return;")
+  && app.includes("if (nextTransitNetworkLayer.hasLayer(layer)) return;")
+  && app.includes("transitRenderedLayerCache = nextLayerCache"),
+"交通实时数据必须在移动后持续保留，分片失败时后台重试，并增量接管完整显示对象");
 assert.ok(app.includes("function shouldShowTransitStopLabel(stop, displayIsRail, zoom)")
   && app.includes("if (zoom >= 13) return true")
   && app.includes("if (zoom < 12) return false")
@@ -1027,10 +1030,12 @@ assert.ok(jinchuanMetroStop && ["JS01", "JS03"].every((ref) =>
 "津川火车站必须保留 JS01/JS03 两条地铁线路");
 assert.ok(jinchuanRailwayStop?.[8]?.some((index) => routeLabelAt(index).includes("津川城铁航空港线")),
   "津川铁路站必须保留津川城铁航空港线");
-assert.deepEqual(jinchuanStationRule?.stationNames, ["津川", "津川火车站"],
-  "津川铁路站与地铁站必须保留为同一显示换乘复合体");
-assert.equal(jinchuanStationRule?.anchorStationId, 424888164,
-  "津川换乘符号必须锚定津川火车站地铁站点");
+assert.equal(jinchuanStationRule, undefined,
+  "津川铁路站与地铁津川火车站分别显示，禁止恢复旧跨系统合并规则");
+const jinchuanDisplaySources = huaxiaTransitSnapshot.network.displayStops;
+assert.ok(jinchuanDisplaySources?.some((stop) => stop[0] === 403358828 && stop[5] === "津川" && stop[14] === "railway")
+  && jinchuanDisplaySources.some((stop) => stop[0] === 424888164 && stop[5] === "津川火车站" && stop[14] === "metro"),
+"完整预载须在首次绘制前持久化津川铁路与地铁的原始名称、系统及独立站体");
 assert.ok(app.includes("function collapseParallelPublicTransitRailLinesForDisplay(lines)")
   && app.includes("const connected = joinConnectedTransitLines(group, 1)")
   && app.includes("collapseParallelPublicTransitRailLinesForDisplay(visibleSourceLines)"),
@@ -1432,10 +1437,16 @@ const neighborsTest = await runCheck([path.join(root, "scripts", "test-terrain-n
 assert.equal(neighborsTest.status, 0, `邻近小山体回归失败：${neighborsTest.stderr || neighborsTest.stdout}`);
 const adminLabelsTest = await runCheck([path.join(root, "scripts", "test-administrative-labels.mjs")]);
 assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLabelsTest.stderr || adminLabelsTest.stdout}`);
+const adminExportTest = await runCheck([path.join(root, "scripts", "test-administrative-export.mjs")]);
+assert.equal(adminExportTest.status, 0, `行政区下载回归失败：${adminExportTest.stderr}`);
 const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);
 assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
 const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-loading.mjs")]);
 assert.equal(modelLoadingTest.status, 0, `模型加载回归失败：${modelLoadingTest.stderr}`);
+const gardenModelsTest = await runCheck([path.join(root,"scripts","test-garden-models.mjs")]);
+assert.equal(gardenModelsTest.status, 0, `花园模型回归失败：${gardenModelsTest.stderr}`);
+const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);
+assert.equal(satelliteBasemapTest.status, 0, `模拟卫星底图回归失败：${satelliteBasemapTest.stderr}`);
 
 console.log(JSON.stringify({
   status: "passed",

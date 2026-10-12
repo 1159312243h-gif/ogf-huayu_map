@@ -139,7 +139,7 @@ function compactNetwork(network, snapshotId) {
       (line.bbox || []).map(roundCoordinate),
     ];
   });
-  const stops = (network.stops || []).map((stop) => {
+  const compactStop = (stop) => {
     const displayRoutes = (stop.displayRoutes || []).map(compactRoute);
     return [
       stop.id,
@@ -160,14 +160,19 @@ function compactNetwork(network, snapshotId) {
         Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
       ) ? 1 : 0,
       stop.isInterchange ? 1 : 0,
+      stop.displaySystem || null,
+      stop.displaySystems || null,
     ];
-  });
+  };
+  const stops = (network.stops || []).map(compactStop);
+  const displayStops = Array.isArray(network.displayStops) ? network.displayStops.map(compactStop) : undefined;
 
   return {
     format: 2,
     routeTable,
     lines,
     stops,
+    displayStops,
     meta: {
       routeCount: network.routeCount || 0,
       includeBus: Boolean(network.includeBus),

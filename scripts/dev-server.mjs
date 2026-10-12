@@ -23,6 +23,7 @@ const contentTypes = new Map([
   [".json", "application/json; charset=UTF-8"],
   [".md", "text/markdown; charset=UTF-8"],
   [".png", "image/png"],
+  [".svg", "image/svg+xml"],
   [".txt", "text/plain; charset=UTF-8"],
 ]);
 

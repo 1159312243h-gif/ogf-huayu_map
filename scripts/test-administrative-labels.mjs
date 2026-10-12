@@ -46,3 +46,34 @@ assert.equal(layerContext.ensureHuayuAdministrativeLabelLayer({isStyleLoaded:()=
   getLayer:id=>layers.get(id),addLayer:layer=>layers.set(layer.id,layer)}),true,
   "remote tiles still loading must not prevent administrative label initialization");
 assert.equal(layers.size,2);
+
+// Verify the published basemaps at both overview and close scales. The city
+// boundary must be visible and distinguishable, with no duplicate local line.
+for (const file of ["huayu-style.json", "huayu-night-style.json"]) {
+  const style = JSON.parse(await readFile(new URL(`../site/${file}`, import.meta.url), "utf8"));
+  const borders = style.layers.filter(layer => layer["source-layer"] === "boundary");
+  const matches = (filter, level, maritime = 0) => {
+    if (!filter) return true;
+    const [op, field, value] = filter;
+    if (op === "all") return filter.slice(1).every(part => matches(part, level, maritime));
+    const actual = field === "admin_level" ? level : field === "maritime" ? maritime : 0;
+    return op === "==" ? actual === value : op === "!=" ? actual !== value
+      : op === ">=" ? actual >= value : op === "<=" ? actual <= value : false;
+  };
+  for (const zoom of [8, 11, 15, 18]) {
+    for (const level of [2, 3, 4, 5, 6, 8, 9, 10]) {
+      const visible = borders.filter(layer => zoom >= (layer.minzoom || 0)
+        && zoom < (layer.maxzoom ?? 24) && matches(layer.filter, level)
+        && layer.paint["line-opacity"] > 0 && layer.layout?.visibility !== "none");
+      assert.equal(visible.length, 1, `${file}: admin ${level} remains visible once at z${zoom}`);
+    }
+  }
+  const city = borders.find(layer => matches(layer.filter, 5));
+  const county = borders.find(layer => matches(layer.filter, 6));
+  const local = borders.find(layer => matches(layer.filter, 8));
+  assert.notEqual(city.paint["line-color"], local.paint["line-color"]);
+  assert.notDeepEqual(city.paint["line-dasharray"], county.paint["line-dasharray"]);
+  assert.ok(city.paint["line-width"].stops.at(-1)[1] > local.paint["line-width"].stops.at(-1)[1],
+    "city borders keep higher visual priority than township borders");
+}
+console.log("Administrative boundaries passed: city/county hierarchy and upper-level borders retained at close scales.");

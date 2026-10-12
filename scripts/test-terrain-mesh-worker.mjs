@@ -214,10 +214,14 @@ assert.deepEqual(Array.from(answer.values),Array.from(landscapeFallback.values),
 
 // The ordinary GeoJSON renderer must receive labels/water, never duplicate terrain meshes.
 let vectorData, materialData, materialCalls=0;
-const map={getSource:()=>({setData:data=>{vectorData=data;}})};
+const groundSource={setData:data=>{vectorData=data;}},gardenSource={setData(){}};
+const map={getSource:id=>id==="gardens"?gardenSource:groundSource};
 const layer={setData:data=>{materialData=data;materialCalls++;}};
 const ctx=vm.createContext({ensureHuayuLiveBasemapLayers:()=>true,
-  HUAYU_LIVE_BASEMAP_SOURCE:"live",huayuWoodlandMaterialLayers:new Map([[map,layer]]),huayuTerrainPreload:null,
+  HUAYU_LIVE_BASEMAP_SOURCE:"live",HUAYU_GARDEN_PLANT_SOURCE:"gardens",
+  huayuLiveBuildingStates:new WeakMap(),huayuStructureStates:new WeakMap(),
+  huayuGardenModels:{filterBuildings:features=>features},document:{getElementById:()=>null},
+  huayuWoodlandMaterialLayers:new Map([[map,layer]]),huayuTerrainPreload:null,
   applyHuayuSportsSnapshot:()=>{},scheduleHuayuLiveBasemapPrimarySync:()=>{},
   updateHuayuLiveBasemapDiagnostics:()=>{},window:{clearTimeout(){}}});
 vm.runInContext(declaration("applyHuayuLiveBasemap"),ctx);

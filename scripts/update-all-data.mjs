@@ -88,6 +88,22 @@ function validateTransitPreload(payload, label) {
       assert.ok((stop[8] || []).every((index) => network.routeTable[index]),
         `${label}/${snapshot.id} 存在站点线路索引越界`);
     }
+    if (network.displayStops !== undefined) {
+      assert.ok(Array.isArray(network.displayStops) && network.displayStops.length,
+        `${label}/${snapshot.id} 缺少独立站体显示来源`);
+      assert.equal(uniqueCount(network.displayStops.map((stop) => stop[0])), network.displayStops.length,
+        `${label}/${snapshot.id} 显示来源 ID 重复`);
+      for (const stop of network.displayStops) {
+        assert.ok(Number.isFinite(stop[1]) && Number.isFinite(stop[2]), `${label}/${snapshot.id} 显示来源坐标无效`);
+        assert.ok([...(stop[8] || []), ...(stop[11] || [])].every((index) => network.routeTable[index]),
+          `${label}/${snapshot.id} 显示线路索引越界`);
+        assert.ok(!stop[14] || ["metro", "tram", "railway", "bus"].includes(stop[14]),
+          `${label}/${snapshot.id} 显示站点系统无效`);
+        assert.ok(!stop[15] || (Array.isArray(stop[15])
+          && stop[15].every((system) => ["metro", "tram", "railway", "bus"].includes(system))),
+          `${label}/${snapshot.id} 共享站体系统无效`);
+      }
+    }
     counts[snapshot.id] = {
       routes: network.routeTable.length,
       lines: network.lines.length,
@@ -415,6 +431,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     step("build-huaxia-airports.cjs", ...(resume ? ["--resume"] : [])),
     step("build-rail-connections.cjs"),
     step("enforce-transit-service-rules.cjs"),
+    step("preserve-transit-display-stations.cjs"),
     step("build-terrain-preload.cjs", ...(resume ? ["--resume"] : [])),
   ]) await run(item);
 }

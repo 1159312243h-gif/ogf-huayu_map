@@ -11,7 +11,7 @@ const declaration = name => {
 const factory = vm.createContext({});
 const names = declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1]
   .split(",").map(name => name.trim());
-for (const name of [...names, "huayuModelEntryBytes", "huayuModelTileWorkerMain", "huayuModelTileWorkerSource"]) {
+for (const name of [...names, "createHuayuGardenModels", "huayuModelEntryBytes", "huayuModelTileWorkerMain", "huayuModelTileWorkerSource"]) {
   vm.runInContext(declaration(name), factory);
 }
 const workerSource = factory.huayuModelTileWorkerSource();
