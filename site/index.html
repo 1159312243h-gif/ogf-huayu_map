@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-huayu-personal-data-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-huayu-personal-data-v2" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -480,7 +480,7 @@
             <label class="personal-file-field" for="overlay-image">
               <input id="overlay-image" name="image" type="file" accept="image/png,image/jpeg,image/webp" required />
               <span class="secondary-button"><i data-lucide="image-plus" aria-hidden="true"></i>选择图片</span>
-              <output id="overlay-file-name">PNG、JPEG 或 WebP，最大 8 MiB</output>
+              <output id="overlay-file-name">PNG、JPEG 或 WebP，自动压缩至 768 KiB</output>
             </label>
             <label class="personal-range" for="overlay-opacity"><span>透明度</span><output id="overlay-opacity-value">75%</output><input id="overlay-opacity" name="opacity" type="range" min="10" max="100" step="5" value="75" /></label>
             <div class="overlay-bounds-control">
@@ -665,7 +665,7 @@
     <script src="./vegetation-models.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./structure-models.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./app.js?v=7.1-huayu-personal-data-v1"></script>
-    <script src="./personal-data.js?v=7.1-huayu-personal-data-v1"></script>
+    <script src="./app.js?v=7.1-huayu-personal-data-v2"></script>
+    <script src="./personal-data.js?v=7.1-huayu-personal-data-v2"></script>
   </body>
 </html>

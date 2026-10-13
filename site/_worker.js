@@ -29,8 +29,9 @@ const PERSONAL_SESSION_COOKIE = "huayu_session";
 const PERSONAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const PERSONAL_PASSWORD_ITERATIONS = 120000;
 const PERSONAL_MAX_JSON_BYTES = 64 * 1024;
-const PERSONAL_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const PERSONAL_MAX_OVERLAYS = 50;
+const PERSONAL_MAX_IMAGE_BYTES = 768 * 1024;
+const PERSONAL_MAX_OVERLAY_BYTES = 10 * 1024 * 1024;
+const PERSONAL_MAX_OVERLAYS = 20;
 const PERSONAL_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const textEncoder = new TextEncoder();
 
@@ -828,8 +829,8 @@ function sessionCookie(value, maxAge = PERSONAL_SESSION_SECONDS) {
   return `${PERSONAL_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
-function personalBindingsAvailable(environment, requireImages = false) {
-  return Boolean(environment?.DB && (!requireImages || environment?.USER_IMAGES));
+function personalBindingsAvailable(environment) {
+  return Boolean(environment?.DB);
 }
 
 function bootstrapAdminUsernames(environment) {
@@ -1009,15 +1010,12 @@ async function mergePersonalData(environment, userId, payload) {
 }
 
 async function deleteUserData(environment, userId) {
-  const overlays = await environment.DB.prepare("SELECT object_key FROM image_overlays WHERE user_id = ?")
-    .bind(userId).all();
-  if (environment.USER_IMAGES) {
-    await Promise.all((overlays.results || []).map((item) => environment.USER_IMAGES.delete(item.object_key)));
-  }
   await environment.DB.batch([
     environment.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
     environment.DB.prepare("DELETE FROM search_history WHERE user_id = ?").bind(userId),
     environment.DB.prepare("DELETE FROM favorites WHERE user_id = ?").bind(userId),
+    environment.DB.prepare(`DELETE FROM image_overlay_blobs WHERE overlay_id IN
+      (SELECT id FROM image_overlays WHERE user_id = ?)`).bind(userId),
     environment.DB.prepare("DELETE FROM image_overlays WHERE user_id = ?").bind(userId),
     environment.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
   ]);
@@ -1201,18 +1199,21 @@ async function handleOverlayApi(request, environment, url) {
   const imageMatch = url.pathname.match(/^\/api\/overlays\/([^/]+)\/image$/u);
   if (imageMatch && request.method === "GET") {
     const user = await requirePersonalUser(request, environment);
-    const overlay = await environment.DB.prepare(`SELECT object_key, mime_type FROM image_overlays
-      WHERE id = ? AND user_id = ?`).bind(decodeURIComponent(imageMatch[1]), user.id).first();
+    const overlay = await environment.DB.prepare(`SELECT image_overlays.mime_type, image_overlays.byte_size,
+      image_overlays.updated_at, image_overlay_blobs.image_data FROM image_overlays
+      JOIN image_overlay_blobs ON image_overlay_blobs.overlay_id = image_overlays.id
+      WHERE image_overlays.id = ? AND image_overlays.user_id = ?`)
+      .bind(decodeURIComponent(imageMatch[1]), user.id).first();
     if (!overlay) return personalJson({ error: "overlay_not_found" }, 404);
-    const object = await environment.USER_IMAGES.get(overlay.object_key);
-    if (!object) return personalJson({ error: "image_not_found" }, 404);
+    if (!overlay.image_data) return personalJson({ error: "image_not_found" }, 404);
     const headers = new Headers({
       "Content-Type": overlay.mime_type,
       "Cache-Control": "private, max-age=300",
       "X-Content-Type-Options": "nosniff",
+      "Content-Length": String(overlay.byte_size),
+      "ETag": `W/\"${encodeURIComponent(imageMatch[1])}-${overlay.updated_at}-${overlay.byte_size}\"`,
     });
-    if (object.httpEtag) headers.set("ETag", object.httpEtag);
-    return new Response(object.body, { headers });
+    return new Response(overlay.image_data, { headers });
   }
   if (url.pathname === "/api/overlays" && request.method === "GET") {
     const user = await requirePersonalUser(request, environment);
@@ -1220,9 +1221,10 @@ async function handleOverlayApi(request, environment, url) {
   }
   if (url.pathname === "/api/overlays" && request.method === "POST") {
     const user = await requirePersonalUser(request, environment);
-    const count = await environment.DB.prepare("SELECT COUNT(*) AS total FROM image_overlays WHERE user_id = ?")
+    const usage = await environment.DB.prepare(`SELECT COUNT(*) AS total,
+      COALESCE(SUM(byte_size), 0) AS bytes FROM image_overlays WHERE user_id = ?`)
       .bind(user.id).first();
-    if (Number(count?.total || 0) >= PERSONAL_MAX_OVERLAYS) {
+    if (Number(usage?.total || 0) >= PERSONAL_MAX_OVERLAYS) {
       return personalJson({ error: "overlay_limit_reached" }, 409);
     }
     const contentLength = Number(request.headers.get("Content-Length") || 0);
@@ -1248,22 +1250,20 @@ async function handleOverlayApi(request, environment, url) {
     const name = String(form.get("name") || image.name || "地图贴图").trim().slice(0, 100) || "地图贴图";
     const bytes = await image.arrayBuffer();
     if (!validImageSignature(bytes, image.type)) return personalJson({ error: "invalid_image" }, 400);
-    await environment.USER_IMAGES.put(objectKey, bytes, {
-      httpMetadata: { contentType: image.type },
-      customMetadata: { userId: user.id, overlayId: id },
-    });
+    if (Number(usage?.bytes || 0) + image.size > PERSONAL_MAX_OVERLAY_BYTES) {
+      return personalJson({ error: "overlay_storage_limit_reached" }, 409);
+    }
     const now = Date.now();
-    try {
-      await environment.DB.prepare(`INSERT INTO image_overlays
+    await environment.DB.batch([
+      environment.DB.prepare(`INSERT INTO image_overlays
         (id, user_id, name, object_key, mime_type, byte_size, west, south, east, north,
           opacity, visible, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
         .bind(id, user.id, name, objectKey, image.type, image.size, bounds.west, bounds.south,
-          bounds.east, bounds.north, opacity, now, now).run();
-    } catch (error) {
-      await environment.USER_IMAGES.delete(objectKey);
-      throw error;
-    }
+          bounds.east, bounds.north, opacity, now, now),
+      environment.DB.prepare(`INSERT INTO image_overlay_blobs (overlay_id, image_data)
+        VALUES (?, ?)`).bind(id, bytes),
+    ]);
     return personalJson({ overlay: {
       id, name, mimeType: image.type, byteSize: image.size, bounds, opacity, visible: true,
       createdAt: now, updatedAt: now, imageUrl: `/api/overlays/${encodeURIComponent(id)}/image`,
@@ -1289,12 +1289,13 @@ async function handleOverlayApi(request, environment, url) {
   if (overlayMatch && request.method === "DELETE") {
     const user = await requirePersonalUser(request, environment);
     const id = decodeURIComponent(overlayMatch[1]);
-    const existing = await environment.DB.prepare(`SELECT object_key FROM image_overlays
+    const existing = await environment.DB.prepare(`SELECT id FROM image_overlays
       WHERE id = ? AND user_id = ?`).bind(id, user.id).first();
     if (!existing) return personalJson({ error: "overlay_not_found" }, 404);
-    await environment.USER_IMAGES.delete(existing.object_key);
-    await environment.DB.prepare("DELETE FROM image_overlays WHERE id = ? AND user_id = ?")
-      .bind(id, user.id).run();
+    await environment.DB.batch([
+      environment.DB.prepare("DELETE FROM image_overlay_blobs WHERE overlay_id = ?").bind(id),
+      environment.DB.prepare("DELETE FROM image_overlays WHERE id = ? AND user_id = ?").bind(id, user.id),
+    ]);
     return personalJson({ ok: true });
   }
   return null;
@@ -1363,8 +1364,7 @@ async function handlePersonalApi(request, environment) {
   if (!url.pathname.startsWith("/api/auth/") && url.pathname !== "/api/account"
     && !url.pathname.startsWith("/api/personal/") && !url.pathname.startsWith("/api/overlays")
     && !url.pathname.startsWith("/api/admin/")) return null;
-  if (!personalBindingsAvailable(environment, url.pathname.startsWith("/api/overlays")
-    || request.method === "DELETE")) {
+  if (!personalBindingsAvailable(environment)) {
     return personalJson({ error: "personal_data_service_not_configured" }, 503);
   }
   if (!sameOriginMutation(request)) return personalJson({ error: "cross_origin_request_blocked" }, 403);

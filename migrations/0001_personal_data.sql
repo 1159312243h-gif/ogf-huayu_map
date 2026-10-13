@@ -62,3 +62,8 @@ CREATE TABLE IF NOT EXISTS image_overlays (
 );
 
 CREATE INDEX IF NOT EXISTS image_overlays_user_id ON image_overlays(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS image_overlay_blobs (
+  overlay_id TEXT PRIMARY KEY REFERENCES image_overlays(id) ON DELETE CASCADE,
+  image_data BLOB NOT NULL
+);

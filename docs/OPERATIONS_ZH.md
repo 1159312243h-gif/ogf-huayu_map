@@ -5,7 +5,7 @@
 - 网站与 Worker：Cloudflare Pages 项目 `ogf-atlas`。
 - 生产域名：`https://ogf-atlas.pages.dev`。
 - 生产目录：仓库中的 `site/`。
-- 个人数据：Cloudflare D1 数据库 `ogf-atlas-users` 保存账号、哈希会话、搜索、收藏和贴图元数据；R2 存储桶 `ogf-atlas-user-images` 保存账号私有图片。Pages 绑定名分别为 `DB` 和 `USER_IMAGES`。
+- 个人数据：Cloudflare D1 数据库 `ogf-atlas-users` 保存账号、哈希会话、搜索、收藏、贴图元数据和受限图片，Pages 绑定名为 `DB`。该方案不要求 R2、银行卡或 Cloudflare 付费订阅。
 - 建筑：Pages Worker 按 `z11-z15` 查询 OGF Overpass，Cloudflare 与已打开视图稳定缓存三小时。约 500 米使用 `z14`、约 300 米使用 `z15`，避免密集城区大分片阻塞。中心分片先到先显示，完整覆盖前保留发布建筑兜底。
 - 华域底图：OGF 官方 OpenMapTiles 提供稳定基线；近距离补绘层按 `z13-z15` 查询当前 OGF。`z13-z14` 为三小时快照，`z15` 边缘数据约两分钟更新，但浏览器中完整加载的当前视图稳定保留三小时并整批替换。
 - 全国交通与导航：`site/` 内的预生成 JSON 快照，可用仓库自带的跨平台命令统一手动更新。
@@ -63,9 +63,9 @@ git push origin main
 
 推送后 GitHub Actions 会先核对全部 SHA-256、JavaScript 语法和 Worker 接口。两个 Cloudflare Secrets 齐全时才部署并检查主域名、建筑 API 与实时底图 API；凭据缺失时部署任务会明确警告并跳过，不会制造一次伪失败，也不会改动当前生产站点。
 
-发布任务在 Pages 上传前运行 `scripts/configure-cloudflare-personal-data.mjs`。脚本可重复执行：已有 D1、R2 和表不会被清空，只补齐资源、数据库结构和生产绑定。需要管理员用户列表时，在 production 环境增加 Actions Variable `HUAYU_ADMIN_USERNAMES`；不要把密码、会话 Cookie 或 Token 写入该变量。
+发布任务在 Pages 上传前运行 `scripts/configure-cloudflare-personal-data.mjs`。脚本可重复执行：已有 D1 和表不会被清空，只补齐资源、数据库结构和生产绑定。需要管理员用户列表时，在 production 环境增加 Actions Variable `HUAYU_ADMIN_USERNAMES`；不要把密码、会话 Cookie 或 Token 写入该变量。
 
-个人数据发布后至少验证：注册、退出、重新登录、跨会话收藏与搜索同步；上传 PNG/JPEG/WebP 后的框选范围、透明度、显隐、定位与删除；普通用户不能访问 `/api/admin/users`；删除账号同时删除 D1 记录和 R2 图片。
+个人数据发布后至少验证：注册、退出、重新登录、跨会话收藏与搜索同步；上传 PNG/JPEG/WebP 后的自动压缩、框选范围、透明度、显隐、定位与删除；普通用户不能访问 `/api/admin/users`；删除账号同时删除 D1 中的元数据和图片。
 
 ### 本地开发服务器
 

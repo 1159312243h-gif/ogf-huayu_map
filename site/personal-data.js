@@ -2,6 +2,10 @@
   "use strict";
 
   const OWNER_KEY = "ogf-atlas-account-cache-owner";
+  const OVERLAY_SOURCE_MAX_BYTES = 16 * 1024 * 1024;
+  const OVERLAY_STORED_MAX_BYTES = 768 * 1024;
+  const OVERLAY_MAX_DIMENSION = 2048;
+  const OVERLAY_FILE_PROMPT = "PNG、JPEG 或 WebP，自动压缩至 768 KiB";
   const ERROR_MESSAGES = {
     personal_data_service_not_configured: "账号数据服务尚未完成 Cloudflare 配置。",
     personal_data_failure: "账号数据服务暂时不可用，请稍后重试。",
@@ -13,15 +17,80 @@
     invalid_current_password: "当前密码不正确。",
     invalid_display_name: "请输入显示名称。",
     invalid_image: "请选择 PNG、JPEG 或 WebP 图片。",
-    image_too_large: "图片不能超过 8 MiB。",
+    source_image_too_large: "原始图片不能超过 16 MiB。",
+    image_too_large: "图片压缩后仍超过 768 KiB，请选择尺寸更小的图片。",
     invalid_bounds: "贴图范围无效或跨度超过 30 度。",
-    overlay_limit_reached: "每个账号最多保存 50 张贴图。",
+    overlay_limit_reached: "每个账号最多保存 20 张贴图。",
+    overlay_storage_limit_reached: "当前账号的贴图已达到 10 MiB 存储上限。",
     overlay_not_found: "贴图不存在或已被删除。",
     administrator_required: "当前账号没有用户管理权限。",
     cannot_lock_current_admin: "不能停用当前管理员账号或移除其权限。",
     cannot_delete_current_admin: "不能从用户列表删除当前管理员账号。",
     cross_origin_request_blocked: "请求来源校验失败，请刷新页面后重试。",
   };
+
+  function codedError(code) {
+    const error = new Error(code);
+    error.code = code;
+    return error;
+  }
+
+  function loadImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(codedError("invalid_image"));
+      };
+      image.src = url;
+    });
+  }
+
+  function canvasBlob(canvas, quality) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(codedError("invalid_image")), "image/webp", quality);
+    });
+  }
+
+  async function prepareOverlayImage(file) {
+    if (!file || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      throw codedError("invalid_image");
+    }
+    if (file.size <= 0 || file.size > OVERLAY_SOURCE_MAX_BYTES) {
+      throw codedError("source_image_too_large");
+    }
+    const image = await loadImage(file);
+    if (!image.naturalWidth || !image.naturalHeight) throw codedError("invalid_image");
+    const initialScale = Math.min(1, OVERLAY_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight));
+    if (initialScale === 1 && file.size <= OVERLAY_STORED_MAX_BYTES) return file;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) throw codedError("invalid_image");
+    let scale = initialScale;
+    for (let resize = 0; resize < 7; resize += 1) {
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.86, 0.76, 0.66, 0.56, 0.46]) {
+        const blob = await canvasBlob(canvas, quality);
+        if (blob.size <= OVERLAY_STORED_MAX_BYTES) {
+          const baseName = String(file.name || "地图贴图").replace(/\.[^.]+$/u, "") || "地图贴图";
+          const outputType = ["image/png", "image/jpeg", "image/webp"].includes(blob.type)
+            ? blob.type : "image/webp";
+          const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[outputType];
+          return new File([blob], `${baseName}.${extension}`, { type: outputType, lastModified: Date.now() });
+        }
+      }
+      scale *= 0.78;
+    }
+    throw codedError("image_too_large");
+  }
 
   function start() {
     const atlas = window.HuayuAtlas;
@@ -484,19 +553,21 @@
       const image = elements.overlayImage.files?.[0];
       if (!user || !image || !selectedBounds) return;
       elements.overlayUpload.disabled = true;
-      setStatus(elements.overlayAuthStatus, "正在上传贴图…");
-      const form = new FormData();
-      form.set("image", image);
-      form.set("name", elements.overlayName.value.trim());
-      form.set("opacity", String(Number(elements.overlayOpacity.value) / 100));
-      Object.entries(selectedBounds).forEach(([key, value]) => form.set(key, String(value)));
       try {
+        setStatus(elements.overlayAuthStatus, "正在处理图片…");
+        const preparedImage = await prepareOverlayImage(image);
+        setStatus(elements.overlayAuthStatus, "正在上传贴图…");
+        const form = new FormData();
+        form.set("image", preparedImage);
+        form.set("name", elements.overlayName.value.trim());
+        form.set("opacity", String(Number(elements.overlayOpacity.value) / 100));
+        Object.entries(selectedBounds).forEach(([key, value]) => form.set(key, String(value)));
         const payload = await api("/api/overlays", { method: "POST", form });
         overlays.unshift(payload.overlay);
         elements.overlayForm.reset();
         elements.overlayOpacity.value = "75";
         elements.overlayOpacityValue.value = "75%";
-        elements.overlayFileName.value = "PNG、JPEG 或 WebP，最大 8 MiB";
+        elements.overlayFileName.value = OVERLAY_FILE_PROMPT;
         elements.overlayPickBounds.innerHTML = '<i data-lucide="scan" aria-hidden="true"></i>框选范围';
         cancelBoundsPick(true);
         renderOverlayLayers();
@@ -650,7 +721,7 @@
     });
     elements.overlayImage.addEventListener("change", () => {
       const file = elements.overlayImage.files?.[0];
-      elements.overlayFileName.value = file ? `${file.name} · ${formatBytes(file.size)}` : "PNG、JPEG 或 WebP，最大 8 MiB";
+      elements.overlayFileName.value = file ? `${file.name} · ${formatBytes(file.size)}` : OVERLAY_FILE_PROMPT;
       if (file && !elements.overlayName.value) elements.overlayName.value = file.name.replace(/\.[^.]+$/u, "");
       updateUploadAvailability();
     });
