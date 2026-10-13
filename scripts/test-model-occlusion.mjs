@@ -80,7 +80,9 @@ for (const style of publishedStyles) {
     paint:{"fill-extrusion-opacity":1}}, "highway-path");
   add({id:"traffic-line", type:"line"});
   add({id:"traffic-stop", type:"circle"});
-  const surfaces = () => order.filter(id => ["background","fill","line","custom"].includes(definitions.get(id).type));
+  add({id:"natural-trees", type:"custom", implementation:{renderingMode:"3d"}}, "water");
+  const surfaces = () => order.filter(id => ["background","fill","line"].includes(definitions.get(id).type)
+    || definitions.get(id).type === "custom" && definitions.get(id).implementation?.renderingMode !== "3d");
   const groundBefore = surfaces();
   const symbolsBefore = order.filter(id => definitions.get(id).type === "symbol");
   context.activateHuayuModelOcclusion(glMap);
@@ -91,6 +93,10 @@ for (const style of publishedStyles) {
       "all roads, waterways, markings and flat terrain must precede even hidden 3D layers");
     assert.ok(order.filter(id => ["symbol","circle"].includes(definitions.get(id).type))
       .every(id => order.indexOf(id) > lastModel), "map annotations remain readable above solids");
+    assert.ok(order.indexOf("natural-trees") > Math.max(...surfaces().map(id => order.indexOf(id))),
+      "natural trees share the 3D pass after ground, not the annotation pass");
+    assert.ok(order.indexOf("natural-trees") < Math.min(...order.filter(id => ["symbol","circle"].includes(definitions.get(id).type))
+      .map(id => order.indexOf(id))), "annotations remain above natural trees");
     for (const layer of definitions.values()) if (layer.type === "fill-extrusion") {
       assert.equal(layer.paint["fill-extrusion-opacity"], satellite ? 0 : 1,
         `${layer.id}: overhead imagery hides models; standard modes preserve solid depth`);

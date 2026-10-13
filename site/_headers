@@ -10,6 +10,25 @@
 /terrain-perspective.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/vegetation-models.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-options.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-assets.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-import/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-import/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: model/gltf-binary
+
+/three-0.160.1.module.min.js
+  Cache-Control: public, max-age=31536000, immutable
+
 /styles.css
   Cache-Control: public, max-age=0, must-revalidate
 

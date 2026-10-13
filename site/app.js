@@ -1746,6 +1746,40 @@
   });
 
   elements.boundaryLevelsButton.addEventListener("click", loadAdministrativeLevelCatalog);
+  const renderSettingFields = {
+    treeModel: document.getElementById("setting-tree-model"),
+    vegetationDensity: document.getElementById("setting-vegetation-density"),
+    gardenFlowers: document.getElementById("setting-garden-flowers"),
+  };
+  function syncRenderSettingControls() {
+    const preferences = window.HuayuVegetation.getPreferences();
+    for (const [key, field] of Object.entries(renderSettingFields)) {
+      if (field.type === "checkbox") field.checked = preferences[key];
+      else field.value = preferences[key];
+    }
+  }
+  for (const [key, field] of Object.entries(renderSettingFields)) {
+    field.addEventListener("change", () => window.HuayuVegetation.setPreferences({
+      [key]: field.type === "checkbox" ? field.checked : field.value,
+    }));
+  }
+  document.getElementById("reset-render-settings").addEventListener("click", () => {
+    window.HuayuModelOptions?.reset();
+    window.HuayuVegetation.setPreferences(window.HuayuVegetation.DEFAULTS);
+  });
+  window.addEventListener("huayu-render-settings-change", event => {
+    syncRenderSettingControls();
+    syncHuayuVegetationSettings(currentVectorBasemap());
+    if (!event.detail.saved) showToast("设置仅在本次打开中生效，浏览器未允许保存");
+  });
+  syncRenderSettingControls();
+  for (const event of ["huayu-model-assets-change", "huayu-model-candidates-change"]) {
+    window.addEventListener(event, () => {
+      const glMap = currentVectorBasemap();
+      syncHuayuVegetationSettings(glMap);
+      syncHuayuStructureModels(glMap);
+    });
+  }
   elements.boundarySelectArea.addEventListener("click", () => runAction("search"));
   elements.boundaryUseView.addEventListener("click", useCurrentMapExportBounds);
   elements.boundaryAddSelection.addEventListener("click", addCurrentAdministrativeSelection);
@@ -14216,6 +14250,12 @@
       else hideMapViewMenu();
       return;
     }
+    if (action === "settings") {
+      cancelMapPick();
+      hideMapViewMenu();
+      showView("settings", {preservePerspective: true});
+      return;
+    }
     exitVectorPerspectiveMode({ silent: true });
     cancelMapPick();
     hideMapViewMenu();
@@ -14285,6 +14325,7 @@
       favorites: ["本机浏览器", "收藏地点", "仅保存在当前浏览器"],
       about: ["华域地图", "关于地图", "实时 OGF 数据 · 站内交互"],
       download: ["华域地图 · OPEN GEOFICTION", "地图下载", ""],
+      settings: ["华域地图", "地图设置", ""],
     };
 
     if (view === "place" || view === "download") {
@@ -18599,6 +18640,9 @@
             glMap.setPaintProperty(id, "fill-extrusion-opacity-transition", {duration: 0, delay: 0});
             glMap.setPaintProperty(id, "fill-extrusion-opacity", opacity);
           }
+        } else if (layer.type === "custom"
+          && (layer.renderingMode || layer.implementation?.renderingMode) === "3d") {
+          models.push(id);
         } else if (layer.metadata?.["huayu:satellite-shadow"]) {
           shadows.push(id);
         } else if (layer.metadata?.["huayu:satellite-model"]) {
@@ -18613,7 +18657,7 @@
       }
       if (!models.length) return;
       if (satellite && state) {
-        state.surfaceModels = models.map(id => definitions.get(id)).filter(Boolean);
+        state.surfaceModels = models.map(id => definitions.get(id)).filter(layer => layer?.type === "fill-extrusion");
         state.annotationLayers = style.layers.filter(layer => layer.type === "symbol"
           && !String(layer.source).startsWith("ogf-atlas-vector-transit"));
         syncHuayuSatelliteAnnotations(glMap, state);
@@ -18656,7 +18700,10 @@
         order.splice(currentIndex, 1);
         order.splice(beforeId ? order.indexOf(beforeId) : order.length, 0, id);
       }
-      if (state) { state.orderSignature = order.join("|"); state.models = models; }
+      if (state) {
+        state.orderSignature = order.join("|");
+        state.models = models.filter(id => (definitions.get(id) || glMap.getLayer(id))?.type === "fill-extrusion");
+      }
     } finally {
       if (state) state.syncing = false;
     }
@@ -19186,6 +19233,7 @@
         width,
         osmId: String(element.id),
         relationId: String(element.id),
+        ...huayuBuildingColorProperties(tags),
         heightSource: tags.height ? "tagged" : "default",
       };
       const lineCoordinates = geometry.type === "Polygon" ? geometry.coordinates : geometry.coordinates.flat();
@@ -19235,6 +19283,7 @@
         width,
         osmId: String(element.id),
         relationId: "",
+        ...huayuBuildingColorProperties(tags),
         heightSource: tags.height ? "tagged" : "default",
       };
       features.push({
@@ -19265,6 +19314,7 @@
     if (!ensureHuayuCityWallLayers(glMap)) return;
     glMap.getSource(HUAYU_CITY_WALL_SOURCE)?.setData(state.data
       || { type: "FeatureCollection", features: [] });
+    syncHuayuStructureModels(glMap);
   }
 
   async function refreshHuayuCityWalls(glMap) {
@@ -19404,6 +19454,7 @@
         width,
         color: fence ? huayuFenceColor(tags) : huayuWallColor(tags),
         nightColor: fence ? huayuFenceNightColor(tags) : huayuWallNightColor(tags),
+        ...huayuBuildingColorProperties(tags),
         material,
         fenceType: fence ? String(tags.fence_type || "").toLocaleLowerCase() : "",
         osmId: String(element.id),
@@ -20038,7 +20089,7 @@
   const HUAYU_WOODLAND_TREE_CLUSTER_MAX_AREA = 500000;
   const HUAYU_MOUNTAIN_WOODLAND_MIN_AREA = 1000000;
   const HUAYU_REGIONAL_WOODLAND_MIN_AREA = 25000000;
-  const HUAYU_WOODLAND_CLUSTER_TREE_LIMIT = 240;
+  const HUAYU_WOODLAND_CLUSTER_TREE_LIMIT = 320;
 
   function huayuPreferredFeatureName(tags = {}) {
     return String(tags.name || tags["name:zh"] || tags.alt_name || tags.loc_name || "").trim();
@@ -20205,6 +20256,7 @@
   function createHuayuGardenModels() {
     // This same factory runs in the model worker. Garden algorithms have their
     // own cache version so new planting never discards valid building geometry.
+    const tilePlantLimit = 320, plotPlantLimit = 160;
     const kind = tags => String(tags?.landuse || "").toLowerCase() === "flowerbed" ? "flowerbed"
       : String(tags?.leisure || "").toLowerCase() === "garden" ? "garden" : "";
     const hash = value => {
@@ -20383,23 +20435,23 @@
       // Share the tile budget by size. Equal shares made a long garden vanish
       // whenever the same tile also contained many tiny landscaped islands.
       const totalWeight=plots.reduce((sum,plot) => sum+plot.weight,0);
-      const minimum=plots.length<=120 ? 2 : plots.length<=240 ? 1 : 0;
-      const remaining=240-minimum*plots.length;
+      const minimum=plots.length<=tilePlantLimit/2 ? 2 : plots.length<=tilePlantLimit ? 1 : 0;
+      const remaining=tilePlantLimit-minimum*plots.length;
       for (const plot of plots) {
         const share=remaining*plot.weight/(totalWeight || 1);
-        plot.quota=Math.min(120,minimum+Math.floor(share));
+        plot.quota=Math.min(plotPlantLimit,minimum+Math.floor(share));
         plot.fraction=share-Math.floor(share);
       }
-      let spare=240-plots.reduce((sum,plot) => sum+plot.quota,0);
+      let spare=tilePlantLimit-plots.reduce((sum,plot) => sum+plot.quota,0);
       const priority=plots.slice().sort((a,b) => b.fraction-a.fraction || b.weight-a.weight);
-      while (spare>0 && priority.some(plot => plot.quota<120)) {
-        for (const plot of priority) if (plot.quota<120 && spare>0) {plot.quota++;spare--;}
+      while (spare>0 && priority.some(plot => plot.quota<plotPlantLimit)) {
+        for (const plot of priority) if (plot.quota<plotPlantLimit && spare>0) {plot.quota++;spare--;}
       }
       let count=0;
       for (const {element,geometry,bounds,cosine,area,quota} of plots) {
         if (!quota) continue;
         const flowerbed=kind(element.tags) === "flowerbed" || element.type === "node";
-        const spacing=flowerbed ? 3.4 : Math.max(5.5,Math.min(16,Math.sqrt(area/160)));
+        const spacing=flowerbed ? 3 : Math.max(4.8,Math.min(14,Math.sqrt(area/210)));
         const sx=spacing/(111320*cosine),sy=spacing/111320;
         const x0=Math.floor(bounds.west/sx),x1=Math.ceil(bounds.east/sx),y0=Math.floor(bounds.south/sy),y1=Math.ceil(bounds.north/sy);
         const measurement=String(element.tags?.height || "").trim().match(/^([\d.]+)\s*(m|米|ft)?$/i);
@@ -20409,7 +20461,7 @@
         if (element.type === "node") {
           const point=[Number(element.lon),Number(element.lat)];
           if (point[0]>=bounds.west && point[0]<bounds.east && point[1]>=bounds.south && point[1]<bounds.north
-            && !blocked(point,1.23,base) && count<240) {
+            && !blocked(point,1.23,base) && count<tilePlantLimit) {
             const key=`node:${element.id}:mapped`;
             features.push(...plantParts(key,point,"flower",base,hash(key),`node:${element.id}`,1.23));count++;
           }
@@ -20428,7 +20480,7 @@
           candidates.push({key,point,plantType,seed,radius});
         }
         candidates.sort((a,b) => a.seed-b.seed);
-        for (const {key,point,plantType,seed,radius} of candidates.slice(0,Math.min(quota,240-count))) {
+        for (const {key,point,plantType,seed,radius} of candidates.slice(0,Math.min(quota,tilePlantLimit-count))) {
           features.push(...plantParts(key,point,plantType,base,seed,`${element.type}:${element.id}`,radius));count++;
         }
       }
@@ -20447,7 +20499,7 @@
         return !hidden.get(p.plantKey);
       });
     };
-    const version=`gardens-v1-${hash([kind,hash,coordinates,boundsOf,polygons,inRing,contains,segmentDistance,edgeDistance,
+    const version=`gardens-v2-${hash([tilePlantLimit,plotPlantLimit,kind,hash,coordinates,boundsOf,polygons,inRing,contains,segmentDistance,edgeDistance,
       offset,disk,geometryOf,obstacleIndex,plantParts,build,filterBuildings].map(fn => fn.toString()).join("\n"))}`;
     return {kind,build,filterBuildings,version};
   }
@@ -20504,6 +20556,7 @@
     const shared = {
       sourceOsmId: String(element.id),
       treeOrigin: clusterIndex === null ? "mapped" : "woodland",
+      treeLeafType: String(tags.leaf_type || ""),
       canopyVariant: huayuTreeHash(seedKey) % 3,
     };
     return [
@@ -20546,19 +20599,24 @@
     const latitude = (south + north) / 2;
     const widthMeters = Math.max(1, (east - west) * 111320 * Math.max(0.1, Math.cos(latitude * Math.PI / 180)));
     const heightMeters = Math.max(1, (north - south) * 111320);
-    const desired = clamp(Math.round(areaSquareMeters / 2400), 3, 72);
-    const columns = Math.max(1, Math.ceil(Math.sqrt(desired * widthMeters / heightMeters)));
+    const desired = clamp(Math.round(areaSquareMeters / 1800), 4, 96);
+    const columns = Math.max(1, Math.min(desired, Math.ceil(Math.sqrt(desired * widthMeters / heightMeters))));
     const rows = Math.max(1, Math.ceil(desired / columns * 1.8));
     const random = huayuTreeRandom(`${element?.type}:${element?.id}:woodland-grid`);
-    const centers = [];
-    for (let row = 0; row < rows && centers.length < desired; row += 1) {
-      for (let column = 0; column < columns && centers.length < desired; column += 1) {
+    const candidates = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
         const u = (column + 0.25 + random() * 0.5) / columns;
         const v = (row + 0.25 + random() * 0.5) / rows;
         const point = [west + (east - west) * u, south + (north - south) * v];
-        if (huayuPointInPolygonGeometry(point, geometry)) centers.push(point);
+        if (huayuPointInPolygonGeometry(point, geometry)) candidates.push({point,
+          rank: huayuTreeHash(`${element?.type}:${element?.id}:woodland:${row}:${column}`)});
       }
     }
+    // Sample the full footprint before limiting models, instead of filling
+    // only the first grid rows and leaving the far side of the woodland bare.
+    candidates.sort((first, second) => first.rank - second.rank);
+    const centers = candidates.slice(0, desired).map(candidate => candidate.point);
     if (!centers.length) {
       const interior = huayuGeometryInteriorPoint(geometry);
       if (interior) centers.push(interior);
@@ -22672,10 +22730,12 @@
         onChange: () => {
           syncHuayuMountainFeatureOrder(glMap);
           syncHuayuModelOcclusion(glMap);
+          window.HuayuVegetation?.refreshElevation(glMap);
           const state = huayuLiveBasemapStates.get(glMap);
           if (state) updateHuayuLiveBasemapDiagnostics(state);
         },
         onTile: () => {
+          window.HuayuVegetation?.refreshElevation(glMap);
           const element = document.getElementById("map");
           if (!element) return;
           const controller = material.perspective;
@@ -24847,6 +24907,49 @@
     state.primarySyncTimer = window.setTimeout(poll, 0);
   }
 
+  function syncHuayuVegetationSettings(glMap) {
+    const state = glMap && huayuLiveBasemapStates.get(glMap);
+    if (!state || !window.HuayuVegetation) return;
+    const palette = huayuOverlayPalette(glMap);
+    window.HuayuVegetation.sync(glMap, state.groundRenderFeatures, state.gardenRenderFeatures, {
+      night: palette.night, satellite: palette.satellite,
+      trunk: HUAYU_LIVE_BASEMAP_LAYERS.treeTrunk, canopy: HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy,
+      plants: HUAYU_LIVE_BASEMAP_LAYERS.gardenPlants,
+      onStatus(status) {
+        const element = document.getElementById("render-settings-status");
+        element.textContent = status === "loading" ? "正在准备自然树冠…"
+          : status === "failed" ? "自然树冠未能加载，已保留经典模型。" : "";
+        element.hidden = !element.textContent;
+      },
+    });
+  }
+
+  const HUAYU_EMPTY_STRUCTURE_MODELS = Object.freeze([]);
+  function syncHuayuStructureModels(glMap) {
+    if (!glMap?.getStyle?.()?.layers?.length || !window.HuayuStructureModels) return;
+    const structures = huayuStructureStates.get(glMap), buildings = huayuLiveBuildingStates.get(glMap);
+    const palette = huayuOverlayPalette(glMap);
+    window.HuayuStructureModels.sync(glMap, {
+      pavilions: structures?.pavilionData?.features || HUAYU_EMPTY_STRUCTURE_MODELS,
+      walls: structures?.wallData?.features || HUAYU_EMPTY_STRUCTURE_MODELS,
+      cityWalls: huayuCityWallStates.get(glMap)?.data?.features || HUAYU_EMPTY_STRUCTURE_MODELS,
+      supplemental: huayuSupplementalPoiStates.get(glMap)?.data?.features || HUAYU_EMPTY_STRUCTURE_MODELS,
+      buildingPrimary: Boolean(buildings?.primaryActive),
+    }, {
+      night: palette.night, satellite: palette.satellite,
+      observeGestures: (start, end) => observeHuayuMapGestures(glMap, start, end),
+      layers: {
+        pavilion: [HUAYU_PAVILION_BASE_LAYER, HUAYU_PAVILION_COLUMN_LAYER, HUAYU_PAVILION_LAYER,
+          HUAYU_LIVE_BUILDING_LAYER, ...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS)],
+        busShelter: [HUAYU_BUS_FACILITY_LAYERS.model],
+        fountain: [HUAYU_FOUNTAIN_LAYERS.areaFill, HUAYU_FOUNTAIN_LAYERS.areaOutline,
+          HUAYU_FOUNTAIN_LAYERS.glow, HUAYU_FOUNTAIN_LAYERS.basin],
+        fence: [HUAYU_WALL_LAYERS.fenceExtrusion], wall: [HUAYU_WALL_LAYERS.extrusion],
+        cityWall: [HUAYU_CITY_WALL_LAYERS.extrusion],
+      },
+    });
+  }
+
   function applyHuayuLiveBasemap(glMap, state) {
     if (state.interacting) return;
     if (!ensureHuayuLiveBasemapLayers(glMap)) {
@@ -24892,6 +24995,7 @@
         state.appliedRevision = state.renderRevision;
       }
     }
+    if (window.HuayuVegetation) syncHuayuVegetationSettings(glMap);
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
     updateHuayuLiveBasemapDiagnostics(state);
@@ -25697,6 +25801,8 @@
     const state = glMap && huayuLiveBasemapStates.get(glMap);
     if (!state) return;
     state.active = false;
+    window.HuayuVegetation?.dispose(glMap);
+    window.HuayuStructureModels?.dispose(glMap);
     // MapLibre map.remove can discard the style without calling each custom
     // layer's onRemove. Stop the old terrain worker and timers explicitly.
     const material = huayuWoodlandMaterialLayers.get(glMap);
@@ -26167,6 +26273,8 @@
         structureKind,
         ...(structureKind === "pavilion" ? {
           pavilionRoofDepth: huayuPavilionRoofDepth(element.tags, height),
+          modelMinHeight: element.tags?.min_height !== undefined || element.tags?.["building:min_level"] !== undefined
+            ? minHeight : 0,
         } : {}),
         ...(ancientKind ? {
           ancientKind,
@@ -26327,6 +26435,7 @@
         glMap.setFilter(HUAYU_BUS_FACILITY_LAYERS.model, filter);
       }
     }
+    window.HuayuStructureModels?.refreshFilters(glMap);
   }
 
   function syncHuayuLiveBuildingPrimaryLayers(glMap, state, enabled) {
@@ -26353,6 +26462,7 @@
     }
     syncHuayuBuildingReplacementLayers(glMap, nextEnabled);
     state.primaryActive = nextEnabled;
+    syncHuayuStructureModels(glMap);
     if (nextEnabled && state.addedAt && !state.firstModelMs) state.firstModelMs = Math.round(performance.now() - state.addedAt);
   }
 
@@ -26509,6 +26619,7 @@
       if (basemap?.active && basemap.gardenCandidates?.length) applyHuayuLiveBasemap(glMap,basemap);
     }
     scheduleHuayuLiveBuildingPrimarySync(glMap, state);
+    syncHuayuStructureModels(glMap);
     updateHuayuLiveBuildingDiagnostics(state);
   }
 
@@ -27403,6 +27514,7 @@
       if (basemap?.active && basemap.gardenCandidates?.length) applyHuayuLiveBasemap(glMap,basemap);
     }
     syncHuayuWallPerspectiveLayers(glMap);
+    syncHuayuStructureModels(glMap);
     updateHuayuStructureDiagnostics(state);
   }
 
@@ -29366,6 +29478,8 @@
     const key = `bus-shelter:${element.id}`;
     const properties = {
       osmId: String(element.id),
+      osmType: element.type,
+      modelMinHeight: Math.min(shelterHeight - 0.6, parseHuayuWallMeasurement(tags.min_height, 0, 1000)),
       heightSource: tags.height ? "tagged" : "default",
       buildingReplacement: 1,
     };
@@ -29485,6 +29599,12 @@
       const fountainGeometry = !namedFountainCoveredByMappedFeature && huayuIsFountain(element.tags)
         && huayuSupplementalFacilityAreaGeometry(element);
       const hasMappedFountainArea = mappedFountainAreaKeys.has(key);
+      const fountainModelProperties = huayuHasExplicitFountainTags(element.tags) ? {
+        fountainModelEligible: true,
+        fountainHeight: parseHuayuWallMeasurement(element.tags?.height, 2.4, 1000),
+        fountainMinHeight: parseHuayuWallMeasurement(element.tags?.min_height, 0, 1000),
+        fountainDiameter: parseHuayuWallMeasurement(element.tags?.diameter, 4, 1000),
+      } : {};
       const properties = namedFountainCoveredByMappedFeature
         ? null : huayuSupplementalPoiProperties(element.tags);
       if (properties && center && !seenPoints.has(key)
@@ -29497,6 +29617,7 @@
             mappedArea: properties.kind === "fountain" && hasMappedFountainArea,
             ...(properties.kind === "fountain" ? {
               fountainScale: huayuFountainScale(fountainGeometry),
+              ...fountainModelProperties,
             } : {}) },
           geometry: { type: "Point", coordinates: center },
         });
@@ -29540,7 +29661,8 @@
         features.push({
           type: "Feature",
           id: `supplemental-fountain-area:${key}`,
-          properties: { fountainArea: true, name, osmId: String(element.id), osmType: String(element.type) },
+          properties: { fountainArea: true, name, osmId: String(element.id), osmType: String(element.type),
+            ...fountainModelProperties },
           geometry: fountainGeometry,
         });
       }
@@ -29574,6 +29696,7 @@
     if (!ensureHuayuSupplementalPoiLayer(glMap)) return;
     glMap.getSource(HUAYU_SUPPLEMENTAL_POI_SOURCE)?.setData(state.data
       || { type: "FeatureCollection", features: [] });
+    syncHuayuStructureModels(glMap);
   }
 
   async function refreshHuayuSupplementalPois(glMap) {

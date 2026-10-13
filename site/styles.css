@@ -105,6 +105,139 @@ select:focus-visible {
   display: grid;
   gap: 2px;
   margin-top: 20px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.render-settings-section {
+  margin: 18px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.render-settings-section legend {
+  padding: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.render-setting-field,
+.render-setting-toggle {
+  min-height: 60px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(115px, 45%);
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.render-setting-field select {
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  color: var(--text);
+  border: 1px solid #d5dbe0;
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.render-setting-toggle {
+  grid-template-columns: minmax(0, 1fr) 36px;
+  position: relative;
+  cursor: pointer;
+}
+
+.render-setting-toggle input {
+  position: absolute;
+  right: 0;
+  width: 36px;
+  height: 24px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.render-setting-switch {
+  width: 36px;
+  height: 20px;
+  padding: 3px;
+  background: #b5bec3;
+  border-radius: 10px;
+}
+
+.render-setting-switch::after {
+  content: "";
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+}
+
+.render-setting-toggle input:checked + .render-setting-switch {background: var(--teal);}
+.render-setting-toggle input:checked + .render-setting-switch::after {transform: translateX(16px);}
+.render-setting-toggle input:focus-visible + .render-setting-switch {outline: 2px solid var(--blue); outline-offset: 3px;}
+.render-settings-reset {margin-top: 8px;}
+
+.model-options-summary {
+  margin: 2px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.model-option-row {padding: 10px 0; border-bottom: 1px solid var(--line);}
+.model-option-field {
+  min-height: 36px;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  border: 0;
+  font-size: 13px;
+}
+.model-option-field select {font-size: 12px;}
+.model-option-detail {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.model-option-status, .model-option-meta {color: var(--muted);}
+.model-option-detail a {color: var(--blue); text-decoration: underline;}
+.model-option-actions {display: flex; gap: 8px;}
+.model-option-actions .icon-button {width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 4px;}
+.model-import-dialog {
+  width: min(620px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+}
+.model-import-dialog::backdrop {background: rgba(0,0,0,0.4);}
+.model-import-heading, .model-import-actions {display: flex; align-items: center; justify-content: space-between; gap: 12px;}
+.model-import-heading h2 {font-size: 18px; margin: 0; overflow-wrap: anywhere;}
+.model-import-file {display: grid; gap: 8px; font-size: 13px; margin: 16px 0;}
+.model-import-file input {width: 100%; min-width: 0; font-size: 12px;}
+.model-import-preview {width: 100%; aspect-ratio: 3 / 2; background: #edf1f0; overflow: hidden;}
+.model-import-preview canvas {width: 100%; height: 100%; display: block; touch-action: none;}
+.model-import-fields .render-setting-field {min-height: 48px; font-size: 13px;}
+.model-import-fields input {width: 100%; min-width: 0; height: 36px; border: 1px solid #d5dbe0; border-radius: 4px; padding: 0 8px;}
+.model-import-consent {display: flex; gap: 8px; align-items: flex-start; margin-top: 16px; font-size: 13px; line-height: 1.6;}
+.model-import-consent input {margin: 4px 0 0; flex: 0 0 auto;}
+.model-import-status {font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; min-height: 20px;}
+.model-import-actions {justify-content: flex-end;}
+@media (max-width: 420px) {
+  .model-option-field {grid-template-columns: minmax(0, 1fr); gap: 6px;}
+}
+@media (max-width: 720px) {
+  .place-panel:has(#settings-view:not([hidden])) {z-index: 660;}
 }
 
 .rail-button {
@@ -3872,7 +4005,7 @@ button.popup-route:focus-visible .popup-route-arrow {
 
   .rail-actions {
     width: min(100%, 420px);
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
     gap: 2px;
     margin: 0;
   }

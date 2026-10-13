@@ -47,7 +47,9 @@ for (const file of files) {
 
 for (const required of ["_headers", "_worker.js", "app.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
-  "terrain-preload.json.gz", "terrain-preload-manifest.json"]) {
+  "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js",
+  "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
+  "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
 }
 
@@ -181,7 +183,7 @@ assert.ok(app.includes('treeTrunk: "ogf-atlas-huayu-tree-trunk"')
 assert.ok(app.includes("function huayuTreeRandom(seedValue)")
   && app.includes("function huayuWoodlandTreeCenters(element, geometry, areaSquareMeters)")
   && app.includes('huayuTreeRandom(`${element?.type}:${element?.id}:woodland-grid`)')
-  && app.includes("HUAYU_WOODLAND_CLUSTER_TREE_LIMIT = 240"),
+  && app.includes("HUAYU_WOODLAND_CLUSTER_TREE_LIMIT = 320"),
 "小面积林地必须使用要素 ID 驱动的确定性面内采样，并限制每批树木数量");
 assert.ok(app.includes("HUAYU_TERRAIN_MIN_ZOOM = 5.5")
   && app.includes("function rebuildHuayuTerrainData(state)")
@@ -472,12 +474,12 @@ const buildingMap = {
   setFilter: (id, filter) => buildingLayerFilters.set(id, filter),
 };
 const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
-  "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS",
-  `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers);
+  "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window",
+  `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {});
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
-  "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers",
+  "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuStructureModels",
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
-  ancientBuildingLayers, syncBuildingReplacements);
+  ancientBuildingLayers, syncBuildingReplacements, () => {});
 const buildingOwnerState = { primaryActive: false };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "none")
@@ -1450,6 +1452,20 @@ const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-
 assert.equal(modelLoadingTest.status, 0, `模型加载回归失败：${modelLoadingTest.stderr}`);
 const gardenModelsTest = await runCheck([path.join(root,"scripts","test-garden-models.mjs")]);
 assert.equal(gardenModelsTest.status, 0, `花园模型回归失败：${gardenModelsTest.stderr}`);
+const vegetationSettingsTest = await runCheck([path.join(root,"scripts","test-vegetation-settings.mjs")]);
+assert.equal(vegetationSettingsTest.status, 0, `植被设置回归失败：${vegetationSettingsTest.stderr}`);
+const modelOptionsTest = await runCheck([path.join(root,"scripts","test-model-options.mjs")]);
+assert.equal(modelOptionsTest.status, 0, `模型候选设置回归失败：${modelOptionsTest.stderr}`);
+const modelImportTest = await runCheck([path.join(root,"scripts","test-model-import.mjs")]);
+assert.equal(modelImportTest.status, 0, `模型导入回归失败：${modelImportTest.stderr}`);
+const bundledModelsTest = await runCheck([path.join(root,"scripts","test-bundled-models.mjs")]);
+assert.equal(bundledModelsTest.status, 0, `内置候选文件回归失败：${bundledModelsTest.stderr}`);
+const foliageMipmapsTest = await runCheck([path.join(root,"scripts","test-foliage-mipmaps.mjs")]);
+assert.equal(foliageMipmapsTest.status, 0, `叶片缩小贴图回归失败：${foliageMipmapsTest.stderr}`);
+const modelBatchTest = await runCheck([path.join(root,"scripts","test-model-batch.mjs")]);
+assert.equal(modelBatchTest.status, 0, `批量模型下载导入回归失败：${modelBatchTest.stderr}`);
+const structureModelsTest = await runCheck([path.join(root,"scripts","test-structure-models.mjs")]);
+assert.equal(structureModelsTest.status, 0, `结构物模型替换回归失败：${structureModelsTest.stderr}`);
 const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);
 assert.equal(satelliteBasemapTest.status, 0, `模拟卫星底图回归失败：${satelliteBasemapTest.stderr}`);
 

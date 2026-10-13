@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>华域模型批量下载</title>
+<style>
+body{font:16px/1.6 system-ui,sans-serif;background:#f4f7f6;color:#26352f;margin:0;padding:28px}main{max-width:840px;margin:auto;background:white;padding:24px;border-radius:14px}h1{font-size:24px;margin-top:0}input,button{font:inherit;padding:10px;border-radius:7px;border:1px solid #b7c8c0}input{box-sizing:border-box;width:100%;margin:8px 0}button{background:#087e6d;color:white;cursor:pointer}button:disabled{opacity:.6}a{color:#087e6d}table{border-collapse:collapse;width:100%;margin:20px 0}td,th{padding:9px;text-align:left;border-bottom:1px solid #e2e9e5}.note{color:#597066;font-size:14px}#status{white-space:pre-wrap}label{display:block}
+</style><main>
+<h1>一次下载剩余免费模型</h1>
+<p>使用 Sketchfab 官方下载 API，逐项核验 CC BY 4.0 许可、完整性与导入预算。已成功的文件保留，单项失败不影响其他模型。</p>
+<p><a href="https://sketchfab.com/settings/password" target="_blank" rel="noopener noreferrer">打开 Sketchfab 设置，复制 API token</a>。填入下面后点击一次开始即可。登录网页本身不会给下载 API 授权。</p>
+<form id="form"><label for="token">Sketchfab API token</label><input id="token" type="password" autocomplete="off" spellcheck="false" required maxlength="128"><button id="start">开始批量下载与检查</button></form>
+<p class="note">Token 仅用于本次本地进程访问 api.sketchfab.com，不写入磁盘、日志或模型文件。成功后原件保存在本地；通过模型校验的文件登记到地图设置。现有十款方案均已有可替换文件，城墙现场使用已制备的轻量墙段，原件保留。地铁出入口候选已取消。</p>
+<p id="status" role="status">正在读取候选清单…</p>
+<table><thead><tr><th>候选</th><th>处理状态</th><th>说明</th></tr></thead><tbody id="rows"></tbody></table>
+<p><a href="http://127.0.0.1:54344/?qa=batch-model-import#map=19/14.63143/152.96529" target="_blank" rel="noopener noreferrer">返回地图，查看模型选项</a></p>
+</main><script>
+const status=document.getElementById('status'),rows=document.getElementById('rows'),start=document.getElementById('start');
+let submitError='';
+const labels={pending:'等待认证',checking:'核验许可',downloading:'下载中',validating:'检查模型',registered:'文件已导入',downloaded:'原件已下载',blocked:'未开放下载',failed:'本项失败',cached:'已复用原件'};
+async function refresh(){try{const response=await fetch('/batch/status',{cache:'no-store'}),data=await response.json();
+  start.disabled=data.running;status.textContent=data.running ? data.message : submitError || data.lastError || data.message;rows.replaceChildren(...data.items.map(item=>{const row=document.createElement('tr');
+    for(const text of [item.label,labels[item.status] || item.status,item.note || '']){const cell=document.createElement('td');cell.textContent=text;row.append(cell);}return row;}));
+}catch{status.textContent='本地批量服务暂时无法连接。已下载的文件仍保留。';}}
+document.getElementById('form').addEventListener('submit',async event=>{event.preventDefault();start.disabled=true;
+  const input=document.getElementById('token'),token=input.value.trim().replace(/^Token\s+/i,'');input.value='';submitError='';
+  try{const response=await fetch('/batch/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+    const data=await response.json();status.textContent=data.message;if(!response.ok){submitError=data.message;start.disabled=false;}
+  }catch{submitError='本地批量服务暂时无法连接。';status.textContent=submitError;start.disabled=false;}});
+void refresh();setInterval(refresh,2000);
+</script></html>

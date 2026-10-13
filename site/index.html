@@ -12,10 +12,10 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.0-huayu-terrain-camera-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-huayu-model-options-v1" />
   </head>
   <body>
-    <main class="app-shell" data-app-version="7.0">
+    <main class="app-shell" data-app-version="7.1">
       <div id="map" class="map" aria-label="华域地图交互地图"></div>
 
       <nav class="side-rail" aria-label="地图主导航">
@@ -28,6 +28,7 @@
           <button class="rail-button" type="button" data-action="measure"><i data-lucide="ruler" aria-hidden="true"></i><span>测量</span></button>
           <button class="rail-button" type="button" data-action="favorites"><i data-lucide="bookmark" aria-hidden="true"></i><span>收藏</span></button>
           <button class="rail-button" type="button" data-action="download"><i data-lucide="download" aria-hidden="true"></i><span>下载</span></button>
+          <button class="rail-button" type="button" data-action="settings"><i data-lucide="settings-2" aria-hidden="true"></i><span>设置</span></button>
         </div>
         <button class="rail-button rail-about" type="button" data-action="about"><i data-lucide="info" aria-hidden="true"></i><span>关于</span></button>
       </nav>
@@ -247,6 +248,29 @@
         </section>
 
         <section id="download-view" class="panel-view" data-view="download" hidden></section>
+
+        <section id="settings-view" class="panel-view" data-view="settings" hidden>
+          <fieldset class="render-settings-section">
+            <legend>植被模型</legend>
+            <label class="render-setting-field" for="setting-tree-model"><span>树木模型</span>
+              <select id="setting-tree-model"><option value="classic">经典柱形</option><option value="natural">自然树冠</option></select>
+            </label>
+            <label class="render-setting-field" for="setting-vegetation-density"><span>面状植被密度</span>
+              <select id="setting-vegetation-density"><option value="light">疏朗</option><option value="standard">适中</option><option value="dense">茂密</option></select>
+            </label>
+            <label class="render-setting-toggle" for="setting-garden-flowers"><span>花园花簇</span>
+              <input id="setting-garden-flowers" type="checkbox" role="switch" />
+              <span class="render-setting-switch" aria-hidden="true"></span>
+            </label>
+          </fieldset>
+          <p id="render-settings-status" class="view-status" role="status" hidden></p>
+          <fieldset class="render-settings-section model-options-section">
+            <legend>模型替代方案</legend>
+            <p id="model-options-summary" class="model-options-summary">10 款方案 · 文件状态加载中</p>
+            <div id="model-option-controls"></div>
+          </fieldset>
+          <button id="reset-render-settings" class="secondary-button render-settings-reset" type="button"><i data-lucide="rotate-ccw" aria-hidden="true"></i>恢复默认</button>
+        </section>
 
         <section id="search-view" class="panel-view" data-view="search" hidden>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>地名搜索 · OGF Nominatim</span></div>
@@ -559,7 +583,11 @@
     <noscript>此地图需要启用 JavaScript。</noscript>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
-    <script src="./terrain-perspective.js?v=7.0-huayu-terrain-camera-v1"></script>
-    <script src="./app.js?v=7.0-huayu-terrain-camera-v1"></script>
+    <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./model-assets.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./vegetation-models.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./structure-models.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./app.js?v=7.1-huayu-model-options-v1"></script>
   </body>
 </html>

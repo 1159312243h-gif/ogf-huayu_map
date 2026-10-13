@@ -3,6 +3,8 @@ import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
+import {createRequire} from "node:module";
+import {fileURLToPath} from "node:url";
 
 const source=await readFile(new URL("../site/app.js",import.meta.url),"utf8");
 const declaration=(name,text=source) => {
@@ -19,13 +21,18 @@ const garden=way(1,{leisure:"garden",name:"验收花园"});
 const options={zoom:15,bounds:{west:142,south:24,east:142.001,north:24.001}};
 const plain=models.build([garden],options);
 assert.ok(plain.features.length>50,"real garden areas get varied modeled planting");
+const plantCount=data => new Set(data.features.map(f => f.properties.plantKey)).size;
+assert.ok(plantCount(plain)>120 && plantCount(plain)<=160,
+  "medium garden areas get denser planting within the per-garden geometry limit");
+assert.ok(models.version.startsWith("gardens-v2-"),"density changes invalidate only the garden model algorithm cache");
 assert.deepEqual([...new Set(plain.features.map(f => f.properties.plantType))].sort(),["flower","shrub","tree"]);
 assert.equal(JSON.stringify(plain),JSON.stringify(models.build([garden],options)),"revisiting never randomizes planting");
 assert.equal(models.build([garden],{...options,zoom:14}).features.length,0,"overview tiles never carry close model geometry");
 assert.equal(models.build([way(2,{building:"yes",name:"花园大厦"}),way(3,{leisure:"park",name:"森林花园公园"})],options).features.length,0,
   "names and parks are not enough to fabricate a garden model");
-assert.equal(models.build([way(4,{landuse:"flowerbed"},142,24,0.00015,0.00015)],options).features
-  .some(f => f.properties.plantType !== "flower"),false,"flowerbeds do not get invented trees");
+const flowerbed=models.build([way(4,{landuse:"flowerbed"},142,24,0.00015,0.00015)],options);
+assert.equal(flowerbed.features.some(f => f.properties.plantType !== "flower"),false,"flowerbeds do not get invented trees");
+assert.ok(plantCount(flowerbed)>=15,"mapped flowerbed areas receive closer-spaced flower clusters");
 const node=models.build([{type:"node",id:5,lon:142.0004,lat:24.0004,tags:{leisure:"garden"}}],options);
 assert.equal(new Set(node.features.map(f => f.properties.plantKey)).size,1,"point gardens use one compact flower cluster");
 const road={type:"way",id:6,tags:{highway:"footway",width:"3"},geometry:[{lon:142.0005,lat:24},{lon:142.0005,lat:24.001}]};
@@ -57,13 +64,61 @@ const roof=models.build([{...garden,tags:{leisure:"garden",height:"8"}}],options
 assert.ok(roof.features.every(f => f.properties.plantBase>=8.25));
 assert.equal(models.filterBuildings(roof.features,[building]).length,roof.features.length,"roof planting remains on its mapped slab");
 const big=models.build([way(20,{leisure:"garden"},142,24,0.1,0.1)],options);
-assert.ok(new Set(big.features.map(f => f.properties.plantKey)).size<=240,"bounded geometry for very large gardens");
+assert.ok(plantCount(big)<=160,"bounded geometry for very large gardens");
 const busyGardens=[garden,...Array.from({length:40},(_,i) =>
   way(100+i,{leisure:"garden"},142.002+(i%10)*0.0002,24+Math.floor(i/10)*0.0002,0.0001,0.0001))];
 const busy=models.build(busyGardens,{zoom:15});
 assert.ok(new Set(busy.features.filter(f=>f.properties.gardenOrigin==="way:1").map(f=>f.properties.plantKey)).size>=15,
   "many small neighbouring gardens must not starve a large garden of visible planting");
-assert.ok(new Set(busy.features.map(f=>f.properties.plantKey)).size<=240,"all gardens share one bounded tile budget");
+assert.ok(plantCount(busy)<=320,"all gardens share one bounded tile budget");
+const denseTile=models.build(Array.from({length:3},(_,i) =>
+  way(200+i,{landuse:"flowerbed"},142+i*0.003,24,0.002,0.002)),{zoom:15});
+assert.equal(plantCount(denseTile),320,"dense areas share the new tile limit, not an unbounded model count");
+for (const origin of new Set(denseTile.features.map(f => f.properties.gardenOrigin)))
+  assert.ok(plantCount({features:denseTile.features.filter(f => f.properties.gardenOrigin === origin)})<=160);
+
+const require=createRequire(import.meta.url);
+const {terrainRuntime}=require("./data-update/builders/build-terrain-preload.cjs");
+const treeRuntime=await terrainRuntime(fileURLToPath(new URL("../site/",import.meta.url)));
+for (const name of ["HUAYU_WOODLAND_TREE_CLUSTER_MAX_AREA","HUAYU_WOODLAND_CLUSTER_TREE_LIMIT"])
+  vm.runInContext(source.match(new RegExp(`  const ${name} = [^;]+;`,"u"))[0],treeRuntime);
+for (const name of ["huayuTreeCircleGeometry","huayuTreeModelParts","huayuWoodlandTreeCenters"])
+  vm.runInContext(declaration(name),treeRuntime);
+const woodland=way(300,{natural:"wood"},142,24,0.002,0.002);
+const woodlandGeometry={type:"Polygon",coordinates:[woodland.geometry.map(p => [p.lon,p.lat])]};
+const trees=treeRuntime.huayuWoodlandTreeCenters(woodland,woodlandGeometry,18000);
+assert.equal(trees.length,10,"woodland areas use approximately one tree per 1800 square metres");
+const fullFootprint=treeRuntime.huayuWoodlandTreeCenters(woodland,woodlandGeometry,200000);
+assert.ok(fullFootprint.some(point => point[1]>24.0016) && fullFootprint.some(point => point[1]<24.0004),
+  "area trees cover both ends of the footprint rather than stopping after the first grid rows");
+const pointInPolygon=treeRuntime.huayuPointInPolygonGeometry;
+let candidateChecks=0;
+treeRuntime.huayuPointInPolygonGeometry=(...args) => {candidateChecks++;return pointInPolygon(...args);};
+const thinWoodland={type:"Polygon",coordinates:[[[142,24],[143,24],[143,24.00001],[142,24.00001],[142,24]]]};
+const thinTrees=treeRuntime.huayuWoodlandTreeCenters(woodland,thinWoodland,200000);
+assert.ok(thinTrees.length<=96 && candidateChecks<=288,"extreme aspect ratios keep the full-footprint sampling budget bounded");
+treeRuntime.huayuPointInPolygonGeometry=pointInPolygon;
+assert.equal(JSON.stringify(trees),JSON.stringify(treeRuntime.huayuWoodlandTreeCenters(woodland,woodlandGeometry,18000)),
+  "denser trees remain fixed when the map is revisited");
+const treeHoles={type:"MultiPolygon",coordinates:[
+  [woodlandGeometry.coordinates[0],[[142.0005,24.0005],[142.0015,24.0005],[142.0015,24.0015],
+    [142.0005,24.0015],[142.0005,24.0005]]],
+  [way(301,{},142.003,24,0.002,0.002).geometry.map(p => [p.lon,p.lat])]]};
+const holeTrees=treeRuntime.huayuWoodlandTreeCenters(woodland,treeHoles,200000);
+assert.ok(holeTrees.length>72 && holeTrees.length<=96,"dense woodland respects the new per-area limit");
+assert.ok(holeTrees.every(point => treeRuntime.huayuPointInPolygonGeometry(point,treeHoles)),
+  "denser woodland never fills multipolygon holes or grows outside the actual boundary");
+const mappedTree={type:"node",id:302,lon:142.01,lat:24,tags:{natural:"tree",height:"12","crown:diameter":"6"}};
+const mapped=treeRuntime.huayuLiveBasemapFeatureCollection([mappedTree]);
+assert.equal(mapped.features.length,2,"mapped point trees still contain only one trunk and one canopy");
+assert.ok(mapped.features.every(f => f.properties.treeOrigin === "mapped"));
+assert.equal(mapped.features.find(f => f.properties.renderKind === "tree-canopy").properties.treeHeight,12);
+const treeTile=treeRuntime.huayuLiveBasemapFeatureCollection(Array.from({length:12},(_,i) =>
+  way(400+i,{natural:"wood"},142+i*0.004,24,0.003,0.003)));
+assert.equal(treeTile.features.filter(f => f.properties.renderKind === "tree-canopy").length,320,
+  "all area trees share one bounded live-basemap batch");
+assert.equal(treeRuntime.huayuLiveBasemapFeatureCollection([woodland],{includeMountainRelief:true}).features
+  .some(f => f.properties.renderKind?.startsWith("tree-")),false,"regional mountain snapshots never gain close tree geometry");
 
 // Late buildings must only refresh planting when the visible model changes.
 // They must not trigger another upload/rebuild of roads and mountain material.
@@ -91,9 +146,11 @@ const factory=vm.createContext({});
 const names=declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1].split(",").map(s => s.trim());
 for(const name of [...names,"createHuayuGardenModels","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
   vm.runInContext(declaration(name),factory);
-// Pin the published 6.6.1 algorithms without depending on local release archives.
+// Structure import adds explicit pavilion ground bases and normalized wall
+// colour tags. That intentionally invalidates old model metadata, while garden
+// changes must still use their independent cache/version below.
 assert.equal(createHash("sha256").update(names.map(name=>factory[name].toString()).join("\n")).digest("hex"),
-  "0bb77c4c9ed8dc06d5514067a11f0db813fac5020b620b1d3c69f10f3f4ae446",
+  "81a7d82ba426f87627666439a4a41f484cd3117779acddc3972cd0118032d118",
   "garden changes preserve the exact existing building/structure cache algorithms");
 const worker=new Worker(`const {parentPort}=require("node:worker_threads");
 global.self={postMessage:value=>parentPort.postMessage(value)};
