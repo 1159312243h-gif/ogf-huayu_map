@@ -25,6 +25,14 @@ const liveBasemapRefreshes = new Map();
 const terrainTileRefreshes = new Map();
 const transitTileRefreshes = new Map();
 const structureTileRefreshes = new Map();
+const PERSONAL_SESSION_COOKIE = "huayu_session";
+const PERSONAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
+const PERSONAL_PASSWORD_ITERATIONS = 120000;
+const PERSONAL_MAX_JSON_BYTES = 64 * 1024;
+const PERSONAL_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const PERSONAL_MAX_OVERLAYS = 50;
+const PERSONAL_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const textEncoder = new TextEncoder();
 
 function buildingTileBounds(z, x, y) {
   const scale = 2 ** z;
@@ -714,6 +722,307 @@ function refreshTransitTile(cacheKey, kind, z, x, y) {
   return refresh;
 }
 
+function personalJson(payload, status = 200, headers = {}) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=UTF-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      ...headers,
+    },
+  });
+}
+
+function bytesToHex(bytes) {
+  return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  new Uint8Array(bytes).forEach((value) => { binary += String.fromCharCode(value); });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+function randomToken(size = 32) {
+  return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(size)));
+}
+
+async function sha256Hex(value) {
+  return bytesToHex(await crypto.subtle.digest("SHA-256", textEncoder.encode(String(value))));
+}
+
+async function hashPassword(password, saltHex, iterations = PERSONAL_PASSWORD_ITERATIONS) {
+  const salt = new Uint8Array(String(saltHex).match(/.{1,2}/gu)?.map((value) => Number.parseInt(value, 16)) || []);
+  const key = await crypto.subtle.importKey("raw", textEncoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  return bytesToHex(await crypto.subtle.deriveBits({
+    name: "PBKDF2",
+    hash: "SHA-256",
+    salt,
+    iterations,
+  }, key, 256));
+}
+
+function constantTimeEqual(left, right) {
+  const a = String(left);
+  const b = String(right);
+  let difference = a.length ^ b.length;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (a.charCodeAt(index % Math.max(a.length, 1)) || 0)
+      ^ (b.charCodeAt(index % Math.max(b.length, 1)) || 0);
+  }
+  return difference === 0;
+}
+
+function normalizeUsername(value) {
+  return String(value || "").trim().normalize("NFKC").toLocaleLowerCase("en-US");
+}
+
+function validateUsername(value) {
+  const username = String(value || "").trim().normalize("NFKC");
+  return /^[\p{L}\p{N}_-]{3,32}$/u.test(username) ? username : null;
+}
+
+function validatePassword(value) {
+  const password = String(value || "");
+  return password.length >= 10 && password.length <= 128 && password.trim().length >= 1;
+}
+
+function validateOverlayBounds(value) {
+  const bounds = {
+    west: Number(value?.west),
+    south: Number(value?.south),
+    east: Number(value?.east),
+    north: Number(value?.north),
+  };
+  if (!Object.values(bounds).every(Number.isFinite)
+    || bounds.west < -180 || bounds.east > 180 || bounds.south < -85 || bounds.north > 85
+    || bounds.east - bounds.west < 0.000001 || bounds.north - bounds.south < 0.000001
+    || bounds.east - bounds.west > 30 || bounds.north - bounds.south > 30) return null;
+  return bounds;
+}
+
+function validImageSignature(bytes, type) {
+  const data = new Uint8Array(bytes);
+  if (type === "image/png") {
+    return [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+      .every((value, index) => data[index] === value);
+  }
+  if (type === "image/jpeg") return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  if (type === "image/webp") {
+    return String.fromCharCode(...data.slice(0, 4)) === "RIFF"
+      && String.fromCharCode(...data.slice(8, 12)) === "WEBP";
+  }
+  return false;
+}
+
+function parseCookie(request, name) {
+  const cookie = request.headers.get("Cookie") || "";
+  const entry = cookie.split(";").map((item) => item.trim())
+    .find((item) => item.startsWith(`${name}=`));
+  return entry ? decodeURIComponent(entry.slice(name.length + 1)) : "";
+}
+
+function sessionCookie(value, maxAge = PERSONAL_SESSION_SECONDS) {
+  return `${PERSONAL_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+}
+
+function personalBindingsAvailable(environment, requireImages = false) {
+  return Boolean(environment?.DB && (!requireImages || environment?.USER_IMAGES));
+}
+
+function bootstrapAdminUsernames(environment) {
+  return new Set(String(environment?.ADMIN_USERNAMES || "").split(",")
+    .map(normalizeUsername).filter(Boolean));
+}
+
+function publicUser(user, environment) {
+  const role = user?.role === "admin" || bootstrapAdminUsernames(environment).has(user?.username_normalized)
+    ? "admin" : "user";
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.display_name,
+    role,
+    createdAt: user.created_at,
+  };
+}
+
+async function readJsonBody(request) {
+  const length = Number(request.headers.get("Content-Length") || 0);
+  if (length > PERSONAL_MAX_JSON_BYTES) throw Object.assign(new Error("payload_too_large"), { status: 413 });
+  try {
+    return await request.json();
+  } catch {
+    throw Object.assign(new Error("invalid_json"), { status: 400 });
+  }
+}
+
+function sameOriginMutation(request) {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return true;
+  if (request.headers.get("Sec-Fetch-Site") === "cross-site") return false;
+  const origin = request.headers.get("Origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).origin === new URL(request.url).origin;
+  } catch {
+    return false;
+  }
+}
+
+async function currentPersonalUser(request, environment) {
+  const token = parseCookie(request, PERSONAL_SESSION_COOKIE);
+  if (!token) return null;
+  const tokenHash = await sha256Hex(token);
+  const now = Date.now();
+  const user = await environment.DB.prepare(`SELECT users.*, sessions.id AS session_id
+    FROM sessions JOIN users ON users.id = sessions.user_id
+    WHERE sessions.id = ? AND sessions.expires_at > ? AND users.disabled = 0`)
+    .bind(tokenHash, now).first();
+  if (!user) return null;
+  user.session_id = tokenHash;
+  return user;
+}
+
+async function requirePersonalUser(request, environment) {
+  const user = await currentPersonalUser(request, environment);
+  if (!user) throw Object.assign(new Error("authentication_required"), { status: 401 });
+  return user;
+}
+
+async function createPersonalSession(environment, userId) {
+  const token = randomToken();
+  const now = Date.now();
+  await environment.DB.batch([
+    environment.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(now),
+    environment.DB.prepare(`INSERT INTO sessions
+      (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+      .bind(await sha256Hex(token), userId, now, now + PERSONAL_SESSION_SECONDS * 1000),
+  ]);
+  return token;
+}
+
+function normalizedSearchHistory(items) {
+  const seen = new Set();
+  return (Array.isArray(items) ? items : []).map((item) => String(item || "").trim()).filter((item) => {
+    const key = item.normalize("NFKC").toLocaleLowerCase("zh-CN");
+    if (!item || item.length > 200 || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 10);
+}
+
+function normalizedFavorites(items) {
+  const source = items && typeof items === "object" && !Array.isArray(items) ? items : {};
+  return Object.entries(source).slice(0, 200).flatMap(([key, place]) => {
+    const lat = Number(place?.lat);
+    const lng = Number(place?.lng);
+    if (!key || key.length > 100 || !Number.isFinite(lat) || !Number.isFinite(lng)
+      || Math.abs(lat) > 85 || Math.abs(lng) > 180) return [];
+    return [[key, {
+      lat,
+      lng,
+      zoom: Number.isFinite(Number(place.zoom)) ? Math.min(20, Math.max(1, Number(place.zoom))) : 13,
+      label: String(place.label || "收藏地点").slice(0, 200),
+    }]];
+  });
+}
+
+async function personalDataForUser(environment, userId) {
+  const [historyResult, favoriteResult, overlayResult] = await Promise.all([
+    environment.DB.prepare(`SELECT query FROM search_history WHERE user_id = ?
+      ORDER BY updated_at DESC LIMIT 10`).bind(userId).all(),
+    environment.DB.prepare(`SELECT favorite_key, payload FROM favorites WHERE user_id = ?
+      ORDER BY updated_at DESC LIMIT 200`).bind(userId).all(),
+    environment.DB.prepare(`SELECT id, name, mime_type, byte_size, west, south, east, north,
+      opacity, visible, created_at, updated_at FROM image_overlays WHERE user_id = ?
+      ORDER BY created_at DESC`).bind(userId).all(),
+  ]);
+  const favorites = {};
+  (favoriteResult.results || []).forEach((item) => {
+    try { favorites[item.favorite_key] = JSON.parse(item.payload); } catch {}
+  });
+  return {
+    searchHistory: (historyResult.results || []).map((item) => item.query),
+    favorites,
+    overlays: (overlayResult.results || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      mimeType: item.mime_type,
+      byteSize: item.byte_size,
+      bounds: { west: item.west, south: item.south, east: item.east, north: item.north },
+      opacity: item.opacity,
+      visible: Boolean(item.visible),
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+      imageUrl: `/api/overlays/${encodeURIComponent(item.id)}/image`,
+    })),
+  };
+}
+
+async function replaceSearchHistory(environment, userId, items) {
+  const queries = normalizedSearchHistory(items);
+  const now = Date.now();
+  await environment.DB.batch([
+    environment.DB.prepare("DELETE FROM search_history WHERE user_id = ?").bind(userId),
+    ...queries.map((query, index) => environment.DB.prepare(`INSERT INTO search_history
+      (user_id, query_key, query, updated_at) VALUES (?, ?, ?, ?)`)
+      .bind(userId, query.normalize("NFKC").toLocaleLowerCase("zh-CN"), query, now - index)),
+  ]);
+  return queries;
+}
+
+async function replaceFavorites(environment, userId, items) {
+  const favorites = normalizedFavorites(items);
+  const now = Date.now();
+  await environment.DB.batch([
+    environment.DB.prepare("DELETE FROM favorites WHERE user_id = ?").bind(userId),
+    ...favorites.map(([key, place], index) => environment.DB.prepare(`INSERT INTO favorites
+      (user_id, favorite_key, payload, updated_at) VALUES (?, ?, ?, ?)`)
+      .bind(userId, key, JSON.stringify(place), now - index)),
+  ]);
+  return Object.fromEntries(favorites);
+}
+
+async function mergePersonalData(environment, userId, payload) {
+  const localHistory = normalizedSearchHistory(payload?.searchHistory);
+  const localFavorites = normalizedFavorites(payload?.favorites);
+  const now = Date.now();
+  const statements = [];
+  localHistory.forEach((query, index) => {
+    statements.push(environment.DB.prepare(`INSERT INTO search_history
+      (user_id, query_key, query, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, query_key) DO UPDATE SET query = excluded.query,
+      updated_at = MAX(search_history.updated_at, excluded.updated_at)`)
+      .bind(userId, query.normalize("NFKC").toLocaleLowerCase("zh-CN"), query, now - index));
+  });
+  localFavorites.forEach(([key, place], index) => {
+    statements.push(environment.DB.prepare(`INSERT INTO favorites
+      (user_id, favorite_key, payload, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, favorite_key) DO UPDATE SET payload = excluded.payload,
+      updated_at = MAX(favorites.updated_at, excluded.updated_at)`)
+      .bind(userId, key, JSON.stringify(place), now - index));
+  });
+  if (statements.length) await environment.DB.batch(statements);
+  return personalDataForUser(environment, userId);
+}
+
+async function deleteUserData(environment, userId) {
+  const overlays = await environment.DB.prepare("SELECT object_key FROM image_overlays WHERE user_id = ?")
+    .bind(userId).all();
+  if (environment.USER_IMAGES) {
+    await Promise.all((overlays.results || []).map((item) => environment.USER_IMAGES.delete(item.object_key)));
+  }
+  await environment.DB.batch([
+    environment.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+    environment.DB.prepare("DELETE FROM search_history WHERE user_id = ?").bind(userId),
+    environment.DB.prepare("DELETE FROM favorites WHERE user_id = ?").bind(userId),
+    environment.DB.prepare("DELETE FROM image_overlays WHERE user_id = ?").bind(userId),
+    environment.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId),
+  ]);
+}
+
 async function fetchTransitTile(request, context, kind, z, x, y) {
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -761,9 +1070,332 @@ async function fetchTransitTile(request, context, kind, z, x, y) {
   }
 }
 
+async function handleAuthApi(request, environment, url) {
+  if (url.pathname === "/api/auth/session" && request.method === "GET") {
+    const user = await currentPersonalUser(request, environment);
+    if (!user) return personalJson({ user: null }, 401);
+    const data = await personalDataForUser(environment, user.id);
+    return personalJson({ user: publicUser(user, environment), ...data });
+  }
+  if (url.pathname === "/api/auth/register" && request.method === "POST") {
+    const body = await readJsonBody(request);
+    const username = validateUsername(body.username);
+    const password = String(body.password || "");
+    const displayName = String(body.displayName || username || "").trim().slice(0, 40);
+    if (!username) return personalJson({ error: "invalid_username" }, 400);
+    if (!validatePassword(password)) return personalJson({ error: "invalid_password" }, 400);
+    const usernameNormalized = normalizeUsername(username);
+    if (await environment.DB.prepare("SELECT id FROM users WHERE username_normalized = ?")
+      .bind(usernameNormalized).first()) return personalJson({ error: "username_taken" }, 409);
+    const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+    const now = Date.now();
+    const user = {
+      id: crypto.randomUUID(), username, username_normalized: usernameNormalized,
+      display_name: displayName || username, role: "user", created_at: now,
+    };
+    try {
+      await environment.DB.prepare(`INSERT INTO users
+        (id, username, username_normalized, display_name, password_salt, password_hash,
+          password_iterations, role, disabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)`)
+        .bind(user.id, user.username, user.username_normalized, user.display_name, salt,
+          await hashPassword(password, salt), PERSONAL_PASSWORD_ITERATIONS, now, now).run();
+    } catch (error) {
+      if (/unique|constraint/iu.test(String(error?.message || error))) {
+        return personalJson({ error: "username_taken" }, 409);
+      }
+      throw error;
+    }
+    const token = await createPersonalSession(environment, user.id);
+    return personalJson({ user: publicUser(user, environment), searchHistory: [], favorites: {}, overlays: [] },
+      201, { "Set-Cookie": sessionCookie(token) });
+  }
+  if (url.pathname === "/api/auth/login" && request.method === "POST") {
+    const body = await readJsonBody(request);
+    const usernameNormalized = normalizeUsername(body.username);
+    const password = String(body.password || "");
+    const user = await environment.DB.prepare("SELECT * FROM users WHERE username_normalized = ?")
+      .bind(usernameNormalized).first();
+    const fallbackSalt = "00000000000000000000000000000000";
+    const candidate = await hashPassword(password, user?.password_salt || fallbackSalt,
+      Number(user?.password_iterations) || PERSONAL_PASSWORD_ITERATIONS);
+    if (!user || user.disabled || !constantTimeEqual(candidate, user.password_hash)) {
+      return personalJson({ error: "invalid_credentials" }, 401);
+    }
+    const token = await createPersonalSession(environment, user.id);
+    const data = await personalDataForUser(environment, user.id);
+    return personalJson({ user: publicUser(user, environment), ...data }, 200,
+      { "Set-Cookie": sessionCookie(token) });
+  }
+  if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+    const token = parseCookie(request, PERSONAL_SESSION_COOKIE);
+    if (token) await environment.DB.prepare("DELETE FROM sessions WHERE id = ?")
+      .bind(await sha256Hex(token)).run();
+    return personalJson({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+  }
+  return null;
+}
+
+async function handleAccountApi(request, environment, url) {
+  if (url.pathname === "/api/account" && request.method === "PATCH") {
+    const user = await requirePersonalUser(request, environment);
+    const body = await readJsonBody(request);
+    const displayName = String(body.displayName ?? user.display_name).trim().slice(0, 40);
+    if (!displayName) return personalJson({ error: "invalid_display_name" }, 400);
+    if (body.newPassword != null) {
+      const currentCandidate = await hashPassword(String(body.currentPassword || ""), user.password_salt,
+        Number(user.password_iterations));
+      if (!constantTimeEqual(currentCandidate, user.password_hash)) {
+        return personalJson({ error: "invalid_current_password" }, 403);
+      }
+      if (!validatePassword(body.newPassword)) return personalJson({ error: "invalid_password" }, 400);
+      const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+      await environment.DB.batch([
+        environment.DB.prepare(`UPDATE users SET display_name = ?, password_salt = ?, password_hash = ?,
+          password_iterations = ?, updated_at = ? WHERE id = ?`)
+          .bind(displayName, salt, await hashPassword(String(body.newPassword), salt),
+            PERSONAL_PASSWORD_ITERATIONS, Date.now(), user.id),
+        environment.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND id <> ?")
+          .bind(user.id, user.session_id),
+      ]);
+    } else {
+      await environment.DB.prepare("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?")
+        .bind(displayName, Date.now(), user.id).run();
+    }
+    user.display_name = displayName;
+    return personalJson({ user: publicUser(user, environment) });
+  }
+  if (url.pathname === "/api/account" && request.method === "DELETE") {
+    const user = await requirePersonalUser(request, environment);
+    const body = await readJsonBody(request);
+    const candidate = await hashPassword(String(body.password || ""), user.password_salt,
+      Number(user.password_iterations));
+    if (!constantTimeEqual(candidate, user.password_hash)) {
+      return personalJson({ error: "invalid_current_password" }, 403);
+    }
+    await deleteUserData(environment, user.id);
+    return personalJson({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+  }
+  return null;
+}
+
+async function handlePersonalDataApi(request, environment, url) {
+  if (url.pathname === "/api/personal/sync" && request.method === "POST") {
+    const user = await requirePersonalUser(request, environment);
+    return personalJson(await mergePersonalData(environment, user.id, await readJsonBody(request)));
+  }
+  if (url.pathname === "/api/personal/search-history" && request.method === "PUT") {
+    const user = await requirePersonalUser(request, environment);
+    const body = await readJsonBody(request);
+    return personalJson({ searchHistory: await replaceSearchHistory(environment, user.id, body.items) });
+  }
+  if (url.pathname === "/api/personal/favorites" && request.method === "PUT") {
+    const user = await requirePersonalUser(request, environment);
+    const body = await readJsonBody(request);
+    return personalJson({ favorites: await replaceFavorites(environment, user.id, body.items) });
+  }
+  return null;
+}
+
+async function handleOverlayApi(request, environment, url) {
+  const imageMatch = url.pathname.match(/^\/api\/overlays\/([^/]+)\/image$/u);
+  if (imageMatch && request.method === "GET") {
+    const user = await requirePersonalUser(request, environment);
+    const overlay = await environment.DB.prepare(`SELECT object_key, mime_type FROM image_overlays
+      WHERE id = ? AND user_id = ?`).bind(decodeURIComponent(imageMatch[1]), user.id).first();
+    if (!overlay) return personalJson({ error: "overlay_not_found" }, 404);
+    const object = await environment.USER_IMAGES.get(overlay.object_key);
+    if (!object) return personalJson({ error: "image_not_found" }, 404);
+    const headers = new Headers({
+      "Content-Type": overlay.mime_type,
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (object.httpEtag) headers.set("ETag", object.httpEtag);
+    return new Response(object.body, { headers });
+  }
+  if (url.pathname === "/api/overlays" && request.method === "GET") {
+    const user = await requirePersonalUser(request, environment);
+    return personalJson({ overlays: (await personalDataForUser(environment, user.id)).overlays });
+  }
+  if (url.pathname === "/api/overlays" && request.method === "POST") {
+    const user = await requirePersonalUser(request, environment);
+    const count = await environment.DB.prepare("SELECT COUNT(*) AS total FROM image_overlays WHERE user_id = ?")
+      .bind(user.id).first();
+    if (Number(count?.total || 0) >= PERSONAL_MAX_OVERLAYS) {
+      return personalJson({ error: "overlay_limit_reached" }, 409);
+    }
+    const contentLength = Number(request.headers.get("Content-Length") || 0);
+    if (contentLength > PERSONAL_MAX_IMAGE_BYTES + 128 * 1024) {
+      return personalJson({ error: "image_too_large" }, 413);
+    }
+    const form = await request.formData();
+    const image = form.get("image");
+    if (!image || typeof image.arrayBuffer !== "function" || !PERSONAL_IMAGE_TYPES.has(image.type)) {
+      return personalJson({ error: "invalid_image" }, 400);
+    }
+    if (image.size <= 0 || image.size > PERSONAL_MAX_IMAGE_BYTES) {
+      return personalJson({ error: "image_too_large" }, 413);
+    }
+    const bounds = validateOverlayBounds({
+      west: form.get("west"), south: form.get("south"), east: form.get("east"), north: form.get("north"),
+    });
+    if (!bounds) return personalJson({ error: "invalid_bounds" }, 400);
+    const opacity = Math.min(1, Math.max(0.1, Number(form.get("opacity")) || 0.75));
+    const id = crypto.randomUUID();
+    const extension = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[image.type];
+    const objectKey = `users/${user.id}/overlays/${id}.${extension}`;
+    const name = String(form.get("name") || image.name || "地图贴图").trim().slice(0, 100) || "地图贴图";
+    const bytes = await image.arrayBuffer();
+    if (!validImageSignature(bytes, image.type)) return personalJson({ error: "invalid_image" }, 400);
+    await environment.USER_IMAGES.put(objectKey, bytes, {
+      httpMetadata: { contentType: image.type },
+      customMetadata: { userId: user.id, overlayId: id },
+    });
+    const now = Date.now();
+    try {
+      await environment.DB.prepare(`INSERT INTO image_overlays
+        (id, user_id, name, object_key, mime_type, byte_size, west, south, east, north,
+          opacity, visible, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+        .bind(id, user.id, name, objectKey, image.type, image.size, bounds.west, bounds.south,
+          bounds.east, bounds.north, opacity, now, now).run();
+    } catch (error) {
+      await environment.USER_IMAGES.delete(objectKey);
+      throw error;
+    }
+    return personalJson({ overlay: {
+      id, name, mimeType: image.type, byteSize: image.size, bounds, opacity, visible: true,
+      createdAt: now, updatedAt: now, imageUrl: `/api/overlays/${encodeURIComponent(id)}/image`,
+    } }, 201);
+  }
+  const overlayMatch = url.pathname.match(/^\/api\/overlays\/([^/]+)$/u);
+  if (overlayMatch && request.method === "PATCH") {
+    const user = await requirePersonalUser(request, environment);
+    const id = decodeURIComponent(overlayMatch[1]);
+    const existing = await environment.DB.prepare("SELECT * FROM image_overlays WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).first();
+    if (!existing) return personalJson({ error: "overlay_not_found" }, 404);
+    const body = await readJsonBody(request);
+    const name = body.name == null ? existing.name : String(body.name).trim().slice(0, 100);
+    const opacity = body.opacity == null ? existing.opacity : Math.min(1, Math.max(0.1, Number(body.opacity)));
+    const visible = body.visible == null ? existing.visible : Number(Boolean(body.visible));
+    if (!name || !Number.isFinite(opacity)) return personalJson({ error: "invalid_overlay" }, 400);
+    const now = Date.now();
+    await environment.DB.prepare(`UPDATE image_overlays SET name = ?, opacity = ?, visible = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?`).bind(name, opacity, visible, now, id, user.id).run();
+    return personalJson({ ok: true, updatedAt: now });
+  }
+  if (overlayMatch && request.method === "DELETE") {
+    const user = await requirePersonalUser(request, environment);
+    const id = decodeURIComponent(overlayMatch[1]);
+    const existing = await environment.DB.prepare(`SELECT object_key FROM image_overlays
+      WHERE id = ? AND user_id = ?`).bind(id, user.id).first();
+    if (!existing) return personalJson({ error: "overlay_not_found" }, 404);
+    await environment.USER_IMAGES.delete(existing.object_key);
+    await environment.DB.prepare("DELETE FROM image_overlays WHERE id = ? AND user_id = ?")
+      .bind(id, user.id).run();
+    return personalJson({ ok: true });
+  }
+  return null;
+}
+
+async function handleAdminApi(request, environment, url) {
+  if (!url.pathname.startsWith("/api/admin/")) return null;
+  const admin = await requirePersonalUser(request, environment);
+  if (publicUser(admin, environment).role !== "admin") {
+    return personalJson({ error: "administrator_required" }, 403);
+  }
+  if (url.pathname === "/api/admin/users" && request.method === "GET") {
+    const result = await environment.DB.prepare(`SELECT users.id, users.username, users.username_normalized,
+      users.display_name, users.role, users.disabled, users.created_at,
+      (SELECT COUNT(*) FROM search_history WHERE user_id = users.id) AS search_count,
+      (SELECT COUNT(*) FROM favorites WHERE user_id = users.id) AS favorite_count,
+      (SELECT COUNT(*) FROM image_overlays WHERE user_id = users.id) AS overlay_count
+      FROM users ORDER BY users.created_at DESC LIMIT 500`).all();
+    return personalJson({ users: (result.results || []).map((user) => ({
+      id: user.id,
+      username: user.username,
+      displayName: user.display_name,
+      role: publicUser(user, environment).role,
+      disabled: Boolean(user.disabled),
+      createdAt: user.created_at,
+      searchCount: user.search_count,
+      favoriteCount: user.favorite_count,
+      overlayCount: user.overlay_count,
+    })) });
+  }
+  const match = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/u);
+  if (match && request.method === "PATCH") {
+    const id = decodeURIComponent(match[1]);
+    const body = await readJsonBody(request);
+    if (id === admin.id && (body.disabled === true || body.role === "user")) {
+      return personalJson({ error: "cannot_lock_current_admin" }, 409);
+    }
+    const target = await environment.DB.prepare("SELECT id FROM users WHERE id = ?").bind(id).first();
+    if (!target) return personalJson({ error: "user_not_found" }, 404);
+    const statements = [];
+    if (body.disabled != null) statements.push(environment.DB.prepare(
+      "UPDATE users SET disabled = ?, updated_at = ? WHERE id = ?",
+    ).bind(Number(Boolean(body.disabled)), Date.now(), id));
+    if (["user", "admin"].includes(body.role)) statements.push(environment.DB.prepare(
+      "UPDATE users SET role = ?, updated_at = ? WHERE id = ?",
+    ).bind(body.role, Date.now(), id));
+    if (!statements.length) return personalJson({ error: "invalid_user_update" }, 400);
+    await environment.DB.batch(statements);
+    if (body.disabled === true) await environment.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id).run();
+    return personalJson({ ok: true });
+  }
+  if (match && request.method === "DELETE") {
+    const id = decodeURIComponent(match[1]);
+    if (id === admin.id) return personalJson({ error: "cannot_delete_current_admin" }, 409);
+    if (!await environment.DB.prepare("SELECT id FROM users WHERE id = ?").bind(id).first()) {
+      return personalJson({ error: "user_not_found" }, 404);
+    }
+    await deleteUserData(environment, id);
+    return personalJson({ ok: true });
+  }
+  return null;
+}
+
+async function handlePersonalApi(request, environment) {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/api/auth/") && url.pathname !== "/api/account"
+    && !url.pathname.startsWith("/api/personal/") && !url.pathname.startsWith("/api/overlays")
+    && !url.pathname.startsWith("/api/admin/")) return null;
+  if (!personalBindingsAvailable(environment, url.pathname.startsWith("/api/overlays")
+    || request.method === "DELETE")) {
+    return personalJson({ error: "personal_data_service_not_configured" }, 503);
+  }
+  if (!sameOriginMutation(request)) return personalJson({ error: "cross_origin_request_blocked" }, 403);
+  try {
+    return await handleAuthApi(request, environment, url)
+      || await handleAccountApi(request, environment, url)
+      || await handlePersonalDataApi(request, environment, url)
+      || await handleOverlayApi(request, environment, url)
+      || await handleAdminApi(request, environment, url)
+      || personalJson({ error: "not_found" }, 404);
+  } catch (error) {
+    const status = Number(error?.status) || 500;
+    if (status >= 500) console.error("Personal data API failure", error);
+    return personalJson({ error: status >= 500 ? "personal_data_failure" : String(error?.message || "request_failed") }, status);
+  }
+}
+
+export {
+  hashPassword,
+  parseCookie,
+  validateOverlayBounds,
+  validatePassword,
+  validateUsername,
+  validImageSignature,
+};
+
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
+    const personalResponse = await handlePersonalApi(request, environment);
+    if (personalResponse) return personalResponse;
     if (url.pathname === "/terrain-preload.json.gz"
       || (["/terrain-preload-chunks/", "/terrain-render-cache/"].some(prefix => url.pathname.startsWith(prefix))
         && url.pathname.endsWith(".json.gz"))) {

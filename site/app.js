@@ -1588,6 +1588,7 @@
   });
 
   map.on("click", (event) => {
+    if (window.HuayuPersonalData?.isPickingBounds()) return;
     if (administrativeBoxPicking) {
       handleAdministrativeBoxPick(event.latlng);
       return;
@@ -1710,9 +1711,12 @@
       showToast("已取消收藏");
     } else {
       favorites[key] = selectedPlace;
-      showToast("已收藏到此浏览器");
+      showToast(window.HuayuPersonalData?.isAuthenticated() ? "已保存到账号" : "已收藏到此浏览器");
     }
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+    window.dispatchEvent(new CustomEvent("huayu:personal-data-changed", {
+      detail: { kind: "favorites", items: favorites },
+    }));
     updateFavoriteState();
   });
 
@@ -2144,11 +2148,15 @@
   }
 
   function setSearchHistory(history) {
+    const items = history.slice(0, SEARCH_HISTORY_LIMIT);
     try {
-      window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history.slice(0, SEARCH_HISTORY_LIMIT)));
+      window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(items));
     } catch {
       // Search continues to work when browser storage is unavailable.
     }
+    window.dispatchEvent(new CustomEvent("huayu:personal-data-changed", {
+      detail: { kind: "search-history", items },
+    }));
   }
 
   function rememberSearchQuery(query) {
@@ -14305,6 +14313,11 @@
       showFavorites();
       return;
     }
+    if (action === "overlays" || action === "account") {
+      showView(action);
+      window.HuayuPersonalData?.renderView(action);
+      return;
+    }
     if (action === "about") showView("about");
   }
 
@@ -14322,7 +14335,10 @@
       directions: ["OGF OSRM", "道路导航", "起终点、路线与步骤均在本页"],
       measure: ["地图量算", "测量", "距离、周长与面积"],
       transit: ["OGF OVERPASS", "公共交通", "公交、地铁、电车与铁路"],
-      favorites: ["本机浏览器", "收藏地点", "仅保存在当前浏览器"],
+      favorites: [window.HuayuPersonalData?.isAuthenticated() ? "个人账号" : "本机浏览器", "收藏地点",
+        window.HuayuPersonalData?.isAuthenticated() ? "已同步到当前账号" : "登录后可同步保存"],
+      overlays: ["个人账号", "地图贴图", "图片、范围与显示状态"],
+      account: ["华域地图", "个人账号", "登录、注册与账号管理"],
       about: ["华域地图", "关于地图", "实时 OGF 数据 · 站内交互"],
       download: ["华域地图 · OPEN GEOFICTION", "地图下载", ""],
       settings: ["华域地图", "地图设置", ""],
@@ -17843,9 +17859,10 @@
     const favorites = Object.values(getFavorites());
     showView("favorites");
     elements.savedList.replaceChildren();
+    const storageLabel = window.HuayuPersonalData?.isAuthenticated() ? "，已同步到当前账号" : "，登录后可同步保存";
     elements.favoritesStatus.textContent = favorites.length
-      ? `共 ${favorites.length} 个收藏地点，选择后会在地图中定位。`
-      : "尚未收藏地点。点击地图后，可在地点面板中收藏。";
+      ? `共 ${favorites.length} 个收藏地点${storageLabel}。`
+      : `尚未收藏地点${storageLabel}。`;
 
     favorites.forEach((place) => {
       const button = createResultButton({
@@ -32632,4 +32649,34 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
   }
+
+  function applyPersonalDataSnapshot(snapshot = {}) {
+    try {
+      if (Array.isArray(snapshot.searchHistory)) {
+        window.localStorage.setItem(SEARCH_HISTORY_KEY,
+          JSON.stringify(snapshot.searchHistory.slice(0, SEARCH_HISTORY_LIMIT)));
+      }
+      if (snapshot.favorites && typeof snapshot.favorites === "object") {
+        window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(snapshot.favorites));
+      }
+    } catch {
+      // The signed-in service still retains data when local browser storage is unavailable.
+    }
+    updateFavoriteState();
+    if (currentView === "favorites") showFavorites();
+    if (!elements.searchHistoryMenu.hidden) renderSearchHistory(elements.searchInput.value);
+  }
+
+  window.HuayuAtlas = Object.freeze({
+    applyPersonalDataSnapshot,
+    getCurrentView: () => currentView,
+    getFavorites,
+    getSearchHistory,
+    hidePanel,
+    map,
+    refreshIcons,
+    showPanel,
+    showToast,
+  });
+  window.dispatchEvent(new CustomEvent("huayu:map-ready"));
 })();

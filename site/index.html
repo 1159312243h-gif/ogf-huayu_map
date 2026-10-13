@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-huayu-model-options-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-huayu-personal-data-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -27,8 +27,10 @@
           <button class="rail-button" type="button" data-action="transit"><i data-lucide="train-front" aria-hidden="true"></i><span>线路</span></button>
           <button class="rail-button" type="button" data-action="measure"><i data-lucide="ruler" aria-hidden="true"></i><span>测量</span></button>
           <button class="rail-button" type="button" data-action="favorites"><i data-lucide="bookmark" aria-hidden="true"></i><span>收藏</span></button>
+          <button class="rail-button" type="button" data-action="overlays"><i data-lucide="image-up" aria-hidden="true"></i><span>贴图</span></button>
           <button class="rail-button" type="button" data-action="download"><i data-lucide="download" aria-hidden="true"></i><span>下载</span></button>
           <button class="rail-button" type="button" data-action="settings"><i data-lucide="settings-2" aria-hidden="true"></i><span>设置</span></button>
+          <button class="rail-button" type="button" data-action="account"><i data-lucide="circle-user-round" aria-hidden="true"></i><span>账号</span></button>
         </div>
         <button class="rail-button rail-about" type="button" data-action="about"><i data-lucide="info" aria-hidden="true"></i><span>关于</span></button>
       </nav>
@@ -470,6 +472,81 @@
           <div id="saved-list" class="saved-list"></div>
         </section>
 
+        <section id="overlays-view" class="panel-view personal-view" data-view="overlays" hidden>
+          <div class="source-note"><i data-lucide="image-up" aria-hidden="true"></i><span>个人地图贴图</span></div>
+          <p id="overlay-auth-status" class="view-status" aria-live="polite"></p>
+          <form id="overlay-upload-form" class="personal-form" hidden>
+            <label class="personal-field" for="overlay-name"><span>名称</span><input id="overlay-name" name="name" type="text" maxlength="100" placeholder="贴图名称" /></label>
+            <label class="personal-file-field" for="overlay-image">
+              <input id="overlay-image" name="image" type="file" accept="image/png,image/jpeg,image/webp" required />
+              <span class="secondary-button"><i data-lucide="image-plus" aria-hidden="true"></i>选择图片</span>
+              <output id="overlay-file-name">PNG、JPEG 或 WebP，最大 8 MiB</output>
+            </label>
+            <label class="personal-range" for="overlay-opacity"><span>透明度</span><output id="overlay-opacity-value">75%</output><input id="overlay-opacity" name="opacity" type="range" min="10" max="100" step="5" value="75" /></label>
+            <div class="overlay-bounds-control">
+              <button id="overlay-pick-bounds" class="secondary-button" type="button"><i data-lucide="scan" aria-hidden="true"></i>框选范围</button>
+              <button id="overlay-cancel-pick" class="small-icon-button" type="button" aria-label="取消框选" data-tooltip="取消框选" hidden><i data-lucide="x" aria-hidden="true"></i></button>
+              <span id="overlay-bounds-status">尚未选择范围</span>
+            </div>
+            <button id="overlay-upload" class="primary-button" type="submit" disabled><i data-lucide="cloud-upload" aria-hidden="true"></i>上传贴图</button>
+          </form>
+          <div class="personal-section-heading"><h2>我的贴图</h2><span id="overlay-count">0</span></div>
+          <div id="overlay-list" class="overlay-list" aria-live="polite"></div>
+        </section>
+
+        <section id="account-view" class="panel-view personal-view" data-view="account" hidden>
+          <div class="source-note"><i data-lucide="shield-check" aria-hidden="true"></i><span>华域地图账号</span></div>
+          <p id="account-status" class="view-status" aria-live="polite"></p>
+          <div id="account-guest">
+            <div class="personal-tabs" role="tablist" aria-label="账号操作">
+              <button class="is-active" type="button" role="tab" data-auth-mode="login" aria-selected="true">登录</button>
+              <button type="button" role="tab" data-auth-mode="register" aria-selected="false">注册</button>
+            </div>
+            <form id="login-form" class="personal-form">
+              <label class="personal-field" for="login-username"><span>用户名</span><input id="login-username" name="username" autocomplete="username" required /></label>
+              <label class="personal-field" for="login-password"><span>密码</span><input id="login-password" name="password" type="password" autocomplete="current-password" required /></label>
+              <button class="primary-button" type="submit"><i data-lucide="log-in" aria-hidden="true"></i>登录</button>
+            </form>
+            <form id="register-form" class="personal-form" hidden>
+              <label class="personal-field" for="register-username"><span>用户名</span><input id="register-username" name="username" minlength="3" maxlength="32" autocomplete="username" pattern="[A-Za-z0-9_\-\u4e00-\u9fff]{3,32}" required /></label>
+              <label class="personal-field" for="register-display-name"><span>显示名称</span><input id="register-display-name" name="displayName" maxlength="40" autocomplete="name" /></label>
+              <label class="personal-field" for="register-password"><span>密码</span><input id="register-password" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required /></label>
+              <button class="primary-button" type="submit"><i data-lucide="user-plus" aria-hidden="true"></i>创建账号</button>
+            </form>
+          </div>
+          <div id="account-member" hidden>
+            <div class="account-identity">
+              <span class="account-avatar"><i data-lucide="user-round" aria-hidden="true"></i></span>
+              <div><strong id="account-display-name"></strong><span id="account-username"></span></div>
+              <span id="account-role" class="result-tag"></span>
+            </div>
+            <div class="account-stats" aria-label="个人数据统计">
+              <span><strong id="account-search-count">0</strong>搜索</span>
+              <span><strong id="account-favorite-count">0</strong>收藏</span>
+              <span><strong id="account-overlay-count">0</strong>贴图</span>
+            </div>
+            <form id="profile-form" class="personal-form account-section">
+              <h2>个人资料</h2>
+              <label class="personal-field" for="profile-display-name"><span>显示名称</span><input id="profile-display-name" name="displayName" maxlength="40" required /></label>
+              <button class="secondary-button" type="submit"><i data-lucide="save" aria-hidden="true"></i>保存</button>
+            </form>
+            <form id="password-form" class="personal-form account-section">
+              <h2>修改密码</h2>
+              <label class="personal-field" for="current-password"><span>当前密码</span><input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required /></label>
+              <label class="personal-field" for="new-password"><span>新密码</span><input id="new-password" name="newPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" required /></label>
+              <button class="secondary-button" type="submit"><i data-lucide="key-round" aria-hidden="true"></i>更新密码</button>
+            </form>
+            <div class="account-actions account-section">
+              <button id="account-logout" class="secondary-button" type="button"><i data-lucide="log-out" aria-hidden="true"></i>退出登录</button>
+              <button id="account-delete" class="danger-button" type="button"><i data-lucide="user-x" aria-hidden="true"></i>删除账号</button>
+            </div>
+            <section id="admin-users" class="account-section" hidden>
+              <div class="personal-section-heading"><h2>用户管理</h2><button id="admin-refresh" class="small-icon-button" type="button" aria-label="刷新用户列表" data-tooltip="刷新"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
+              <div id="admin-user-list" class="admin-user-list"></div>
+            </section>
+          </div>
+        </section>
+
         <section id="about-view" class="panel-view" data-view="about" hidden>
           <div class="source-note"><i data-lucide="info" aria-hidden="true"></i><span>关于华域地图</span></div>
           <div class="about-copy">
@@ -588,6 +665,7 @@
     <script src="./vegetation-models.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./structure-models.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./app.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./app.js?v=7.1-huayu-personal-data-v1"></script>
+    <script src="./personal-data.js?v=7.1-huayu-personal-data-v1"></script>
   </body>
 </html>

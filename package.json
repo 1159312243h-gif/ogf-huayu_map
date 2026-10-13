@@ -10,6 +10,7 @@
     "verify": "node scripts/verify-package.mjs",
     "verify:online": "node scripts/verify-online.mjs",
     "test:worker": "node scripts/test-worker.mjs",
+    "test:personal-data": "node scripts/test-personal-data.mjs",
     "check:data": "node scripts/check-data-freshness.mjs",
     "probe:live": "node scripts/probe-live-basemap.mjs",
     "data:update": "node scripts/update-all-data.mjs",

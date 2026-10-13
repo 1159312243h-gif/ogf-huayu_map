@@ -6,8 +6,14 @@
 
 在 GitHub 仓库的 `Settings -> Secrets and variables -> Actions` 中添加：
 
-- `CLOUDFLARE_API_TOKEN`：仅授予目标账号的 Cloudflare Pages 编辑权限。
+- `CLOUDFLARE_API_TOKEN`：授予目标账号的 Cloudflare Pages、D1 和 R2 编辑权限。发布流程只创建或更新 `ogf-atlas`、`ogf-atlas-users` 和 `ogf-atlas-user-images`。
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账号 ID，不是登录密码。
+
+## 可选的 GitHub Actions Variable
+
+- `HUAYU_ADMIN_USERNAMES`：以英文逗号分隔的初始管理员用户名。用户名本身不是密钥；变量为空时注册、登录和用户自助管理仍可用，但不会显示管理员用户列表。
+
+发布前的资源配置脚本会幂等创建 D1 数据库 `ogf-atlas-users`、R2 存储桶 `ogf-atlas-user-images`，执行 `migrations/0001_personal_data.sql`，并把 `DB`、`USER_IMAGES` 绑定到 Pages 生产环境。真实资源 ID 只从 Cloudflare API 读取，不提交到仓库。
 
 建议在 GitHub `Environments` 中建立 `production` 环境，并把上述密钥放在该环境内。可以为生产环境启用人工批准。
 
