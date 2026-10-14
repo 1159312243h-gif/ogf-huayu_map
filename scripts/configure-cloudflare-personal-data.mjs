@@ -50,10 +50,14 @@ async function applyMigration(databaseId) {
 async function configurePages(databaseId) {
   const project = await cloudflare(`/pages/projects/${encodeURIComponent(projectName)}`);
   const current = project.deployment_configs?.production || {};
+  const currentPreview = project.deployment_configs?.preview || {};
+  const failOpen = current.fail_open ?? currentPreview.fail_open ?? true;
   const production = {
     ...current,
+    fail_open: failOpen,
     d1_databases: { ...(current.d1_databases || {}), DB: { id: databaseId } },
   };
+  const preview = { ...currentPreview, fail_open: failOpen };
   if (adminUsernames) {
     production.env_vars = {
       ...(current.env_vars || {}),
@@ -62,7 +66,7 @@ async function configurePages(databaseId) {
   }
   await cloudflare(`/pages/projects/${encodeURIComponent(projectName)}`, {
     method: "PATCH",
-    body: JSON.stringify({ deployment_configs: { production } }),
+    body: JSON.stringify({ deployment_configs: { production, preview } }),
   });
 }
 

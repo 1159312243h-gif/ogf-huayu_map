@@ -186,6 +186,9 @@ assert.ok(workerSource.includes("PERSONAL_MAX_IMAGE_BYTES = 768 * 1024")
 "贴图必须使用有单图、总容量和数量限制的 D1 私有存储");
 assert.ok(!configure.includes("/r2/") && !configure.includes("USER_IMAGES"),
   "个人数据部署不能要求开通 R2 或绑定付款方式");
+assert.ok(configure.includes("const failOpen = current.fail_open ?? currentPreview.fail_open ?? true")
+  && configure.includes("deployment_configs: { production, preview }"),
+"Pages 配置必须保持生产与预览环境的 fail_open 值一致");
 
 for (const id of ["account-view", "login-form", "register-form", "overlays-view", "overlay-upload-form", "admin-users"]) {
   assert.ok(index.includes(`id="${id}"`), `页面缺少 ${id}`);
