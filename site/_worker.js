@@ -819,6 +819,17 @@ function validImageSignature(bytes, type) {
   return false;
 }
 
+function d1BlobBytes(value) {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (Array.isArray(value) && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) {
+    return Uint8Array.from(value);
+  }
+  return null;
+}
+
 function parseCookie(request, name) {
   const cookie = request.headers.get("Cookie") || "";
   const entry = cookie.split(";").map((item) => item.trim())
@@ -1206,7 +1217,11 @@ async function handleOverlayApi(request, environment, url) {
       WHERE image_overlays.id = ? AND image_overlays.user_id = ?`)
       .bind(decodeURIComponent(imageMatch[1]), user.id).first();
     if (!overlay) return personalJson({ error: "overlay_not_found" }, 404);
-    if (!overlay.image_data) return personalJson({ error: "image_not_found" }, 404);
+    const image = d1BlobBytes(overlay.image_data);
+    if (!image) return personalJson({ error: "image_not_found" }, 404);
+    if (image.byteLength !== Number(overlay.byte_size)) {
+      return personalJson({ error: "image_storage_corrupt" }, 500);
+    }
     const headers = new Headers({
       "Content-Type": overlay.mime_type,
       "Cache-Control": "private, max-age=300",
@@ -1214,7 +1229,7 @@ async function handleOverlayApi(request, environment, url) {
       "Content-Length": String(overlay.byte_size),
       "ETag": `W/\"${encodeURIComponent(imageMatch[1])}-${overlay.updated_at}-${overlay.byte_size}\"`,
     });
-    return new Response(overlay.image_data, { headers });
+    return new Response(image, { headers });
   }
   if (url.pathname === "/api/overlays" && request.method === "GET") {
     const user = await requirePersonalUser(request, environment);

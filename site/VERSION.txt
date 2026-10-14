@@ -2,6 +2,8 @@
 Released: 2026-10-13
 Cloudflare Pages project: ogf-atlas
 
+Version-7.1 Personal data v4 (7.1.0): Convert D1 BLOB query results from their documented JavaScript number-array representation back into validated byte arrays before returning private overlay images. Reject missing or length-mismatched image data instead of serving an empty response. Preserve PBKDF2 compatibility, D1-only storage, per-account isolation, quotas and all overlay management controls.
+
 Version-7.1 Personal data v3 (7.1.0): Keep password hashing at the Cloudflare Workers PBKDF2 compatibility ceiling of 100,000 SHA-256 iterations with per-user random salts and the existing minimum password length. Exercise password hashing and the D1 user query during every production health check so a static deployment cannot pass while registration and sign-in are unavailable. Preserve the D1-only image store, private per-account data, quotas, overlay controls and no-payment-method deployment.
 
 Version-7.1 Personal data v2 (7.1.0): Replace the unavailable R2 image bucket with bounded private D1 image storage so deployment requires no payment method. Resize large source images to a 2048-pixel maximum edge and compress them to at most 768 KiB before upload. Limit each account to 20 overlays and 10 MiB total while preserving range selection, opacity, visibility, rename, focus, delete, account isolation and existing map fallback behavior.

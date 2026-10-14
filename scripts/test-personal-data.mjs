@@ -105,7 +105,7 @@ class OverlayTestDatabase {
           return { success: true };
         }
         if (normalized.startsWith("INSERT INTO image_overlay_blobs")) {
-          database.blobs.set(this.values[0], this.values[1]);
+          database.blobs.set(this.values[0], Array.from(new Uint8Array(this.values[1])));
           return { success: true };
         }
         if (normalized.startsWith("DELETE FROM image_overlay_blobs WHERE overlay_id =")) {
@@ -199,7 +199,7 @@ assert.ok(verifyOnline.includes("healthcheck_missing_")
 for (const id of ["account-view", "login-form", "register-form", "overlays-view", "overlay-upload-form", "admin-users"]) {
   assert.ok(index.includes(`id="${id}"`), `页面缺少 ${id}`);
 }
-assert.ok(index.includes("personal-data.js?v=7.1-huayu-personal-data-v3"));
+assert.ok(index.includes("personal-data.js?v=7.1-huayu-personal-data-v4"));
 assert.ok(app.includes('new CustomEvent("huayu:personal-data-changed"')
   && app.includes("window.HuayuPersonalData?.isPickingBounds()")
   && app.includes("applyPersonalDataSnapshot"),
