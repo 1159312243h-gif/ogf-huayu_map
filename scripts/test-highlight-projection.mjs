@@ -90,7 +90,14 @@ assert.equal(focused.layer, division, "native hit-testing opens the actual selec
 assert.equal(event.originalEvent.stopped, true);
 focused = null; context.mapFeatureSelectionEnabled = false;
 listeners.get("click:highlights-division-fill")(event);
-assert.equal(focused, null, "the existing map-selection switch still applies");
+assert.equal(focused.layer, division, "loaded administrative divisions remain navigable when generic map selection is off");
+focused = null; context.mapPickTarget = "origin";
+listeners.get("click:highlights-division-fill")(event);
+assert.equal(focused, null, "route endpoint picking keeps priority over administrative navigation");
+context.mapPickTarget = null; context.administrativeBoxPicking = true;
+listeners.get("click:highlights-division-fill")(event);
+assert.equal(focused, null, "administrative export box picking keeps priority over subdivision navigation");
+context.administrativeBoxPicking = false;
 context.mapFeatureSelectionEnabled = true;
 
 boundary.feature.geometry = {type: "Polygon", coordinates: geometry.coordinates[1]};

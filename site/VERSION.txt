@@ -2,6 +2,8 @@
 Released: 2026-10-13
 Cloudflare Pages project: ogf-atlas
 
+Version-7.1 Administrative navigation v1 (7.1.0): Keep explicitly loaded lower-level administrative boundaries clickable in both overhead and perspective views when generic map feature selection is disabled. Preserve route endpoint picking and export-box selection priority, and keep the visible click hint and pointer cursor consistent with the actual navigation action.
+
 Version-7.1 Personal data v4 (7.1.0): Convert D1 BLOB query results from their documented JavaScript number-array representation back into validated byte arrays before returning private overlay images. Reject missing or length-mismatched image data instead of serving an empty response. Preserve PBKDF2 compatibility, D1-only storage, per-account isolation, quotas and all overlay management controls.
 
 Version-7.1 Personal data v3 (7.1.0): Keep password hashing at the Cloudflare Workers PBKDF2 compatibility ceiling of 100,000 SHA-256 iterations with per-user random salts and the existing minimum password length. Exercise password hashing and the D1 user query during every production health check so a static deployment cannot pass while registration and sign-in are unavailable. Preserve the D1-only image store, private per-account data, quotas, overlay controls and no-payment-method deployment.

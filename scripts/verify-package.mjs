@@ -1350,6 +1350,11 @@ assert.ok(app.includes('map.createPane("admin-subdivision-hit")')
   && (app.match(/placeSubdivisionHitLayer\.addData\(/g) || []).length === 2
   && app.includes('const placeSubdivisionLayer = window.L.geoJSON(null, {\n    pane: "admin-subdivision",\n    interactive: false,'),
 "行政区可见边界必须与下级优先的透明命中层分离，并覆盖加载、清空和显隐生命周期");
+assert.equal((app.match(/if \(mapPickTarget \|\| administrativeBoxPicking\) return;/g) || []).length, 2,
+  "俯视与透视的下级行政区点击必须仅让位于正在进行的地图选点操作");
+assert.ok(!app.includes("if (!mapFeatureSelectionEnabled || mapPickTarget || administrativeBoxPicking) return;")
+  && app.includes('glMap.getCanvas().style.cursor = state.hoverId != null ? "pointer" : "";'),
+"下级行政区跳转和手形光标不能依赖普通地点选择开关");
 assert.ok(app.includes('const panelVisible = !elements.panel.classList.contains("is-hidden")')
   && app.includes('const administrativeSearchView = panelVisible')
   && app.includes('&& view === "place"')

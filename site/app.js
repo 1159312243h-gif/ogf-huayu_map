@@ -1534,7 +1534,7 @@
         placeSubdivisionLayer.eachLayer((divisionLayer) => divisionLayer.bringToFront());
       });
       layer.on("click", (event) => {
-        if (!mapFeatureSelectionEnabled || mapPickTarget || administrativeBoxPicking) return;
+        if (mapPickTarget || administrativeBoxPicking) return;
         if (event?.originalEvent) window.L.DomEvent.stopPropagation(event.originalEvent);
         focusAdministrativeDivision(feature, findAdministrativeDivisionVisualLayer(feature));
       });
@@ -18019,7 +18019,7 @@
         }
         state.hoverId = id ?? null;
         if (state.hoverId != null) glMap.setFeatureState({source: VECTOR_HIGHLIGHT_SOURCE, id}, {hover: true});
-        glMap.getCanvas().style.cursor = state.hoverId != null && mapFeatureSelectionEnabled ? "pointer" : "";
+        glMap.getCanvas().style.cursor = state.hoverId != null ? "pointer" : "";
         state.popup?.remove(); state.popup = null;
         const feature = state.layersById.get(id)?.feature;
         if (feature && event.lngLat && window.maplibregl?.Popup) {
@@ -18032,7 +18032,7 @@
       };
       state.onLeave = () => state.onMove({});
       state.onClick = event => {
-        if (!mapFeatureSelectionEnabled || mapPickTarget || administrativeBoxPicking) return;
+        if (mapPickTarget || administrativeBoxPicking) return;
         const layer = state.layersById.get(event.features?.[0]?.id);
         if (!layer?.feature) return;
         if (event.originalEvent) window.L.DomEvent.stopPropagation(event.originalEvent);
