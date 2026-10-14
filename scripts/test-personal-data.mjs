@@ -13,13 +13,14 @@ import worker, {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
-const [index, app, personal, workerSource, migration, configure] = await Promise.all([
+const [index, app, personal, workerSource, migration, configure, verifyOnline] = await Promise.all([
   fs.readFile(path.join(site, "index.html"), "utf8"),
   fs.readFile(path.join(site, "app.js"), "utf8"),
   fs.readFile(path.join(site, "personal-data.js"), "utf8"),
   fs.readFile(path.join(site, "_worker.js"), "utf8"),
   fs.readFile(path.join(root, "migrations", "0001_personal_data.sql"), "utf8"),
   fs.readFile(path.join(root, "scripts", "configure-cloudflare-personal-data.mjs"), "utf8"),
+  fs.readFile(path.join(root, "scripts", "verify-online.mjs"), "utf8"),
 ]);
 
 assert.equal(validateUsername("  测试_user-7  "), "测试_user-7");
@@ -189,11 +190,16 @@ assert.ok(!configure.includes("/r2/") && !configure.includes("USER_IMAGES"),
 assert.ok(configure.includes("const failOpen = current.fail_open ?? currentPreview.fail_open ?? true")
   && configure.includes("deployment_configs: { production, preview }"),
 "Pages 配置必须保持生产与预览环境的 fail_open 值一致");
+assert.ok(workerSource.includes("PERSONAL_PASSWORD_ITERATIONS = 100000"),
+  "PBKDF2 迭代次数必须兼容 Cloudflare Workers 的运行上限");
+assert.ok(verifyOnline.includes("healthcheck_missing_")
+  && verifyOnline.includes('assert.equal(authResponse.status, 401'),
+"生产检查必须实际执行密码哈希和 D1 用户查询");
 
 for (const id of ["account-view", "login-form", "register-form", "overlays-view", "overlay-upload-form", "admin-users"]) {
   assert.ok(index.includes(`id="${id}"`), `页面缺少 ${id}`);
 }
-assert.ok(index.includes("personal-data.js?v=7.1-huayu-personal-data-v2"));
+assert.ok(index.includes("personal-data.js?v=7.1-huayu-personal-data-v3"));
 assert.ok(app.includes('new CustomEvent("huayu:personal-data-changed"')
   && app.includes("window.HuayuPersonalData?.isPickingBounds()")
   && app.includes("applyPersonalDataSnapshot"),

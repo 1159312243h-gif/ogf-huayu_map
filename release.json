@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "7.1-huayu-personal-data-v2",
+  "releaseVersion": "7.1-huayu-personal-data-v3",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=7.1-huayu-personal-data-v2",
+  "entryScript": "app.js?v=7.1-huayu-personal-data-v3",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "structureProbe": "/api/structures/15/30304/15036.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",

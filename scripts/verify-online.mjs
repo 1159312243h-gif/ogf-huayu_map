@@ -28,6 +28,19 @@ async function verify() {
   assert.ok(app.includes(`HUAYU_LIVE_BUILDING_MIN_ZOOM = ${release.expectedBuildingMinZoom}`),
     "生产 app.js 的建筑缩放门槛不一致");
 
+  const authResponse = await fetch(`${baseUrl}/api/auth/login?verify=${encodeURIComponent(cacheKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: baseUrl },
+    body: JSON.stringify({
+      username: `healthcheck_missing_${Date.now()}`,
+      password: "healthcheck-password-not-an-account",
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const auth = await authResponse.json();
+  assert.equal(authResponse.status, 401, "生产账号服务未完成密码哈希或 D1 用户查询");
+  assert.equal(auth.error, "invalid_credentials", "生产账号服务返回了异常登录结果");
+
   const buildingResponse = await fetch(`${baseUrl}${release.buildingProbe}?verify=${encodeURIComponent(cacheKey)}`, {
     signal: AbortSignal.timeout(60000),
   });
@@ -79,6 +92,7 @@ async function verify() {
     status: "passed",
     url: baseUrl,
     release: release.releaseVersion,
+    personalAuth: "PBKDF2/D1",
     buildingElements: building.elements.length,
     buildingCache: buildingResponse.headers.get("x-ogf-building-cache"),
     liveBasemapElements: basemap.elements.length,

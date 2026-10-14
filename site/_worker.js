@@ -27,7 +27,8 @@ const transitTileRefreshes = new Map();
 const structureTileRefreshes = new Map();
 const PERSONAL_SESSION_COOKIE = "huayu_session";
 const PERSONAL_SESSION_SECONDS = 30 * 24 * 60 * 60;
-const PERSONAL_PASSWORD_ITERATIONS = 120000;
+// Workers currently caps PBKDF2 at 100,000 iterations.
+const PERSONAL_PASSWORD_ITERATIONS = 100000;
 const PERSONAL_MAX_JSON_BYTES = 64 * 1024;
 const PERSONAL_MAX_IMAGE_BYTES = 768 * 1024;
 const PERSONAL_MAX_OVERLAY_BYTES = 10 * 1024 * 1024;
