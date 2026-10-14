@@ -146,12 +146,12 @@ const factory=vm.createContext({});
 const names=declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1].split(",").map(s => s.trim());
 for(const name of [...names,"createHuayuGardenModels","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
   vm.runInContext(declaration(name),factory);
-// Structure import adds explicit pavilion ground bases and normalized wall
-// colour tags. That intentionally invalidates old model metadata, while garden
-// changes must still use their independent cache/version below.
+// Building materials and roof geometry intentionally invalidate the shared
+// building/structure model metadata. Gardens retain their independent cache
+// version and must continue to produce identical geometry below.
 assert.equal(createHash("sha256").update(names.map(name=>factory[name].toString()).join("\n")).digest("hex"),
-  "81a7d82ba426f87627666439a4a41f484cd3117779acddc3972cd0118032d118",
-  "garden changes preserve the exact existing building/structure cache algorithms");
+  "53df39f0bb314ca5fb05b62260a378830de5462b1d122c3208860bb25c02df55",
+  "material and roof changes use the reviewed v16 building/structure cache algorithm");
 const worker=new Worker(`const {parentPort}=require("node:worker_threads");
 global.self={postMessage:value=>parentPort.postMessage(value)};
 parentPort.on("message",data=>self.onmessage({data}));

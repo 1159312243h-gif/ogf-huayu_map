@@ -118,6 +118,9 @@
 - 亭子高度优先读取有效参数，否则使用既有默认值。面状亭子匹配原始面范围；点状亭子按可用空间调整大小并避让道路。
 - 保留亭子中空结构、薄底板、内收边柱和自适应中心柱，柱子不能跑出屋顶；不能回退为不通透的实心块。
 - 建筑模型使用有效颜色标签，优先级为 `building:colour`、`building:color`、`colour`、`color`；支持 CSS 颜色名、十六进制及 RGB/HSL 颜色，六位无井号色值补井号。屋顶专用 `roof:colour/roof:color` 优先用于已建模的独立屋顶，不改变墙面颜色。缺失或无效值逐级回退到现有普通建筑、古建筑和亭子配色；保持模型高度、实心遮挡、亭子中空结构和地台材质。点、面、关系及建筑部件经过快照接管、实时更新和日夜切换后同样遵守该规则，不为颜色另加图层。
+- 建筑材质只读取明确的 `building:material` 与 `roof:material`，不得根据建筑名称猜测。有效显式颜色仍具有最高优先级；没有显式颜色时，砖、石、混凝土、灰泥、玻璃、金属、木、瓦、板岩、茅草等已支持材质采用稳定的昼夜颜色，未知材质继续使用既有普通建筑、古建筑或亭子配色。材质不得改变原始轮廓、孔洞、层数、高度、分类或所有权，点、面、关系、实时快照和导入亭子模型遵守相同优先级。
+- 仅对明确标注 `roof:shape` 的简单凸四边形建筑生成真实三角坡面，支持 `gabled` 双坡、`hipped` 四坡、`pyramidal` 攒尖与 `skillion` 单坡及已登记别名；`roof:height` 优先，其次 `roof:levels`、`roof:angle`，方向读取 `roof:direction` 与 `roof:orientation`。明确总 `height` 包含屋顶；只有楼层或默认高度时，屋顶加在墙体之上。复杂多边形、凹形、孔洞关系、不支持形状或无效高度必须整栋回退既有平屋顶，不得简化或改写真实建筑轮廓。
+- 坡屋顶只在完整实时建筑快照接管、近景倾斜视角中显示，与建筑、结构物和植被共享三维深度并贴合现有地形高程。俯视和模拟卫星继续使用同源平面屋顶；初始化、几何或资源加载失败时立即恢复完整 `renderHeight` 平屋顶，不能留下截短墙体或缺顶建筑。前端模型 Worker、Cloudflare 建筑缓存和三小时更新须随材质或屋顶算法变化正确失效，旧完整快照继续作为失败兜底。
 - 保留墙壁、栅栏、建筑和巴士站等已有显示。结构物与建筑快照完整接管，避免重复叠层；同一墙体不能同时重复绘制平面和立体表现。
 - 体育场等要素保留中心优先、逐块显示的加载方式，不因地形改动退回等待整片完成。
 - 模型、体育场跑道和场地细节只等待所需样式定义及自身数据，不等待所有底图瓦片、字体或其他资源加载完；异步到达后立即恢复对应图层的显示，稳定可见性不重复提交。
@@ -141,6 +144,7 @@
 | 同名铁路站显示去重、完整线路详情、北沪站名分离、视窗缓存及后台收集一致性 | [scripts/test-transit-display.mjs](../scripts/test-transit-display.mjs) |
 | 亭子明确标签、名称误判排除、点面几何及普通建筑保留 | [scripts/test-pavilion-tags.mjs](../scripts/test-pavilion-tags.mjs) |
 | 建筑及屋顶颜色标签、关系颜色与既有模型保留 | [scripts/test-building-colors.mjs](../scripts/test-building-colors.mjs) |
+| 建筑材质优先级、昼夜配色、真实坡屋顶、高度方向、复杂轮廓及俯视/卫星/失败回退 | [scripts/test-building-material-roofs.mjs](../scripts/test-building-material-roofs.mjs) |
 | 山体分类、森林公园、平原、荒原和邻近小山 | [scripts/test-terrain-neighbors.mjs](../scripts/test-terrain-neighbors.mjs) |
 | 连续山岭、共享坡面尺度、真实孔洞、分类归属与后台缓存 | [scripts/test-terrain-mesh-worker.mjs](../scripts/test-terrain-mesh-worker.mjs) |
 | 山地高程、垭口、零米观测、真实网格顶点与自动更新 | [scripts/test-terrain-height-field.mjs](../scripts/test-terrain-height-field.mjs) |

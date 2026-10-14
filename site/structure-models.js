@@ -214,8 +214,14 @@
         batch.forEach((item,i)=>{
           const p=item.properties,keys=["building:colour","building:color","colour","color"];
           roofBase[i]=p.pavilionRoofDepth ? 1-Number(p.pavilionRoofDepth)/(item.height-item.base) : 0.7;
-          for(const [properties,array] of [[keys,wall],[["roof:colour","roof:color",...keys],roof]]) {
-            const value=properties.map(key=>p[key]).find(value=>value && root.CSS?.supports("color",value));
+          const materialWall=this.options.night ? "buildingMaterialNightColor" : "buildingMaterialColor";
+          const materialRoof=this.options.night ? "roofMaterialNightColor" : "roofMaterialColor";
+          for(const [properties,array] of [
+            [[...keys,materialWall],wall],
+            [["roof:colour","roof:color",...keys,materialRoof,materialWall],roof],
+          ]) {
+            const value=properties.map(key=>p[key]).find(value=>value
+              && (root.CSS?.supports?.("color",value) ?? /^(?:#[0-9a-f]{3,8}|[a-z]+|rgba?\(|hsla?\()/iu.test(value)));
             if(value){const color=new T.Color(value);array.set([color.r,color.g,color.b,1],i*4);}
           }
         });
@@ -230,7 +236,7 @@
             shader.fragmentShader='varying vec4 vHuayuWall; varying vec4 vHuayuRoof; varying float vHuayuHeight;\n'+shader.fragmentShader;
             shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\nvec4 huayuTag=vHuayuHeight>0.0 && vHuayuRoof.a>0.5 ? vHuayuRoof : vHuayuWall; diffuseColor.rgb=mix(diffuseColor.rgb,huayuTag.rgb,huayuTag.a);');
           };
-          material.customProgramCacheKey=()=>"huayu-structure-colors-v1";
+          material.customProgramCacheKey=()=>"huayu-structure-colors-v2-material";
         });
         const mesh=new T.InstancedMesh(geometry,materials.length===1 ? materials[0] : materials,batch.length);mesh.frustumCulled=false;
         this.resources.push(geometry,...materials);this.meshes.push({mesh,batch,asset});

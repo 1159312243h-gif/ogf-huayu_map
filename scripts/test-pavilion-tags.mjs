@@ -14,7 +14,10 @@ for (const name of [
   "huayuPavilionNodeGeometry", "huayuPavilionRingPerimeter", "huayuPavilionSampleRing",
   "huayuPavilionPolygonContainsPoint", "huayuPavilionDistanceToRings", "huayuPavilionInteriorPoint",
   "huayuPavilionMoveTowardMeters", "huayuPavilionColumnRing", "huayuPavilionInsetColumnCenter",
-  "huayuPavilionColumnGeometry", "huayuIsPublicTransportShelter", "huayuBuildingColorProperties", "huayuLiveBuildingFeatureCollection",
+  "huayuPavilionColumnGeometry", "huayuIsPublicTransportShelter", "huayuBuildingColorProperties",
+  "huayuBuildingMaterialColor", "huayuBuildingMaterialProperties", "huayuRoofShape", "huayuRoofDirection",
+  "huayuRoofDistanceMeters", "huayuRoofSimpleRing", "huayuRoofSimpleRings", "huayuBuildingRoofProperties",
+  "huayuLiveBuildingFeatureCollection",
   "huayuPavilionFeatureCollection",
 ]) {
   const declaration = app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, "u"))?.[0];

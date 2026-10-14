@@ -47,7 +47,7 @@ for (const file of files) {
 
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
-  "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js",
+  "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -55,6 +55,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
 
 const index = await fs.readFile(path.join(site, "index.html"), "utf8");
 const app = await fs.readFile(path.join(site, "app.js"), "utf8");
+const buildingRoofs = await fs.readFile(path.join(site, "building-roofs.js"), "utf8");
 const terrainPreload = await readDatasetFile(path.join(site,"terrain-preload.json.gz"));
 const terrainManifest = JSON.parse(await fs.readFile(path.join(site,"terrain-preload-manifest.json"),"utf8"));
 assert.equal(terrainPreload.schema,"open-small-mountains-v1");
@@ -466,6 +467,7 @@ const buildingLayerState = new Map([
 ]);
 const buildingLayerFilters = new Map();
 const buildingMap = {
+  getStyle: () => ({layers: []}),
   getLayer: () => true,
   setLayoutProperty: (id, property, value) => {
     assert.equal(property, "visibility");
@@ -477,9 +479,9 @@ const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
   "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window",
   `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {});
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
-  "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuStructureModels",
+  "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuBuildingRoofs", "syncHuayuStructureModels",
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
-  ancientBuildingLayers, syncBuildingReplacements, () => {});
+  ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {});
 const buildingOwnerState = { primaryActive: false };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "none")
@@ -505,6 +507,17 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
   ["all", ["has", "busFacilityPart"],
     ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]],
 "发布建筑兜底时面状候车亭模型不得与建筑面重复");
+assert.ok(index.includes('building-roofs.js?v=7.1-building-material-roofs-v1')
+  && app.includes("function huayuBuildingMaterialColor")
+  && app.includes("function huayuBuildingRoofProperties")
+  && app.includes("syncHuayuBuildingRoofs(glMap);")
+  && app.includes("window.HuayuBuildingRoofs?.dispose(glMap)")
+  && buildingRoofs.includes('renderingMode: "3d"')
+  && buildingRoofs.includes("this.options.enabled && !this.options.satellite")
+  && buildingRoofs.includes("this.map.getPitch() > 0.5")
+  && buildingRoofs.includes("this.setWallMode(false)")
+  && buildingRoofs.includes('["gabled", "hipped", "pyramidal", "skillion"]'),
+"建筑材质与坡屋顶必须接入完整建筑所有权、共享三维深度、俯视/卫星禁用及失败回退");
 const mergeBuildingTilesSource = app.match(/function mergeHuayuLiveBuildingTiles\(state\) \{[\s\S]*?\n  \}/u)?.[0];
 assert.ok(mergeBuildingTilesSource, "无法读取实时建筑分片合并状态机");
 const buildingOwnershipCalls = [];
@@ -590,7 +603,7 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;'
   && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
   && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`")
   && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"')
-  && worker.includes('schema", "huayu-building-v5"')
+  && worker.includes('schema", "huayu-building-v6-material-roofs"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
 "墙和栅栏必须使用独立轻量分片与三小时缓存，不得被建筑查询超时连带清空");
@@ -1474,6 +1487,8 @@ const modelBatchTest = await runCheck([path.join(root,"scripts","test-model-batc
 assert.equal(modelBatchTest.status, 0, `批量模型下载导入回归失败：${modelBatchTest.stderr}`);
 const structureModelsTest = await runCheck([path.join(root,"scripts","test-structure-models.mjs")]);
 assert.equal(structureModelsTest.status, 0, `结构物模型替换回归失败：${structureModelsTest.stderr}`);
+const buildingMaterialRoofsTest = await runCheck([path.join(root,"scripts","test-building-material-roofs.mjs")]);
+assert.equal(buildingMaterialRoofsTest.status, 0, `建筑材质与坡屋顶回归失败：${buildingMaterialRoofsTest.stderr}`);
 const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);
 assert.equal(satelliteBasemapTest.status, 0, `模拟卫星底图回归失败：${satelliteBasemapTest.stderr}`);
 

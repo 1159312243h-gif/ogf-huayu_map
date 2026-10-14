@@ -26219,11 +26219,171 @@
     return properties;
   }
 
-  function huayuBuildingColorExpression(fallback, roof = false) {
+  function huayuBuildingMaterialColor(material, roof = false, night = false) {
+    const value = String(material || "").trim().toLocaleLowerCase().replace(/[\s-]+/gu, "_");
+    const aliases = {
+      bricks: "brick", masonry: "brick", stone_blocks: "stone", rock: "stone",
+      cement: "concrete", reinforced_concrete: "concrete", rendered: "plaster",
+      render: "plaster", stucco: "plaster", timber: "wood", wooden: "wood",
+      steel: "metal", aluminium: "metal", aluminum: "metal", zinc: "metal",
+      tile: "roof_tiles", tiles: "roof_tiles", ceramic_tile: "roof_tiles",
+      ceramic_tiles: "roof_tiles", clay_tiles: "roof_tiles", bitumen: "asphalt",
+      tar_paper: "asphalt", vegetation: "grass",
+    };
+    const canonical = aliases[value] || value;
+    const day = roof ? {
+      brick: "#a45f49", roof_tiles: "#a45f49", stone: "#85827b", concrete: "#999990",
+      plaster: "#c4b79f", glass: "#6f9fac", metal: "#858f94", wood: "#876648",
+      slate: "#626a70", copper: "#6f9a83", thatch: "#ae9460", sandstone: "#bca06f",
+      limestone: "#b9b5a5", asphalt: "#55595a", grass: "#66855b",
+    } : {
+      brick: "#b77b61", stone: "#9d9990", concrete: "#aaa79e", plaster: "#d5c7ad",
+      glass: "#73aab7", metal: "#8d999d", wood: "#9b7655", adobe: "#b88862",
+      mud: "#a97b59", clay: "#ad7658", sandstone: "#c6aa78", limestone: "#c7c2ad",
+    };
+    const dark = roof ? {
+      brick: "#693f35", roof_tiles: "#693f35", stone: "#55545a", concrete: "#5f605e",
+      plaster: "#766f63", glass: "#456a73", metal: "#586166", wood: "#584435",
+      slate: "#40474d", copper: "#456b5b", thatch: "#705f42", sandstone: "#726248",
+      limestone: "#706e67", asphalt: "#34383a", grass: "#405b3d",
+    } : {
+      brick: "#745044", stone: "#686660", concrete: "#6d6c68", plaster: "#81776a",
+      glass: "#456a73", metal: "#586166", wood: "#66503e", adobe: "#725842",
+      mud: "#69503d", clay: "#6f4d3d", sandstone: "#7b6b50", limestone: "#7b786e",
+    };
+    return (night ? dark : day)[canonical] || "";
+  }
+
+  function huayuBuildingMaterialProperties(tags = {}) {
+    const properties = {};
+    for (const [tag, prefix, roof] of [
+      ["building:material", "buildingMaterial", false],
+      ["roof:material", "roofMaterial", true],
+    ]) {
+      const material = String(tags[tag] || "").trim().toLocaleLowerCase().replace(/[\s-]+/gu, "_");
+      if (!material) continue;
+      const color = huayuBuildingMaterialColor(material, roof, false);
+      const nightColor = huayuBuildingMaterialColor(material, roof, true);
+      if (!color || !nightColor) continue;
+      properties[prefix] = material;
+      properties[`${prefix}Color`] = color;
+      properties[`${prefix}NightColor`] = nightColor;
+    }
+    return properties;
+  }
+
+  function huayuRoofShape(tags = {}) {
+    const value = String(tags["roof:shape"] || "").trim().toLocaleLowerCase().replace(/[\s_]+/gu, "-");
+    return ({gable: "gabled", gabled: "gabled", hip: "hipped", hipped: "hipped",
+      "half-hipped": "hipped", pyramid: "pyramidal", pyramidal: "pyramidal",
+      shed: "skillion", skillion: "skillion"})[value] || "";
+  }
+
+  function huayuRoofDirection(tags = {}) {
+    const raw = String(tags["roof:direction"] || "").trim().toLocaleLowerCase();
+    const numeric = Number.parseFloat(raw.replace(/deg(?:rees?)?$/u, ""));
+    if (Number.isFinite(numeric)) return ((numeric % 360) + 360) % 360;
+    const directions = ["n", "nne", "ne", "ene", "e", "ese", "se", "sse",
+      "s", "ssw", "sw", "wsw", "w", "wnw", "nw", "nnw"];
+    const index = directions.indexOf(raw);
+    return index >= 0 ? index * 22.5 : null;
+  }
+
+  function huayuRoofDistanceMeters(first, second) {
+    const latitude = (Number(first?.[1]) + Number(second?.[1])) / 2 * Math.PI / 180;
+    return Math.hypot((Number(second?.[0]) - Number(first?.[0])) * 111320 * Math.cos(latitude),
+      (Number(second?.[1]) - Number(first?.[1])) * 111320);
+  }
+
+  function huayuRoofSimpleRing(ring) {
+    if (!Array.isArray(ring) || ring.length < 4) return null;
+    const points = huayuWallPointKey(ring[0]) === huayuWallPointKey(ring.at(-1))
+      ? ring.slice(0, -1).map((point) => point.map(Number)) : ring.map((point) => point.map(Number));
+    if (points.some((point) => point.length < 2 || !point.every(Number.isFinite))) return null;
+    let changed = true;
+    while (changed && points.length > 4) {
+      changed = false;
+      for (let index = 0; index < points.length; index += 1) {
+        const previous = points[(index + points.length - 1) % points.length];
+        const point = points[index];
+        const next = points[(index + 1) % points.length];
+        const first = huayuRoofDistanceMeters(previous, point);
+        const second = huayuRoofDistanceMeters(point, next);
+        const direct = huayuRoofDistanceMeters(previous, next);
+        if (first + second - direct > Math.max(0.08, direct * 0.004)) continue;
+        points.splice(index, 1); changed = true; break;
+      }
+    }
+    if (points.length !== 4 || points.some((point, index) =>
+      huayuRoofDistanceMeters(point, points[(index + 1) % 4]) < 0.5)) return null;
+    const latitude = points.reduce((sum, point) => sum + point[1], 0) / 4 * Math.PI / 180;
+    const projected = points.map((point) => [point[0] * Math.cos(latitude), point[1]]);
+    const crosses = projected.map((point, index) => {
+      const next = projected[(index + 1) % 4], after = projected[(index + 2) % 4];
+      return (next[0] - point[0]) * (after[1] - next[1])
+        - (next[1] - point[1]) * (after[0] - next[0]);
+    });
+    if (crosses.some((cross) => Math.abs(cross) < 1e-14)
+      || crosses.some((cross) => Math.sign(cross) !== Math.sign(crosses[0]))) return null;
+    return points;
+  }
+
+  function huayuRoofSimpleRings(geometry) {
+    const polygons = geometry?.type === "Polygon" ? [geometry.coordinates]
+      : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
+    if (!polygons.length || polygons.some((polygon) => !Array.isArray(polygon) || polygon.length !== 1)) return [];
+    const rings = polygons.map((polygon) => huayuRoofSimpleRing(polygon[0]));
+    return rings.every(Boolean) ? rings : [];
+  }
+
+  function huayuBuildingRoofProperties(tags, geometry, height, minHeight) {
+    const roofShape = huayuRoofShape(tags);
+    const rings = roofShape ? huayuRoofSimpleRings(geometry) : [];
+    if (!roofShape || !rings.length) return {};
+    const spans = rings.flatMap((ring) => ring.map((point, index) =>
+      huayuRoofDistanceMeters(point, ring[(index + 1) % 4])));
+    const shortSpan = Math.max(1, Math.min(...spans));
+    const taggedRoofHeight = tags["roof:height"] ?? tags["building:roof:height"];
+    const roofLevels = Number.parseFloat(tags["roof:levels"]);
+    const roofAngle = Number.parseFloat(tags["roof:angle"]);
+    let roofHeight;
+    if (taggedRoofHeight !== undefined) roofHeight = parseHuayuWallMeasurement(taggedRoofHeight, 0, 40);
+    else if (Number.isFinite(roofLevels) && roofLevels > 0) roofHeight = Math.min(40, roofLevels * 3);
+    else if (Number.isFinite(roofAngle) && roofAngle > 0 && roofAngle < 80) {
+      const run = roofShape === "skillion" ? shortSpan : shortSpan / 2;
+      roofHeight = Math.tan(roofAngle * Math.PI / 180) * run;
+    } else roofHeight = shortSpan * (roofShape === "skillion" ? 0.18 : 0.28);
+    roofHeight = Math.max(0, Math.min(40, roofHeight));
+    if (roofHeight < 0.2) return {};
+    const hasTaggedTotal = tags.height !== undefined || tags.est_height !== undefined;
+    const roofTopHeight = hasTaggedTotal ? Math.max(height, minHeight + 0.8)
+      : Math.min(1000, Math.max(height, minHeight + 0.6) + roofHeight);
+    roofHeight = Math.min(roofHeight, roofTopHeight - minHeight - 0.6);
+    if (roofHeight < 0.2) return {};
+    const roofBaseHeight = roofTopHeight - roofHeight;
+    const direction = huayuRoofDirection(tags);
+    return {
+      roofModel: 1,
+      roofShape,
+      roofHeight,
+      roofBaseHeight,
+      roofTopHeight,
+      ...(Number.isFinite(direction) ? { roofDirection: direction } : {}),
+      ...(["along", "across"].includes(String(tags["roof:orientation"] || "").toLocaleLowerCase())
+        ? { roofOrientation: String(tags["roof:orientation"]).toLocaleLowerCase() } : {}),
+    };
+  }
+
+  function huayuBuildingColorExpression(fallback, roof = false, night = false) {
     const keys = ["building:colour", "building:color", "colour", "color"];
     if (roof) keys.unshift("roof:colour", "roof:color");
-    // MapLibre validates CSS colours and tries the next value before the existing palette.
-    return ["to-color", ...keys.map((key) => ["get", key]), fallback];
+    const materialKeys = roof
+      ? [night ? "roofMaterialNightColor" : "roofMaterialColor",
+        night ? "buildingMaterialNightColor" : "buildingMaterialColor"]
+      : [night ? "buildingMaterialNightColor" : "buildingMaterialColor"];
+    // Explicit colours remain authoritative; valid material colours precede the existing palette.
+    return ["to-color", ...keys.map((key) => ["get", key]),
+      ["to-color", ...materialKeys.map((key) => ["get", key]), fallback]];
   }
 
   function huayuLiveBuildingFeatureCollection(elements, pavilionOnly = false) {
@@ -26282,8 +26442,13 @@
       const minHeight = huayuLiveBuildingMinHeight(element.tags, height);
       const ancientKind = huayuAncientBuildingKind(element.tags);
       const structureKind = huayuPavilionKind(element.tags) || "building";
+      const roofProperties = structureKind === "building"
+        ? huayuBuildingRoofProperties(element.tags, geometry, height, minHeight) : {};
+      const renderHeight = roofProperties.roofTopHeight || height;
       const baseProperties = {
         ...huayuBuildingColorProperties(element.tags),
+        ...huayuBuildingMaterialProperties(element.tags),
+        ...roofProperties,
         name: String(element.tags?.name || "").trim(),
         building: String(element.tags?.building || element.tags?.["building:part"] || "yes"),
         buildingPart: String(element.tags?.["building:part"] || ""),
@@ -26297,9 +26462,9 @@
           ancientKind,
           roofCapHeight: huayuAncientRoofCapHeight(element.tags, height),
         } : {}),
-        height,
+        height: renderHeight,
         minHeight,
-        renderHeight: Math.max(height, minHeight + 0.6),
+        renderHeight: Math.max(renderHeight, minHeight + 0.6),
         renderMinHeight: minHeight,
         osmId: String(element.id),
         osmType: element.type,
@@ -26371,7 +26536,7 @@
         filter: ["==", ["get", "pavilionPart"], "base"],
         metadata: {
           "huayu:component": "live-pavilion-bases",
-          "huayu:model-version": "15",
+          "huayu:model-version": "16",
           "huayu:geometry-source": "ogf-overpass-structure-tiles",
         },
         paint: {
@@ -26392,11 +26557,11 @@
         filter: ["==", ["get", "pavilionPart"], "column"],
         metadata: {
           "huayu:component": "live-pavilion-columns",
-          "huayu:model-version": "15",
+          "huayu:model-version": "16",
           "huayu:geometry-source": "ogf-overpass-structure-tiles",
         },
         paint: {
-          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionColumn),
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionColumn, false, palette.night),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": 1,
@@ -26413,11 +26578,11 @@
         filter: ["==", ["get", "pavilionPart"], "roof"],
         metadata: {
           "huayu:component": "live-pavilion-model",
-          "huayu:model-version": "15",
+          "huayu:model-version": "16",
           "huayu:geometry-source": "ogf-overpass-structure-tiles",
         },
         paint: {
-          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionRoof, true),
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.pavilionRoof, true, palette.night),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": palette.buildingOpacity,
@@ -26455,9 +26620,31 @@
     window.HuayuStructureModels?.refreshFilters(glMap);
   }
 
+  function syncHuayuBuildingRoofs(glMap) {
+    const state = glMap && huayuLiveBuildingStates.get(glMap);
+    if (!state || !window.HuayuBuildingRoofs) return;
+    const palette = huayuOverlayPalette(glMap);
+    window.HuayuBuildingRoofs.sync(glMap, state.data, {
+      enabled: Boolean(state.active && state.primaryActive),
+      satellite: Boolean(palette.satellite),
+      night: Boolean(palette.night),
+      buildingLayer: HUAYU_LIVE_BUILDING_LAYER,
+      wallDefault: palette.buildingColors[1],
+      roofDefault: palette.buildingColors[2],
+      ancientWall: palette.ancientWall,
+      ancientRoof: palette.ancientRoof,
+    });
+  }
+
   function syncHuayuLiveBuildingPrimaryLayers(glMap, state, enabled) {
     if (!glMap || !state) return;
     const nextEnabled = Boolean(enabled);
+    // A completed tile can settle while a basemap switch is destroying the
+    // old MapLibre style. Never query layers after that style has gone away.
+    if (!glMap.getStyle?.()?.layers) {
+      state.primaryActive = false;
+      return;
+    }
     const syncPublishedLayers = (visibility) => HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach((layerId) => {
       if (glMap.getLayer(layerId) && glMap.getLayoutProperty?.(layerId, "visibility") !== visibility)
         glMap.setLayoutProperty(layerId, "visibility", visibility);
@@ -26479,6 +26666,7 @@
     }
     syncHuayuBuildingReplacementLayers(glMap, nextEnabled);
     state.primaryActive = nextEnabled;
+    syncHuayuBuildingRoofs(glMap);
     syncHuayuStructureModels(glMap);
     if (nextEnabled && state.addedAt && !state.firstModelMs) state.firstModelMs = Math.round(performance.now() - state.addedAt);
   }
@@ -26541,7 +26729,7 @@
         layout: { visibility: "none" },
         metadata: {
           "huayu:component": "live-building-model",
-          "huayu:model-version": "15",
+          "huayu:model-version": "16",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
           "huayu:vector-buildings": "disabled",
         },
@@ -26553,7 +26741,7 @@
               30, ["to-color", palette.buildingColors[2]],
               60, ["to-color", palette.buildingColors[3]],
               120, ["to-color", palette.buildingColors[4]]],
-          ]),
+          ], false, palette.night),
           "fill-extrusion-height": ["get", "renderHeight"],
           "fill-extrusion-base": ["get", "renderMinHeight"],
           "fill-extrusion-opacity": palette.buildingOpacity,
@@ -26569,14 +26757,14 @@
         type: "fill-extrusion",
         source: HUAYU_LIVE_BUILDING_SOURCE,
         minzoom: 14,
-        filter: ["has", "ancientKind"],
+        filter: ["all", ["has", "ancientKind"], ["!", ["has", "roofModel"]]],
         layout: { visibility: "none" },
         metadata: {
           "huayu:component": "ancient-building-roof-cap",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
         },
         paint: {
-          "fill-extrusion-color": huayuBuildingColorExpression(palette.ancientRoof, true),
+          "fill-extrusion-color": huayuBuildingColorExpression(palette.ancientRoof, true, palette.night),
           "fill-extrusion-height": ["+", ["get", "renderHeight"], ["get", "roofCapHeight"]],
           "fill-extrusion-base": ["get", "renderHeight"],
           "fill-extrusion-opacity": 1,
@@ -26632,6 +26820,7 @@
       glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)?.setData(state.data
         || { type: "FeatureCollection", features: [] });
       state.appliedRevision = state.renderRevision;
+      syncHuayuBuildingRoofs(glMap);
       const basemap = huayuLiveBasemapStates.get(glMap);
       if (basemap?.active && basemap.gardenCandidates?.length) applyHuayuLiveBasemap(glMap,basemap);
     }
@@ -26779,7 +26968,9 @@
       huayuPavilionRoadHalfWidth, huayuNormalizedWallRing, huayuWallRingArea,
       huayuCityWallRelationGeometry, huayuWallJoinRings, huayuWallPointInRing,
       huayuLiveBuildingHeight, huayuLiveBuildingMinHeight, huayuPavilionRoofDepth,
-      huayuBuildingColorProperties, huayuAncientRoofCapHeight, huayuPavilionColumnGeometry,
+      huayuBuildingColorProperties, huayuBuildingMaterialColor, huayuBuildingMaterialProperties,
+      huayuRoofShape, huayuRoofDirection, huayuRoofDistanceMeters, huayuRoofSimpleRing,
+      huayuRoofSimpleRings, huayuBuildingRoofProperties, huayuAncientRoofCapHeight, huayuPavilionColumnGeometry,
       huayuPavilionRingPerimeter, huayuPavilionSampleRing, huayuPavilionInteriorPoint,
       huayuPavilionPolygonContainsPoint, huayuPavilionDistanceToRings, huayuPavilionInsetColumnCenter,
       huayuPavilionMoveTowardMeters, huayuPavilionColumnRing, huayuPavilionFeatureCollection,
@@ -27423,6 +27614,7 @@
     state.primaryRevision += 1;
     clearHuayuLiveBuildingPrimarySync(state);
     syncHuayuLiveBuildingPrimaryLayers(glMap, state, false);
+    window.HuayuBuildingRoofs?.dispose(glMap);
     glMap.off("move", state.onMove);
     glMap.off("moveend", state.onMoveEnd);
     state.unbindGestures?.();
@@ -27446,6 +27638,8 @@
       delete mapElement.dataset.huayuLiveBuildingStatus;
       delete mapElement.dataset.huayuLiveBuildingMode;
       delete mapElement.dataset.huayuLiveBuildingUpdatedAt;
+      delete mapElement.dataset.huayuSlopedRoofs;
+      delete mapElement.dataset.huayuSlopedRoofsActive;
     }
   }
 

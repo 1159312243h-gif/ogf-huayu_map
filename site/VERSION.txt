@@ -1,6 +1,8 @@
 华域地图 v7.1
-Released: 2026-10-13
+Released: 2026-10-14
 Cloudflare Pages project: ogf-atlas
+
+Version-7.1 Building materials and sloped roofs v1 (7.1.0): Render explicit `building:material` and `roof:material` tags with stable day and night palettes while keeping explicit colour tags authoritative. Add real triangular gabled, hipped, pyramidal and skillion roofs for simple convex four-corner buildings, respecting tagged roof height, levels, angle, direction and orientation. Keep complex footprints and holes on the existing flat-roof fallback, retain complete snapshot ownership and terrain depth, and disable three-dimensional slopes in overhead and simulated satellite views. Restore full flat-roof height whenever the custom model is unavailable and invalidate browser and Cloudflare building caches for the new geometry.
 
 Version-7.1 Administrative navigation v1 (7.1.0): Keep explicitly loaded lower-level administrative boundaries clickable in both overhead and perspective views when generic map feature selection is disabled. Preserve route endpoint picking and export-box selection priority, and keep the visible click hint and pointer cursor consistent with the actual navigation action.
 
