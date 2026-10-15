@@ -48,7 +48,7 @@ for (const file of files) {
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
-  "bridge-models.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js",
+  "bridge-models.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -1429,7 +1429,7 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["app.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "_worker.js", "terrain-perspective.js"]) {
+for (const script of ["app.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }

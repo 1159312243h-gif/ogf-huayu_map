@@ -109,6 +109,34 @@ select:focus-visible {
   min-height: 0;
 }
 
+.help-intro {margin:16px 0;color:var(--muted);font-size:12px;line-height:1.8;}
+.help-search-field {display:grid;gap:6px;margin-bottom:14px;}
+.help-search-field > label {font-size:12px;color:var(--muted);}
+.help-search-row {display:flex;gap:8px;align-items:center;}
+.help-search-row input {width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:4px;background:var(--surface-subtle);font:inherit;font-size:12px;}
+.help-search-row button {flex-shrink:0;}
+.help-search-field .view-status {margin:0;}
+.help-directory {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:12px 0 18px;}
+.help-directory button {padding:9px 10px;text-align:left;color:var(--teal);background:#edf7f6;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:11px;line-height:1.6;cursor:pointer;}
+.help-directory button:hover {background:var(--blue-soft);}
+.help-topic {border-top:1px solid var(--line);scroll-margin-top:12px;}
+.help-topic > summary {display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:64px;padding:13px 0;list-style:none;cursor:pointer;font-size:14px;font-weight:500;}
+.help-topic > summary::-webkit-details-marker {display:none;}
+.help-topic > summary::after {content:"+";font-size:20px;color:var(--teal);font-weight:400;}
+.help-topic[open] > summary::after {content:"−";}
+.help-topic > summary small {display:block;margin-top:5px;color:var(--muted);font-size:11px;font-weight:400;line-height:1.6;}
+.help-topic-content {padding-bottom:18px;font-size:12px;line-height:1.9;overflow-wrap:anywhere;}
+.help-topic-content h3 {margin:16px 0 7px;font-size:13px;font-weight:500;}
+.help-topic-content p {margin:0 0 10px;}
+.help-topic-content ul {padding-left:20px;margin:8px 0 12px;}
+.help-topic-content li {margin-bottom:6px;}
+.help-topic-content code {font-size:11px;}
+.help-callout {padding:12px;border-left:3px solid var(--teal);background:#edf7f6;}
+.help-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+.help-actions .secondary-button {font-size:11px;}
+.help-empty {padding:14px;background:var(--surface-subtle);font-size:12px;line-height:1.8;}
+.help-view button:focus-visible,.help-topic > summary:focus-visible,.help-search-row input:focus-visible {outline:2px solid var(--teal);outline-offset:3px;}
+
 .render-settings-section {
   margin: 18px 0;
   padding: 0;
@@ -4050,8 +4078,8 @@ button.popup-route:focus-visible .popup-route-arrow {
   }
 
   .rail-actions {
-    width: min(100%, 420px);
-    grid-template-columns: repeat(10, minmax(0, 1fr));
+    width: min(100%, 484px);
+    grid-template-columns: repeat(11, minmax(0, 1fr));
     gap: 2px;
     margin: 0;
   }

@@ -31,6 +31,9 @@
 /overlay-bounds.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/map-help.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /model-options.js
   Cache-Control: public, max-age=0, must-revalidate
 

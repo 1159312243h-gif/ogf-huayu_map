@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-overlay-bounds-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-help-center-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -31,6 +31,7 @@
           <button class="rail-button" type="button" data-action="download"><i data-lucide="download" aria-hidden="true"></i><span>下载</span></button>
           <button class="rail-button" type="button" data-action="settings"><i data-lucide="settings-2" aria-hidden="true"></i><span>设置</span></button>
           <button class="rail-button" type="button" data-action="account"><i data-lucide="circle-user-round" aria-hidden="true"></i><span>账号</span></button>
+          <button class="rail-button" type="button" data-action="help" aria-controls="help-view"><i data-lucide="circle-help" aria-hidden="true"></i><span>帮助</span></button>
         </div>
         <button class="rail-button rail-about" type="button" data-action="about"><i data-lucide="info" aria-hidden="true"></i><span>关于</span></button>
       </nav>
@@ -682,6 +683,145 @@
           </div>
         </section>
 
+        <section id="help-view" class="panel-view help-view" data-view="help" hidden>
+          <div class="source-note"><i data-lucide="book-open" aria-hidden="true"></i><span>使用帮助 · 按场景查找功能</span></div>
+          <p class="help-intro">从找地点、规划出行，到下载地图和上传贴图。相关操作放在同一组，展开后可查看步骤或直接前往功能。</p>
+          <div class="help-search-field">
+            <label for="help-search">搜索帮助</label>
+            <div class="help-search-row"><input id="help-search" type="search" maxlength="100" placeholder="例如：框选、收藏、规划线路" aria-describedby="help-search-status" /><button id="help-search-clear" class="text-button" type="button" hidden>清除</button></div>
+            <p id="help-search-status" class="view-status" role="status">共 7 组说明，可搜索或从目录进入。</p>
+          </div>
+          <nav class="help-directory" aria-label="帮助目录">
+            <button type="button" data-help-target="help-map">地图浏览与显示</button>
+            <button type="button" data-help-target="help-search-measure">搜索、行政区与测量</button>
+            <button type="button" data-help-target="help-travel">导航、车站与线路图</button>
+            <button type="button" data-help-target="help-ranges">范围、下载与贴图</button>
+            <button type="button" data-help-target="help-personal">收藏、个人地点与账号</button>
+            <button type="button" data-help-target="help-render">渲染设置与模型</button>
+            <button type="button" data-help-target="help-questions">常见问题与数据来源</button>
+          </nav>
+          <p id="help-no-results" class="help-empty" hidden>没有找到相关说明。试试“下载”“坐标”“线路”等关键词，或清除搜索查看全部。</p>
+
+          <details id="help-map" class="help-topic" data-help-section>
+            <summary><span>地图浏览与显示<small>底图、图层、视角与地图选点</small></span></summary>
+            <div class="help-topic-content">
+              <h3>移动、缩放和回到默认位置</h3>
+              <p>拖动地图移动位置，滚轮、双指缩放或右上角的 ＋／－ 调整比例。点击“华”或右侧准星回到默认位置；登录后设置了个人默认地点时，使用该地点，否则回到上京都。右侧面板按钮可收起或展开功能面板。</p>
+              <h3>底图与叠加图层</h3>
+              <p>打开工具栏中的“视图”（启用地形时显示“地形图”），选择华域标准、深夜、模拟卫星，或 OGF、地形、骑行等底图。华域模拟卫星由地图地物生成，并非实拍；可用“影像注记”控制地名。交通与地形可以分别开关，也可以同时显示；交通还可筛选地铁、电车、铁路和公交站。</p>
+              <h3>倾斜与旋转</h3>
+              <p>在支持的矢量底图中，展开“矢量视角”，调整倾斜角、旋转角，或使用倾斜预设；“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。</p>
+              <h3>点击地图上的物体</h3>
+              <p>开启“点击选择要素”，点击点、道路或面，查看坐标、轮廓与原始属性；重叠时从候选列表选择目标。地点可收藏、设为导航终点、分享，原始物体可“加入下载”。框选、测量或导航选点期间，点击优先完成当前操作。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="map-view">打开视图与图层</button></div>
+            </div>
+          </details>
+
+          <details id="help-search-measure" class="help-topic" data-help-section>
+            <summary><span>搜索、行政区与测量<small>地名、坐标、上下级区划与量算</small></span></summary>
+            <div class="help-topic-content">
+              <h3>搜索地名或坐标</h3>
+              <p>在顶部搜索框输入名称并搜索；同名地点按所在地区选择。坐标按“纬度,经度”输入，例如 <code>14.634,152.958</code>。最近搜索可再次使用或清空；登录后搜索记录跟随账号同步，收藏地点还可按个人名称、标签查找。</p>
+              <h3>查看行政区和下级区划</h3>
+              <p>搜索并选中实际行政区后，可查看边界、加入行政区下载清单。点击“查看下级行政层级”，勾选需要的层级再加载；已加载的下级行政区可点击进入，并可查看面积。导出区域、边界和底图的操作见“范围、下载与贴图”。</p>
+              <h3>距离、面积与角度</h3>
+              <p>打开“测量”并选择测距或测面积，依次点击地图添加点。测距至少 2 点，面积至少 3 点；结果包含距离或面积、周长及点数。测距时还可查看末段方位角与最近夹角；正北为 0°，顺时针计角。“撤销”退回一步，“完成”结束本次绘制，“清除”重新开始。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="search">前往搜索</button><button class="secondary-button" type="button" data-action="measure">前往测量</button></div>
+            </div>
+          </details>
+
+          <details id="help-travel" class="help-topic" data-help-section>
+            <summary><span>导航、车站与线路图<small>起终点、出行偏好、线路筛选与导出</small></span></summary>
+            <div class="help-topic-content">
+              <h3>规划出行</h3>
+              <p>打开“导航”，选择驾车、步行、骑行、公交地铁、铁路或机场接驳。起终点可输入地名、输入“纬度,经度”、点击准星在地图上选点，或从收藏选择；中间的交换按钮可对调起终点。点击“开始规划”后查看候选方案、路线和分步说明。</p>
+              <p>组合出行可按推荐、最快、省钱、换乘最少或步行最少比较，并选择自动、步行、骑行或打车接驳。步行、骑行使用已有道路几何估算，时间和费用也为估算。铁路选项中的“推定铁路连接（含规划段）”表示未经确认的连接，可关闭；“允许公交地铁接驳”单独控制市内接驳。</p>
+              <h3>查看线路与车站</h3>
+              <p>“线路”页下方可按名称搜索公交或轨道线路、筛选类型，查看线路走向和站点。主地图开启交通图层后，可点击车站查看所属线路；是否显示公交站、普通铁路等由交通筛选控制。</p>
+              <h3>城市铁路与轨道交通网</h3>
+              <p>在线路页上方搜索城市，选择有实际行政边界的结果。可分别筛选地铁、轻轨／单轨、有轨电车、市域铁路和普通铁路／城际，调整边界外缓冲，逐条开关线路；点击缩略图可放大、平移和缩放。</p>
+              <p>“纳入在建线路”“纳入规划线路”默认关闭；开启后分别以长虚线、点虚线区分，不代表已通车。线路图可显示货运站，但货运站不作为客运导航站点。底图可选择简洁背景、华域或 OGF，和线路一起导出 PNG、SVG 或 GeoJSON。</p>
+              <h3>把线路放入下载清单</h3>
+              <p>可将单条线路或当前可见线路与站点加入下载清单，再到“下载 → 地图物体与下载清单”导出 GeoJSON、SHP 或 CSV。清单沿用当前线路、建设状态与范围筛选；线路图数据可能按边界截断，含此类数据时不能导出原始 OSM。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="directions">前往导航</button><button class="secondary-button" type="button" data-action="transit">前往线路</button></div>
+            </div>
+          </details>
+
+          <details id="help-ranges" class="help-topic" data-help-section open>
+            <summary><span>范围、下载与贴图<small>选中一块区域，下载地图或放置自己的图片</small></span></summary>
+            <div class="help-topic-content">
+              <p class="help-callout">先确定用途：保存地图画面选“底图与行政区”；获取建筑、道路等数据选“地图物体与下载清单”；把自己的图片放到地图上选“贴图”。这些功能都使用地理范围，但范围需在各自面板中设置。</p>
+              <h3>① 确定范围</h3>
+              <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
+              <h3>② 下载底图与行政区</h3>
+              <p>进入“下载 → 底图与行政区”，按需勾选“同步下载底图”，选择华域标准、深夜、模拟卫星或 OGF-Carto US／GB。可独立控制地理坐标信息、行政中心点、高亮边界和建筑模型；OGF 栅格图中已有的建筑或地名无法单独去掉，模拟卫星始终为平面表达。</p>
+              <p>图片长边可选 800–8192 像素，或自定义 512–8192 整数像素；界面会显示实际尺寸。格式包含 PNG、JPG、带地理参考的 TIF，以及行政边界 SHP ZIP、OSM XML。按轮廓裁切时，PNG／TIF 外部透明、JPG 外部为白色；更高输出分辨率仍受源数据细节限制。</p>
+              <h3>③ 下载范围内物体或任意选中物体</h3>
+              <p>切换“地图物体与下载清单”，选择范围、大类和细分类。建筑可细分住宅、商业、办公、工业等；也可叠加名称关键词、完全匹配，或填写原始标签名与标签值。点击“读取范围内物体”，确认结果后全部加入清单。</p>
+              <p>单个物体可在地图上点选、查看候选与属性后“加入下载”。清单可混合不同类型并自动去重，可逐项移除或清空，再导出 GeoJSON、SHP ZIP、CSV 或原始 OSM XML。与范围相交的原始物体保留完整几何；单批最多 2000 个，过大请缩小范围分批。物体清单仅在当前页面会话保留，刷新前先下载保存。</p>
+              <h3>④ 上传图片并调整放置范围</h3>
+              <p>先登录，再打开“贴图”、选择图片并设置名称与透明度。可填写西／东经度、南／北纬度后点击“应用坐标”，或点击“框选范围”在地图上绘制；范围与图片会先在本机预览，点击“上传贴图”才保存到账号。</p>
+              <ul>
+                <li>画框：按住左键或手指拖动，也可依次点击两个对角点。</li>
+                <li>微调：直接拖动角点；或双击角点后移动鼠标，再单击确认。</li>
+                <li>整框移动：按住框内右键拖动；手机使用“移动选框”。</li>
+                <li>撤销本次调整：按 Esc 或“取消”，恢复上次确认的范围；未应用的坐标不能上传。</li>
+              </ul>
+              <p>经度范围 ±180°、纬度范围 ±85°；西小于东、南小于北，单轴跨度不超过 30°。支持 PNG、JPEG、WebP，原图不超过 16 MiB；系统压缩后保存。每账号最多 20 张、合计 10 MiB。保存后可定位、显示／隐藏、重命名、调透明度或删除；贴图仅当前账号可见，上传失败可保留草稿重试。范围编辑在上传前完成。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="download">前往下载</button><button class="secondary-button" type="button" data-action="overlays">前往贴图</button></div>
+            </div>
+          </details>
+
+          <details id="help-personal" class="help-topic" data-help-section>
+            <summary><span>收藏、个人地点与账号<small>默认位置、经历标签、快捷导航和同步</small></span></summary>
+            <div class="help-topic-content">
+              <h3>收藏地点与设置默认位置</h3>
+              <p>选中地点后点击“收藏”；在“收藏”页可快速查找、定位或删除。登录后可“添加个人地点”，使用当前选点、地图中心或手填坐标，设置名称，并编辑或删除已有地点。勾选“设为默认位置”用于回到首页；每个账号只有一个默认位置，保存新默认会替换旧默认。分享链接的位置与手动移动优先于登录后的自动定位。</p>
+              <h3>家庭、学校、工作与自定义标签</h3>
+              <p>同一地点可选择家庭、故乡、幼儿园、小学、初中、高中、大学、工作单位等多个标签，同类标签可保存多个地点。自定义标签用逗号、顿号或分号分隔，每地点最多 8 个，每个最多 24 字；可编辑、删除和复用。最多保存 200 个收藏，按名称或标签筛选后可快速设为导航起点、终点，也可在导航页直接选择收藏。</p>
+              <h3>注册、登录与账号同步</h3>
+              <p>“账号”中注册：用户名 3–32 位，可用中文、字母、数字、下划线或短横线；显示名称可选、最多 40 位；密码 10–128 位。游客的搜索记录与普通收藏保存在当前浏览器，登录时可合并到账号；个人地点、搜索记录和贴图按账号保存。同步失败时查看状态并使用“重试同步”，不要把尚未同步的本机保存当作已同步成功。</p>
+              <h3>资料、密码与用户管理</h3>
+              <p>登录后可在账号页查看个人数据数量、修改显示名称和密码、退出或删除自己的账号。删除账号会同时删除该账号的个人数据。拥有管理员权限的账号还可查看用户列表和数量，启停账号、调整角色或删除其他账号；普通账号不会显示用户管理入口。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="favorites">前往收藏</button><button class="secondary-button" type="button" data-action="account">前往账号</button></div>
+            </div>
+          </details>
+
+          <details id="help-render" class="help-topic" data-help-section>
+            <summary><span>渲染设置与模型<small>植被、建筑材质、桥梁和替代模型</small></span></summary>
+            <div class="help-topic-content">
+              <h3>植被与恢复默认</h3>
+              <p>“设置”可选择经典柱形或自然树冠，调整面状植被密度，单独开关花园花簇。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
+              <h3>建筑材质与屋顶</h3>
+              <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和支持的屋顶形状标签显示。倾斜近景可查看适用建筑的双坡、四坡等屋顶；缺少标签或不适用的轮廓使用已有模型，不根据名称猜测材质或形状。</p>
+              <h3>桥梁与立交</h3>
+              <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。俯视仍显示平面道路。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
+              <h3>模型替代方案与本机导入</h3>
+              <p>可为树木、灌木、花簇、亭子、候车亭、喷泉、墙等选择现有模型或已提供的替代方案。也可导入自己合法取得的 GLB，先预览，再调整朝上轴、旋转和部件后应用；单文件不超过 24 MiB。本机导入只保存在当前浏览器，不随账号跨设备同步，换浏览器时需重新导入。移除文件需要确认。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="settings">前往设置</button></div>
+            </div>
+          </details>
+
+          <details id="help-questions" class="help-topic" data-help-section>
+            <summary><span>常见问题与数据来源<small>搜不到、选不中、加载与下载问题</small></span></summary>
+            <div class="help-topic-content">
+              <h3>搜不到地点或城市？</h3>
+              <p>通用搜索可尝试完整地名、别名或直接输入坐标；城市线路图要选择实际行政边界，补全“市／区／县”等后缀有助于缩小范围。如果显示超时或服务失败，稍后重试，这不等于地点不存在。私人地点可先保存为收藏，再用个人名称查询。</p>
+              <h3>点不中目标、点击没有物体？</h3>
+              <p>先在“视图”中检查“点击选择要素”是否开启，再结束框选、测量或导航选点。放大到能分辨目标的位置，等待读取完成；重叠物体从候选中选择。坐标已选中但物体读取失败时，可点击选点图钉重新识别。</p>
+              <h3>模型、桥梁或图片没有显示？</h3>
+              <p>检查当前底图、比例、视角和对应开关；桥梁需手动启用并使用倾斜视角。大范围或高细节首次加载需要等待，先缩小任务范围通常更快。个人贴图需登录同一账号并勾选显示；调整范围时会返回俯视。</p>
+              <h3>下载慢、格式不可选或清单丢了？</h3>
+              <p>大范围、高分辨率和大量物体需准备更多数据，可先缩小范围、降低分辨率或分批下载。纯矢量不使用图片分辨率；含线路图派生几何的物体清单不能导出原始 OSM。物体清单不会随账号同步或在刷新后恢复，加入后请及时下载。</p>
+              <h3>我上传的图片会改动公开地图吗？</h3>
+              <p>贴图与收藏是个人数据，不会更改公开 OGF 地物。右侧铅笔按钮会在新标签页打开 OGF 编辑器，公开地图编辑使用 OGF 自己的账号与规则；华域地图账号与 OGF 账号分别管理。</p>
+              <h3>数据和估算来自哪里？</h3>
+              <p>底图、地名和地物来自 OpenGeofiction，搜索、交通与导航使用对应地图数据。不同图层的更新和加载时间可能不同；山体、模拟卫星、模型高度、出行时间和费用含制图或计算估算。可在“关于”及面板底部查看来源与数据许可。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="about">查看关于与来源</button></div>
+            </div>
+          </details>
+        </section>
+
         <section id="about-view" class="panel-view" data-view="about" hidden>
           <div class="source-note"><i data-lucide="info" aria-hidden="true"></i><span>关于华域地图</span></div>
           <div class="about-copy">
@@ -806,7 +946,8 @@
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.1-transit-atlas-v2"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.1-overlay-bounds-v1"></script>
+    <script src="./app.js?v=7.1-help-center-v1"></script>
+    <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>
   </body>

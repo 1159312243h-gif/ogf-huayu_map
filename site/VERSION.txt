@@ -1,6 +1,8 @@
 华域地图 v7.1
-Released: 2026-10-15
+Released: 2026-10-16
 Cloudflare Pages project: ogf-atlas
+
+Version-7.1 Help center v1 (7.1.0): Add a dedicated Help entry to the desktop and mobile toolbar, with searchable grouped instructions and direct links to existing tools. Explain map browsing, search, administrative boundaries, measurement, routing, transit, favorites, accounts and rendering; group range selection, map/object downloads and personal image uploads in one workflow chapter. Keep existing tool behavior and source-data timestamps.
 
 Version-7.1 Overlay bounds v1 (7.1.0): Add coordinate entry, drag-to-draw, two-corner selection, draggable or double-click-placed corners and right-button frame translation before private image upload. Preview the selected image locally, preserve bounds on failed uploads, restore original map interaction on completion/cancellation and clear drafts between accounts. Retain source-data timestamps and existing private D1 storage.
 

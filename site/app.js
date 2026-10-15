@@ -14785,6 +14785,12 @@
   }
 
   function runAction(action) {
+    if (action === "help") {
+      cancelMapPick();
+      hideMapViewMenu();
+      showView("help", {preservePerspective: true});
+      return;
+    }
     if (action === "map-view") {
       if (elements.mapViewMenu.hidden) showMapViewMenu();
       else hideMapViewMenu();
@@ -14871,6 +14877,7 @@
         window.HuayuPersonalData?.isAuthenticated() ? "默认位置与常用地点" : "登录后可同步保存"],
       overlays: ["个人账号", "地图贴图", "图片、范围与显示状态"],
       account: ["华域地图", "个人账号", "登录、注册与账号管理"],
+      help: ["华域地图", "使用帮助", "按场景查找功能与操作步骤"],
       about: ["华域地图", "关于地图", "实时 OGF 数据 · 站内交互"],
       download: ["华域地图 · OPEN GEOFICTION", "地图下载", ""],
       settings: ["华域地图", "地图设置", ""],
