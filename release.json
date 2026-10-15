@@ -1,8 +1,8 @@
 {
-  "releaseVersion": "7.1-bridge-options-v1",
+  "releaseVersion": "7.1-personal-places-v2",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=7.1-bridge-options-v1",
+  "entryScript": "app.js?v=7.1-personal-places-v2",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "structureProbe": "/api/structures/15/30304/15036.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",

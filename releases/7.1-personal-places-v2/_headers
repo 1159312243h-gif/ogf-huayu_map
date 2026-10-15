@@ -1,0 +1,105 @@
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/terrain-perspective.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/vegetation-models.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/bridge-models.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/map-export.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/feature-data.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/transit-atlas-options.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/saved-places.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-options.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-assets.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-import/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+/model-import/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: model/gltf-binary
+
+/three-0.160.1.module.min.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/styles.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/huayu-style.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/huayu-basemap-sample.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/huayu-satellite-sample.svg
+  Cache-Control: public, max-age=300, must-revalidate
+
+/maplibre-gl.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/maplibre-gl.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/leaflet-maplibre-gl.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/transit-preload.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/terrain-preload.json.gz
+  Cache-Control: public, max-age=300, must-revalidate
+  Content-Type: application/json; charset=UTF-8
+  Content-Encoding: gzip
+
+/terrain-preload-manifest.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/terrain-preload-chunks/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/json; charset=UTF-8
+  Content-Encoding: gzip
+
+/terrain-render-cache/*
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/json; charset=UTF-8
+  Content-Encoding: gzip
+
+/transit-relations.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/airports.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/station-access.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/railway-routing.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/transit-services.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/railway-connections.json
+  Cache-Control: public, max-age=300, must-revalidate

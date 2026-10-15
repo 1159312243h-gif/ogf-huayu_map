@@ -54,7 +54,8 @@ context.syncVectorHighlightOverlay();
 assert.deepEqual(plain(sources.get("highlights").data.features[0].geometry), geometry,
   "native highlights retain the full geographic multipolygon, separate parts and holes");
 assert.equal(sources.get("highlights").data.features[1].properties.fillOpacity, 0, "roads retain line-only highlighting");
-assert.equal(layers.size, 9, "one retained highlight set, including white casings");
+assert.equal(layers.size, 12, "one retained highlight set, including white casings and per-group point circles");
+assert.equal([...layers.values()].filter(layer=>layer.type==="circle").length,3);
 const order = [...layers.keys()];
 assert.ok(order.indexOf("highlights-boundary-halo") < order.indexOf("highlights-boundary-line"));
 assert.ok(order.indexOf("highlights-road-line") < order.indexOf("highlights-boundary-line"));
@@ -75,6 +76,11 @@ assert.deepEqual(plain(sources.get("highlights").data.features.map(feature => fe
 present.add(boundaryGroup);
 context.scheduleMapHighlightProjection(); frames.shift()();
 assert.deepEqual(plain(sources.get("highlights").data.features[0].geometry), geometry, "reopening the panel restores its real boundary");
+const point=path({type:"Point",coordinates:[152.3,14.2]});point.options.radius=9;
+roadGroup.paths.push(point);context.mapHighlightRevision++;context.syncVectorHighlightOverlay();
+assert.deepEqual(plain(sources.get("highlights").data.features.at(-1).geometry),point.feature.geometry,"点状选区保留真实坐标并使用原生相机");
+assert.equal(sources.get("highlights").data.features.at(-1).properties.radius,9);
+assert.deepEqual(plain(layers.get("highlights-road-point").filter),["all",["==",["get","group"],"road"],["==",["geometry-type"],"Point"]]);
 const division = path({type: "Polygon", coordinates: geometry.coordinates[0]});
 divisionGroup.paths.push(division); present.add(divisionGroup); context.mapHighlightRevision++;
 context.syncVectorHighlightOverlay();

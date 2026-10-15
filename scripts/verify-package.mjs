@@ -48,7 +48,7 @@ for (const file of files) {
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
-  "bridge-models.js",
+  "bridge-models.js", "map-export.js", "feature-data.js", "saved-places.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -1375,7 +1375,8 @@ assert.ok(app.includes('const panelVisible = !elements.panel.classList.contains(
   && app.includes('&& view === "place"')
   && app.includes('&& Boolean(selectedAdministrativeBoundary)')
   && app.includes('const downloadView = panelVisible && view === "download"')
-  && app.includes('const administrativeBoundaryView = administrativeSearchView || downloadView')
+  && app.includes('const administrativeBoundaryView = administrativeSearchView || (downloadView && elements.boundaryIncludeHighlight.checked)')
+  && app.includes('downloadView && elements.boundaryIncludeHighlight.checked && administrativeExportSelections.size > 0')
   && app.includes('setLayerPresence(placeExportSelectionLayer, downloadView')
   && app.includes('setLayerPresence(administrativeExportBoxLayer, downloadView')
   && /function showPanel\(\)[\s\S]*?classList\.remove\("is-hidden"\);\s*syncMapLayers\(currentView\);/.test(app)
@@ -1428,7 +1429,7 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["app.js", "personal-data.js", "_worker.js", "terrain-perspective.js"]) {
+for (const script of ["app.js", "personal-data.js", "saved-places.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
@@ -1436,6 +1437,8 @@ for (const script of ["app.js", "personal-data.js", "_worker.js", "terrain-persp
 const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
 const personalDataTest = await runCheck([path.join(root, "scripts", "test-personal-data.mjs")]);
+const savedPlacesTest = await runCheck([path.join(root, "scripts", "test-saved-places.mjs")]);
+assert.equal(savedPlacesTest.status, 0, savedPlacesTest.stderr);
 assert.equal(personalDataTest.status, 0,
   `账号、个人数据与贴图回归失败：${personalDataTest.stderr || personalDataTest.stdout}`);
 const pavilionTagsTest = await runCheck([path.join(root, "scripts", "test-pavilion-tags.mjs")]);
@@ -1469,6 +1472,14 @@ const highlightProjectionTest = await runCheck([path.join(root, "scripts", "test
 assert.equal(highlightProjectionTest.status, 0, `高亮相机同步回归失败：${highlightProjectionTest.stderr}`);
 const adminExportTest = await runCheck([path.join(root, "scripts", "test-administrative-export.mjs")]);
 assert.equal(adminExportTest.status, 0, `行政区下载回归失败：${adminExportTest.stderr}`);
+const featureDownloadTest = await runCheck([path.join(root, "scripts", "test-feature-download.mjs")]);
+assert.equal(featureDownloadTest.status, 0, `物体选择与下载回归失败：${featureDownloadTest.stderr}`);
+const transitAtlasOptionsTest = await runCheck([path.join(root, "scripts", "test-transit-atlas-options.mjs")]);
+assert.equal(transitAtlasOptionsTest.status, 0, `线路图底图、建设状态及下载回归失败：${transitAtlasOptionsTest.stderr}`);
+const transitAtlasFilteringTest = await runCheck([path.join(root, "scripts", "test-transit-atlas-filtering.mjs")]);
+assert.equal(transitAtlasFilteringTest.status, 0, `线路图筛选复用与缓存失效回归失败：${transitAtlasFilteringTest.stderr}`);
+const transitAtlasSearchTest = await runCheck([path.join(root, "scripts", "test-transit-atlas-search.mjs")]);
+assert.equal(transitAtlasSearchTest.status, 0, `线路图城市搜索回归失败：${transitAtlasSearchTest.stderr}`);
 const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);
 assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
 const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-loading.mjs")]);

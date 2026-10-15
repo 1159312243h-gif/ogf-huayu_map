@@ -142,6 +142,8 @@ node scripts/update-all-data.mjs
 
 Windows 入口为 `update-data.cmd`；macOS/Linux 入口为 `sh update-data.sh`。所有路径相对仓库计算，不含设备专用路径，也不依赖 Codex、大模型、浏览器或 Playwright。
 
+本机账号功能预览可用 Node.js 24 运行 `npm run dev:personal`，或直接运行 `node scripts/dev-server.mjs 4178 --personal-data`。打开 `http://127.0.0.1:4178/` 后可注册独立的本地账号，测试个人地点、默认位置、收藏及导航快捷选择。本地数据保存在已忽略的 `.data-update/local-personal-data.sqlite`，重启后保留，不会自动上传，也不与 Cloudflare 线上账号互通。普通 `npm run dev` 仍不配置本机账号数据库；生产继续使用既有 D1 绑定和原有迁移，无须 R2 或付费配置。
+
 ## 7. 回退
 
 最快方法：进入 Cloudflare Dashboard 的 `Workers & Pages -> ogf-atlas -> Deployments`，选择上一个成功部署并执行回退。

@@ -176,6 +176,7 @@
   const TRANSIT_SERVICES_URL = "./transit-services.json?v=4.0.2-price-fare-v1";
   const RAILWAY_CONNECTIONS_URL = `./railway-connections.json?v=${TRANSIT_DATA_CACHE_KEY}`;
   const FAVORITES_KEY = "ogf-atlas-favorites";
+  let favoritesMemory = null;
   const SEARCH_HISTORY_KEY = "ogf-atlas-search-history";
   const SEARCH_HISTORY_LIMIT = 10;
   const POINT_OF_INTEREST_TYPE_SEARCHES = [
@@ -513,6 +514,18 @@
     boundaryIncludeCoordinates: document.getElementById("boundary-include-coordinates"),
     boundaryIncludePoints: document.getElementById("boundary-include-points"),
     boundaryIncludeBasemap: document.getElementById("boundary-include-basemap"),
+    boundaryIncludeHighlight: document.getElementById("boundary-include-highlight"),
+    boundaryIncludeBuildings: document.getElementById("boundary-include-buildings"),
+    boundaryBasemapStyle: document.getElementById("boundary-basemap-style"),
+    boundaryBasemapOptions: document.getElementById("boundary-basemap-options"),
+    boundaryBuildingsNote: document.getElementById("boundary-buildings-note"),
+    boundaryClipShape: document.getElementById("boundary-clip-shape"),
+    boundaryPolygonControls: document.getElementById("boundary-polygon-controls"),
+    boundaryDrawPolygon: document.getElementById("boundary-draw-polygon"),
+    boundaryPolygonUndo: document.getElementById("boundary-polygon-undo"),
+    boundaryPolygonFinish: document.getElementById("boundary-polygon-finish"),
+    boundaryCustomResolution: document.getElementById("boundary-custom-resolution"),
+    boundaryCustomResolutionLabel: document.getElementById("boundary-custom-resolution-label"),
     boundaryResolution: document.getElementById("boundary-resolution"),
     boundaryResolutionNote: document.getElementById("boundary-resolution-note"),
     boundaryExtentFieldset: document.getElementById("boundary-extent-fieldset"),
@@ -540,6 +553,37 @@
     basemapOptions: [...document.querySelectorAll('input[name="basemap-style"]')],
     basemapStatus: document.getElementById("basemap-status"),
     mapFeatureSelection: document.getElementById("map-feature-selection"),
+    downloadContentMode: document.getElementById("download-content-mode"),
+    featureDownloadPanel: document.getElementById("feature-download-panel"),
+    featureAddSelected: document.getElementById("feature-add-selected"),
+    featurePickStatus: document.getElementById("feature-pick-status"),
+    featureCandidates: document.getElementById("feature-candidates"),
+    featureCandidateList: document.getElementById("feature-candidate-list"),
+    featureOpenQueue: document.getElementById("feature-open-queue"),
+    featureRange: document.getElementById("feature-range"),
+    featureDrawRange: document.getElementById("feature-draw-range"),
+    featureUndoRange: document.getElementById("feature-undo-range"),
+    featureFinishRange: document.getElementById("feature-finish-range"),
+    featureRangeStatus: document.getElementById("feature-range-status"),
+    featureKind: document.getElementById("feature-kind"),
+    featureSubtypeField: document.getElementById("feature-subtype-field"),
+    featureSubtype: document.getElementById("feature-subtype"),
+    featureName: document.getElementById("feature-name"),
+    featureNameMode: document.getElementById("feature-name-mode"),
+    featureCustomFilter: document.getElementById("feature-custom-filter"),
+    featureTag: document.getElementById("feature-tag"),
+    featureTagValue: document.getElementById("feature-tag-value"),
+    featureReadRange: document.getElementById("feature-read-range"),
+    featureQueryStatus: document.getElementById("feature-query-status"),
+    featureAddResults: document.getElementById("feature-add-results"),
+    featureQueryResults: document.getElementById("feature-query-results"),
+    featurePickMap: document.getElementById("feature-pick-map"),
+    featureQueueHeading: document.getElementById("feature-queue-heading"),
+    featureQueueList: document.getElementById("feature-queue-list"),
+    featureClearQueue: document.getElementById("feature-clear-queue"),
+    featureExportFormat: document.getElementById("feature-export-format"),
+    featureExportButton: document.getElementById("feature-export-button"),
+    featureExportStatus: document.getElementById("feature-export-status"),
     satelliteAnnotationOption: document.getElementById("satellite-annotation-option"),
     satelliteAnnotations: document.getElementById("satellite-annotations"),
     vectorCameraControls: document.getElementById("vector-camera-controls"),
@@ -601,6 +645,11 @@
     transitAtlasWorkspace: document.getElementById("transit-atlas-workspace"),
     transitAtlasModeToggles: [...document.querySelectorAll("[data-transit-atlas-mode]")],
     transitAtlasBuffer: document.getElementById("transit-atlas-buffer"),
+    transitAtlasBasemap: document.getElementById("transit-atlas-basemap"),
+    transitAtlasBackgroundStatus: document.getElementById("transit-atlas-background-status"),
+    transitAtlasConstruction: document.getElementById("transit-atlas-construction"),
+    transitAtlasProposed: document.getElementById("transit-atlas-proposed"),
+    transitAtlasAddQueue: document.getElementById("transit-atlas-add-queue"),
     transitAtlasPreview: document.getElementById("transit-atlas-preview"),
     transitAtlasCanvas: document.getElementById("transit-atlas-canvas"),
     transitAtlasLegend: document.getElementById("transit-atlas-legend"),
@@ -623,13 +672,18 @@
     toast: document.getElementById("toast"),
   };
 
-  let selectedPlace = readHash() || DEFAULT_VIEW;
+  const initialSharedView = readHash();
+  let accountDefaultPending = !initialSharedView;
+  let selectedPlace = initialSharedView || DEFAULT_VIEW;
   let currentView = "place";
   let placeMarker;
   let selectedAdministrativeBoundary = null;
   let hoveredAdministrativeDivisionLayer = null;
   let hoveredAdministrativeDivisionHitLayer = null;
   let selectedPlaceFeature = null;
+  let selectedObjectEntry = null, featurePickSequence = 0, featurePickController = null;
+  let featureRangeResult = null, featureRangeController = null, featureRangeSequence = 0;
+  const featureDownloadQueue = new Map();
   const administrativeBoundaryCache = new Map();
   const administrativeCenterCache = new Map();
   const administrativeLevelCache = new Map();
@@ -640,6 +694,8 @@
   const administrativeDeclaredCenterChecks = new Set();
   const administrativeExportSelections = new Map();
   let administrativeExportBox = null;
+  let administrativeExportPolygon = null;
+  let administrativePolygonPoints = null;
   let administrativeBoxPicking = false;
   let administrativeBoxPickStart = null;
   let administrativeBoxPickMarker = null;
@@ -674,8 +730,10 @@
   let focusedTransitGuideLengthMeters = null;
   let focusedTransitGuideRelation = null;
   let transitAtlasRequestId = 0;
+  const transitAtlasCitySearchCache = new Map();
   let transitAtlasCity = null;
   let transitAtlasModel = null;
+  let transitAtlasPrepared = null;
   let transitAtlasRenderFrame = null;
   const transitAtlasModes = { metro: true, light: true, tram: true, commuter: true, railway: true };
   const transitAtlasHiddenRouteKeys = new Set();
@@ -683,6 +741,10 @@
   const TRANSIT_ATLAS_MAX_SCALE = 48;
   const transitAtlasViewport = { scale: 1, offsetX: 0, offsetY: 0 };
   let transitAtlasDrag = null;
+  let transitAtlasFutureData = null;
+  let transitAtlasFutureController = null;
+  const transitAtlasBackgroundCache = new Map();
+  let transitAtlasBackgroundWork = Promise.resolve();
   let mapViewMode = "normal";
   let terrainOverlayEnabled = true;
   let selectedBasemapId = "huayu";
@@ -1429,6 +1491,7 @@
   map.getPane("place-feature").style.pointerEvents = "none";
   const placeFeatureHaloLayer = window.L.geoJSON(null, {
     pane: "place-feature-halo",
+    pointToLayer: (_feature,latlng) => window.L.circleMarker(latlng,{radius:10,interactive:false}),
     style: {
       color: "#ffffff",
       weight: 8,
@@ -1441,6 +1504,7 @@
   });
   const placeFeatureLayer = window.L.geoJSON(null, {
     pane: "place-feature",
+    pointToLayer: (_feature,latlng) => window.L.circleMarker(latlng,{radius:6,interactive:false}),
     style: {
       color: "#1769e0",
       weight: 3.5,
@@ -1600,13 +1664,13 @@
     popupAnchor: [0, -37],
   });
 
-  map.on("click", (event) => {
+  function handleMapObjectClick(event) {
     if (window.HuayuPersonalData?.isPickingBounds()) return;
     if (administrativeBoxPicking) {
       handleAdministrativeBoxPick(event.latlng);
       return;
     }
-    if (currentView === "download") return;
+    if (currentView === "download" && !(elements.downloadContentMode.value === "objects" && elements.featurePickMap.checked)) return;
     if (currentView === "measure") {
       addMeasurementPoint(event.latlng);
       return;
@@ -1639,7 +1703,18 @@
       preservePerspective: vectorPerspectiveActive,
     });
     enrichSelectedPlace(point);
-  });
+  }
+  map.on("click", handleMapObjectClick);
+
+  function handleVectorObjectClick(event) {
+    const glMap=currentVectorBasemap();
+    if(!vectorPerspectiveActive||!glMap)return;
+    if(!mapPickTarget&&!administrativeBoxPicking&&currentView!=="measure") {
+      const priorityLayers=[`${VECTOR_HIGHLIGHT_SOURCE}-division-fill`,VECTOR_TRANSIT_LAYER_IDS.stops].filter(id=>glMap.getLayer(id));
+      if(priorityLayers.length&&glMap.queryRenderedFeatures(event.point,{layers:priorityLayers}).length)return;
+    }
+    handleMapObjectClick({latlng:event.lngLat,originalEvent:event.originalEvent});
+  }
 
   map.on("mousemove", (event) => {
     if (!measurementActive || currentView !== "measure" || !measurementPoints.length) return;
@@ -1660,6 +1735,7 @@
   });
   map.on("moveend", () => {
     transitInteractionActive = false;
+    handleFeatureViewportChange();
     const center = map.getCenter();
     writeHash({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
     updateOgfEditorLink();
@@ -1714,23 +1790,28 @@
   });
   window.addEventListener("storage", (event) => {
     if (event.key === SEARCH_HISTORY_KEY && !elements.searchHistoryMenu.hidden) renderSearchHistory();
+    if (event.key === FAVORITES_KEY) {
+      favoritesMemory = null;
+      refreshSavedPlaces();
+    }
   });
 
   elements.saveButton.addEventListener("click", () => {
     const favorites = getFavorites();
     const key = placeKey(selectedPlace);
     if (favorites[key]) {
+      if (favorites[key].isDefault && !window.confirm("取消收藏将同时取消这个默认位置，是否继续？")) return;
       delete favorites[key];
       showToast("已取消收藏");
     } else {
+      if (Object.keys(favorites).length >= 200) {
+        showToast("最多保存 200 个收藏地点，请先删除不需要的收藏。");
+        return;
+      }
       favorites[key] = selectedPlace;
-      showToast(window.HuayuPersonalData?.isAuthenticated() ? "已保存到账号" : "已收藏到此浏览器");
+      showToast(window.HuayuPersonalData?.isAuthenticated() ? "已收藏，正在同步到账号" : "已收藏到此浏览器");
     }
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-    window.dispatchEvent(new CustomEvent("huayu:personal-data-changed", {
-      detail: { kind: "favorites", items: favorites },
-    }));
-    updateFavoriteState();
+    saveFavorites(favorites);
   });
 
   elements.routeHereButton.addEventListener("click", () => {
@@ -1830,7 +1911,23 @@
   elements.boundaryIncludeBasemap.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryIncludeCoordinates.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryIncludePoints.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryIncludeHighlight.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryIncludeBuildings.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryBasemapStyle.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryClipShape.addEventListener("change", () => {
+    cancelAdministrativeBoxPick();
+    if (elements.boundaryClipShape.value === "polygon" && administrativeExportPolygon) showAdministrativeExportPolygon();
+    else if (administrativeExportBox) showAdministrativeExportBox(administrativeExportBox, false);
+    updateAdministrativeExportOptions();
+  });
+  elements.boundaryDrawPolygon.addEventListener("click", startAdministrativePolygonPick);
+  elements.boundaryPolygonUndo.addEventListener("click", () => {
+    administrativePolygonPoints?.pop();
+    renderAdministrativePolygonPick();
+  });
+  elements.boundaryPolygonFinish.addEventListener("click", finishAdministrativePolygonPick);
   elements.boundaryResolution.addEventListener("change", updateAdministrativeExtentStatus);
+  elements.boundaryCustomResolution.addEventListener("input", updateAdministrativeExtentStatus);
   elements.boundaryExtentModes.forEach((input) => input.addEventListener("change", updateAdministrativeExportOptions));
   [elements.boundaryWest, elements.boundarySouth, elements.boundaryEast, elements.boundaryNorth]
     .forEach((input) => input.addEventListener("input", updateAdministrativeExtentStatus));
@@ -1838,6 +1935,35 @@
   elements.boundaryDrawBox.addEventListener("click", startAdministrativeBoxPick);
   elements.boundaryFormat.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryDownloadButton.addEventListener("click", downloadAdministrativeBoundary);
+  elements.downloadContentMode.addEventListener("change", () => {cancelAdministrativeBoxPick();invalidateFeatureRange();updateFeatureDownloadMode();});
+  elements.featurePickMap.addEventListener("change", () => {
+    if(elements.featurePickMap.checked && !mapFeatureSelectionEnabled) {
+      elements.mapFeatureSelection.checked=true;elements.mapFeatureSelection.dispatchEvent(new Event("change"));
+    }
+  });
+  elements.featureAddSelected.addEventListener("click", addSelectedObjectToDownload);
+  elements.featureOpenQueue.addEventListener("click", openFeatureDownloadQueue);
+  elements.featureRange.addEventListener("change", () => { cancelAdministrativeBoxPick(); invalidateFeatureRange(); updateFeatureDownloadMode(); });
+  elements.featureKind.addEventListener("change", () => { invalidateFeatureRange(); updateFeatureDownloadMode(); });
+  elements.featureSubtype.addEventListener("change",invalidateFeatureRange);
+  elements.featureNameMode.addEventListener("change",invalidateFeatureRange);
+  [elements.featureTag,elements.featureTagValue,elements.featureName].forEach(input=>input.addEventListener("input",invalidateFeatureRange));
+  elements.featureDrawRange.addEventListener("click", () => {
+    invalidateFeatureRange();
+    if(elements.featureRange.value === "polygon") startAdministrativePolygonPick();
+    else {elements.featureRange.value="rectangle";startAdministrativeBoxPick();}
+  });
+  elements.featureUndoRange.addEventListener("click", () => {administrativePolygonPoints?.pop();renderAdministrativePolygonPick();});
+  elements.featureFinishRange.addEventListener("click",finishAdministrativePolygonPick);
+  elements.featureReadRange.addEventListener("click",readFeatureDownloadRange);
+  elements.featureAddResults.addEventListener("click",()=>{
+    if(featureRangeResult) {
+      try { addFeatureDownloadEntries(featureRangeResult.features.map(feature=>window.HuayuFeatures.entry(featureRangeResult,feature))); }
+      catch(error) {setStatus(elements.featureQueryStatus,error.message,true);}
+    }
+  });
+  elements.featureClearQueue.addEventListener("click",()=>{featureDownloadQueue.clear();renderFeatureDownloadQueue();});
+  elements.featureExportButton.addEventListener("click",downloadFeatureQueue);
 
   elements.closePanel.addEventListener("click", hidePanel);
   elements.openOgfEditor.addEventListener("click", () => {
@@ -1919,11 +2045,11 @@
     currentView = "place";
     setTransitOverlayEnabled(false, { showToast: false });
     setTerrainOverlayEnabled(true, { showToast: false });
-    setSelectedPlace(DEFAULT_VIEW, { move: true, popup: false, panel: false, view: false });
+    setSelectedPlace(getDefaultPlace(), { move: true, popup: false, panel: false, view: false });
     syncMapLayers("place");
     updateActiveAction("home");
     hidePanel();
-    showToast("已恢复上京都默认视图");
+    showToast(`已恢复${getDefaultPlace().label}默认视图`);
   });
 
   elements.modeButtons.forEach((button) => {
@@ -2038,7 +2164,20 @@
       rebuildTransitAtlasModel();
     });
   });
-  elements.transitAtlasBuffer.addEventListener("change", rebuildTransitAtlasModel);
+  elements.transitAtlasBuffer.addEventListener("change", () => {
+    transitAtlasFutureController?.abort();
+    transitAtlasFutureData = null;
+    rebuildTransitAtlasModel();
+    loadTransitAtlasFuture();
+  });
+  [elements.transitAtlasConstruction, elements.transitAtlasProposed].forEach(input => {
+    input.addEventListener("change", () => {rebuildTransitAtlasModel(); loadTransitAtlasFuture();});
+  });
+  elements.transitAtlasBasemap.addEventListener("change", () => {
+    scheduleTransitAtlasRender();
+    prepareTransitAtlasBackground().catch(() => {});
+  });
+  elements.transitAtlasAddQueue.addEventListener("click", () => addTransitAtlasToQueue());
   elements.transitAtlasPreview.addEventListener("click", openTransitAtlasDialog);
   elements.transitAtlasDownload.addEventListener("click", () => downloadTransitAtlas(elements.transitAtlasFormat.value));
   elements.transitAtlasDialogDownload.addEventListener("click", () => downloadTransitAtlas("png"));
@@ -2113,6 +2252,18 @@
       enrichSelectedPlace(place);
       return;
     }
+    const saved = savedPlaceMatches(query);
+    if (saved.length) {
+      setStatus(elements.searchStatus, `找到 ${saved.length} 个收藏地点，可在收藏中管理标签。`);
+      saved.forEach(([, place]) => {
+        const button = createResultButton({icon:"bookmark", title:place.label,
+          meta:window.HuayuSavedPlaces.describe(place) || formatCoordinates(place.lat,place.lng),tag:"我的收藏"});
+        button.addEventListener("click",()=>setSelectedPlace(place,{move:true,popup:true}));
+        elements.searchResults.appendChild(button);
+      });
+      refreshIcons();
+      return;
+    }
 
     // The top search box is also a line finder. Keep place search as the
     // fallback, but resolve line-like queries against the same national
@@ -2160,6 +2311,7 @@
 
   function getSearchHistory() {
     try {
+      if (localStorage.getItem("ogf-atlas-account-cache-owner") && !window.HuayuPersonalData?.isAuthenticated()) return [];
       const stored = JSON.parse(window.localStorage.getItem(SEARCH_HISTORY_KEY));
       if (!Array.isArray(stored)) return [];
       const seen = new Set();
@@ -2500,6 +2652,7 @@
   }
 
   function selectedPlaceFeatureGeometry(result) {
+    if (result?.huayu_object && ["Point","MultiPoint","LineString","MultiLineString","Polygon","MultiPolygon","GeometryCollection"].includes(result.geojson?.type)) return result.geojson;
     if (isAdministrativeBoundaryResult(result)) return null;
     return polygonFeatureGeometry(result);
   }
@@ -2533,7 +2686,7 @@
       const text = String(value || "").trim();
       if (text && !rows.some((row) => row.label === label && row.value === text)) rows.push({ label, value: text });
     };
-    add("面积", formatAdministrativeArea(areaSquareMeters));
+    if (["Polygon","MultiPolygon"].includes(result?.geojson?.type)) add("面积", formatAdministrativeArea(areaSquareMeters));
     const category = String(result?.category || result?.class || "").trim();
     const type = String(result?.type || "").trim();
     add("OGF 分类", [category, type].filter(Boolean).join(" / "));
@@ -2590,8 +2743,9 @@
       properties: { name: label, area_square_meters: areaSquareMeters },
       geometry,
     };
-    placeFeatureHaloLayer.addData(feature);
-    placeFeatureLayer.addData(feature);
+    const displayFeature=result.huayu_object ? {type:"FeatureCollection",features:window.HuayuFeatures.flattenFeatures([feature])} : feature;
+    placeFeatureHaloLayer.addData(displayFeature);
+    placeFeatureLayer.addData(displayFeature);
     selectedPlaceFeature = { result, geometry, areaSquareMeters };
     renderSelectedPlaceFeatureDetails(result, areaSquareMeters);
     syncMapLayers(currentView);
@@ -2602,7 +2756,9 @@
     if (!selectedPlaceFeature) return;
     const type = selectedPlaceFeatureTypeLabel(selectedPlaceFeature.result);
     const coordinates = formatCoordinates(selectedPlace.lat, selectedPlace.lng);
-    elements.locationDescription.textContent = `已高亮${type}轮廓，面积约 ${formatAdministrativeArea(selectedPlaceFeature.areaSquareMeters)}。选点坐标 ${coordinates}。属性来自 OpenGeofiction。`;
+    const area = ["Polygon","MultiPolygon"].includes(selectedPlaceFeature.geometry.type)
+      ? `，面积约 ${formatAdministrativeArea(selectedPlaceFeature.areaSquareMeters)}` : "";
+    elements.locationDescription.textContent = `已高亮${type}${area}。选点坐标 ${coordinates}。属性来自 OpenGeofiction。`;
   }
 
   function searchResultMapMarker(result) {
@@ -2816,6 +2972,10 @@
     const query = String(value || "").trim();
     const requestId = ++routeSuggestionRequestId;
     routeSuggestionTarget = target;
+    if (savedPlaceMatches(query).length) {
+      renderRouteSuggestions(target, [], []);
+      return;
+    }
     if (!query || parseCoordinates(query)) {
       hideRouteSuggestions();
       return;
@@ -2895,6 +3055,11 @@
         lng: Number(stop.sourceLon ?? stop.lon),
       };
     });
+    const query = (target === "origin" ? elements.routeOrigin : elements.routeDestination).value.trim();
+    savedPlaceMatches(query).slice(0, 8).forEach(([, place]) => addCandidate({
+      kind:"favorite",icon:"bookmark",title:place.label,
+      meta:window.HuayuSavedPlaces?.describe(place) || "我的收藏",tag:"收藏",lat:place.lat,lng:place.lng,
+    }));
     if (placeCandidates.length) addCandidate(placeCandidates[0]);
     stationCandidates.forEach(addCandidate);
     placeCandidates.slice(1).forEach(addCandidate);
@@ -11258,7 +11423,8 @@
     const queryText = normalizeTransitSearchText(query);
     const queryBase = administrativePlaceNameKey({ name: query });
     const queryPinyin = transitPinyinize(query);
-    const names = [primaryPlaceName(result), String(result?.display_name || "").split(",")[0]]
+    const names = [primaryPlaceName(result), String(result?.display_name || "").split(",")[0],
+      ...Object.values(result?.namedetails || {})]
       .filter(Boolean);
     let best = Number.POSITIVE_INFINITY;
     names.forEach((name) => {
@@ -11279,6 +11445,140 @@
     return best;
   }
 
+  function transitAtlasCityCandidates(results, query) {
+    return [...new Map(results.filter((result) => isAdministrativeBoundaryResult(result)
+      && polygonFeatureGeometry(result) && Number.isFinite(transitAtlasCitySearchScore(result, query)))
+      .map((result) => [administrativeResultKey(result), result])).values()]
+      .sort((first, second) => {
+        const firstScore = transitAtlasCitySearchScore(first, query);
+        const secondScore = transitAtlasCitySearchScore(second, query);
+        if (firstScore !== secondScore) return firstScore - secondScore;
+        const firstInView = map.getBounds().contains([Number(first.lat), Number(first.lon)]);
+        const secondInView = map.getBounds().contains([Number(second.lat), Number(second.lon)]);
+        return Number(secondInView) - Number(firstInView)
+          || primaryPlaceName(first).localeCompare(primaryPlaceName(second), "zh-CN");
+      }).slice(0, 8);
+  }
+
+  function transitAtlasCityBoundaryQuery(query) {
+    const bases = [...new Set(transitAtlasCityQueryVariants(query).map((term) =>
+      fuzzyAdministrativeNameKey(term)).filter((term) => term.length >= 2 && term.length <= 64))];
+    if (!bases.length) return null;
+    const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const pattern = `(^|;)(${bases.map(escape).join("|")})(特别行政区|自治州|自治县|自治旗|自治区|地区|市|縣|县|區|区|都|府|州|旗|盟|镇|鎮|乡|鄉|村)?($|;)`;
+    return '[out:json][timeout:20][maxsize:16777216];rel["boundary"="administrative"]'
+      + `[~"^(name(:.*)?|official_name|short_name|alt_name)$"~${JSON.stringify(pattern)},i]->.matches;`
+      + '.matches out count;.matches out geom 17;';
+  }
+
+  function transitAtlasCityBoundaryResults(payload) {
+    if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_ADMINISTRATIVE_DATA");
+    const count = payload.elements.find((element) => element.type === "count");
+    if (!count || !Number.isFinite(Number(count.tags?.total))) throw new Error("INCOMPLETE_ADMINISTRATIVE_DATA");
+    if (Number(count.tags.total) > 16) throw new Error("CITY_SEARCH_TOO_BROAD");
+    return payload.elements.flatMap((relation) => {
+      if (relation.type !== "relation" || relation.tags?.boundary !== "administrative") return [];
+      const segments = { outer: [], inner: [] };
+      for (const member of relation.members || []) {
+        if (member.type === "node" || member.role === "subarea") continue;
+        const role = member.role || "outer";
+        if (member.type !== "way" || !segments[role] || !Array.isArray(member.geometry)
+          || member.geometry.length < 2 || member.geometry.some((point) =>
+            !Number.isFinite(point?.lat) || !Number.isFinite(point?.lon))) return [];
+        segments[role].push(member.geometry.map((point) => [point.lon, point.lat]));
+      }
+      // The shared stitcher omits unclosed fragments. Search must reject the
+      // entire boundary if any outer or hole would be lost by doing so.
+      const rings = {};
+      for (const role of ["outer", "inner"]) {
+        rings[role] = stitchAdministrativeRings(segments[role]);
+        if (rings[role].reduce((sum, ring) => sum + ring.length - 1, 0)
+          !== segments[role].reduce((sum, segment) => sum + segment.length - 1, 0)) return [];
+      }
+      if (rings.inner.some((inner) => !rings.outer.some((outer) => pointInAdministrativeRing(inner[0], outer)))) return [];
+      const feature = overpassRelationFeature(relation);
+      if (!feature) return [];
+      const bounds = activeAdministrativeFeatureBounds([feature]);
+      const name = relation.tags.name || relation.tags["name:zh"] || feature.properties.name;
+      return [{ osm_type: "relation", osm_id: relation.id, name, display_name: name,
+        category: "boundary", type: "administrative", extratags: { ...relation.tags },
+        namedetails: Object.fromEntries(Object.entries(relation.tags).filter(([key]) =>
+          /^(?:name(?::.*)?|official_name|short_name|alt_name)$/u.test(key))),
+        lat: String((bounds.minLat + bounds.maxLat) / 2), lon: String((bounds.minLon + bounds.maxLon) / 2),
+        boundingbox: [bounds.minLat, bounds.maxLat, bounds.minLon, bounds.maxLon].map(String), geojson: feature.geometry }];
+    });
+  }
+
+  async function findTransitAtlasCities(query) {
+    const cacheKey = normalizePlaceSearchText(query);
+    const cached = transitAtlasCitySearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.createdAt < 3 * 60 * 60 * 1000) return cached.results;
+    const noBoundary = () => new Error("NO_CITY_BOUNDARY");
+    const services = [async () => {
+      const terms = transitAtlasCityQueryVariants(query);
+      const failures = [];
+      // Bound concurrency, preserve duplicate place/boundary objects, and
+      // query administrative names directly rather than ordinary POIs.
+      for (let offset = 0; offset < terms.length; offset += 2) {
+        try {
+          return await Promise.any(terms.slice(offset, offset + 2).map(async (term) => {
+            let results;
+            try {
+              results = await searchPlaces(term, 20, {
+                includeBoundary: true, includeNameDetails: true, featureType: "city", dedupe: false });
+            } catch (error) {
+              failures.push({ term, error });
+              throw error;
+            }
+            const candidates = transitAtlasCityCandidates(results, query);
+            if (!candidates.length) throw noBoundary();
+            return candidates;
+          }));
+        } catch { /* Both terms completed without a usable boundary. */ }
+      }
+      // Retry only failed searches once; genuine empty results aren't errors.
+      if (failures.length) {
+        const retryTerm = (failures.find((failure) => /市$/u.test(failure.term)) || failures[0]).term;
+        const retry = await searchPlaces(retryTerm, 20, {
+          includeBoundary: true, includeNameDetails: true, featureType: "city", dedupe: false });
+        const candidates = transitAtlasCityCandidates(retry, query);
+        if (candidates.length) return candidates;
+        throw failures[0].error;
+      }
+      throw noBoundary();
+    }];
+    const boundaryQuery = transitAtlasCityBoundaryQuery(query);
+    if (boundaryQuery) services.push(async () => {
+      const payload = await fetchAdministrativeExportPayload(boundaryQuery, 25000);
+      const results = transitAtlasCityCandidates(transitAtlasCityBoundaryResults(payload), query);
+      if (!results.length) throw noBoundary();
+      return results;
+    });
+    let results;
+    try {
+      // A valid original boundary can be selected without waiting for the
+      // slower service. Promise.any also handles the losing task's rejection.
+      results = await Promise.any(services.map((service) => service()));
+    } catch (error) {
+      const failures = error.errors || [error];
+      if (failures.some((failure) => failure?.message === "CITY_SEARCH_TOO_BROAD")) throw new Error("CITY_SEARCH_TOO_BROAD");
+      if (failures.some((failure) => failure?.message !== "NO_CITY_BOUNDARY")) throw new Error("CITY_SEARCH_UNAVAILABLE");
+      return [];
+    }
+    // Cache only positive results; transient failures and empty responses must
+    // be recoverable on the next submit. Bound both entries and geometry size.
+    const bytes = JSON.stringify(results).length * 2;
+    if (bytes <= 4 * 1024 * 1024) {
+      transitAtlasCitySearchCache.delete(cacheKey);
+      while (transitAtlasCitySearchCache.size >= 8
+        || [...transitAtlasCitySearchCache.values()].reduce((sum, entry) => sum + entry.bytes, 0) + bytes > 4 * 1024 * 1024) {
+        transitAtlasCitySearchCache.delete(transitAtlasCitySearchCache.keys().next().value);
+      }
+      transitAtlasCitySearchCache.set(cacheKey, { results, bytes, createdAt: Date.now() });
+    }
+    return results;
+  }
+
   async function searchTransitAtlasCities(event) {
     event.preventDefault();
     const query = elements.transitAtlasQuery.value.trim();
@@ -11292,26 +11592,8 @@
     elements.transitAtlasResults.replaceChildren();
     setStatus(elements.transitAtlasStatus, `正在查找“${query}”的行政边界…`);
     try {
-      const searches = await Promise.allSettled(transitAtlasCityQueryVariants(query)
-        .map((term) => searchPlaces(term, 12, { includeBoundary: true })));
-      const results = searches.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+      const candidates = await findTransitAtlasCities(query);
       if (requestId !== transitAtlasRequestId) return;
-      const seen = new Set();
-      const candidates = results.filter((result) => {
-        if (!isAdministrativeBoundaryResult(result) || !polygonFeatureGeometry(result)) return false;
-        const key = administrativeResultKey(result);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }).sort((first, second) => {
-        const firstScore = transitAtlasCitySearchScore(first, query);
-        const secondScore = transitAtlasCitySearchScore(second, query);
-        if (firstScore !== secondScore) return firstScore - secondScore;
-        const firstInView = map.getBounds().contains([Number(first.lat), Number(first.lon)]);
-        const secondInView = map.getBounds().contains([Number(second.lat), Number(second.lon)]);
-        return Number(secondInView) - Number(firstInView)
-          || primaryPlaceName(first).localeCompare(primaryPlaceName(second), "zh-CN");
-      }).slice(0, 8);
       if (!candidates.length) {
         setStatus(elements.transitAtlasStatus, "没有找到带真实边界的城市行政区，请尝试简称、全名或拼音。", true);
         return;
@@ -11334,12 +11616,17 @@
       setStatus(elements.transitAtlasStatus, `模糊匹配到 ${candidates.length} 个行政区，请选择要生成铁路与轨道交通图的城市。`);
     } catch (error) {
       if (requestId === transitAtlasRequestId) {
-        setStatus(elements.transitAtlasStatus, humanizeError(error, "城市行政区搜索失败，请稍后重试。"), true);
+        const message = error.message === "CITY_SEARCH_TOO_BROAD" ? "同名行政区较多，请输入更完整的城市名称。"
+          : "行政边界搜索服务暂时连接失败或超时，请重试；这不表示该城市不存在。";
+        setStatus(elements.transitAtlasStatus, message, true);
       }
     }
   }
 
   async function selectTransitAtlasCity(result) {
+    ++transitAtlasRequestId;
+    transitAtlasFutureController?.abort();
+    transitAtlasFutureData = null;
     const geometry = polygonFeatureGeometry(result);
     if (!geometry) return;
     const feature = {
@@ -11380,6 +11667,7 @@
       await ensureRailwayRoutingLoaded();
     }
     rebuildTransitAtlasModel();
+    loadTransitAtlasFuture();
   }
 
   function transitAtlasModeForRoute(route) {
@@ -11391,6 +11679,9 @@
   }
 
   function transitAtlasRouteKey(route) {
+    if (route?.atlasLifecycle && route.atlasLifecycle !== "existing") {
+      return `${transitAtlasRouteKey({...route, atlasLifecycle: "existing"})}:${route.atlasLifecycle}`;
+    }
     if (route?.type === "train" && String(route?.identity || "").startsWith("train:infrastructure:")) {
       const label = transitPublicRouteName(route?.label || "铁路").normalize("NFKC")
         .trim().toLocaleLowerCase("zh-CN").replace(/\s+/gu, " ");
@@ -11597,7 +11888,7 @@
   }
 
   function transitAtlasAddNationalRailwayLines(networkLines, bounds) {
-    if (!transitAtlasModes.railway || !railwayRoutingData?.ways?.length) return 0;
+    if (!railwayRoutingData?.ways?.length) return 0;
     const representedWayIds = new Set();
     networkLines.forEach((line) => {
       if (!(line.routes || []).some((route) => route.type === "train")) return;
@@ -11664,19 +11955,27 @@
     return null;
   }
 
-  function transitAtlasPassengerMainlineStation(item) {
+  function transitAtlasMainlineStation(item) {
     const tags = item?.tags || {};
     return item && ["node", "way", "relation"].includes(item.type)
       && isMainlineStationNode(item)
       && Boolean(String(tags.name || "").trim())
-      && tags.train !== "no"
-      && !["no", "private"].includes(String(tags.access || "").toLowerCase())
-      && !["yes", "true", "1"].includes(String(tags.disused || tags.abandoned || "").toLowerCase())
-      && railStationIsPassengerEligible(item);
+      && !["yes", "true", "1"].includes(String(tags.disused || tags.abandoned || "").toLowerCase());
+  }
+
+  function transitAtlasStationRoutes(routes = []) {
+    const preferred = preferAuthoritativeTransitRoutes(routes);
+    if (!preferred.some((route) => isUrbanRailTransitRoute(route)
+      && (!route.atlasLifecycle || route.atlasLifecycle === "existing"))) return preferred;
+    // A known city-rail station may also serve a named mainline. An unnamed
+    // station track alone cannot establish that extra service category.
+    return preferred.filter((route) => transitAtlasModeForRoute(route) !== "railway"
+      || !isFallbackTrainRoute(route)
+      || !/^(?:铁路(?:基础设施)?|railway|rail(?:way)? infrastructure)$/iu.test(transitAtlasRouteLabel(route)));
   }
 
   function transitAtlasAddNationalRailwayStations(networkStops, networkLines, bounds, items) {
-    if (!transitAtlasModes.railway || !Array.isArray(items) || !items.length) return 0;
+    if (!Array.isArray(items) || !items.length) return 0;
     const contextBounds = transitAtlasExpandBounds(bounds, TRANSIT_ATLAS_RAILWAY_CONTEXT_METERS);
     const railwayLines = [...networkLines.values()].filter((line) => line.atlasNationalRailway
       && Array.isArray(line.geometry) && line.geometry.length > 1
@@ -11690,7 +11989,7 @@
     });
     const candidates = [];
     items.forEach((item) => {
-      if (!transitAtlasPassengerMainlineStation(item)) return;
+      if (!transitAtlasMainlineStation(item)) return;
       const existing = existingBySourceId.get(String(item.id));
       if (existing?.routes?.some(isAuthoritativeTrainRoute)) return;
       const point = transitAtlasStationPoint(item);
@@ -11711,8 +12010,11 @@
       if (!projected.length) return;
       const nearestDistance = projected[0].projection.distance;
       const matching = projected.filter((candidate) => candidate.projection.distance <= nearestDistance + 45);
-      const routes = uniqueTransitRoutes(matching.flatMap((candidate) => candidate.line.routes || [])
+      const candidateRoutes = uniqueTransitRoutes(matching.flatMap((candidate) => candidate.line.routes || [])
         .filter((route) => route.type === "train"));
+      const allowed = new Set(transitAtlasStationRoutes([...(existing?.routes || []), ...candidateRoutes])
+        .map((route) => route.identity));
+      const routes = candidateRoutes.filter((route) => allowed.has(route.identity));
       if (!routes.length) return;
       candidates.push({
         id: item.id,
@@ -11835,13 +12137,26 @@
     return touches(first, second) || touches(second, first);
   }
 
-  function transitAtlasConnectedNetworkLines(lines, city, stops, bufferMeters) {
+  function transitAtlasStopProjection(stop, geometry, cache) {
+    if (!cache) return projectPointToTransitGeometry(stop, geometry);
+    if (!cache.has(stop)) cache.set(stop, new WeakMap());
+    const geometries = cache.get(stop);
+    if (!geometries.has(geometry)) geometries.set(geometry, projectPointToTransitGeometry(stop, geometry));
+    return geometries.get(geometry);
+  }
+
+  function transitAtlasConnectedNetworkLines(lines, city, stops, bufferMeters, prepared = null) {
     if (!(bufferMeters > 0) || !lines.length) return lines;
     const retained = new Set();
     const stationConnections = new Map();
-    const pointWithinCache = new Map();
+    const pointWithinCache = prepared?.pointWithinCache || new Map();
+    const selected = new Map(lines.map((line, index) => [line.id,
+      {index, keys: new Set(line.routes.map(transitAtlasRouteKey))}]));
     lines.forEach((line, index) => {
-      if (transitAtlasGeometryIntersectsFeature(line.geometry, city)) retained.add(index);
+      const cache = prepared?.intersections;
+      if (cache && !cache.has(line.geometry)) cache.set(line.geometry,
+        transitAtlasGeometryIntersectsFeature(line.geometry, city));
+      if (cache ? cache.get(line.geometry) : transitAtlasGeometryIntersectsFeature(line.geometry, city)) retained.add(index);
     });
     (stops || []).forEach((stop) => {
       if (!Number.isFinite(stop?.lat) || !Number.isFinite(stop?.lon)
@@ -11849,11 +12164,18 @@
       const stopRouteKeys = new Set(preferAuthoritativeTransitRoutes(stop.routes || [])
         .map(transitAtlasRouteKey));
       if (!stopRouteKeys.size) return;
-      const matching = [];
-      lines.forEach((line, index) => {
-        if (!line.routes.some((route) => stopRouteKeys.has(transitAtlasRouteKey(route)))) return;
-        const projection = projectPointToTransitGeometry(stop, line.geometry);
-        if (projection?.distance <= 750) matching.push({ index, distance: projection.distance });
+      const cachedMatches = prepared?.stationMatches.get(stop);
+      const matches = cachedMatches || (prepared?.lines || lines).flatMap((line) => {
+        const keys = line.routes.map(transitAtlasRouteKey).filter(key => stopRouteKeys.has(key));
+        if (!keys.length) return [];
+        const projection = transitAtlasStopProjection(stop, line.geometry, prepared?.stopProjections);
+        return projection?.distance <= 750 ? [{id: line.id, keys, distance: projection.distance}] : [];
+      });
+      if (prepared && !cachedMatches) prepared.stationMatches.set(stop, matches);
+      const matching = matches.flatMap(match => {
+        const entry = selected.get(match.id);
+        return entry && match.keys.some(key => entry.keys.has(key))
+          ? [{index: entry.index, distance: match.distance}] : [];
       });
       if (administrativeFeatureContainsPoint(city.feature, [stop.lon, stop.lat]) && matching.length) {
         matching.sort((first, second) => first.distance - second.distance);
@@ -11870,9 +12192,14 @@
     const connectedIndexes = (index) => {
       if (connections.has(index)) return connections.get(index);
       const matches = [];
-      lines.forEach((candidate, candidateIndex) => {
-        if (candidateIndex !== index && transitAtlasLinesConnect(lines[index], candidate)) matches.push(candidateIndex);
-      });
+      const line = lines[index];
+      let neighbors = prepared?.connections.get(line.id);
+      if (!neighbors) {
+        neighbors = (prepared?.lines || lines).filter(candidate => candidate.id !== line.id
+          && transitAtlasLinesConnect(line, candidate)).map(candidate => candidate.id);
+        prepared?.connections.set(line.id, neighbors);
+      }
+      neighbors.forEach(id => {if (selected.has(id)) matches.push(selected.get(id).index);});
       (stationConnections.get(index) || []).forEach((candidateIndex) => {
         if (!matches.includes(candidateIndex)) matches.push(candidateIndex);
       });
@@ -12137,7 +12464,7 @@
       });
     });
     (elements || []).forEach((item) => {
-      if (!transitAtlasPassengerMainlineStation(item) || stopsById.has(String(item.id))) return;
+      if (!transitAtlasMainlineStation(item) || stopsById.has(String(item.id))) return;
       const point = transitAtlasStationPoint(item);
       if (!point) return;
       stopsById.set(String(item.id), {
@@ -12512,33 +12839,97 @@
     return existing;
   }
 
-  function rebuildTransitAtlasModel() {
+  function transitAtlasFutureKey() {
+    return transitAtlasCity && JSON.stringify([transitAtlasCity.feature.properties.osm_id,
+      transitAtlasBufferedBounds(transitAtlasCity, transitAtlasBufferDistanceMeters())]);
+  }
+
+  async function loadTransitAtlasFuture() {
     if (!transitAtlasCity) return;
+    if (!elements.transitAtlasConstruction.checked && !elements.transitAtlasProposed.checked) {
+      transitAtlasFutureController?.abort();
+      return;
+    }
+    const key = transitAtlasFutureKey();
+    if (transitAtlasFutureData?.key === key && Date.now() - Date.parse(transitAtlasFutureData.fetchedAt) < 10800000) return;
+    transitAtlasFutureController?.abort();
+    const controller = new AbortController(); transitAtlasFutureController = controller;
+    const bounds = transitAtlasBufferedBounds(transitAtlasCity, transitAtlasBufferDistanceMeters());
+    setStatus(elements.transitAtlasStatus, "正在读取该范围内有明确标签的规划与在建线路，现有线路继续保留…");
+    try {
+      const data = await fetchMapFeatureData({mode: "atlas-future", south: bounds.minLat, west: bounds.minLon,
+        north: bounds.maxLat, east: bounds.maxLon}, controller.signal);
+      if (controller.signal.aborted || key !== transitAtlasFutureKey()) return;
+      transitAtlasFutureData = {...data, key};
+      rebuildTransitAtlasModel();
+    } catch (error) {
+      if (!controller.signal.aborted && key === transitAtlasFutureKey()) {
+        setStatus(elements.transitAtlasStatus, `规划／在建数据未能完整读取：${error.message}。现有线路已保留，可关开选项重试。`, true);
+      }
+    }
+  }
+
+  function transitAtlasApplyLifecycle(networkLines, networkStops, sourceItems) {
+    const items = [...new Map(sourceItems.map(item => [`${item.type}/${item.id}`, item])).values()];
+    const index = new Map(items.map(item => [`${item.type}/${item.id}`, item]));
+    const future = window.HuayuTransitAtlas.futureNetwork(items, transitRouteInfo);
+    const futureWays = new Set(items.filter(item => item.type === "way"
+      && window.HuayuTransitAtlas.lifecycle(item.tags) !== "existing").map(item => String(item.id)));
+    for (const [key, line] of [...networkLines]) {
+      const routes = (line.routes || []).map(route => ({...route,
+        atlasLifecycle: window.HuayuTransitAtlas.lifecycle(index.get(`relation/${route.id}`)?.tags)}));
+      const existingRoutes = routes.filter(route => route.atlasLifecycle === "existing");
+      const ids = line.sourceWayIds || String(line.id).replace(/^rail-infrastructure-/u, "").split("+");
+      if (!existingRoutes.length) networkLines.delete(key);
+      else if (ids.some(id => futureWays.has(String(id)))) {
+        networkLines.delete(key);
+        // Split a formerly joined line at real source ways, so excluding an
+        // unfinished extension cannot remove or relabel the existing segment.
+        for (const id of ids) {
+          const way = index.get(`way/${id}`);
+          if (futureWays.has(String(id)) || !way?.geometry?.length) continue;
+          networkLines.set(`existing-${id}`, {...line, id: `existing-${id}`, sourceId: id, sourceWayIds: [id],
+            geometry: way.geometry, routes: existingRoutes, atlasLifecycle: "existing"});
+        }
+      } else networkLines.set(key, {...line, routes: existingRoutes, atlasLifecycle: "existing"});
+    }
+    for (const line of future.lines) networkLines.set(line.id, line);
+    for (const stop of future.stops) networkStops.set(`${stop.id}:${stop.lat}:${stop.lon}`, stop);
+  }
+
+  function prepareTransitAtlasGeometry() {
     const networks = transitAtlasSnapshotNetworks(transitAtlasCity);
     const snapshotElements = transitAtlasSnapshotElements(transitAtlasCity);
+    const bufferMeters = transitAtlasBufferDistanceMeters();
+    const futureData = transitAtlasFutureData?.key === transitAtlasFutureKey() ? transitAtlasFutureData : null;
+    const previous = transitAtlasPrepared;
+    if (previous && previous.city === transitAtlasCity && previous.bufferMeters === bufferMeters
+      && previous.routingData === railwayRoutingData && previous.revision === transitRoutingRevision
+      && previous.rules === transitServiceRules && previous.futureData === futureData
+      && previous.networks.length === networks.length && networks.every((network, index) =>
+        network === previous.networks[index] && network.lines === previous.sourceLines[index]
+          && network.stops === previous.sourceStops[index])
+      && previous.snapshotElements.length === snapshotElements.length
+      && snapshotElements.every((item, index) => item === previous.snapshotElements[index])) return previous;
     const networkLines = new Map();
     const networkStops = new Map();
     networks.forEach((network) => {
       (network.lines || []).forEach((line) => networkLines.set(String(line.id), line));
-      (network.stops || []).forEach((stop) => networkStops.set(`${stop.id}:${stop.lat}:${stop.lon}`, stop));
+      (network.stops || []).forEach((stop) => networkStops.set(`${stop.id}:${stop.lat}:${stop.lon}`,
+        { ...stop, routes: transitAtlasStationRoutes(stop.routes) }));
     });
-    const eligibleRoutes = (routes) => preferAuthoritativeTransitRoutes(routes || []).filter((route) => {
-      const mode = transitAtlasModeForRoute(route);
-      return mode && transitAtlasModes[mode];
-    });
-    const bufferMeters = transitAtlasBufferDistanceMeters();
     const bounds = transitAtlasBufferedBounds(transitAtlasCity, bufferMeters);
     const nationalRailwayWayCount = transitAtlasAddNationalRailwayLines(networkLines, bounds);
+    transitAtlasApplyLifecycle(networkLines, networkStops, [...snapshotElements, ...(futureData?.elements || [])]);
     const nationalRailwayStationCount = transitAtlasAddNationalRailwayStations(
       networkStops, networkLines, bounds, snapshotElements,
     );
     const pointWithinCache = new Map();
-    const routesByKey = new Map();
     const provisionalLines = [];
     networkLines.forEach((line, lineId) => {
       if (!Array.isArray(line.geometry) || line.geometry.length < 2
         || !transitAtlasBoundsOverlap(transitAtlasLineBounds(line.geometry), bounds)) return;
-      const routes = eligibleRoutes(line.routes);
+      const routes = preferAuthoritativeTransitRoutes(line.routes || []).filter(transitAtlasModeForRoute);
       if (!routes.length) return;
       const routeGroups = new Map();
       routes.forEach((route) => {
@@ -12575,18 +12966,43 @@
       });
     });
     const joinedLines = transitAtlasJoinConnectedSourceFragments(provisionalLines, bufferMeters);
+    const stops = [...networkStops.values()];
+    const needsRailTopology = Boolean(railwayRoutingData) && joinedLines.some((line) => line.continuations?.length
+      && line.routes.some((route) => route.type === "train" && !isUrbanRailTransitRoute(route)));
+    const railTopology = needsRailTopology
+      ? transitAtlasRailGraphForNetworks(networks, snapshotElements) : null;
+    transitAtlasLabelContinuations(joinedLines, stops, railTopology);
+    return transitAtlasPrepared = {
+      city: transitAtlasCity, bufferMeters, bounds, networks, snapshotElements,
+      sourceLines: networks.map(network => network.lines), sourceStops: networks.map(network => network.stops),
+      routingData: railwayRoutingData, revision: transitRoutingRevision, rules: transitServiceRules, futureData,
+      lines: joinedLines, stops, provisionalCount: provisionalLines.length,
+      nationalRailwayWayCount, nationalRailwayStationCount, pointWithinCache,
+      stopProjections: new WeakMap(), intersections: new WeakMap(), connections: new Map(), stationMatches: new WeakMap(),
+    };
+  }
+
+  function rebuildTransitAtlasModel() {
+    if (!transitAtlasCity) return;
+    const prepared = prepareTransitAtlasGeometry();
+    const {bufferMeters, bounds, nationalRailwayWayCount, nationalRailwayStationCount, pointWithinCache} = prepared;
+    const eligibleRoutes = (routes) => preferAuthoritativeTransitRoutes(routes || []).filter((route) => {
+      const mode = transitAtlasModeForRoute(route);
+      const state = route.atlasLifecycle || "existing";
+      return mode && transitAtlasModes[mode] && (state === "existing"
+        || state === "construction" && elements.transitAtlasConstruction.checked
+        || state === "proposed" && elements.transitAtlasProposed.checked);
+    });
+    const selectedLines = prepared.lines.map(line => ({...line, routes: eligibleRoutes(line.routes)}))
+      .filter(line => line.routes.length);
     const lines = transitAtlasConnectedNetworkLines(
-      joinedLines, transitAtlasCity, [...networkStops.values()], bufferMeters,
+      selectedLines, transitAtlasCity, prepared.stops, bufferMeters, prepared,
     );
+    const routesByKey = new Map();
     lines.forEach((line) => line.routes.forEach((route) => {
       const key = transitAtlasRouteKey(route);
       routesByKey.set(key, transitAtlasChooseRoute(routesByKey.get(key), route));
     }));
-    const needsRailTopology = Boolean(railwayRoutingData) && lines.some((line) => line.continuations?.length
-      && line.routes.some((route) => route.type === "train" && !isUrbanRailTransitRoute(route)));
-    const railTopology = needsRailTopology
-      ? transitAtlasRailGraphForNetworks(networks, snapshotElements) : null;
-    transitAtlasLabelContinuations(lines, [...networkStops.values()], railTopology);
     const selectedRouteKeys = new Set(routesByKey.keys());
     [...transitAtlasHiddenRouteKeys].forEach((key) => {
       if (!selectedRouteKeys.has(key)) transitAtlasHiddenRouteKeys.delete(key);
@@ -12597,13 +13013,13 @@
       if (!retainedLinesByRoute.has(key)) retainedLinesByRoute.set(key, []);
       retainedLinesByRoute.get(key).push(line);
     }));
-    const stops = mergeTransitStopsForDisplay([...networkStops.values()].filter((stop) =>
+    const stops = mergeTransitStopsForDisplay(prepared.stops.filter((stop) =>
       transitAtlasPointWithinBuffer(stop, transitAtlasCity, bufferMeters, pointWithinCache)
       && eligibleRoutes(stop.routes).some((route) => {
         const key = transitAtlasRouteKey(route);
         if (!selectedRouteKeys.has(key)) return false;
         return (retainedLinesByRoute.get(key) || []).some((line) =>
-          (projectPointToTransitGeometry(stop, line.geometry)?.distance ?? Infinity) <= 750);
+          (transitAtlasStopProjection(stop, line.geometry, prepared.stopProjections)?.distance ?? Infinity) <= 750);
       })));
     const routes = [...routesByKey.entries()].map(([key, route]) => ({ ...route, atlasKey: key }))
       .sort((first, second) => {
@@ -12627,58 +13043,43 @@
       stops,
       bounds: modelBounds,
       bufferMeters,
-      nationalRailwayWayCount,
-      nationalRailwayStationCount,
+      fetchedAt: transitPreloadGeneratedAt ? new Date(transitPreloadGeneratedAt).toISOString() : null,
+      supplementalFetchedAt: transitAtlasFutureData?.fetchedAt || null,
+      nationalRailwayWayCount: transitAtlasModes.railway ? nationalRailwayWayCount : 0,
+      nationalRailwayStationCount: transitAtlasModes.railway ? nationalRailwayStationCount : 0,
       lengthMeters: lines.reduce((sum, line) => sum + transitGeometryLength(line.geometry), 0),
     };
     elements.transitAtlasWorkspace.dataset.routes = String(routes.length);
     elements.transitAtlasWorkspace.dataset.lines = String(lines.length);
     elements.transitAtlasWorkspace.dataset.stops = String(stops.length);
-    elements.transitAtlasWorkspace.dataset.disconnectedFragments = String(provisionalLines.length - lines.length);
-    elements.transitAtlasWorkspace.dataset.nationalRailwayWays = String(nationalRailwayWayCount);
-    elements.transitAtlasWorkspace.dataset.nationalRailwayStations = String(nationalRailwayStationCount);
+    elements.transitAtlasWorkspace.dataset.disconnectedFragments = String(prepared.provisionalCount - lines.length);
+    elements.transitAtlasWorkspace.dataset.nationalRailwayWays = String(transitAtlasModel.nationalRailwayWayCount);
+    elements.transitAtlasWorkspace.dataset.nationalRailwayStations = String(transitAtlasModel.nationalRailwayStationCount);
     elements.transitAtlasPreview.disabled = !lines.length;
     elements.transitAtlasDownload.disabled = !lines.length;
+    elements.transitAtlasAddQueue.disabled = !lines.length;
     renderTransitAtlasLegend(elements.transitAtlasLegend, transitAtlasModel);
     if (!elements.transitAtlasDialog.hidden) renderTransitAtlasLegend(elements.transitAtlasDialogLegend, transitAtlasModel);
     setStatus(elements.transitAtlasStatus, lines.length
-      ? `${transitAtlasCity.label}已识别 ${routes.length} 条铁路与轨道交通线路、${stops.length} 个站点${nationalRailwayWayCount ? `，并补充 ${nationalRailwayWayCount} 段全国铁路真实轨道` : ""}，真实线路几何约 ${formatDistance(transitAtlasModel.lengthMeters)}；线路在边界外 ${bufferMeters / 1000} 公里截断，截断端标注去向。`
+      ? `${transitAtlasCity.label}已识别 ${routes.length} 条铁路与轨道交通线路、${stops.length} 个站点${transitAtlasModel.nationalRailwayWayCount ? `，并补充 ${transitAtlasModel.nationalRailwayWayCount} 段全国铁路真实轨道` : ""}，真实线路几何约 ${formatDistance(transitAtlasModel.lengthMeters)}；线路在边界外 ${bufferMeters / 1000} 公里截断，截断端标注去向。`
       : `${transitAtlasCity.label}在所选制式下没有可识别的铁路或轨道交通线路。`, !lines.length);
     if (!elements.transitAtlasDialog.hidden) {
       resetTransitAtlasDialogViewport();
       updateTransitAtlasDialogText();
     }
     scheduleTransitAtlasRender({ dialog: !elements.transitAtlasDialog.hidden });
+    prepareTransitAtlasBackground().catch(() => {});
   }
 
   function transitAtlasProjection(model, rect, viewport = {}) {
-    const midLatitude = (model.bounds.minLat + model.bounds.maxLat) / 2;
-    const longitudeFactor = Math.max(0.15, Math.cos(midLatitude * Math.PI / 180));
-    const longitudeSpan = Math.max(1e-8, (model.bounds.maxLon - model.bounds.minLon) * longitudeFactor);
-    const latitudeSpan = Math.max(1e-8, model.bounds.maxLat - model.bounds.minLat);
-    const inset = Math.max(16, Math.min(rect.width, rect.height) * 0.055);
-    const scale = Math.min((rect.width - inset * 2) / longitudeSpan, (rect.height - inset * 2) / latitudeSpan);
-    const contentWidth = longitudeSpan * scale;
-    const contentHeight = latitudeSpan * scale;
-    const baseX = rect.x + (rect.width - contentWidth) / 2;
-    const baseY = rect.y + (rect.height - contentHeight) / 2;
-    const centerX = rect.x + rect.width / 2;
-    const centerY = rect.y + rect.height / 2;
-    const viewScale = Number(viewport.scale) || 1;
-    const offsetX = Number(viewport.offsetX) || 0;
-    const offsetY = Number(viewport.offsetY) || 0;
-    return (coordinate) => {
-      const x = baseX + (coordinate[0] - model.bounds.minLon) * longitudeFactor * scale;
-      const y = baseY + (model.bounds.maxLat - coordinate[1]) * scale;
-      return [centerX + (x - centerX) * viewScale + offsetX, centerY + (y - centerY) * viewScale + offsetY];
-    };
+    return window.HuayuTransitAtlas.projection(model.bounds, rect, viewport);
   }
 
   function drawTransitAtlasBoundary(context, model, project) {
     const polygons = model.city.feature.geometry.type === "Polygon"
       ? [model.city.feature.geometry.coordinates] : model.city.feature.geometry.coordinates;
     context.save();
-    context.fillStyle = "rgba(214, 224, 224, 0.42)";
+    context.fillStyle = elements.transitAtlasBasemap.value === "none" ? "rgba(214, 224, 224, 0.42)" : "rgba(214, 224, 224, 0.08)";
     context.strokeStyle = "#aab7ba";
     context.lineWidth = 1.2;
     context.setLineDash([6, 5]);
@@ -12950,6 +13351,61 @@
     return rendered.length;
   }
 
+  function transitAtlasBackgroundKey(model, id, resolution = 1600) {
+    return JSON.stringify([id, model.bounds, resolution]);
+  }
+
+  async function prepareTransitAtlasBackground(model = transitAtlasModel, id = elements.transitAtlasBasemap.value, resolution = 1600) {
+    if (!model || id === "none") {
+      elements.transitAtlasBackgroundStatus.hidden = true;
+      return null;
+    }
+    const key = transitAtlasBackgroundKey(model, id, resolution);
+    let entry = transitAtlasBackgroundCache.get(key);
+    const active = () => transitAtlasModel && id === elements.transitAtlasBasemap.value
+      && key === transitAtlasBackgroundKey(transitAtlasModel, id, resolution);
+    if (!entry) {
+      entry = {};
+      transitAtlasBackgroundCache.set(key, entry);
+      entry.promise = transitAtlasBackgroundWork.catch(() => {}).then(async () => {
+        if (resolution === 1600 && !active()) throw Error("底图选择已更新");
+        const progress = message => {
+          if (!active()) return;
+          elements.transitAtlasBackgroundStatus.hidden = false;
+          setStatus(elements.transitAtlasBackgroundStatus, message);
+        };
+        progress(`正在加载${BASEMAP_STYLES[id].label}底图…`);
+        const result = await renderAdministrativeBasemapCanvas([], "", model.bounds, {resolution,
+          basemapStyle: id, includeBuildings: false, includePoints: false, includeHighlight: false, onProgress: progress});
+        if (result.missingTiles) throw Error(`${result.missingTiles} 张底图瓦片未加载完整，请切换底图后重试`);
+        entry.canvas = result.canvas;
+        while (transitAtlasBackgroundCache.size > 3) {
+          const removable = [...transitAtlasBackgroundCache].find(([other, value]) => other !== key && value.canvas);
+          if (!removable) break;
+          transitAtlasBackgroundCache.delete(removable[0]);
+        }
+        return entry.canvas;
+      });
+      transitAtlasBackgroundWork = entry.promise;
+    }
+    try {
+      const canvas = await entry.promise;
+      if (active()) {
+        elements.transitAtlasBackgroundStatus.hidden = false;
+        setStatus(elements.transitAtlasBackgroundStatus, `底图：${BASEMAP_STYLES[id].label} · OpenGeofiction contributors${id === "huayu-satellite" ? " · 模拟影像，非实拍" : ""}`);
+        scheduleTransitAtlasRender();
+      }
+      return canvas;
+    } catch (error) {
+      transitAtlasBackgroundCache.delete(key);
+      if (active()) {
+        elements.transitAtlasBackgroundStatus.hidden = false;
+        setStatus(elements.transitAtlasBackgroundStatus, `底图加载失败：${error.message}。线路继续显示。`, true);
+      }
+      throw error;
+    }
+  }
+
   function drawTransitAtlasMap(context, model, rect, options = {}) {
     const project = transitAtlasProjection(model, rect, options.viewport);
     context.save();
@@ -12958,6 +13414,12 @@
     context.clip();
     context.fillStyle = "#f4f7f7";
     context.fillRect(rect.x, rect.y, rect.width, rect.height);
+    const backdrop = options.background !== undefined ? options.background : transitAtlasBackgroundCache.get(
+      transitAtlasBackgroundKey(model, elements.transitAtlasBasemap.value))?.canvas;
+    if (backdrop) {
+      const nw = project([model.bounds.minLon, model.bounds.maxLat]), se = project([model.bounds.maxLon, model.bounds.minLat]);
+      context.drawImage(backdrop, nw[0], nw[1], se[0] - nw[0], se[1] - nw[1]);
+    }
     drawTransitAtlasBoundary(context, model, project);
     const orderedLines = transitAtlasOrderedLines(model);
     const markers = [];
@@ -12967,7 +13429,12 @@
         const [x, y] = project([point.lon, point.lat]);
         return { x, y };
       });
+      context.save();
+      const state = line.atlasLifecycle || line.routes[0]?.atlasLifecycle;
+      if (state === "construction") context.setLineDash([10, 5]);
+      if (state === "proposed") context.setLineDash([3, 5]);
       strokeTransitAtlasPath(context, points, transitAtlasRouteColor(line.routes[0]), lineWidth, options.large);
+      context.restore();
       markers.push({ line, points });
     });
     const continuationCount = drawTransitAtlasContinuations(context, markers, rect, options);
@@ -13020,6 +13487,7 @@
     const exportMode = Boolean(options.exportMode);
     const rect = transitAtlasCanvasRect(cssWidth, cssHeight, {
       exportMode,
+      background: options.background,
       large: Boolean(options.large),
     });
     if (exportMode) {
@@ -13052,7 +13520,7 @@
     window.cancelAnimationFrame(transitAtlasRenderFrame);
     transitAtlasRenderFrame = window.requestAnimationFrame(() => {
       transitAtlasRenderFrame = null;
-      if (!transitAtlasModel?.lines.length) return;
+      if (!transitAtlasModel) return;
       const visibleModel = transitAtlasVisibleModel();
       renderTransitAtlasCanvas(elements.transitAtlasCanvas, visibleModel);
       if (options.dialog || !elements.transitAtlasDialog.hidden) {
@@ -13079,6 +13547,7 @@
         else transitAtlasHiddenRouteKeys.add(route.atlasKey);
         const visibleModel = transitAtlasVisibleModel();
         elements.transitAtlasDownload.disabled = !visibleModel?.lines.length;
+        elements.transitAtlasAddQueue.disabled = !visibleModel?.lines.length;
         renderTransitAtlasLegend(elements.transitAtlasLegend, transitAtlasModel);
         if (!elements.transitAtlasDialog.hidden) {
           renderTransitAtlasLegend(elements.transitAtlasDialogLegend, transitAtlasModel);
@@ -13089,9 +13558,15 @@
       const swatch = document.createElement("i");
       swatch.style.backgroundColor = transitAtlasRouteColor(route);
       const label = document.createElement("span");
-      label.textContent = transitAtlasRouteLabel(route);
+      label.textContent = transitAtlasRouteLabel(route) + (route.atlasLifecycle && route.atlasLifecycle !== "existing"
+        ? `（${window.HuayuTransitAtlas.labels[route.atlasLifecycle]}）` : "");
       item.append(toggle, swatch, label);
-      container.appendChild(item);
+      const row = document.createElement("div"); row.className = "transit-atlas-legend-row";
+      const add = document.createElement("button"); add.type = "button"; add.textContent = "加入清单";
+      add.disabled = !toggle.checked;
+      add.setAttribute("aria-label", `将${label.textContent}加入下载清单`);
+      add.addEventListener("click", () => addTransitAtlasToQueue(route.atlasKey));
+      row.append(item, add); container.appendChild(row);
     });
   }
 
@@ -13220,6 +13695,9 @@
         coordinate_reference_system: "WGS 84 (EPSG:4326)",
         boundary_buffer_km: (model.bufferMeters || 0) / 1000,
         visible_route_count: model.routes.length,
+        data_generated_at: model.fetchedAt || null,
+        supplemental_fetched_at: model.supplementalFetchedAt || null,
+        lifecycle: [...new Set(model.lines.map(line => line.atlasLifecycle || "existing"))],
       },
       features: [
         {
@@ -13235,6 +13713,7 @@
             route_names: routeNames(line.routes),
             route_refs: line.routes.map((route) => route.ref || ""),
             route_types: line.routes.map((route) => route.type),
+            lifecycle: [...new Set(line.routes.map(route => route.atlasLifecycle || line.atlasLifecycle || "existing"))],
             relation_ids: line.routes.map((route) => route.id).filter((id) => Number.isFinite(Number(id))),
             color: transitAtlasRouteColor(line.routes[0]),
             clipped_at_start: line.continuations?.some((item) => item.side === "start") || false,
@@ -13258,6 +13737,7 @@
               source_id: String(stop.sourceId ?? stop.id ?? ""),
               route_names: routeNames(routes),
               route_types: routes.map((route) => route.type),
+              lifecycle: [...new Set(routes.map(route => route.atlasLifecycle || "existing"))],
             },
             geometry: { type: "Point", coordinates: [stop.lon, stop.lat] },
           };
@@ -13271,7 +13751,7 @@
       .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
   }
 
-  function transitAtlasSvg(model) {
+  function transitAtlasSvg(model, background = null) {
     const width = 2400;
     const height = 1600;
     const rect = { x: 48, y: 126, width: width - 96, height: height - 190 };
@@ -13289,7 +13769,9 @@
     });
     const polygons = model.city.feature.geometry.type === "Polygon"
       ? [model.city.feature.geometry.coordinates] : model.city.feature.geometry.coordinates;
-    const boundaryPaths = polygons.flatMap((polygon) =>
+    const nw = project([model.bounds.minLon, model.bounds.maxLat]), se = project([model.bounds.maxLon, model.bounds.minLat]);
+    const backgroundImage = background ? `<image x="${nw[0]}" y="${nw[1]}" width="${se[0]-nw[0]}" height="${se[1]-nw[1]}" preserveAspectRatio="none" href="${background.toDataURL("image/png")}"/>` : "";
+    const boundaryPaths = backgroundImage + polygons.flatMap((polygon) =>
       polygon.map((ring) => `<path d="${pathFor(ring)} Z"/>`)).join("");
     const linePaths = model.lines.map((line) => {
       const points = linePointsFor(line);
@@ -13297,7 +13779,7 @@
     })
       .filter((item) => item.path);
     const lines = linePaths.map(({ line, path }) =>
-      `<path d="${path}" stroke="${transitAtlasRouteColor(line.routes[0])}"/>`).join("");
+      `<path d="${path}" stroke="${transitAtlasRouteColor(line.routes[0])}"${(line.atlasLifecycle || line.routes[0]?.atlasLifecycle) === "construction" ? ' stroke-dasharray="10 5"' : (line.atlasLifecycle || line.routes[0]?.atlasLifecycle) === "proposed" ? ' stroke-dasharray="3 5"' : ""}/>`).join("");
     const stops = model.stops.map((stop) => {
       const [x, y] = project([stop.lon, stop.lat]);
       const routes = preferAuthoritativeTransitRoutes(stop.routes || [])
@@ -13352,13 +13834,17 @@
     if (!visibleModel?.lines.length) return;
     const title = format === "geojson" ? transitAtlasNetworkTitle(visibleModel) : transitAtlasVisualTitle(visibleModel);
     const baseName = safeDownloadName(title);
+    const basemap = elements.transitAtlasBasemap.value;
+    elements.transitAtlasDownload.disabled = true;
+    elements.transitAtlasDialogDownload.disabled = true;
     try {
+      const background = format === "geojson" ? null : await prepareTransitAtlasBackground(visibleModel, basemap, 2400);
       if (format === "geojson") {
         downloadBlob(new Blob([JSON.stringify(transitAtlasGeoJson(visibleModel), null, 2)], {
           type: "application/geo+json;charset=utf-8",
         }), `${baseName}.geojson`);
       } else if (format === "svg") {
-        downloadBlob(new Blob([transitAtlasSvg(visibleModel)], {
+        downloadBlob(new Blob([transitAtlasSvg(visibleModel, background)], {
           type: "image/svg+xml;charset=utf-8",
         }), `${baseName}.svg`);
       } else {
@@ -13368,6 +13854,7 @@
           height: 1600,
           pixelRatio: 1,
           exportMode: true,
+          background,
         });
         downloadBlob(await canvasToBlob(canvas, "image/png"), `${baseName}.png`);
       }
@@ -13375,7 +13862,25 @@
       showToast("铁路与轨道交通网已生成");
     } catch (error) {
       setStatus(elements.transitAtlasStatus, humanizeError(error, "铁路与轨道交通网文件生成失败。"), true);
+    } finally {
+      elements.transitAtlasDownload.disabled = !transitAtlasVisibleModel()?.lines.length;
+      elements.transitAtlasDialogDownload.disabled = false;
     }
+  }
+
+  function addTransitAtlasToQueue(routeKey = null) {
+    let model = transitAtlasVisibleModel();
+    if (!model?.lines.length) return;
+    if (routeKey) {
+      const routes = model.routes.filter(route => route.atlasKey === routeKey);
+      const lines = model.lines.filter(line => line.routes.some(route => transitAtlasRouteKey(route) === routeKey))
+        .map(line => ({...line, routes: line.routes.filter(route => transitAtlasRouteKey(route) === routeKey)}));
+      const stops = model.stops.filter(stop => (stop.routes || []).some(route => transitAtlasRouteKey(route) === routeKey));
+      model = {...model, routes, lines, stops, routeKeys: new Set([routeKey])};
+    }
+    const entries = window.HuayuTransitAtlas.downloadEntries(transitAtlasGeoJson(model),
+      String(model.city.feature.properties.osm_id || model.city.label), model.fetchedAt);
+    addFeatureDownloadEntries(entries);
   }
 
   async function loadTransitRelations(options = {}) {
@@ -14302,7 +14807,7 @@
       stopTransitBackgroundRefreshes();
       currentView = "place";
       setTransitOverlayEnabled(false, { showToast: false });
-      setSelectedPlace(DEFAULT_VIEW, { move: true, popup: false, panel: false, view: false });
+      setSelectedPlace(getDefaultPlace(), { move: true, popup: false, panel: false, view: false });
       syncMapLayers("place");
       updateActiveAction("home");
       hideTransitMapPanel();
@@ -14363,7 +14868,7 @@
       measure: ["地图量算", "测量", "距离、周长与面积"],
       transit: ["OGF OVERPASS", "公共交通", "公交、地铁、电车与铁路"],
       favorites: [window.HuayuPersonalData?.isAuthenticated() ? "个人账号" : "本机浏览器", "收藏地点",
-        window.HuayuPersonalData?.isAuthenticated() ? "已同步到当前账号" : "登录后可同步保存"],
+        window.HuayuPersonalData?.isAuthenticated() ? "默认位置与常用地点" : "登录后可同步保存"],
       overlays: ["个人账号", "地图贴图", "图片、范围与显示状态"],
       account: ["华域地图", "个人账号", "登录、注册与账号管理"],
       about: ["华域地图", "关于地图", "实时 OGF 数据 · 站内交互"],
@@ -14378,6 +14883,7 @@
       updateAdministrativeBoundaryControls();
       renderAdministrativeExportSelections();
       updateAdministrativeExportOptions();
+      updateFeatureDownloadMode();
     }
 
     elements.views.forEach((item) => {
@@ -14407,7 +14913,7 @@
       && view === "place"
       && Boolean(selectedAdministrativeBoundary);
     const downloadView = panelVisible && view === "download";
-    const administrativeBoundaryView = administrativeSearchView || downloadView;
+    const administrativeBoundaryView = administrativeSearchView || (downloadView && elements.boundaryIncludeHighlight.checked);
     setLayerPresence(routeLayer, view === "directions");
     setLayerPresence(routeEndpointLayer, view === "directions");
     setLayerPresence(multimodalRouteLayer, view === "directions" && routeMode !== "driving" && routeMode !== "walking" && routeMode !== "cycling");
@@ -14418,18 +14924,21 @@
     setLayerPresence(placeSubdivisionHaloLayer, administrativeBoundaryView && Boolean(selectedAdministrativeBoundary?.divisions?.length));
     setLayerPresence(placeSubdivisionLayer, administrativeBoundaryView && Boolean(selectedAdministrativeBoundary?.divisions?.length));
     setLayerPresence(placeSubdivisionHitLayer, administrativeBoundaryView && Boolean(selectedAdministrativeBoundary?.divisions?.length));
-    setLayerPresence(placeAdministrativeCenterLayer, administrativeBoundaryView && Boolean(selectedAdministrativeBoundary));
+    setLayerPresence(placeAdministrativeCenterLayer, (administrativeSearchView || (downloadView && elements.boundaryIncludePoints.checked)) && Boolean(selectedAdministrativeBoundary));
     setLayerPresence(placeSearchResultLayer, view === "search" && placeSearchResultLayer.getLayers().length > 0);
-    setLayerPresence(placeExportSelectionLayer, downloadView && administrativeExportSelections.size > 0);
+    setLayerPresence(placeExportSelectionLayer, downloadView && elements.boundaryIncludeHighlight.checked && administrativeExportSelections.size > 0);
     const roadView = view === "place" && roadSearchLayer.getLayers().length > 0;
     setLayerPresence(roadSearchHaloLayer, roadView);
     setLayerPresence(roadSearchLayer, roadView);
     const featureView = view === "place" && placeFeatureLayer.getLayers().length > 0;
     setLayerPresence(placeFeatureHaloLayer, featureView);
     setLayerPresence(placeFeatureLayer, featureView);
-    const coordinateExtentActive = elements.boundaryIncludeBasemap.checked
+    const coordinateExtentActive = elements.boundaryIncludeBasemap.checked && elements.boundaryClipShape.value === "rectangle"
       && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates");
-    setLayerPresence(administrativeExportBoxLayer, downloadView && coordinateExtentActive && Boolean(administrativeExportBox));
+    setLayerPresence(administrativeExportBoxLayer, downloadView && (elements.downloadContentMode.value === "objects"
+      ? ["rectangle","polygon"].includes(elements.featureRange.value) : elements.boundaryIncludeBasemap.checked
+      && (coordinateExtentActive || elements.boundaryClipShape.value === "polygon"))
+      && Boolean(administrativeExportBox || administrativePolygonPoints));
     setLayerPresence(measurementLayer, view === "measure");
     if (placeMarker) setLayerPresence(placeMarker, view === "place");
     if (view !== "place") map.closePopup();
@@ -14708,6 +15217,12 @@
   }
 
   function setSelectedPlace(place, options = {}) {
+    featurePickSequence += 1;
+    featurePickController?.abort();
+    selectedObjectEntry = options.featureResult?.osm_id ? {result:options.featureResult} : null;
+    elements.featureAddSelected.disabled = !options.featureResult?.osm_id;
+    elements.featurePickStatus.hidden = true;
+    elements.featureCandidates.hidden = true;
     clearRoadSearchHighlight();
     clearSelectedPlaceFeature();
     selectedPlace = {
@@ -14734,6 +15249,7 @@
     placeMarker.bindPopup(
       `<span class="popup-title">${escapeHtml(selectedPlace.label)}</span><span class="popup-coordinates">${coordinatesText}</span>`,
     );
+    placeMarker.on("click", handleMapObjectClick);
 
     elements.locationHeading.textContent = selectedPlace.label;
     elements.locationDescription.textContent = `坐标 ${coordinatesText}。地点信息来自 OpenGeofiction，所有操作均留在当前页面。`;
@@ -14759,10 +15275,264 @@
     if (options.popup) placeMarker.openPopup();
   }
 
-  async function enrichSelectedPlace(place) {
+  async function fetchMapFeatureData(parameters, signal) {
+    const controller=new AbortController();
+    const abort=()=>controller.abort();
+    if(signal?.aborted)abort();else signal?.addEventListener("abort",abort,{once:true});
+    const timeout=window.setTimeout(abort,38000);
     try {
+      const response=await fetch(`/api/features?${new URLSearchParams(parameters)}`,{signal:controller.signal});
+      const payload=await response.json();
+      if(!response.ok)throw Error(payload.error||"读取物体失败，请重试");
+      return window.HuayuFeatures.decode(payload);
+    } catch(error) {
+      if(controller.signal.aborted&&!signal?.aborted)throw Error("读取物体超时，请缩小范围或稍后重试");
+      throw error;
+    } finally {window.clearTimeout(timeout);signal?.removeEventListener("abort",abort);}
+  }
+
+  function featureObjectRow(feature, action, actionLabel="选择") {
+    const row=document.createElement("div");row.className="feature-object-row";
+    const label=document.createElement("span");
+    label.textContent=`${feature.properties.name} · ${feature.properties.kind === "all" ? "其他物体" : window.HuayuFeatures.kinds[feature.properties.kind]} · ${feature.id}`;
+    const button=document.createElement("button");button.type="button";button.className="text-button";
+    button.textContent=actionLabel;button.addEventListener("click",action);
+    row.append(label,button);return row;
+  }
+
+  function selectMapObject(feature,data,place) {
+    const properties=feature.properties,tags=properties.tags;
+    const result={huayu_object:true,osm_type:properties.osm_type,osm_id:properties.osm_id,
+      name:properties.name,display_name:properties.name,category:properties.kind,type:properties.kind,
+      extratags:tags,geojson:feature.geometry,lat:place.lat,lon:place.lng};
+    selectedPlace.label=properties.name;
+    selectedPlace.roadLengthMeters=null;selectedPlace.roadSegmentCount=0;
+    selectedObjectEntry={feature,data,result};
+    elements.featureAddSelected.disabled=false;
+    elements.locationHeading.textContent=properties.name;elements.searchInput.value=properties.name;
+    placeMarker?.setPopupContent(`<span class="popup-title">${escapeHtml(properties.name)}</span><span class="popup-coordinates">${formatCoordinates(place.lat,place.lng)}</span>`);
+    showSelectedPlaceFeature(result);updateSelectedPlaceFeatureDescription();updatePlaceHeader();updateFavoriteState();
+  }
+
+  function updateFeatureDownloadMode() {
+    const objects=elements.downloadContentMode.value==="objects";
+    elements.featureDownloadPanel.hidden=!objects;
+    if(currentView==="download")elements.boundaryExportSection.hidden=objects;
+    elements.featureCustomFilter.hidden=elements.featureKind.value!=="custom";
+    const kind=elements.featureKind.value,subtypes=window.HuayuFeatures.subtypes[kind]||[];
+    elements.featureSubtypeField.hidden=!subtypes.length;
+    if(elements.featureSubtype.dataset.kind!==kind) {
+      elements.featureSubtype.dataset.kind=kind;
+      const all=document.createElement("option");all.value="";all.textContent="全部细分类";
+      elements.featureSubtype.replaceChildren(all);
+      for(const subtype of subtypes) {
+        const option=document.createElement("option");option.value=subtype.id;option.textContent=subtype.label;
+        elements.featureSubtype.appendChild(option);
+      }
+      elements.featureSubtype.value="";
+    }
+    const range=elements.featureRange.value,polygon=Boolean(administrativePolygonPoints);
+    elements.featureDrawRange.hidden=!["rectangle","polygon"].includes(range);
+    elements.featureUndoRange.hidden=range!=="polygon";elements.featureFinishRange.hidden=range!=="polygon";
+    elements.featureUndoRange.disabled=!administrativePolygonPoints?.length;
+    elements.featureFinishRange.disabled=(administrativePolygonPoints?.length||0)<3;
+    elements.featureDrawRange.disabled=administrativeBoxPicking;
+    const ready=range==="view"||range==="rectangle"&&administrativeExportBox||range==="polygon"&&administrativeExportPolygon
+      ||range==="administrative"&&selectedAdministrativeBoundary;
+    elements.featureRangeStatus.textContent=polygon?`已选 ${administrativePolygonPoints.length} 点，请完成范围。`
+      :ready?"读取与范围相交的完整物体，保留原始轮廓与标签，不截断道路和建筑。":"请先绘制范围，或在地图上选择行政区。";
+    elements.featureReadRange.disabled=administrativeBoxPicking||!ready;
+    renderFeatureDownloadQueue();
+    if(currentView==="download")syncMapLayers(currentView);
+  }
+
+  function openFeatureDownloadQueue() {
+    elements.downloadContentMode.value="objects";
+    showView("download",{preservePerspective:vectorPerspectiveActive});
+  }
+
+  function invalidateFeatureRange() {
+    featureRangeSequence++;featureRangeController?.abort();featureRangeController=null;
+    featureRangeResult=null;elements.featureAddResults.disabled=true;
+    elements.featureQueryResults.replaceChildren();elements.featureQueryStatus.hidden=true;
+    elements.featureReadRange.textContent="读取范围内物体";
+    elements.featureReadRange.disabled=false;
+  }
+
+  function handleFeatureViewportChange() {
+    if(currentView === "download" && elements.downloadContentMode.value === "objects" && elements.featureRange.value === "view")invalidateFeatureRange();
+  }
+
+  function featureDownloadMask() {
+    const range=elements.featureRange.value;
+    if(range==="administrative") {
+      const features=administrativeExportBoundaries().map(boundary=>boundary.feature);
+      if(!features.length)throw Error("请先选择行政区");return features;
+    }
+    if(range==="polygon") {if(!administrativeExportPolygon)throw Error("请先完成多边形范围");return [administrativeExportPolygon];}
+    let bounds=administrativeExportBox;
+    if(range==="view") {
+      const view=(vectorPerspectiveActive?currentVectorBasemap():map).getBounds();
+      bounds={minLon:view.getWest(),minLat:view.getSouth(),maxLon:view.getEast(),maxLat:view.getNorth()};
+    }
+    if(!bounds)throw Error("请先框选范围");
+    return [{type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[[
+      [bounds.minLon,bounds.minLat],[bounds.maxLon,bounds.minLat],[bounds.maxLon,bounds.maxLat],
+      [bounds.minLon,bounds.maxLat],[bounds.minLon,bounds.minLat]]]}}];
+  }
+
+  async function readFeatureDownloadRange() {
+    invalidateFeatureRange();
+    const sequence=featureRangeSequence,controller=new AbortController();featureRangeController=controller;
+    elements.featureQueryStatus.hidden=false;elements.featureReadRange.disabled=true;
+    elements.featureReadRange.textContent="正在读取…";
+    setStatus(elements.featureQueryStatus,"正在读取范围内的原始物体及完整节点，请稍候…");
+    try {
+      const masks=featureDownloadMask(),bounds=activeAdministrativeFeatureBounds(masks);
+      const filters=window.HuayuFeatures.downloadFilters(elements.featureKind.value,{subtype:elements.featureSubtype.value,
+        name:elements.featureName.value,nameMode:elements.featureNameMode.value,tag:elements.featureTag.value.trim(),value:elements.featureTagValue.value.trim()});
+      const data=await fetchMapFeatureData({mode:"area",south:bounds.minLat,west:bounds.minLon,north:bounds.maxLat,east:bounds.maxLon,
+        ...filters,detail:JSON.stringify(filters.detail)},controller.signal);
+      if(sequence!==featureRangeSequence)return;
+      if(data.unresolved.length)throw Error(`有 ${data.unresolved.length} 个物体的几何不完整，未接收本批；请缩小范围或按类型重试`);
+      data.features=data.features.filter(f=>window.HuayuFeatures.matchesFilters(f.properties.tags,filters)&&window.HuayuFeatures.intersects(f.geometry,masks));
+      // Validate every selected object's original dependency closure before accepting a batch.
+      for(const feature of data.features)window.HuayuFeatures.entry(data,feature);
+      featureRangeResult=data;
+      elements.featureQueryResults.replaceChildren();
+      for(const feature of data.features)elements.featureQueryResults.appendChild(featureObjectRow(feature,()=>{
+        addFeatureDownloadEntries([window.HuayuFeatures.entry(data,feature)]);
+      },"加入"));
+      elements.featureAddResults.disabled=!data.features.length;
+      const subtypeName=window.HuayuFeatures.subtypes[filters.kind]?.find(s=>s.id===elements.featureSubtype.value)?.label;
+      const description=[subtypeName,filters.name?`名称${filters.nameMode==="exact"?"为":"包含"}“${filters.name}”`:""].filter(Boolean).join("，");
+      setStatus(elements.featureQueryStatus,`已完整读取 ${data.features.length} 个物体${description?`（${description}）`:""}。可逐个加入或全部加入下载清单。`);
+    } catch(error) {
+      if(!controller.signal.aborted&&sequence===featureRangeSequence)setStatus(elements.featureQueryStatus,error.message,true);
+    } finally {
+      if(sequence===featureRangeSequence) {elements.featureReadRange.textContent="读取范围内物体";updateFeatureDownloadMode();}
+    }
+  }
+
+  async function addSelectedObjectToDownload() {
+    const selected=selectedObjectEntry;
+    if(!selected)return;
+    elements.featureAddSelected.disabled=true;
+    try {
+      let entry;
+      if(selected.feature)entry=window.HuayuFeatures.entry(selected.data,selected.feature);
+      else {
+        const result=selected.result;
+        const data=await fetchMapFeatureData({mode:"object",type:result.osm_type,id:result.osm_id});
+        const feature=data.features.find(f=>f.id===`${result.osm_type}/${result.osm_id}`);
+        if(!feature)throw Error("未取得物体的完整几何，请重试");
+        entry=window.HuayuFeatures.entry(data,feature);
+      }
+      addFeatureDownloadEntries([entry]);
+    } catch(error) {showToast(error.message);}
+    finally {elements.featureAddSelected.disabled=!selectedObjectEntry;}
+  }
+
+  function addFeatureDownloadEntries(entries) {
+    const next=new Map(featureDownloadQueue);
+    entries.forEach(entry=>next.set(entry.feature.id,entry));
+    if(next.size>2000) {showToast("清单最多 2000 个物体，请先下载或移除部分物体");return;}
+    const objects=new Map();for(const entry of next.values())for(const object of entry.elements)objects.set(`${object.type}/${object.id}`,object);
+    let bytes=0;for(const object of objects.values()) {bytes+=new TextEncoder().encode(JSON.stringify(object)).length;if(bytes>48*1024*1024)break;}
+    for (const entry of next.values()) if (entry.derived) bytes += new TextEncoder().encode(JSON.stringify(entry.feature)).length;
+    if(bytes>48*1024*1024) {showToast("清单数据过大，请先下载现有物体；本批未加入");return;}
+    featureDownloadQueue.clear();for(const [id,entry]of next)featureDownloadQueue.set(id,entry);
+    renderFeatureDownloadQueue();showToast(`已加入下载清单，共 ${next.size} 个物体`);
+  }
+
+  function renderFeatureDownloadQueue() {
+    elements.featureOpenQueue.hidden=!featureDownloadQueue.size;
+    elements.featureQueueHeading.textContent=`物体下载清单 · ${featureDownloadQueue.size} 个`;
+    elements.featureQueueList.replaceChildren();
+    for(const [id,entry]of featureDownloadQueue)elements.featureQueueList.appendChild(featureObjectRow(entry.feature,()=>{
+      featureDownloadQueue.delete(id);renderFeatureDownloadQueue();
+    },"移除"));
+    elements.featureClearQueue.disabled=!featureDownloadQueue.size;
+    elements.featureExportButton.disabled=!featureDownloadQueue.size;
+    const derived = [...featureDownloadQueue.values()].some(entry => entry.derived);
+    const osmOption = elements.featureExportFormat.querySelector('option[value="osm"]');
+    if (osmOption) {osmOption.disabled = derived; osmOption.textContent = derived ? "OSM XML（线路图几何不适用）" : "OSM XML 原始数据";}
+    if (derived && elements.featureExportFormat.value === "osm") elements.featureExportFormat.value = "geojson";
+  }
+
+  async function downloadFeatureQueue() {
+    const entries=[...featureDownloadQueue.values()];if(!entries.length)return;
+    const features=entries.map(entry=>entry.feature),format=elements.featureExportFormat.value;
+    const collection={type:"FeatureCollection",source:"OpenGeofiction and contributors",crs_note:"WGS84 / EPSG:4326",
+      exportedAt:new Date().toISOString(),features:features.map((feature,index)=>({...feature,properties:{...feature.properties,fetched_at:entries[index].fetchedAt}}))};
+    const filename=`华域地图-物体-${features.length}`;
+    elements.featureExportStatus.hidden=false;
+    try {
+      let blob,extension=format;
+      if(format==="geojson")blob=new Blob([JSON.stringify(collection,null,2)],{type:"application/geo+json"});
+      else if(format==="csv")blob=new Blob([window.HuayuFeatures.csv(features)],{type:"text/csv;charset=utf-8"});
+      else if(format==="osm")blob=new Blob([window.HuayuFeatures.osm(entries)],{type:"application/xml;charset=utf-8"});
+      else if(format==="shp") {
+        const files=[];
+        const shapeFeatures=window.HuayuFeatures.flattenFeatures(features);
+        for(const [type,shape,stem]of [["Point",1,"points"],["LineString",3,"lines"],["Polygon",5,"polygons"]]) {
+          const group=shapeFeatures.filter(f=>[type,`Multi${type}`].includes(f.geometry.type));
+          if(group.length)files.push(...encodeAdministrativeShapefileLayer(group,stem,shape));
+        }
+        const encoder=new TextEncoder();
+        files.push({name:"objects.geojson",data:encoder.encode(JSON.stringify(collection,null,2))},
+          {name:"attributes.csv",data:encoder.encode(window.HuayuFeatures.csv(features))},
+          {name:"README.txt",data:encoder.encode("OpenGeofiction and contributors\nWGS84 EPSG:4326\n点、线、面分层；标签及属性保存在 objects.geojson / attributes.csv。\n线路图为按范围截断的派生几何，保留来源及建设状态，仅支持 GeoJSON、SHP、CSV；完整原始物体另可导出 OSM XML。\n")});
+        blob=buildStoredZip(files);extension="zip";
+      } else throw Error("不支持的导出格式");
+      downloadBlob(blob,`${filename}.${extension}`);
+      setStatus(elements.featureExportStatus,`已导出 ${features.length} 个物体，保留完整几何与标签。`);
+    } catch(error) {setStatus(elements.featureExportStatus,error.message,true);}
+  }
+
+  async function enrichSelectedPlace(place) {
+    const sequence=++featurePickSequence;
+    featurePickController?.abort();
+    const controller=new AbortController();featurePickController=controller;
+    elements.featurePickStatus.hidden=false;
+    setStatus(elements.featurePickStatus,"正在识别点击位置的地图物体…");
+    try {
+      const glMap=currentVectorBasemap(),point=[place.lng,place.lat];
+      let hit;
+      if(glMap?.getStyle()?.layers?.length) {
+        const screen=glMap.project(point);
+        const visible=glMap.queryRenderedFeatures([[screen.x-3,screen.y-3],[screen.x+3,screen.y+3]]);
+        hit=visible.map(f=>{
+          const type=f.properties?.osmType||f.properties?.osm_type;
+          const id=Number(f.properties?.osmId||f.properties?.osm_id);
+          if(["node","way","relation"].includes(type)&&Number.isSafeInteger(id)&&id>0)return {type,id};
+          const match=String(f.id||"").match(/(?:^|:)(node|way|relation)[:/](\d+)(?:$|:)/u);
+          return match?{type:match[1],id:Number(match[2])}:null;
+        }).find(Boolean);
+      }
+      const zoom=vectorPerspectiveActive?glMap.getZoom()+1:map.getZoom();
+      const radius=clamp(156543.03392*Math.cos(place.lat*Math.PI/180)/2**zoom*12,8,250);
+      const data=await fetchMapFeatureData({mode:"pick",lat:place.lat,lon:place.lng,radius,
+        ...(hit?{hitType:hit.type,hitId:hit.id}:{})},controller.signal);
+      if(sequence!==featurePickSequence||!samePoint(selectedPlace,place)||currentView!=="place"||!mapFeatureSelectionEnabled)return;
+      let candidates=window.HuayuFeatures.rank(data.features,point,radius);
+      const rendered=hit&&data.features.find(f=>f.id===`${hit.type}/${hit.id}`);
+      if(rendered)candidates=[rendered,...candidates.filter(f=>f.id!==rendered.id)];
+      if(candidates.length) {
+        const choose=feature=>selectMapObject(feature,data,place);
+        choose(candidates[0]);
+        elements.featureCandidateList.replaceChildren();
+        candidates.forEach(feature=>elements.featureCandidateList.appendChild(featureObjectRow(feature,()=>choose(feature))));
+        elements.featureCandidates.hidden=candidates.length<2;
+        setStatus(elements.featurePickStatus,`识别到 ${candidates.length} 个候选物体${data.unresolved.length?`，另有 ${data.unresolved.length} 个几何不完整，未作为完整物体显示`:""}。可切换目标并加入下载清单。`);
+        return;
+      }
       const result = await reverseGeocode(place);
-      if (!result || !samePoint(selectedPlace, place)) return;
+      if (sequence!==featurePickSequence || !samePoint(selectedPlace, place) || currentView!=="place") return;
+      if (!result?.display_name && !result?.osm_id) {
+        setStatus(elements.featurePickStatus,"附近没有可确认的地图物体；可放大后点击具体轮廓，当前保留所选坐标。");
+        return;
+      }
       const label = (result.display_name || "").split(",")[0] || selectedPlace.label;
       selectedPlace.label = label;
       placeMarker.setPopupContent(
@@ -14770,21 +15540,26 @@
       );
       elements.locationHeading.textContent = label;
       elements.searchInput.value = label;
+      elements.featureAddSelected.disabled = !result.osm_id;
+      selectedObjectEntry = {result};
       updatePlaceHeader();
       if (isRoadSearchResult(result)) {
         const roadResults = await loadRoadSearchResults(result);
-        if (!samePoint(selectedPlace, place)) return;
+        if (sequence!==featurePickSequence || currentView!=="place" || !samePoint(selectedPlace, place)) return;
         const roadLengthMeters = roadSearchResultsLength(roadResults);
         const roadSegmentCount = roadSearchResultsSegmentCount(roadResults);
         selectedPlace.roadLengthMeters = roadLengthMeters;
         selectedPlace.roadSegmentCount = roadSegmentCount;
         showRoadSearchHighlight(roadResults, primaryPlaceName(result) || label, false);
         updateSelectedRoadDescription(roadLengthMeters, roadSegmentCount);
+        setStatus(elements.featurePickStatus,"已显示道路查询结果，可加入下载清单。");
         return;
       }
       if (showSelectedPlaceFeature(result)) updateSelectedPlaceFeatureDescription();
-    } catch {
-      // Coordinates remain useful when reverse geocoding has no result.
+      setStatus(elements.featurePickStatus,"附近未命中可确认的物体，已显示地名查询结果；可放大后再选。");
+    } catch(error) {
+      if(controller.signal.aborted||sequence!==featurePickSequence||currentView!=="place")return;
+      setStatus(elements.featurePickStatus,error.message||"物体识别暂时不可用，请稍后再点；当前保留所选坐标。",true);
     }
   }
 
@@ -15045,6 +15820,9 @@
     if (!query) throw new Error(target === "origin" ? "MISSING_ORIGIN" : "MISSING_DESTINATION");
     const coordinates = parseCoordinates(query);
     if (coordinates) return { ...coordinates, label: formatCoordinates(coordinates.lat, coordinates.lng) };
+    const saved = savedPlaceMatches(query);
+    if (saved.length === 1) return { ...saved[0][1] };
+    if (saved.length > 1) throw new Error("AMBIGUOUS_SAVED_PLACE");
     const results = await searchPlaces(query, 1);
     if (!results.length) throw new Error(target === "origin" ? "ORIGIN_NOT_FOUND" : "DESTINATION_NOT_FOUND");
     return {
@@ -16186,6 +16964,12 @@
     }
     elements.boundaryIncludeBasemap.disabled = false;
     const basemap = elements.boundaryIncludeBasemap.checked;
+    elements.boundaryBasemapOptions.hidden = !basemap;
+    const editableBuildings = ["huayu", "huayu-night"].includes(elements.boundaryBasemapStyle.value);
+    elements.boundaryIncludeBuildings.disabled = !basemap || !editableBuildings;
+    elements.boundaryBuildingsNote.textContent = editableBuildings
+      ? "俯视导出建筑模型；关闭后保留平面建筑轮廓，不改变地图页面"
+      : elements.boundaryBasemapStyle.value === "huayu-satellite" ? "模拟卫星保持平面屋顶，不加载立体建筑" : "OGF 栅格瓦片中的建筑已画在底图里，不能单独开关";
     elements.boundaryResolution.disabled = !raster && !basemap;
     elements.boundaryFormat.querySelector('option[value="osm"]').textContent = basemap ? "OSM + 底图（ZIP）" : "OSM XML";
     elements.boundaryFormat.querySelector('option[value="tif"]').textContent = elements.boundaryIncludeCoordinates.checked
@@ -16197,8 +16981,11 @@
       elements.boundaryExtentModes.forEach((input) => { input.checked = input.value === "coordinates"; });
     }
     elements.boundaryExtentFieldset.hidden = !basemap;
+    elements.boundaryPolygonControls.hidden = elements.boundaryClipShape.value !== "polygon";
+    elements.boundaryClipShape.querySelector('option[value="administrative"]').disabled = !hasBoundaries;
+    if (!hasBoundaries && elements.boundaryClipShape.value === "administrative") elements.boundaryClipShape.value = "rectangle";
     const coordinateMode = elements.boundaryExtentModes.find((input) => input.checked)?.value === "coordinates";
-    elements.boundaryCoordinateFields.hidden = !basemap || !coordinateMode;
+    elements.boundaryCoordinateFields.hidden = !basemap || !coordinateMode || elements.boundaryClipShape.value !== "rectangle";
     if (!basemap) cancelAdministrativeBoxPick();
     syncMapLayers(currentView);
     updateAdministrativeExtentStatus();
@@ -16222,9 +17009,19 @@
     updateAdministrativeExportAvailability();
     updateAdministrativeResolutionNote();
     const basemap = elements.boundaryIncludeBasemap.checked && !elements.boundaryIncludeBasemap.disabled;
+    if (basemap && elements.boundaryClipShape.value === "polygon") {
+      setStatus(elements.boundaryExtentStatus, administrativeExportPolygon
+        ? `已保存 ${administrativeExportPolygon.geometry.coordinates[0].length - 1} 个顶点的多边形；范围外透明。`
+        : "点击“绘制多边形”，依次选取至少三个顶点，再点击“完成范围”。", !administrativeExportPolygon);
+      return;
+    }
     if (!basemap) {
       setStatus(elements.boundaryExtentStatus, elements.boundaryIncludePoints.checked
         ? "未启用底图下载。导出边界与已确认的行政中心。" : "未启用底图下载。仅导出边界，不导出行政中心点。", false);
+      return;
+    }
+    if (elements.boundaryClipShape.value === "administrative") {
+      setStatus(elements.boundaryExtentStatus, `按 ${administrativeExportBoundaries().length} 个已选行政区的真实轮廓裁切，保留孔洞；轮廓外透明（JPG 为白色）。`);
       return;
     }
     const coordinateMode = elements.boundaryExtentModes.find((input) => input.checked)?.value === "coordinates";
@@ -16243,13 +17040,29 @@
   }
 
   function administrativeExportResolution(value = elements.boundaryResolution.value) {
-    const resolution = Number(value);
-    return [1200, 2400, 4800].includes(resolution) ? resolution : 2400;
+    if (value === "custom") return window.HuayuMapExport.resolution(elements.boundaryCustomResolution.value);
+    return window.HuayuMapExport.resolution(value) || 2400;
+  }
+
+  function administrativeExportMask() {
+    if (!elements.boundaryIncludeBasemap.checked) return [];
+    if (elements.boundaryClipShape.value === "polygon") return administrativeExportPolygon ? [administrativeExportPolygon] : [];
+    if (elements.boundaryClipShape.value === "administrative") return administrativeExportBoundaries().map(boundary => boundary.feature);
+    return [];
+  }
+
+  function administrativeExportBasemapBounds(features) {
+    const mask = administrativeExportMask();
+    if (mask.length) return activeAdministrativeFeatureBounds(mask);
+    return elements.boundaryExtentModes.some(input => input.checked && input.value === "coordinates")
+      ? administrativeCoordinateBounds() : features.length ? activeAdministrativeFeatureBounds(features) : null;
   }
 
   function updateAdministrativeResolutionNote() {
     const raster = ["png", "jpg", "tif"].includes(elements.boundaryFormat.value);
     const basemap = elements.boundaryIncludeBasemap.checked;
+    elements.boundaryCustomResolutionLabel.hidden = elements.boundaryResolution.value !== "custom";
+    elements.boundaryCustomResolution.disabled = !raster && !basemap;
     elements.boundaryResolution.disabled = !raster && !basemap;
     if (!raster && !basemap) {
       elements.boundaryResolutionNote.textContent = "矢量边界和点要素不受图片分辨率影响。";
@@ -16258,10 +17071,11 @@
     const features = administrativeExportFeatures();
     const coordinateMode = basemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates");
     try {
-      const bounds = coordinateMode ? administrativeCoordinateBounds()
+      const bounds = basemap ? administrativeExportBasemapBounds(features) : coordinateMode ? administrativeCoordinateBounds()
         : features.length ? activeAdministrativeFeatureBounds([...features, ...administrativeExportCenters(features)]) : null;
       if (!bounds) throw new Error("INVALID_EXPORT_BOUNDS");
       const resolution = administrativeExportResolution();
+      if (!resolution) { elements.boundaryResolutionNote.textContent = "自定义长边需为 512–8192 之间的整数像素。"; return; }
       const size = basemap ? administrativeTilePlan(bounds, resolution) : administrativeBoundaryImageLayout(bounds, resolution);
       elements.boundaryResolutionNote.textContent = `导出尺寸：${size.width} × ${size.height} 像素。${basemap ? "较高分辨率会下载更多底图瓦片。" : elements.boundaryIncludePoints.checked ? "包含标题、图例与页脚。" : "包含标题与页脚，不绘制地名注记。"}`;
     } catch {
@@ -16284,9 +17098,12 @@
     const raster = ["png", "jpg", "tif"].includes(elements.boundaryFormat.value);
     const basemap = elements.boundaryIncludeBasemap.checked;
     const coordinates = elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates");
-    const validExtent = !basemap || !coordinates || Boolean(administrativeCoordinateBounds());
+    const polygon = basemap && elements.boundaryClipShape.value === "polygon";
+    const clippingArea = basemap && elements.boundaryClipShape.value === "administrative";
+    const validExtent = !basemap || (polygon ? Boolean(administrativeExportPolygon) && !administrativePolygonPoints
+      : clippingArea ? hasBoundaries : !coordinates || Boolean(administrativeCoordinateBounds()));
     elements.boundaryDownloadButton.disabled = administrativeExportBusy || !validExtent
-      || (!hasBoundaries && !(raster && basemap && coordinates));
+      || ((raster || basemap) && !administrativeExportResolution()) || (!hasBoundaries && !(raster && basemap && (coordinates || polygon)));
   }
 
   function openMapDownload() {
@@ -16321,6 +17138,7 @@
   }
 
   function showAdministrativeExportBox(bounds, fit) {
+    invalidateFeatureRange();
     administrativeExportBoxLayer.clearLayers();
     administrativeExportBox = bounds;
     const rectangle = window.L.rectangle([
@@ -16338,11 +17156,66 @@
     administrativeExportBoxLayer.addLayer(rectangle);
     syncMapLayers(currentView);
     if (fit) fitTransitBounds(rectangle.getBounds(), 16);
+    updateFeatureDownloadMode();
+  }
+
+  function showAdministrativeExportPolygon() {
+    if (!administrativeExportPolygon) return;
+    const bounds = activeAdministrativeFeatureBounds([administrativeExportPolygon]);
+    administrativeExportBox = bounds;
+    setAdministrativeCoordinateInputs(bounds);
+    administrativeExportBoxLayer.clearLayers();
+    administrativeExportBoxLayer.addLayer(window.L.geoJSON(administrativeExportPolygon, {
+      style: {color: "#1769e0", weight: 2, fillOpacity: 0.055, dashArray: "7 5", interactive: false},
+      interactive: false,
+    }));
+    syncMapLayers(currentView);
+    invalidateFeatureRange();
+    updateFeatureDownloadMode();
+  }
+
+  function startAdministrativePolygonPick() {
+    cancelMapPick();
+    cancelAdministrativeBoxPick();
+    administrativeBoxPicking = true;
+    administrativePolygonPoints = [];
+    elements.boundaryClipShape.value = "polygon";
+    elements.boundaryDrawPolygon.disabled = true;
+    elements.pickBanner.hidden = false;
+    renderAdministrativePolygonPick();
+  }
+
+  function renderAdministrativePolygonPick() {
+    const points = administrativePolygonPoints || [];
+    administrativeExportBoxLayer.clearLayers();
+    if (points.length) administrativeExportBoxLayer.addLayer(window.L.polyline(points.map(([lng,lat]) => [lat,lng]),
+      {color: "#1769e0", weight: 3, interactive: false}));
+    points.forEach(([lng,lat]) => administrativeExportBoxLayer.addLayer(window.L.circleMarker([lat,lng],
+      {radius: 4, color: "#fff", fillColor: "#1769e0", fillOpacity: 1, weight: 2, interactive: false})));
+    elements.boundaryPolygonUndo.disabled = !points.length;
+    elements.boundaryPolygonFinish.disabled = points.length < 3;
+    updateFeatureDownloadMode();
+    elements.pickMessage.textContent = `多边形已选 ${points.length} 点；至少三个顶点，点击“完成范围”结束`;
+    updateAdministrativeExportAvailability();
+    syncMapLayers(currentView);
+  }
+
+  function finishAdministrativePolygonPick() {
+    const feature = window.HuayuMapExport.polygon(administrativePolygonPoints);
+    if (!feature) { showToast("请选取至少三个不同且不自相交的顶点，最多 200 点"); return; }
+    cancelAdministrativeBoxPick();
+    administrativeExportPolygon = feature;
+    showAdministrativeExportPolygon();
+    updateAdministrativeExportOptions();
+    showPanel();
   }
 
   function clearAdministrativeExportBox() {
+    cancelAdministrativeBoxPick();
     administrativeExportBoxLayer.clearLayers();
     administrativeExportBox = null;
+    administrativeExportPolygon = null;
+    elements.boundaryClipShape.value = "rectangle";
     administrativeBoxPickStart = null;
     administrativeBoxPickMarker = null;
     elements.boundaryWest.value = "";
@@ -16362,6 +17235,8 @@
 
   function startAdministrativeBoxPick() {
     cancelMapPick();
+    cancelAdministrativeBoxPick();
+    elements.boundaryClipShape.value = "rectangle";
     administrativeBoxPicking = true;
     administrativeBoxPickStart = null;
     if (administrativeBoxPickMarker) {
@@ -16371,11 +17246,19 @@
     elements.pickMessage.textContent = "点击底图范围的第一个对角点";
     elements.pickBanner.hidden = false;
     elements.boundaryDrawBox.disabled = true;
+    updateFeatureDownloadMode();
     showToast("请在地图上依次点击两个对角点");
   }
 
   function handleAdministrativeBoxPick(latlng) {
     const point = { lat: roundCoordinate(latlng.lat), lng: roundCoordinate(latlng.lng) };
+    if (administrativePolygonPoints) {
+      if (administrativePolygonPoints.length >= 200) { showToast("多边形最多 200 个顶点，请完成范围"); return; }
+      const coordinate = [point.lng, point.lat];
+      if (!administrativePolygonPoints.at(-1)?.every((value,index) => value === coordinate[index])) administrativePolygonPoints.push(coordinate);
+      renderAdministrativePolygonPick();
+      return;
+    }
     if (!administrativeBoxPickStart) {
       administrativeBoxPickStart = point;
       administrativeBoxPickMarker = window.L.circleMarker([point.lat, point.lng], {
@@ -16413,17 +17296,29 @@
   function cancelAdministrativeBoxPick() {
     if (!administrativeBoxPicking && !administrativeBoxPickMarker) return;
     administrativeBoxPicking = false;
+    const polygonPicking = Boolean(administrativePolygonPoints);
+    administrativePolygonPoints = null;
     administrativeBoxPickStart = null;
     if (administrativeBoxPickMarker) {
       administrativeExportBoxLayer.removeLayer(administrativeBoxPickMarker);
       administrativeBoxPickMarker = null;
     }
     elements.boundaryDrawBox.disabled = false;
+    elements.boundaryDrawPolygon.disabled = false;
+    elements.boundaryPolygonUndo.disabled = true;
+    elements.boundaryPolygonFinish.disabled = true;
+    if (polygonPicking) {
+      if (administrativeExportPolygon && elements.boundaryClipShape.value === "polygon") showAdministrativeExportPolygon();
+      else if (administrativeExportBox) showAdministrativeExportBox(administrativeExportBox, false);
+      else administrativeExportBoxLayer.clearLayers();
+      updateAdministrativeExtentStatus();
+    }
     if (!mapPickTarget) elements.pickBanner.hidden = true;
+    updateFeatureDownloadMode();
   }
 
   function resetAdministrativeBoundaryControls() {
-    elements.boundaryExportSection.hidden = currentView !== "download";
+    elements.boundaryExportSection.hidden = currentView !== "download" || elements.downloadContentMode.value === "objects";
     elements.boundaryLevelFieldset.hidden = true;
     elements.boundaryLevelOptions.replaceChildren();
     renderAdministrativeDivisionAreaTable([]);
@@ -16441,7 +17336,7 @@
       resetAdministrativeBoundaryControls();
       return;
     }
-    elements.boundaryExportSection.hidden = false;
+    elements.boundaryExportSection.hidden = currentView === "download" && elements.downloadContentMode.value === "objects";
     elements.boundaryLevelStatus.hidden = false;
     const levelText = Number.isFinite(boundary.adminLevel)
       ? ` · ${administrativeLevelLabel(boundary.adminLevel)}（admin_level=${boundary.adminLevel}）`
@@ -16820,9 +17715,9 @@
     const includePoints = elements.boundaryIncludePoints.checked;
     const includeBasemap = elements.boundaryIncludeBasemap.checked;
     const resolution = administrativeExportResolution();
-    const coordinateExtent = includeBasemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates")
-      ? administrativeCoordinateBounds() : null;
-    if ((!raster && !features.length) || (includeBasemap && elements.boundaryExtentModes.some((input) => input.checked && input.value === "coordinates") && !coordinateExtent)) {
+    const coordinateExtent = includeBasemap ? administrativeExportBasemapBounds(features) : null;
+    if (((raster || includeBasemap) && !resolution) || administrativePolygonPoints || (!raster && !features.length) || (includeBasemap && !coordinateExtent)
+      || (includeBasemap && elements.boundaryClipShape.value === "polygon" && !administrativeExportPolygon)) {
       showToast("请确认行政区选择和底图范围");
       return;
     }
@@ -16832,7 +17727,13 @@
     }
     const title = boundaries.length === 0 ? "地图范围"
       : boundaries.length === 1 ? boundaries[0].label : `${boundaries[0].label}等${boundaries.length}个行政区`;
-    const baseName = safeDownloadName(`${title}-${features.length ? "行政区划边界" : "OGF底图"}`);
+    const basemapStyle = elements.boundaryBasemapStyle.value;
+    const basemapLabel = BASEMAP_STYLES[basemapStyle]?.label || "OGF-Carto US";
+    const baseName = safeDownloadName(`${title}-${features.length ? "行政区划边界" : basemapLabel}`);
+    const options = { includeCoordinates, includePoints, resolution, basemapStyle,
+      includeHighlight: elements.boundaryIncludeHighlight.checked,
+      includeBuildings: elements.boundaryIncludeBuildings.checked && !elements.boundaryIncludeBuildings.disabled,
+      maskFeatures: administrativeExportMask(), format };
     administrativeExportBusy = true;
     elements.boundaryLevelStatus.hidden = false;
     elements.boundaryDownloadButton.disabled = true;
@@ -16841,8 +17742,7 @@
       const centerWarning = includePoints ? await ensureAdministrativeExportCenters(features) : "";
       const centers = includePoints ? administrativeExportCenters(features) : [];
       const missing = includePoints ? features.filter((feature) => !feature.properties.admin_center).length : 0;
-      const extent = includeBasemap ? coordinateExtent || activeAdministrativeFeatureBounds([...features, ...administrativeExportCenters(features)]) : null;
-      const options = { includeCoordinates, includePoints, resolution };
+      const extent = coordinateExtent;
       let imageSize = "";
       if (format === "png" || format === "jpg" || format === "tif") {
         const rendered = includeBasemap
@@ -16853,6 +17753,7 @@
           downloadBlob(buildAdministrativeGeoTiff(rendered, includeCoordinates), `${baseName}.tif`);
         } else {
           const mimeType = format === "png" ? "image/png" : "image/jpeg";
+          if (format === "jpg") window.HuayuMapExport.flatten(rendered.canvas);
           const blob = await canvasToBlob(rendered.canvas, mimeType, 0.94);
           downloadBlob(blob, `${baseName}.${format}`);
         }
@@ -16866,10 +17767,13 @@
             : [{ name: "administrative-boundaries.osm", data: encoder.encode(xml) }];
           const report = administrativeExportManifest(features, centers, title, centerWarning, options);
           if (includeBasemap) {
-            const rendered = await renderAdministrativeBasemapCanvas([], title, extent, { includeCoordinates: false, includePoints: false, resolution });
-            entries.push({ name: "ogf-basemap.tif", data: new Uint8Array(await buildAdministrativeGeoTiff(rendered, true).arrayBuffer()) });
-            report.basemap = { file: "ogf-basemap.tif", epsg: 3857, bounds: extent, missingTiles: rendered.missingTiles,
-              width: rendered.canvas.width, height: rendered.canvas.height, resolution };
+            const rendered = await renderAdministrativeBasemapCanvas(features, title, extent, {...options, includeCoordinates: false, includePoints: false});
+            const filename = basemapStyle.startsWith("huayu") ? `${basemapStyle}-basemap.tif` : "ogf-basemap.tif";
+            entries.push({ name: filename, data: new Uint8Array(await buildAdministrativeGeoTiff(rendered, true).arrayBuffer()) });
+            report.basemap = { file: filename, style: basemapStyle, epsg: 3857, bounds: extent, missingTiles: rendered.missingTiles,
+              width: rendered.canvas.width, height: rendered.canvas.height, resolution,
+              includeHighlight: options.includeHighlight, includeBuildings: options.includeBuildings,
+              clipFeatures: options.maskFeatures };
             imageSize = ` 底图尺寸 ${rendered.canvas.width} × ${rendered.canvas.height} 像素。`;
           }
           entries.push({ name: "export-info.json", data: encoder.encode(JSON.stringify(report, null, 2)) });
@@ -16879,7 +17783,7 @@
       }
       setStatus(elements.boundaryLevelStatus, features.length
         ? `已生成 ${boundaries.length} 个已选行政区、共 ${features.length} 个边界${includePoints ? `和 ${centers.length} 个行政中心` : "（不含行政中心点）"}的 ${format.toUpperCase()} 下载。${imageSize}${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
-        : `已生成 OGF 底图 ${format.toUpperCase()} 下载。${imageSize}`, Boolean(missing || centerWarning));
+        : `已生成 ${basemapLabel} 底图 ${format.toUpperCase()} 下载。${imageSize}`, Boolean(missing || centerWarning));
       showToast(features.length ? "行政区划边界文件已生成" : "地图文件已生成");
     } catch (error) {
       const message = error?.message === "INVALID_EXPORT_BOUNDS"
@@ -16963,7 +17867,7 @@
       left: offsetX, top: offsetY, right: offsetX + longitudeSpan * scale, bottom: offsetY + latitudeSpan * scale,
     });
     const parentKeys = new Set(administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
-    administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
+    if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
     if (options.includePoints !== false && features.length <= 80) {
@@ -16992,23 +17896,141 @@
     };
   }
 
+  function administrativeExportTiles(bounds, zoom, minimum) {
+    const viewport = {west: bounds.minLon, east: bounds.maxLon, south: bounds.minLat, north: bounds.maxLat};
+    for (let z = zoom; z >= minimum; z -= 1) {
+      const first = huayuLiveBuildingTileAt(viewport.west, viewport.north, z);
+      const last = huayuLiveBuildingTileAt(viewport.east, viewport.south, z);
+      if ((last.x-first.x+1)*(last.y-first.y+1) <= 64) return huayuLiveBuildingVisibleTiles(viewport,z);
+    }
+    throw new Error("华域详细底图范围过大，请缩小范围或降低分辨率");
+  }
+
+  async function renderAdministrativeHuayuBasemap(canvas, bounds, options) {
+    const id = options.basemapStyle;
+    await ensureVectorBasemapLibrary();
+    await prepareVectorBasemap(id);
+    const style = id === "huayu-satellite" ? huayuSatelliteStyle
+      : await fetchJson(BASEMAP_STYLES[id].url, 15000);
+    const controller = new AbortController();
+    let exportTerrain, terrainManifest;
+    await window.HuayuMapExport.vectorCanvas({canvas, bounds, style,
+      onProgress: (done,total) => (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在绘制 ${BASEMAP_STYLES[id].label}：${done}/${total} 块…`),
+      beforeCapture: async glMap => {
+        if (!exportTerrain?.enabled) return;
+        if (terrainManifest?.renderBlocks?.length) {
+          // Reuse the published geometry for every output block and wait for
+          // all intersecting material, rather than capturing a partial frame.
+          exportTerrain.contextRevision += 1;
+          const first = exportTerrain.loadPublishedSnapshot(terrainManifest);
+          await Promise.all([first, ...exportTerrain.publishedRequests?.values() || []]);
+          const viewport = huayuAdministrativeQueryBounds(glMap);
+          if (terrainManifest.renderBlocks.some(entry => huayuWoodlandMaterialBoundsIntersect(entry.cell.bounds,viewport)
+            && exportTerrain.blocks.get(entry.cell.key)?.publishedUrl !== entry.url)) {
+            throw new Error("华域地形材质未能完整加载，请稍后重试");
+          }
+        } else if (exportTerrain.features.length) await exportTerrain.rebuild();
+      },
+      prepare: async (glMap,zoom) => {
+        const missingImage = event => addHuayuPoiImage(glMap,event.id);
+        const cleanup = () => {
+          controller.abort();
+          glMap.off("styleimagemissing",missingImage);
+          deactivateHuayuModelOcclusion(glMap);
+          const material = huayuWoodlandMaterialLayers.get(glMap);
+          if (material?.gl) material.onRemove(glMap,material.gl);
+          huayuWoodlandMaterialLayers.delete(glMap);
+        };
+        try {
+          glMap.on("styleimagemissing",missingImage);
+          ensureHuayuPoiImages(glMap);
+          applyHuayuSatelliteTextures(glMap);
+          ensureHuayuLiveBasemapLayers(glMap);
+          exportTerrain = huayuWoodlandMaterialLayers.get(glMap);
+          if (exportTerrain) {
+            // The dedicated export uses complete published material, without
+            // starting the live map's refinement and refresh scheduling.
+            exportTerrain.scheduleRebuild = () => {};
+            exportTerrain.setEnabled(terrainOverlayEnabled);
+            if (terrainOverlayEnabled) {
+              if (!huayuTerrainPreloadManifest) {
+                const manifest = await fetchJson("./terrain-preload-manifest.json",15000,{cache:"no-cache"});
+                if (!validateHuayuTerrainPreloadManifest(manifest)) throw new Error("华域地形快照无效");
+                huayuTerrainPreloadManifest ||= manifest;
+              }
+              terrainManifest = huayuTerrainPreloadManifest;
+            }
+          }
+          if (zoom >= HUAYU_LIVE_BASEMAP_MIN_ZOOM) {
+            const tiles = administrativeExportTiles(bounds,clamp(Math.round(zoom),13,15),13);
+            const combined = new Map();
+            for (let index=0;index<tiles.length;index+=3) {
+              (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在准备华域道路与用地：${Math.min(index+3,tiles.length)}/${tiles.length}…`);
+              const batch = await Promise.all(tiles.slice(index,index+3).map(async tile => {
+                const cached = huayuLiveBasemapSharedTileCache.get(tile.key);
+                if (cached && cached.refreshAt > Date.now()) return cached.data;
+                const result = await fetchHuayuLiveBasemapTile(tile,controller.signal);
+                if (result.payload.remark) throw new Error("华域底图数据不完整，请稍后重试");
+                return huayuLiveBasemapFeatureCollection(result.payload.elements);
+              }));
+              batch.forEach(data=>data.features.forEach(feature=>combined.set(String(feature.id),feature)));
+            }
+            const features=[...combined.values()];
+            glMap.getSource(HUAYU_LIVE_BASEMAP_SOURCE).setData({type:"FeatureCollection",features});
+            glMap.getSource(HUAYU_SPORTS_SOURCE)?.setData({type:"FeatureCollection",features:features.filter(f=>f.properties.sportsArea||f.properties.sportsMarking)});
+            HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS.forEach(layer=>{
+              if(glMap.getLayer(layer))glMap.setLayoutProperty(layer,"visibility","none");
+            });
+            const terrain = huayuTerrainPreload?.data;
+            exportTerrain?.setData([...features,...terrain?.features || []],terrain);
+          }
+          if (options.includeBuildings && zoom >= HUAYU_LIVE_BUILDING_MIN_ZOOM && id !== "huayu-satellite") {
+            const tiles=administrativeExportTiles(bounds,clamp(Math.floor(zoom),11,15),11),merged=new Map();
+            for(let index=0;index<tiles.length;index+=3) {
+              (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在准备建筑模型：${Math.min(index+3,tiles.length)}/${tiles.length}…`);
+              const batch=await Promise.all(tiles.slice(index,index+3).map(async tile=>{
+                const cached=huayuLiveBuildingSharedTileCache.get(tile.key);
+                return huayuLiveBuildingEntryFresh(cached)?cached:loadHuayuModelTile("building",tile,fetchHuayuLiveBuildingTile,controller.signal);
+              }));
+              batch.forEach(entry=>entry.data.features.forEach(feature=>merged.set(String(feature.id),feature)));
+            }
+            ensureHuayuLiveBuildingLayer(glMap);
+            glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE).setData({type:"FeatureCollection",features:[...merged.values()]});
+            for(const layer of [HUAYU_LIVE_BUILDING_LAYER,...Object.values(HUAYU_ANCIENT_BUILDING_LAYERS)]) {
+              if(glMap.getLayer(layer))glMap.setLayoutProperty(layer,"visibility","visible");
+            }
+            HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach(layer=>{if(glMap.getLayer(layer))glMap.setLayoutProperty(layer,"visibility","none");});
+          } else {
+            for(const layer of glMap.getStyle().layers) {
+              if(layer.type === "fill-extrusion" && /building/u.test(layer.id))glMap.setLayoutProperty(layer.id,"visibility","none");
+            }
+          }
+          activateHuayuModelOcclusion(glMap);
+          return cleanup;
+        } catch(error) {cleanup();throw error;}
+      },
+    });
+  }
+
   async function renderAdministrativeBasemapCanvas(features, title, bounds, options = {}) {
     const plan = administrativeTilePlan(bounds, options.resolution);
     const canvas = document.createElement("canvas");
     canvas.width = plan.width;
     canvas.height = plan.height;
-    const context = canvas.getContext("2d", { alpha: false });
+    const context = canvas.getContext("2d");
     context.fillStyle = "#e9eeee";
     context.fillRect(0, 0, canvas.width, canvas.height);
+    const vector = String(options.basemapStyle || "").startsWith("huayu");
     const jobs = [];
     for (let tileY = plan.firstTileY; tileY <= plan.lastTileY; tileY += 1) {
       for (let tileX = plan.firstTileX; tileX <= plan.lastTileX; tileX += 1) jobs.push({ tileX, tileY });
     }
-    setStatus(elements.boundaryLevelStatus, `正在下载 ${jobs.length} 张 OGF 底图瓦片并合成边界…`);
+    if (vector) await renderAdministrativeHuayuBasemap(canvas,bounds,options);
+    else (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在下载 ${jobs.length} 张 OGF 底图瓦片并合成边界…`);
     let failed = 0;
-    for (let index = 0; index < jobs.length; index += 8) {
+    for (let index = 0; !vector && index < jobs.length; index += 8) {
       const batch = jobs.slice(index, index + 8);
-      const loaded = await Promise.all(batch.map(async (job) => ({ ...job, image: await loadAdministrativeTile(plan.zoom, job.tileX, job.tileY) })));
+      const loaded = await Promise.all(batch.map(async (job) => ({ ...job, image: await loadAdministrativeTile(plan.zoom, job.tileX, job.tileY, options.basemapStyle) })));
       loaded.forEach(({ tileX, tileY, image }) => {
         const x = (tileX * 256 - plan.pixelLeft) * plan.scaleX;
         const y = (tileY * 256 - plan.pixelTop) * plan.scaleY;
@@ -17035,7 +18057,7 @@
       left: 0, top: 0, right: frameWidth, bottom: frameHeight,
     });
     const parentKeys = new Set(administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
-    administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
+    if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
     if (options.includePoints !== false && features.length <= 80) features.filter((feature) => !feature.properties.admin_center)
@@ -17043,21 +18065,17 @@
     if (features.length && options.includePoints !== false) drawAdministrativeCenterLegend(context, features, 8, 8, frameWidth - 16, true);
     if (options.includePoints !== false) drawAdministrativeCanvasCenters(context, administrativeExportCenters(features), project,
       { left: 0, top: 0, right: frameWidth, bottom: frameHeight });
-    context.save();
-    context.font = "16px system-ui, sans-serif";
-    const attribution = `${title} · OpenGeofiction · 华域地图`;
-    const attributionWidth = Math.min(frameWidth - 16, context.measureText(attribution).width + 20);
-    context.fillStyle = "rgba(255, 255, 255, 0.88)";
-    context.fillRect(8, frameHeight - 34, attributionWidth, 26);
-    context.fillStyle = "#4f595e";
-    context.fillText(attribution, 17, frameHeight - 15);
-    context.restore();
+    if (options.maskFeatures?.length) window.HuayuMapExport.mask(canvas,options.maskFeatures,coordinate=>{
+      const point=project(coordinate);return [point[0]*styleScale,point[1]*styleScale];
+    });
+    window.HuayuMapExport.attribution(canvas,`${title} · OpenGeofiction contributors · 华域地图`,styleScale,Boolean(options.maskFeatures?.length));
     if (failed) showToast(`${failed} 张底图瓦片不可用，已保留空白位置`);
     const earthHalf = Math.PI * 6378137;
     return {
       canvas,
       bounds,
       missingTiles: failed,
+      transparent: Boolean(options.maskFeatures?.length),
       geoReference: {
         epsg: 3857,
         pixelScaleX: earthHalf * 2 / plan.worldSize / plan.scaleX,
@@ -17110,7 +18128,7 @@
       if (count <= 512 || zoom <= 0) break;
       zoom -= 1;
     } while (true);
-    if (plan.width * plan.height > 4800 * 4800) throw new Error("EXPORT_BOUNDS_TOO_LARGE");
+    if (plan.width * plan.height > 8192 * 8192) throw new Error("EXPORT_BOUNDS_TOO_LARGE");
     return plan;
   }
 
@@ -17123,10 +18141,10 @@
     };
   }
 
-  async function loadAdministrativeTile(zoom, tileX, tileY) {
+  async function loadAdministrativeTile(zoom, tileX, tileY, style = "carto") {
     const size = 2 ** zoom;
     const wrappedX = ((tileX % size) + size) % size;
-    const paths = [TILE_URL, TILE_FALLBACK_URL].map((template) => template
+    const paths = (style === "carto-gb" ? [TILE_FALLBACK_URL,TILE_URL] : [TILE_URL,TILE_FALLBACK_URL]).map((template) => template
       .replace("{z}", String(zoom)).replace("{x}", String(wrappedX)).replace("{y}", String(tileY)));
     for (const path of paths) {
       try {
@@ -17382,11 +18400,12 @@
     const { canvas, geoReference } = rendered;
     const width = canvas.width;
     const height = canvas.height;
-    const imageByteLength = width * height * 3;
+    const samples = rendered.transparent ? 4 : 3;
+    const imageByteLength = width * height * samples;
     const encoder = new TextEncoder();
     const software = encoder.encode("Huayu Map 2.2.4\0");
     const ifdOffset = 8;
-    const entryCount = includeGeoReference ? 17 : 14;
+    const entryCount = (includeGeoReference ? 17 : 14) + (samples === 4 ? 1 : 0);
     let extraOffset = ifdOffset + 2 + entryCount * 12 + 4;
     const extras = [];
     const allocate = (bytes) => {
@@ -17415,7 +18434,7 @@
       values.forEach((value, index) => view.setFloat64(index * 8, value, true));
       return bytes;
     };
-    const bitsOffset = allocate(shortBytes([8, 8, 8]));
+    const bitsOffset = allocate(shortBytes(Array(samples).fill(8)));
     const xResolutionOffset = allocate(rationalBytes(96, 1));
     const yResolutionOffset = allocate(rationalBytes(96, 1));
     const softwareOffset = allocate(software);
@@ -17456,11 +18475,11 @@
     const entries = [
       [256, 4, 1, width],
       [257, 4, 1, height],
-      [258, 3, 3, bitsOffset],
+      [258, 3, samples, bitsOffset],
       [259, 3, 1, 1],
       [262, 3, 1, 2],
       [273, 4, 1, imageOffset],
-      [277, 3, 1, 3],
+      [277, 3, 1, samples],
       [278, 4, 1, height],
       [279, 4, 1, imageByteLength],
       [282, 5, 1, xResolutionOffset],
@@ -17469,6 +18488,7 @@
       [296, 3, 1, 2],
       [305, 2, software.length, softwareOffset],
     ];
+    if (samples === 4) entries.push([338, 3, 1, 2]);
     if (includeGeoReference) entries.push(
       [33550, 12, 3, pixelScaleOffset],
       [33922, 12, 6, tiePointOffset],
@@ -17490,7 +18510,8 @@
       bytes[target] = pixels[source];
       bytes[target + 1] = pixels[source + 1];
       bytes[target + 2] = pixels[source + 2];
-      target += 3;
+      if (samples === 4) bytes[target + 3] = pixels[source + 3];
+      target += samples;
     }
     return new Blob([buffer], { type: "image/tiff" });
   }
@@ -17503,7 +18524,9 @@
       + "LEVEL is the source admin_level; LEVEL_NAME is the display label. AREA_ID links centres to boundaries.\r\n"
       + "METHOD identifies relation_admin_centre or same_name_place. Missing centres are not fabricated.\r\n"
       + "See export-info.json for centre coverage, missing areas and query warnings.\r\n"
-      + "When included, ogf-basemap.tif is an independent raster in EPSG:3857, not editable roads/buildings.\r\n"
+      + "When included, the basemap TIF is an independent raster in EPSG:3857, not editable roads/buildings.\r\n"
+      + "See export-info.json for the Huayu/OGF style, clipping geometry, building models and highlight choices.\r\n"
+      + "Clipped PNG/TIFF pixels outside the selected shape are transparent; JPEG uses white.\r\n"
       + "Labels baked into the OGF basemap are independent of the point-feature option.\r\n"
       + "GIS software must reproject the vector and raster layers to a common display CRS.\r\n"
       + "OSM exports are derived geometry with temporary IDs, not an original database download; do not upload.\r\n";
@@ -17533,11 +18556,12 @@
 
   function encodeAdministrativeShapefileLayer(features, stem, shapeType) {
     const records = shapeType === 5 ? features.map((feature) => administrativeShapeRecord(feature)).filter(Boolean)
-      : features.map((feature) => ({ feature }));
+      : shapeType === 3 ? features.map(feature=>({feature,parts:feature.geometry.type === "LineString" ? [feature.geometry.coordinates] : feature.geometry.coordinates,shapeType:3}))
+        : features.map((feature) => ({ feature }));
     const bounds = records.length ? activeAdministrativeFeatureBounds(records.map((record) => record.feature))
       : { minLon: 0, minLat: 0, maxLon: 0, maxLat: 0 };
     const shapeContents = records.map((record) => {
-      if (shapeType === 5) return encodeAdministrativeShapeContent(record);
+      if (shapeType === 5 || shapeType === 3) return encodeAdministrativeShapeContent(record);
       const bytes = new Uint8Array(20);
       const view = new DataView(bytes.buffer);
       view.setInt32(0, 1, true);
@@ -17608,7 +18632,7 @@
     const length = 44 + record.parts.length * 4 + points.length * 16;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
-    view.setInt32(0, 5, true);
+    view.setInt32(0, record.shapeType || 5, true);
     view.setFloat64(4, bounds.minLon, true);
     view.setFloat64(12, bounds.minLat, true);
     view.setFloat64(20, bounds.maxLon, true);
@@ -17883,6 +18907,11 @@
   }
 
   function showFavorites() {
+    if (window.HuayuSavedPlaces?.render) {
+      showView("favorites");
+      window.HuayuSavedPlaces.render();
+      return;
+    }
     const favorites = Object.values(getFavorites());
     showView("favorites");
     elements.savedList.replaceChildren();
@@ -18018,12 +19047,12 @@
       group.eachLayer(layer => {
         if (typeof layer.toGeoJSON !== "function") return;
         const feature = layer.toGeoJSON(false);
-        if (!["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry?.type)) return;
+        if (!["Point", "Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(feature.geometry?.type)) return;
         const id = window.L.stamp(layer), style = layer.options;
         features.push({type: "Feature", id, geometry: feature.geometry, properties: {
           group: groupId, color: style.color, width: style.weight,
           opacity: style.stroke === false ? 0 : style.opacity,
-          fillColor: style.fillColor || style.color, fillOpacity: style.fill ? style.fillOpacity : 0,
+          fillColor: style.fillColor || style.color, fillOpacity: style.fill ? style.fillOpacity : 0, radius: style.radius || 6,
         }});
         layersById.set(id, layer);
       });
@@ -18086,6 +19115,11 @@
     mapHighlightGroups.forEach(({id, order, haloOrder, haloWidth, dashed}) => {
       const filter = ["==", ["get", "group"], id];
       const prefix = `${VECTOR_HIGHLIGHT_SOURCE}-${id}`;
+      definitions.push({order, layer: {id: `${prefix}-point`, type: "circle", source: VECTOR_HIGHLIGHT_SOURCE,
+        filter: ["all", filter, ["==", ["geometry-type"], "Point"]], paint: {
+          "circle-radius": ["get", "radius"], "circle-color": ["get", "color"],
+          "circle-stroke-width": 2, "circle-stroke-color": "#ffffff", "circle-opacity": ["get", "opacity"],
+        }}});
       if (haloWidth) definitions.push({order: haloOrder, layer: {id: `${prefix}-halo`, type: "line", source: VECTOR_HIGHLIGHT_SOURCE,
         filter, layout: {"line-cap": "round", "line-join": "round"},
         paint: {"line-color": "#ffffff", "line-width": haloWidth, "line-opacity": id === "division" ? 0.82 : 0.9}}});
@@ -30684,6 +31718,7 @@
   }
 
   function handleVectorTransitStationClick(event) {
+    if(mapPickTarget||administrativeBoxPicking||currentView==="measure")return;
     if (!mapFeatureSelectionEnabled) return;
     const stopId = String(event.features?.[0]?.properties?.stopId ?? "");
     const stop = transitNetworkData && getTransitDisplayNetwork(transitNetworkData).stopsById.get(stopId);
@@ -30889,6 +31924,8 @@
       glMap.on("pitch", syncVectorCameraFromMap);
       glMap.on("rotate", syncVectorCameraFromMap);
       glMap.on("moveend", handleVectorPerspectiveMoveEnd);
+      glMap.on("moveend", handleFeatureViewportChange);
+      glMap.on("click", handleVectorObjectClick);
       if (!options.silent) showToast(`已进入${BASEMAP_STYLES[selectedBasemapId].label}透视视角`);
     }
     glMap.setMaxPitch?.(VECTOR_MAX_PITCH);
@@ -30924,6 +31961,8 @@
     glMap?.off?.("pitch", syncVectorCameraFromMap);
     glMap?.off?.("rotate", syncVectorCameraFromMap);
     glMap?.off?.("moveend", handleVectorPerspectiveMoveEnd);
+    glMap?.off?.("moveend", handleFeatureViewportChange);
+    glMap?.off?.("click", handleVectorObjectClick);
     removeVectorTransitOverlay(glMap);
     removeVectorHighlightOverlay();
     glMap?.stop?.();
@@ -31098,6 +32137,8 @@
   }
 
   function clearActiveMapFeatureSelection() {
+    featurePickSequence++;featurePickController?.abort();selectedObjectEntry=null;
+    elements.featureAddSelected.disabled=true;elements.featureCandidates.hidden=true;elements.featurePickStatus.hidden=true;
     map.closePopup();
     if (placeMarker) {
       placeMarker.remove();
@@ -31124,10 +32165,65 @@
 
   function getFavorites() {
     try {
-      return JSON.parse(localStorage.getItem(FAVORITES_KEY)) || {};
+      if (localStorage.getItem("ogf-atlas-account-cache-owner") && !window.HuayuPersonalData?.isAuthenticated()) return {};
+    } catch {}
+    if (favoritesMemory) return JSON.parse(JSON.stringify(favoritesMemory));
+    try {
+      favoritesMemory = window.HuayuSavedPlaces?.normalize(JSON.parse(localStorage.getItem(FAVORITES_KEY))) || {};
     } catch {
-      return {};
+      favoritesMemory = {};
     }
+    return JSON.parse(JSON.stringify(favoritesMemory));
+  }
+
+  function savedPlaceMatches(query = "") {
+    return window.HuayuSavedPlaces?.matches(getFavorites(), query) || [];
+  }
+
+  function getDefaultPlace() {
+    return window.HuayuPersonalData?.isAuthenticated()
+      ? Object.values(getFavorites()).find(place => place.isDefault) || DEFAULT_VIEW : DEFAULT_VIEW;
+  }
+
+  function refreshSavedPlaces() {
+    updateFavoriteState();
+    const footer = document.getElementById("default-place-label");
+    const defaultLabel = getDefaultPlace().label;
+    if (footer) footer.textContent = `默认位置：${defaultLabel}`;
+    elements.resetView.setAttribute("aria-label", `恢复默认位置：${defaultLabel}`);
+    elements.resetView.dataset.tooltip = `恢复默认位置：${defaultLabel}`;
+    const homeChip = document.querySelector('.map-chip[data-action="home"]');
+    if (homeChip?.lastChild?.nodeType === Node.TEXT_NODE) homeChip.lastChild.textContent = defaultLabel;
+    window.dispatchEvent(new CustomEvent("huayu:favorites-updated"));
+  }
+
+  function saveFavorites(items) {
+    favoritesMemory = window.HuayuSavedPlaces.normalize(items);
+    try {localStorage.setItem(FAVORITES_KEY, JSON.stringify(favoritesMemory));} catch {
+      showToast("浏览器存储不可用，当前会话保留收藏；登录后仍会尝试同步。");
+    }
+    refreshSavedPlaces();
+    window.dispatchEvent(new CustomEvent("huayu:personal-data-changed", {
+      detail: {kind:"favorites",items:getFavorites()},
+    }));
+    return true;
+  }
+
+  function useSavedRoutePoint(target, place) {
+    if (!["origin", "destination"].includes(target)) return;
+    showView("directions");
+    setRoutePoint(target, place);
+    showToast(target === "origin" ? "已填入导航起点" : "已填入导航终点");
+  }
+
+  function applyAccountDefault() {
+    refreshSavedPlaces();
+    const place = getDefaultPlace(), center = map.getCenter();
+    if (accountDefaultPending && place !== DEFAULT_VIEW && samePoint(selectedPlace, DEFAULT_VIEW)
+      && samePoint(center, DEFAULT_VIEW)) {
+      setSelectedPlace(place, {move:true,popup:false,panel:false,view:false});
+    }
+    accountDefaultPending = false;
   }
 
   function updateFavoriteState() {
@@ -32889,6 +33985,7 @@
       MISSING_ORIGIN: "请输入起点。",
       MISSING_DESTINATION: "请输入终点。",
       ORIGIN_NOT_FOUND: "找不到起点，请尝试完整地名或坐标。",
+      AMBIGUOUS_SAVED_PLACE: "有多个匹配的收藏地点，请从收藏下拉框或建议列表选择具体地点。",
       DESTINATION_NOT_FOUND: "找不到终点，请尝试完整地名或坐标。",
       NO_ROUTE: "两点之间暂时没有可用的 OGF 道路路线。",
       TRANSIT_UNAVAILABLE: "全国交通网络尚未就绪，请稍后重试。",
@@ -33042,27 +34139,41 @@
   }
 
   function applyPersonalDataSnapshot(snapshot = {}) {
+    if (snapshot.favorites && typeof snapshot.favorites === "object") {
+      favoritesMemory = window.HuayuSavedPlaces.normalize(snapshot.favorites);
+    }
     try {
       if (Array.isArray(snapshot.searchHistory)) {
         window.localStorage.setItem(SEARCH_HISTORY_KEY,
           JSON.stringify(snapshot.searchHistory.slice(0, SEARCH_HISTORY_LIMIT)));
       }
       if (snapshot.favorites && typeof snapshot.favorites === "object") {
-        window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(snapshot.favorites));
+        window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favoritesMemory));
       }
     } catch {
       // The signed-in service still retains data when local browser storage is unavailable.
     }
-    updateFavoriteState();
+    refreshSavedPlaces();
     if (currentView === "favorites") showFavorites();
     if (!elements.searchHistoryMenu.hidden) renderSearchHistory(elements.searchInput.value);
   }
 
+  map.getContainer().addEventListener("pointerdown", () => {accountDefaultPending = false;}, {passive:true});
+  map.getContainer().addEventListener("wheel", () => {accountDefaultPending = false;}, {passive:true});
   window.HuayuAtlas = Object.freeze({
     applyPersonalDataSnapshot,
     getCurrentView: () => currentView,
     getFavorites,
+    saveFavorites,
+    placeKey,
+    getSelectedPlace: () => ({...selectedPlace}),
+    selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),
+    useSavedRoutePoint,
+    openView: showView,
+    applyAccountDefault,
+    refreshSavedPlaces,
     getSearchHistory,
+    invalidatePersonalDataCache: () => {favoritesMemory = null;refreshSavedPlaces();hideSearchHistory();},
     hidePanel,
     map,
     refreshIcons,

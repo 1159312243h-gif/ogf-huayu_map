@@ -16,6 +16,18 @@
 /bridge-models.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/map-export.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/feature-data.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/transit-atlas-options.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/saved-places.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /model-options.js
   Cache-Control: public, max-age=0, must-revalidate
 

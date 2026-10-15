@@ -872,11 +872,13 @@ function publicUser(user, environment) {
   };
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maximumBytes = PERSONAL_MAX_JSON_BYTES) {
   const length = Number(request.headers.get("Content-Length") || 0);
-  if (length > PERSONAL_MAX_JSON_BYTES) throw Object.assign(new Error("payload_too_large"), { status: 413 });
+  if (length > maximumBytes) throw Object.assign(new Error("payload_too_large"), { status: 413 });
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > maximumBytes) throw Object.assign(new Error("payload_too_large"), { status: 413 });
   try {
-    return await request.json();
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw Object.assign(new Error("invalid_json"), { status: 400 });
   }
@@ -937,17 +939,44 @@ function normalizedSearchHistory(items) {
 }
 
 function normalizedFavorites(items) {
+  // Keep the optional account place labels aligned with saved-places.js.
+  const tags = new Map([
+    ["home", "家庭住址"], ["hometown", "故乡"], ["kindergarten", "幼儿园"],
+    ["primary", "小学"], ["middle", "初中"], ["high", "高中"],
+    ["college", "大专"], ["university", "大学"], ["graduate", "研究生院校"],
+    ["work", "工作单位"], ["former-home", "曾经住过"], ["other", "其他经历"],
+  ]);
+  const tagKey = value => value.normalize("NFKC").toLocaleLowerCase("zh-CN");
+  const presets = new Map([...tags].flatMap(([id, title]) => [[tagKey(id), id], [tagKey(title), id]]));
+  let hasDefault = false;
   const source = items && typeof items === "object" && !Array.isArray(items) ? items : {};
   return Object.entries(source).slice(0, 200).flatMap(([key, place]) => {
     const lat = Number(place?.lat);
     const lng = Number(place?.lng);
-    if (!key || key.length > 100 || !Number.isFinite(lat) || !Number.isFinite(lng)
+    if (!key || key.length > 100 || !place || place.lat == null || place.lng == null
+      || place.lat === "" || place.lng === "" || !Number.isFinite(lat) || !Number.isFinite(lng)
       || Math.abs(lat) > 85 || Math.abs(lng) > 180) return [];
+    const placeTags = [...new Set(Array.isArray(place.placeTags) ? place.placeTags : [])].filter(tag => tags.has(tag));
+    const customTags = [], seen = new Set();
+    for (const value of Array.isArray(place.customTags) ? place.customTags.slice(0, 100) : []) {
+      if (typeof value !== "string" || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) continue;
+      const text = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+      if (!text || Array.from(text).length > 24) continue;
+      const key = tagKey(text), preset = presets.get(key);
+      if (preset) {if (!placeTags.includes(preset)) placeTags.push(preset);continue;}
+      if (seen.has(key) || customTags.length >= 8) continue;
+      seen.add(key);customTags.push(text);
+    }
+    const isDefault = place.isDefault === true && !hasDefault;
+    hasDefault ||= isDefault;
     return [[key, {
       lat,
       lng,
       zoom: Number.isFinite(Number(place.zoom)) ? Math.min(20, Math.max(1, Number(place.zoom))) : 13,
       label: String(place.label || "收藏地点").slice(0, 200),
+      ...(placeTags.length ? {placeTags} : {}),
+      ...(customTags.length ? {customTags} : {}),
+      ...(isDefault ? {isDefault:true} : {}),
     }]];
   });
 }
@@ -962,7 +991,7 @@ async function personalDataForUser(environment, userId) {
       opacity, visible, created_at, updated_at FROM image_overlays WHERE user_id = ?
       ORDER BY created_at DESC`).bind(userId).all(),
   ]);
-  const favorites = {};
+  const favorites = Object.create(null);
   (favoriteResult.results || []).forEach((item) => {
     try { favorites[item.favorite_key] = JSON.parse(item.payload); } catch {}
   });
@@ -1010,7 +1039,14 @@ async function replaceFavorites(environment, userId, items) {
 
 async function mergePersonalData(environment, userId, payload) {
   const localHistory = normalizedSearchHistory(payload?.searchHistory);
-  const localFavorites = normalizedFavorites(payload?.favorites);
+  const existing = await personalDataForUser(environment, userId);
+  // Account metadata wins over an older browser copy; a guest import must not
+  // erase labels/defaults or create a second default at another coordinate.
+  const combined = { ...existing.favorites };
+  for (const [key, place] of normalizedFavorites(payload?.favorites)) {
+    if (!Object.hasOwn(combined, key)) combined[key] = place;
+  }
+  const localFavorites = normalizedFavorites(combined);
   const now = Date.now();
   const statements = [];
   localHistory.forEach((query, index) => {
@@ -1202,7 +1238,7 @@ async function handleAccountApi(request, environment, url) {
 async function handlePersonalDataApi(request, environment, url) {
   if (url.pathname === "/api/personal/sync" && request.method === "POST") {
     const user = await requirePersonalUser(request, environment);
-    return personalJson(await mergePersonalData(environment, user.id, await readJsonBody(request)));
+    return personalJson(await mergePersonalData(environment, user.id, await readJsonBody(request, 512 * 1024)));
   }
   if (url.pathname === "/api/personal/search-history" && request.method === "PUT") {
     const user = await requirePersonalUser(request, environment);
@@ -1211,7 +1247,7 @@ async function handlePersonalDataApi(request, environment, url) {
   }
   if (url.pathname === "/api/personal/favorites" && request.method === "PUT") {
     const user = await requirePersonalUser(request, environment);
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, 512 * 1024);
     return personalJson({ favorites: await replaceFavorites(environment, user.id, body.items) });
   }
   return null;
@@ -1408,7 +1444,114 @@ async function handlePersonalApi(request, environment) {
   }
 }
 
+function featureDataQuery(url) {
+  const p=url.searchParams,mode=p.get("mode"),number=name=>Number(p.get(name));
+  const filters={all:'[~"."~"."]',
+    building:'["building"]["building"!="no"]',road:'["highway"]',railway:'["railway"]',water:'["natural"="water"]',
+    vegetation:'["natural"~"^(wood|scrub|tree|heath|grassland)$"]',landuse:'["landuse"]',amenity:'["amenity"]',shop:'["shop"]',tourism:'["tourism"]',boundary:'["boundary"]'};
+  let select;
+  if(mode==="object") {
+    const type=p.get("type"),id=number("id");
+    if(!["node","way","relation"].includes(type)||!Number.isSafeInteger(id)||id<=0)throw Error("INVALID_OBJECT");
+    select=`${type}(${id});`;
+  } else if(mode==="pick") {
+    const lat=number("lat"),lon=number("lon"),radius=number("radius");
+    if(!["lat","lon","radius"].every(n=>p.has(n)&&Number.isFinite(number(n)))||Math.abs(lat)>85||Math.abs(lon)>180||radius<5||radius>250)throw Error("INVALID_POINT");
+    const at=`${lat.toFixed(7)},${lon.toFixed(7)}`;
+    select=`nwr(around:${radius.toFixed(1)},${at})${filters.all};`;
+    const areaKeys=["building","building:part","natural","landuse","leisure","amenity","tourism"];
+    select=`is_in(${at})->.scopes;(${select}${areaKeys.map(k=>`way(pivot.scopes)["${k}"];rel(pivot.scopes)["${k}"];`).join("")});`;
+    if(p.has("hitType")||p.has("hitId")) {
+      const type=p.get("hitType"),id=number("hitId");
+      if(!["node","way","relation"].includes(type)||!Number.isSafeInteger(id)||id<=0)throw Error("INVALID_OBJECT");
+      select=select.replace(/;$/u,"")+`->.nearby;(.nearby;${type}(${id}););`;
+    }
+  } else if(mode==="atlas-future") {
+    const s=number("south"),w=number("west"),n=number("north"),e=number("east");
+    if(!["south","west","north","east"].every(k=>p.has(k)&&Number.isFinite(number(k)))||s>=n||w>=e||s< -85||n>85||w< -180||e>180)throw Error("INVALID_BOUNDS");
+    if((n-s)*(e-w)*111.32**2*Math.cos((n+s)/2*Math.PI/180)>50000||n-s>4||e-w>4)throw Error("AREA_TOO_LARGE");
+    const bbox=[s,w,n,e].map(v=>v.toFixed(7)).join(","),rail='^(rail|narrow_gauge|train|subway|light_rail|tram|monorail|maglev)$';
+    const ways=`way["railway"~"^(construction|proposed)$"](${bbox});`
+      + ["construction:railway","proposed:railway","construction","proposed"].map(k=>`way["${k}"~"${rail}"](${bbox});`).join("")
+      + ["construction","proposed"].map(k=>`way["railway"~"${rail}"]["${k}"="yes"](${bbox});`).join("")
+      + ["state","status"].map(k=>`way["railway"~"${rail}"]["${k}"~"^(construction|proposed)$"](${bbox});`).join("");
+    const railRelation=`rel["type"~"^(route|route_master)$"][~"^(route|route_master|construction:route|proposed:route|construction|proposed)$"~"${rail}"]`;
+    const relations=["state","status","railway","route"].map(k=>
+      `${railRelation}["${k}"~"^(construction|proposed)$"](${bbox});`).join("")
+      + ["construction","proposed"].map(k=>`${railRelation}["${k}"="yes"](${bbox});`
+        + `rel["type"~"^(route|route_master)$"]["${k}:route"~"${rail}"](${bbox});`).join("");
+    select=`(${ways})->.futureWays;rel(bw.futureWays)["type"~"^(route|route_master)$"]->.futureParents;`
+      + `(.futureWays;.futureParents;${relations});`;
+  } else if(mode==="area") {
+    const s=number("south"),w=number("west"),n=number("north"),e=number("east"),kind=p.get("kind");
+    if(!["south","west","north","east"].every(k=>p.has(k)&&Number.isFinite(number(k)))||s>=n||w>=e||s< -85||n>85||w< -180||e>180)throw Error("INVALID_BOUNDS");
+    const area=(n-s)*(e-w)*111.32**2*Math.cos((n+s)/2*Math.PI/180);
+    if(area>2500||n-s>2||e-w>2)throw Error("AREA_TOO_LARGE");
+    let selectors;
+    if(kind==="custom") {
+      const tag=p.get("tag")||"",value=p.get("value")||"";
+      if(!/^[a-zA-Z0-9_:.-]{1,80}$/u.test(tag)||value.length>120||/[\x00-\x1f]/u.test(value))throw Error("INVALID_TAG");
+      selectors=[`[${JSON.stringify(tag)}${value?`=${JSON.stringify(value)}`:""}]`];
+    } else {
+      if(!filters[kind])throw Error("INVALID_KIND");
+      selectors=[filters[kind],...({building:['["building:part"]["building:part"!="no"]'],water:['["waterway"]','["water"]'],
+        vegetation:['["landuse"~"^(forest|grass|meadow)$"]'],amenity:['["office"]'],tourism:['["historic"]']}[kind]||[])];
+    }
+    const escapeRegex=value=>value.replace(/[.*+?^${}()|[\]\\]/gu,"\\$&");
+    let details=[];
+    if(p.has("detail")) {
+      if(p.get("detail").length>2048)throw Error("INVALID_DETAIL");
+      try {details=JSON.parse(p.get("detail"));}catch {throw Error("INVALID_DETAIL");}
+      if(!Array.isArray(details)||details.length>4||details.some(c=>!c||typeof c.tag!=="string"||!/^[a-zA-Z0-9_:.-]{1,80}$/u.test(c.tag)
+        ||!Array.isArray(c.values)||c.values.length>24||c.values.some(v=>typeof v!=="string"||!v.length||v.length>80||/[\x00-\x1f\x7f]/u.test(v))))throw Error("INVALID_DETAIL");
+    }
+    if(details.length)selectors=selectors.flatMap(base=>details.map(c=>base+(c.values.length
+      ?`[${JSON.stringify(c.tag)}~${JSON.stringify(`^(${c.values.map(escapeRegex).join("|")})$`)}]`:`[${JSON.stringify(c.tag)}][${JSON.stringify(c.tag)}!="no"]`)));
+    const rawName=p.get("name")||"",name=rawName.trim(),nameMode=p.get("nameMode")||"contains";
+    if(rawName.length>100||/[\x00-\x1f\x7f]/u.test(rawName)||!["contains","exact"].includes(nameMode))throw Error("INVALID_NAME");
+    if(name) {
+      const pattern=nameMode==="exact"?`^${escapeRegex(name)}$`:escapeRegex(name);
+      selectors=selectors.map(base=>base+`[~"^(name|official_name|short_name|alt_name|loc_name|old_name)(:.*)?$"~${JSON.stringify(pattern)},i]`);
+    }
+    const bbox=[s,w,n,e].map(v=>v.toFixed(7)).join(",");
+    select=`(${selectors.map(f=>`nwr(${bbox})${f};`).join("")});`;
+  } else throw Error("INVALID_MODE");
+  return `[out:json][timeout:25][maxsize:33554432];${select.replace(/;$/u,"")}->.selected;.selected out count;.selected out body geom 2001;(.selected;>>;);out body;`;
+}
+
+async function fetchFeatureData(request) {
+  const url=new URL(request.url);
+  const json=(value,status,headers={})=>buildingJsonResponse(JSON.stringify(value),status,headers);
+  if(request.method!=="GET")return json({error:"仅支持读取地图物体"},405);
+  let query;
+  try {query=featureDataQuery(url);} catch(error) {
+    const message={AREA_TOO_LARGE:"范围过大，请缩小范围后按类型分批读取",INVALID_TAG:"标签名称或值无效",INVALID_DETAIL:"细分类筛选无效，请重新选择",INVALID_NAME:"名称或匹配方式无效，名称最多 100 个字符"}[error.message]||"物体查询参数无效";
+    return json({error:message},400);
+  }
+  try {
+    const response=await fetch(OGF_OVERPASS_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({data:query}).toString(),signal:AbortSignal.timeout(32000)});
+    if(!response.ok)throw Error(`OGF_HTTP_${response.status}`);
+    const reader=response.body.getReader(),chunks=[];let size=0;
+    try {while(true) {const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>32*1024*1024)throw Error("TOO_MANY_OBJECTS");chunks.push(value);}}
+    finally {await reader.cancel().catch(()=>{});}
+    const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks) {bytes.set(chunk,offset);offset+=chunk.length;}
+    const payload=JSON.parse(new TextDecoder().decode(bytes));
+    if(payload.remark||!Array.isArray(payload.elements)||payload.elements[0]?.type!=="count")throw Error("INCOMPLETE_FEATURE_DATA");
+    const count=Number(payload.elements[0].tags?.total);
+    if(!Number.isSafeInteger(count)||count<0)throw Error("INCOMPLETE_FEATURE_DATA");
+    if(count>2000)throw Error("TOO_MANY_OBJECTS");
+    const roots=payload.elements.slice(1,count+1);
+    if(roots.length!==count||roots.some(e=>!["node","way","relation"].includes(e.type)))throw Error("INCOMPLETE_FEATURE_DATA");
+    return json({elements:payload.elements.slice(1),rootKeys:roots.map(e=>`${e.type}/${e.id}`),fetchedAt:new Date().toISOString(),source:"OpenGeofiction"},200,{"Cache-Control":"no-store"});
+  } catch(error) {
+    return json({error:error.message==="TOO_MANY_OBJECTS"?"物体超过单次 2000 个或数据过大，请缩小范围；未加入不完整结果":"地图物体服务暂时不可用，请稍后重试"},error.message==="TOO_MANY_OBJECTS"?413:502,{"Cache-Control":"no-store"});
+  }
+}
+
 export {
+  normalizedFavorites,
+  featureDataQuery,
   hashPassword,
   parseCookie,
   validateOverlayBounds,
@@ -1422,6 +1565,7 @@ export default {
     const url = new URL(request.url);
     const personalResponse = await handlePersonalApi(request, environment);
     if (personalResponse) return personalResponse;
+    if (url.pathname === "/api/features") return fetchFeatureData(request);
     if (url.pathname === "/terrain-preload.json.gz"
       || (["/terrain-preload-chunks/", "/terrain-render-cache/"].some(prefix => url.pathname.startsWith(prefix))
         && url.pathname.endsWith(".json.gz"))) {

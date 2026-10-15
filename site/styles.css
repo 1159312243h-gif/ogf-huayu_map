@@ -945,7 +945,7 @@ select:focus-visible {
 
 .place-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 22px -6px 18px;
 }
@@ -1941,6 +1941,31 @@ select:focus-visible {
   gap: 9px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.transit-atlas-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.transit-atlas-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transit-atlas-legend-row > label { flex: 1; }
+.transit-atlas-legend-row > button {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 1px solid #d7dee0;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--blue);
+  font-size: 11px;
+  cursor: pointer;
 }
 
 .transit-atlas-buffer select {
@@ -3076,6 +3101,27 @@ button.popup-route:focus-visible .popup-route-arrow {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
+
+.saved-place-tools, .saved-place-route-selects {display:grid;gap:10px;margin:12px 0;}
+.saved-place-tools {grid-template-columns:minmax(0,1fr) minmax(110px,.65fr);}
+.saved-place-tools > button {grid-column:1 / -1;}
+.personal-field select {width:100%;min-width:0;min-height:40px;padding:8px 10px;color:var(--text);background:var(--surface-subtle);border:1px solid #d5dcdf;border-radius:4px;font:inherit;}
+.saved-place-route-selects {grid-template-columns:1fr 1fr;}
+.saved-place-editor {padding:14px;background:var(--surface-subtle);border:1px solid #d5dcdf;border-radius:6px;margin-bottom:16px;}
+.saved-place-editor h2 {font-size:15px;margin:0;}
+.saved-place-coordinates {display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.saved-place-tag-fieldset {border:0;padding:0;margin:2px 0;min-width:0;}
+.saved-place-tag-fieldset legend {font-size:12px;color:#566166;margin-bottom:9px;}
+.saved-place-tags {display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;}
+.saved-place-tags label, .saved-place-default {display:flex;align-items:center;gap:7px;}
+.saved-place-tags input, .saved-place-default input {width:16px;height:16px;flex:0 0 auto;}
+.saved-place-default {font-size:13px;}
+.saved-place-actions {display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.saved-place-card {padding:12px 0;border-bottom:1px solid #e2e7e8;min-width:0;}
+.saved-place-title {background:none;border:0;padding:4px 0;color:var(--text);font:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer;overflow-wrap:anywhere;}
+.saved-place-card p {font-size:11px;line-height:1.6;color:#657279;margin:4px 0 9px;overflow-wrap:anywhere;}
+.saved-place-actions button {min-height:32px;}
+@media(max-width:480px) {.saved-place-route-selects {grid-template-columns:1fr;}}
 
 .saved-place {
   display: grid;
@@ -4689,6 +4735,21 @@ button.popup-route:focus-visible .popup-route-arrow {
   cursor: default;
 }
 .bridge-map-preview p { margin: 7px 0 10px; }
+.map-export-renderer { position: fixed; left: -12000px; top: 0; pointer-events: none; }
+.feature-object-list { display: grid; gap: 6px; margin: 10px 0; max-height: 290px; overflow-y: auto; }
+.feature-object-row { display: flex; align-items: center; gap: 6px; padding: 8px; border: 1px solid #dce3e5; border-radius: 6px; }
+.feature-object-row > span { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.feature-object-row > button { flex: none; white-space: nowrap; }
+.feature-name-fields { margin: 12px 0; }
+.feature-name-inputs { display: flex; gap: 8px; margin-top: 8px; }
+.feature-name-inputs input, .feature-name-inputs select { min-width: 0; padding: 10px; border: 1px solid #c7d0d5; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
+.feature-name-inputs input { flex: 1; width: 0; }
+.feature-name-inputs select { flex: 0 0 auto; max-width: 46%; }
+.feature-object-row button { border: 0; background: transparent; color: #1769e0; font: inherit; cursor: pointer; padding: 5px; }
+.feature-object-row small { display: block; color: #66747e; font-size: 11px; margin-top: 3px; }
+.feature-object-row button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+.boundary-polygon-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.boundary-resolution-row input[type="number"] { width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #c7d0d5; border-radius: 6px; font: inherit; }
 .bridge-map-preview div { display: flex; flex-wrap: wrap; gap: 8px; }
 .bridge-map-preview button {
   border: 1px solid #b4ceca;

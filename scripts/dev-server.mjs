@@ -7,6 +7,13 @@ import { createHash } from "node:crypto";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
 const port = Math.max(1, Math.min(65535, Number(process.argv[2] || process.env.PORT || 4178)));
+let personalDatabase = null;
+if (process.argv.includes("--personal-data")) {
+  const {createLocalPersonalDatabase} = await import("./lib/local-personal-db.mjs");
+  const localDataDirectory = path.join(root, ".data-update");
+  await fs.mkdir(localDataDirectory, {recursive:true});
+  personalDatabase = await createLocalPersonalDatabase(path.join(localDataDirectory, "local-personal-data.sqlite"));
+}
 const cache = new Map();
 globalThis.caches = {
   default: {
@@ -66,7 +73,7 @@ const server = createServer(async (incoming, outgoing) => {
       body: ["GET", "HEAD"].includes(incoming.method || "GET") ? undefined : body,
     });
     const pending = [];
-    const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse } }, {
+    const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}) }, {
       waitUntil(promise) { pending.push(Promise.resolve(promise)); },
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
@@ -81,8 +88,9 @@ const server = createServer(async (incoming, outgoing) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Huayu Map development server: http://127.0.0.1:${port}/`);
+  if (personalDatabase) console.log("Local account preview enabled. Local accounts and data are separate from Cloudflare production.");
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+  process.on(signal, () => server.close(() => {personalDatabase?.close();process.exit(0);}));
 }

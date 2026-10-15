@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
+    "dev:personal": "node scripts/dev-server.mjs 4178 --personal-data",
     "archive:project": "pwsh ./scripts/create-project-archive.ps1",
     "manifest:update": "node scripts/update-manifest.mjs",
     "verify": "node scripts/verify-package.mjs",

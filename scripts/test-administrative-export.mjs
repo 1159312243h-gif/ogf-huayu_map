@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const app = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
+const exportModule = await readFile(new URL("../site/map-export.js", import.meta.url), "utf8");
 const feature = { type: "Feature", properties: { name: "测试区", osm_id: 10, admin_level: 6,
   admin_center: { coordinates: [152.96, 14.65], name: "中心", osm_id: 20, osm_type: "node",
     match_method: "relation_admin_centre", tags: { place: "town" } } },
@@ -22,8 +23,14 @@ const elements = {
   boundaryLevelStatus: control(), boundaryExtentStatus: control(), boundaryDownloadButton: control(),
   boundaryExtentFieldset: control(), boundaryCoordinateFields: control(),
   boundaryExtentModes: [control("administrative", true), control("coordinates")],
+  boundaryIncludeHighlight: control("",true), boundaryIncludeBuildings: control("",true),
+  boundaryBasemapStyle: control("carto"), boundaryBasemapOptions: control(), boundaryBuildingsNote: control(),
+  boundaryClipShape: control("rectangle"), boundaryPolygonControls: control(),
+  boundaryCustomResolution: control("3600"), boundaryCustomResolutionLabel: control(),
 };
 const context = vm.createContext({ Blob, TextEncoder, elements, administrativeExportBusy: false, currentView: "download",
+  administrativePolygonPoints: null, administrativeExportPolygon: null,
+  BASEMAP_STYLES: {carto:{label:"OGF-Carto US"}},
   clamp: (value, min, max) => Math.min(max, Math.max(min, value)),
   document: { createElement(type) {
     assert.equal(type, "canvas");
@@ -32,8 +39,9 @@ const context = vm.createContext({ Blob, TextEncoder, elements, administrativeEx
       scale: (x, y) => canvas.scaleFactors.push([x, y]),
       fillText: text => canvas.texts.push(text),
       drawImage: (...args) => canvas.draws.push(args.slice(1)),
+      stroke: () => { canvas.strokes=(canvas.strokes||0)+1; },
       measureText: text => ({ width: String(text).length * 8 }),
-      getImageData: () => ({ data: new Uint8ClampedArray(canvas.width * canvas.height * 4) }),
+      getImageData: (x,y,width=canvas.width,height=canvas.height) => ({ data: new Uint8ClampedArray(width * height * 4).fill(255) }),
     }, { get: (target, key) => key in target ? target[key] : () => {} });
     canvas.getContext = () => ctx;
     canvases.push(canvas);
@@ -56,7 +64,10 @@ const context = vm.createContext({ Blob, TextEncoder, elements, administrativeEx
   syncMapLayers: () => {}, cancelAdministrativeBoxPick: () => {},
   humanizeError: error => { throw error; },
 });
+context.window=context;
+vm.runInContext(exportModule,context);
 for (const name of ["administrativeExportResolution", "activeAdministrativeFeatureBounds", "administrativeBoundaryImageLayout",
+  "administrativeExportMask", "administrativeExportBasemapBounds",
   "administrativeTilePlan", "administrativeMercatorNormalized", "administrativeExportCenters", "administrativeBoundaryFeatureKey",
   "administrativeLevelLabel", "administrativeLevelColor", "administrativeCenterSymbol",
   "renderAdministrativeBoundaryCanvas", "renderAdministrativeBasemapCanvas", "drawAdministrativeCanvasFeature",
@@ -77,6 +88,14 @@ const bounds = context.activeAdministrativeFeatureBounds(features);
 const centers = context.administrativeExportCenters(features);
 const centreAnnotation = `测试区 · ${context.administrativeLevelLabel(feature.properties.admin_level)}`;
 const original = JSON.stringify(features);
+const drawing=[[152.9,14.6],[153,14.6],[153,14.7],[152.9,14.7]];
+const drawingBefore=JSON.stringify(drawing);
+assert.equal(context.HuayuMapExport.polygon(drawing).geometry.coordinates[0].length,5);
+assert.equal(JSON.stringify(drawing),drawingBefore,"closing a polygon preserves the original points");
+for(const invalid of [null,[],[null,null,null],[[0,0],[1,1],[0,1],[1,0]],[[0,0],[1,0],[2,0]],[[0,0],[0,0],[1,1]],
+  [[0,0],[181,0],[1,1]],[[0,0],[1,0],[1,86]]]) {
+  assert.equal(context.HuayuMapExport.polygon(invalid),null,"invalid drawing must not be exported");
+}
 const tiffTags = async blob => {
   const view = new DataView(await blob.arrayBuffer());
   assert.equal(view.getUint16(2, true), 42);
@@ -163,6 +182,30 @@ for (const resolution of [1200, 2400, 4800]) {
 assert.ok(maxActiveRequests <= 8, "basemap downloads stay within the concurrency budget");
 assert.throws(() => context.administrativeTilePlan({ ...bounds, maxLon: NaN }), /INVALID_EXPORT_BOUNDS/u);
 assert.equal(context.administrativeExportResolution("invalid"), 2400);
+for (const size of [800,1600,3200,6400,8192,3601]) {
+  const plan=context.administrativeTilePlan(bounds,size);
+  assert.equal(Math.max(plan.width,plan.height),size);
+  assert.ok((plan.lastTileX-plan.firstTileX+1)*(plan.lastTileY-plan.firstTileY+1)<=512);
+}
+elements.boundaryResolution.value="custom";
+for(const invalid of ["", "511", "8193", "1200.5", "NaN"]) {
+  elements.boundaryCustomResolution.value=invalid;
+  assert.equal(context.administrativeExportResolution(),null);
+  context.updateAdministrativeExportAvailability();assert.equal(elements.boundaryDownloadButton.disabled,true);
+}
+elements.boundaryCustomResolution.value="3601";
+assert.equal(context.administrativeExportResolution(),3601);
+elements.boundaryResolution.value="2400";
+for(const renderer of ["renderAdministrativeBoundaryCanvas","renderAdministrativeBasemapCanvas"]) {
+  const options={resolution:800,includePoints:false,includeCoordinates:false,includeHighlight:false};
+  const rendered=await context[renderer](features,"test",renderer.includes("Basemap")?bounds:options,options);
+  assert.equal(rendered.canvas.strokes||0,0,"disabled highlight paints no boundary stroke");
+}
+const transparent=await context.renderAdministrativeBasemapCanvas(features,"test",bounds,
+  {resolution:800,includePoints:false,maskFeatures:[feature]});
+const alphaTags=await tiffTags(context.buildAdministrativeGeoTiff(transparent));
+assert.equal(alphaTags.get(277),4,"clipped TIFF retains a fourth alpha band");
+assert.equal(alphaTags.get(338),2,"TIFF declares unassociated alpha");
 
 // Areas without confirmed centres previously kept a fallback label even when
 // point features were excluded. Both raster paths must suppress that label.
@@ -249,6 +292,13 @@ context.updateAdministrativeExportOptions();
 assert.equal(elements.boundaryResolution.disabled, false);
 assert.match(elements.boundaryResolutionNote.textContent, /1200/u);
 elements.boundaryIncludeBasemap.checked = false;
+elements.boundaryResolution.value="custom";
+elements.boundaryCustomResolution.value="";
+context.updateAdministrativeExportAvailability();
+assert.equal(elements.boundaryDownloadButton.disabled,false,"a disabled raster-size input cannot block vector-only downloads");
+await context.downloadAdministrativeBoundary();
+assert.equal(downloads.at(-1).name.endsWith("-shp.zip"),true);
+elements.boundaryResolution.value="1200";
 elements.boundaryFormat.value = "png";
 elements.boundaryIncludePoints.checked = false;
 context.updateAdministrativeExportOptions();
@@ -256,4 +306,4 @@ assert.match(elements.boundaryFormatNote.textContent, /不绘制点符号与地�
 assert.match(elements.boundaryResolutionNote.textContent, /不绘制地名注记/u);
 assert.equal(elements.boundaryResolutionNote.textContent.includes("图例"), false);
 assert.equal(JSON.stringify(features), original, "export options do not mutate source features or centres");
-console.log("Administrative export passed: point and annotation inclusion in all formats, 1200/2400/4800 pixels, native tile detail, bounded requests, preserved boundaries and TIFF georeferencing.");
+console.log("Administrative export passed: all formats, independent points/highlights, 800–8192 and custom image sizes, valid polygon selection, native tile detail, bounded requests, preserved holes, TIFF alpha and georeferencing.");

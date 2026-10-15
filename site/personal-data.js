@@ -2,6 +2,7 @@
   "use strict";
 
   const OWNER_KEY = "ogf-atlas-account-cache-owner";
+  const PENDING_KEY = "ogf-atlas-personal-pending";
   const OVERLAY_SOURCE_MAX_BYTES = 16 * 1024 * 1024;
   const OVERLAY_STORED_MAX_BYTES = 768 * 1024;
   const OVERLAY_MAX_DIMENSION = 2048;
@@ -143,6 +144,29 @@
     let draftLayer = null;
     const overlayLayers = new Map();
     const syncTimers = new Map();
+    const syncChains = new Map();
+    const syncControllers = new Set();
+    const pendingSync = new Map();
+    let accountEpoch = 0;
+    let renderedUserId = null;
+
+    function cacheOwner() {try {return window.localStorage.getItem(OWNER_KEY);} catch {return null;}}
+    function setCacheOwner(value) {try {if(value)window.localStorage.setItem(OWNER_KEY,value);else window.localStorage.removeItem(OWNER_KEY);} catch {}}
+    function cancelSync() {
+      accountEpoch++;
+      syncTimers.forEach(timer=>window.clearTimeout(timer));syncTimers.clear();
+      syncControllers.forEach(controller=>controller.abort());syncControllers.clear();syncChains.clear();
+      pendingSync.clear();
+    }
+    function persistPending() {
+      try {
+        if (user && pendingSync.size) localStorage.setItem(PENDING_KEY, JSON.stringify({owner:user.id,kinds:[...pendingSync.keys()]}));
+        else localStorage.removeItem(PENDING_KEY);
+      } catch {}
+    }
+    function syncStatus(kind,message,error=false) {
+      window.dispatchEvent(new CustomEvent("huayu:personal-sync-status",{detail:{kind,message,error}}));
+    }
 
     if (!atlas.map.getPane("personal-overlays")) {
       const pane = atlas.map.createPane("personal-overlays");
@@ -162,6 +186,7 @@
 
     async function api(path, options = {}) {
       const init = { method: options.method || "GET", credentials: "same-origin", headers: { Accept: "application/json" } };
+      if (options.signal) init.signal = options.signal;
       if (options.body !== undefined) {
         init.headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(options.body);
@@ -195,25 +220,57 @@
     }
 
     async function activateUser(payload, mergeLocal) {
+      cancelSync();
+      const owner = cacheOwner();
+      if (owner && owner !== payload.user.id) clearAccountCache();
       user = payload.user;
+      const epoch = accountEpoch, activatingUserId = user.id;
+      const active = () => epoch === accountEpoch && user?.id === activatingUserId;
       serviceAvailable = true;
+      const local = localSnapshot();
+      let pendingKinds = [];
+      try {
+        const pending = JSON.parse(localStorage.getItem(PENDING_KEY));
+        if (pending?.owner === activatingUserId && Array.isArray(pending.kinds)) pendingKinds = pending.kinds;
+      } catch {}
       let data = payload;
       if (mergeLocal) {
         try {
-          data = { ...payload, ...await api("/api/personal/sync", { method: "POST", body: localSnapshot() }) };
+          data = { ...payload, ...await api("/api/personal/sync", { method: "POST", body: local }) };
         } catch (error) {
+          if (!active()) return;
+          data = {...payload, favorites: rootMergeFavorites(payload.favorites, local.favorites),
+            searchHistory:[...new Set([...local.searchHistory, ...(payload.searchHistory || [])])].slice(0,10)};
+          local.favorites = data.favorites;
+          local.searchHistory = data.searchHistory;
+          pendingKinds = ["favorites", "search-history"];
           atlas.showToast(`本机数据稍后同步：${errorMessage(error)}`);
         }
       }
-      window.localStorage.setItem(OWNER_KEY, user.id);
+      if (!active()) return;
+      for (const kind of pendingKinds) {
+        if (kind === "favorites") data.favorites = local.favorites;
+        if (kind === "search-history") data.searchHistory = local.searchHistory;
+      }
+      setCacheOwner(user.id);
       applySnapshot(data);
       renderAuthState();
+      atlas.applyAccountDefault();
+      for (const kind of pendingKinds) queueSync(kind, kind === "favorites" ? data.favorites : data.searchHistory);
+    }
+
+    function rootMergeFavorites(account, local) {
+      const combined = {...account};
+      for (const [key, place] of Object.entries(local || {})) if (!Object.hasOwn(combined,key)) combined[key]=place;
+      return window.HuayuSavedPlaces.normalize(combined);
     }
 
     function clearAccountCache() {
+      cancelSync();
       atlas.applyPersonalDataSnapshot({ searchHistory: [], favorites: {} });
       overlays = [];
-      window.localStorage.removeItem(OWNER_KEY);
+      setCacheOwner(null);
+      try {localStorage.removeItem(PENDING_KEY);} catch {}
       renderOverlayLayers();
       renderOverlayList();
     }
@@ -234,6 +291,11 @@
       }
       renderAccount();
       updateUploadAvailability();
+      atlas.refreshSavedPlaces();
+      if (renderedUserId !== (user?.id || null)) {
+        renderedUserId = user?.id || null;
+        window.dispatchEvent(new CustomEvent("huayu:account-changed"));
+      }
     }
 
     function renderAccount() {
@@ -261,6 +323,8 @@
     }
 
     async function submitAuth(form, register) {
+      cancelSync();
+      const epoch = accountEpoch;
       const submit = form.querySelector('button[type="submit"]');
       submit.disabled = true;
       setStatus(elements.authStatus, register ? "正在创建账号…" : "正在登录…");
@@ -270,6 +334,7 @@
           method: "POST",
           body: values,
         });
+        if (epoch !== accountEpoch) return;
         await activateUser(payload, true);
         form.reset();
         atlas.showToast(register ? "账号已创建" : "登录成功");
@@ -281,11 +346,16 @@
     }
 
     async function logout() {
+      elements.logout.disabled = true;
       try {
+        await flushSync();
+        cancelSync();
         await api("/api/auth/logout", { method: "POST", body: {} });
       } catch (error) {
-        atlas.showToast(errorMessage(error));
+        atlas.showToast(pendingSync.size ? "个人地点尚未同步，请重试同步后退出。" : errorMessage(error));
         return;
+      } finally {
+        elements.logout.disabled = false;
       }
       user = null;
       cancelBoundsPick(true);
@@ -295,18 +365,45 @@
     }
 
     function queueSync(kind, items) {
-      if (!user) return;
+      if (!user || !["favorites","search-history"].includes(kind)) return;
+      pendingSync.set(kind, items);
+      persistPending();
       window.clearTimeout(syncTimers.get(kind));
-      syncTimers.set(kind, window.setTimeout(async () => {
-        try {
-          const path = kind === "favorites" ? "/api/personal/favorites" : "/api/personal/search-history";
-          await api(path, { method: "PUT", body: { items } });
-          renderAccount();
-        } catch (error) {
-          if (error.status === 401) await logout();
-          else atlas.showToast(errorMessage(error));
-        }
-      }, 250));
+      syncStatus(kind,"正在同步到账号…");
+      syncTimers.set(kind, window.setTimeout(() => enqueueSync(kind), 250));
+    }
+
+    function enqueueSync(kind) {
+      window.clearTimeout(syncTimers.get(kind));
+      syncTimers.delete(kind);
+      const items = pendingSync.get(kind);
+      if (!items) return Promise.resolve();
+      const owner = user.id, epoch = accountEpoch;
+      const active = () => user?.id === owner && epoch === accountEpoch;
+        const pending = (syncChains.get(kind) || Promise.resolve()).then(async () => {
+          if (!active()) return;
+          const controller = new AbortController();syncControllers.add(controller);
+          try {
+            const path = kind === "favorites" ? "/api/personal/favorites" : "/api/personal/search-history";
+            await api(path, {method:"PUT",body:{items},signal:controller.signal});
+            if(active()) {
+              if(pendingSync.get(kind)===items){pendingSync.delete(kind);persistPending();syncStatus(kind,"已同步到当前账号。");}
+              renderAccount();
+            }
+          } catch(error) {
+            if(!active() || error.name === "AbortError")return;
+            if(error.status===401){user=null;cancelBoundsPick(true);clearAccountCache();renderAuthState();}
+            else {syncStatus(kind,"同步未完成，已保留在本机；可重试保存。",true);atlas.showToast(errorMessage(error));}
+          } finally {syncControllers.delete(controller);}
+        });
+        syncChains.set(kind,pending);
+        return pending;
+    }
+
+    async function flushSync() {
+      await Promise.all([...pendingSync.keys()].map(enqueueSync));
+      await Promise.all([...syncChains.values()]);
+      if(pendingSync.size) throw codedError("personal_data_failure");
     }
 
     function formatBytes(bytes) {
@@ -665,14 +762,17 @@
     }
 
     async function restoreSession() {
+      const epoch = accountEpoch;
       setStatus(elements.authStatus, "正在检查登录状态…");
       try {
         const payload = await api("/api/auth/session");
-        const owner = window.localStorage.getItem(OWNER_KEY);
+        if (epoch !== accountEpoch) return;
+        const owner = cacheOwner();
         await activateUser(payload, owner !== payload.user.id);
       } catch (error) {
+        if (epoch !== accountEpoch) return;
         if (error.status === 503) serviceAvailable = false;
-        if (error.status === 401 && window.localStorage.getItem(OWNER_KEY)) clearAccountCache();
+        if (error.status === 401 && cacheOwner()) clearAccountCache();
         user = null;
         renderAuthState();
       }
@@ -735,9 +835,23 @@
       handleBoundsClick({ latlng: atlas.map.mouseEventToLatLng(event) });
     }, { capture: true });
     window.addEventListener("huayu:personal-data-changed", (event) => queueSync(event.detail?.kind, event.detail?.items));
+    window.addEventListener("storage", event => {
+      if (event.key !== OWNER_KEY && event.key !== null) return;
+      if (!user || cacheOwner() === user.id) return;
+      cancelSync();
+      user = null;
+      overlays = [];
+      cancelBoundsPick(true);
+      atlas.invalidatePersonalDataCache();
+      renderOverlayLayers();
+      renderOverlayList();
+      renderAuthState();
+      atlas.showToast("其他标签页已更改登录状态，请重新登录。");
+    });
 
     window.HuayuPersonalData = Object.freeze({
       isAuthenticated: () => Boolean(user),
+      retrySync: () => flushSync().catch(() => {}),
       isPickingBounds: () => pickingBounds,
       renderView(view) {
         if (view === "account") {
