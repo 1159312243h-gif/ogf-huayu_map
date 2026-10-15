@@ -34,17 +34,72 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Rebuild and validate all generated data
-        run: npm run data:update
+      - name: Recover verified repair files uploaded to the repository root
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFile, writeFile, mkdir } from "node:fs/promises";
+          import path from "node:path";
+
+          // One-time recovery for upload c8ecdb6. Only replace the exact old
+          // versions; preserve subsequent edits and keep all uploaded originals.
+          const repairs = [
+            ["docs/MAP_RULES_ZH.md", "4ad10bd54e921bbf38712855be4d2efe525e05dad6744266124b0c8564693ed7", "be7015809c4f395158c45f6d10fa9c31f680f0df0eaca8e0df5a93d4fc06de33"],
+            ["scripts/test-transit-display.mjs", "07d249e0a5f7242abd8f644f116c882ea260770c0b260d7160640fb1ee6e4c5e", "10c02b36941df7bdd7bed00e4ad3b52bf477dd2bb594eedac7d872fda3def703"],
+            ["scripts/update-all-data.mjs", "9a146d9a1f8adbcadd2bc42caec03883a2bcfa956c910bd58b6acda16c5b1738", "197ab35ddea087d49d1d2f28df37e9d07d22911eb91eae997c6d29f38a49c15b"],
+            ["scripts/data-update/builders/build-terrain-context.cjs", "dcc3161291cf894f21005f9d8684baea0560a92272086caecf1d3d07ec01fe03", "804d37573a6f68478edecfe60b28c448d7a73285ce6e83f456f1dd7f712a9e1d"],
+            ["scripts/test-terrain-context.mjs", "9a5e4f167faab7dbbf78028805b677b9eeec6fa7578c9186ef41286a7e65347a", "8dbc9627b995989369f2b08a5d517adfee764f8e16101a3d177d309825cf5b79"],
+            ["site/app.js", "d24e120008f135820d5e2cc445de78e41f0f0f64f0112807d1bdb973eb5e9b45", "b392371cff6deab0b9287061ac11f6be8ca47bcf0621b820be7e15322163ffaf"],
+          ];
+          const digest = (body) => createHash("sha256").update(body).digest("hex");
+          const pending = [];
+          for (const [destination, oldHash, repairHash] of repairs) {
+            const current = await readFile(destination);
+            if (digest(current) !== oldHash) {
+              console.log(`Preserving repaired or subsequently edited file: ${destination}`);
+              continue;
+            }
+            const source = path.basename(destination);
+            const body = await readFile(source);
+            if (digest(body) !== repairHash) {
+              throw new Error(`Repair file integrity check failed: ${source}; no recovery files were written`);
+            }
+            pending.push({ source, destination, body });
+          }
+          // Validate every required source before modifying any destination.
+          for (const { source, destination, body } of pending) {
+            await mkdir(path.dirname(destination), { recursive: true });
+            await writeFile(destination, body);
+            console.log(`Recovered ${source} -> ${destination}`);
+          }
+          console.log(`Verified upload recovery complete: ${pending.length} files restored`);
+          NODE
+          npm run manifest:update
       - name: Run updater regression checks
         run: |
+          npm run verify
           npm run test:data-update
+          npm run data:update:check
+      - name: Rebuild and validate all generated data
+        run: npm run data:update
+      - name: Validate refreshed data
+        run: |
+          npm run test:data-update
+          npm run data:update:check
+          npm run check:data
           npm run test:terrain-preload
-      - name: Commit changed data only
+      - name: Commit verified repairs and changed data
         id: commit
         shell: bash
         run: |
           git add -- \
+            docs/MAP_RULES_ZH.md \
+            scripts/test-transit-display.mjs \
+            scripts/update-all-data.mjs \
+            scripts/data-update/builders/build-terrain-context.cjs \
+            scripts/test-terrain-context.mjs \
+            site/app.js \
             site/transit-preload.json \
             site/transit-relations.json \
             site/railway-routing.json \
