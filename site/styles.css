@@ -4422,6 +4422,27 @@ button.popup-route:focus-visible .popup-route-arrow {
   gap: 7px;
 }
 
+.overlay-coordinate-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.overlay-coordinate-fields legend {padding: 0 5px;color: #566166;font-size: 12px;}
+.overlay-coordinate-fields .secondary-button {justify-content: center;}
+.overlay-bounds-help {margin: 0;line-height: 1.7;}
+.overlay-bounds-editor {position:absolute;inset:0;width:100%;height:100%;z-index:650;pointer-events:none;overflow:hidden;}
+.overlay-bounds-outline {stroke:#087f78;stroke-width:2;stroke-dasharray:7 5;fill:#087f78;fill-opacity:.06;}
+.overlay-bounds-handle {stroke:#087f78;stroke-width:2;fill:#fff;}
+.overlay-bounds-handle.is-active {fill:#087f78;stroke:#fff;}
+.is-overlay-picking {touch-action:none;}
+.is-overlay-moving {cursor:move !important;}
+.is-vector-perspective .overlay-bounds-editor {display:none !important;}
+
 .overlay-bounds-control > span {
   min-width: 0;
   overflow-wrap: anywhere;

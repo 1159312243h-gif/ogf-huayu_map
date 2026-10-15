@@ -199,7 +199,7 @@ assert.ok(verifyOnline.includes("healthcheck_missing_")
 for (const id of ["account-view", "login-form", "register-form", "overlays-view", "overlay-upload-form", "admin-users"]) {
   assert.ok(index.includes(`id="${id}"`), `页面缺少 ${id}`);
 }
-assert.ok(index.includes("personal-data.js?v=7.1-account-help-v1"));
+assert.ok(index.includes("personal-data.js?v=7.1-overlay-bounds-v1"));
 assert.ok(app.includes('new CustomEvent("huayu:personal-data-changed"')
   && app.includes("window.HuayuPersonalData?.isPickingBounds()")
   && app.includes("applyPersonalDataSnapshot"),

@@ -14908,6 +14908,7 @@
   }
 
   function syncMapLayers(view) {
+    window.HuayuPersonalData?.setOverlayViewActive?.(view === "overlays");
     const panelVisible = !elements.panel.classList.contains("is-hidden");
     const administrativeSearchView = panelVisible
       && view === "place"
@@ -31915,6 +31916,7 @@
       return false;
     }
     if (!vectorPerspectiveActive) {
+      window.HuayuPersonalData?.suspendOverlayBounds?.();
       vectorPerspectiveActive = true;
       vectorPerspectiveMap = glMap;
       disableLeafletPerspectiveInteraction();
@@ -31976,6 +31978,7 @@
     syncHuayuTerrainPerspective(glMap);
     elements.appShell.classList.remove("is-vector-perspective");
     restoreLeafletPerspectiveInteraction();
+    window.HuayuPersonalData?.setOverlayViewActive?.(currentView === "overlays");
     if (center && Number.isFinite(zoom)) {
       map.setView([center.lat, center.lng], clamp(Math.round(zoom + 1), 2, 19), { animate: false });
     }
@@ -34162,6 +34165,7 @@
   map.getContainer().addEventListener("wheel", () => {accountDefaultPending = false;}, {passive:true});
   window.HuayuAtlas = Object.freeze({
     applyPersonalDataSnapshot,
+    prepareOverlayEditing: () => exitVectorPerspectiveMode({silent:true}),
     getCurrentView: () => currentView,
     getFavorites,
     saveFavorites,

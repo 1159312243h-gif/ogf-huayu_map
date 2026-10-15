@@ -128,6 +128,9 @@
       overlayPickBounds: document.getElementById("overlay-pick-bounds"),
       overlayCancelPick: document.getElementById("overlay-cancel-pick"),
       overlayBoundsStatus: document.getElementById("overlay-bounds-status"),
+      overlayCoordinateFields: Object.fromEntries(["west","south","east","north"].map(key=>[key,document.getElementById(`overlay-${key}`)])),
+      overlayApplyCoordinates: document.getElementById("overlay-apply-coordinates"),
+      overlayMoveBounds: document.getElementById("overlay-move-bounds"),
       overlayUpload: document.getElementById("overlay-upload"),
       overlayCount: document.getElementById("overlay-count"),
       overlayList: document.getElementById("overlay-list"),
@@ -139,9 +142,10 @@
     let overlays = [];
     let serviceAvailable = true;
     let pickingBounds = false;
-    let pickStart = null;
     let selectedBounds = null;
-    let draftLayer = null;
+    let boundsEditor = null;
+    let coordinatesDirty = false;
+    let draftImageUrl = null;
     const overlayLayers = new Map();
     const syncTimers = new Map();
     const syncChains = new Map();
@@ -266,6 +270,11 @@
     }
 
     function clearAccountCache() {
+      cancelBoundsPick(true);
+      clearDraftImage();
+      elements.overlayForm.reset();
+      elements.overlayOpacityValue.value = "75%";
+      elements.overlayFileName.value = OVERLAY_FILE_PROMPT;
       cancelSync();
       atlas.applyPersonalDataSnapshot({ searchHistory: [], favorites: {} });
       overlays = [];
@@ -562,104 +571,92 @@
       atlas.refreshIcons();
     }
 
-    function ensureDraftLayer() {
-      if (!draftLayer) draftLayer = window.L.layerGroup().addTo(atlas.map);
-      if (!atlas.map.hasLayer(draftLayer)) draftLayer.addTo(atlas.map);
-      return draftLayer;
-    }
-
     function startBoundsPick() {
       if (!user) {
         atlas.showToast("请先登录账号");
         return;
       }
-      pickingBounds = true;
-      pickStart = null;
-      selectedBounds = null;
-      ensureDraftLayer().clearLayers();
-      elements.overlayCancelPick.hidden = false;
-      elements.overlayPickBounds.disabled = true;
-      elements.overlayBoundsStatus.textContent = "点击第一个对角点";
-      elements.pickMessage.textContent = "点击贴图范围的第一个对角点";
-      elements.pickBanner.hidden = false;
-      atlas.map.getContainer().classList.add("is-overlay-picking");
-      atlas.hidePanel();
-      updateUploadAvailability();
+      atlas.prepareOverlayEditing?.();
+      boundsEditor.setVisible(true);
+      boundsEditor.begin();
     }
 
     function cancelBoundsPick(clearSelection = false) {
-      const wasPicking = pickingBounds;
-      pickingBounds = false;
-      pickStart = null;
-      elements.overlayCancelPick.hidden = true;
-      elements.overlayPickBounds.disabled = false;
-      elements.pickBanner.hidden = true;
-      atlas.map.getContainer().classList.remove("is-overlay-picking");
-      if (wasPicking) atlas.showPanel();
-      if (clearSelection) {
-        selectedBounds = null;
-        draftLayer?.clearLayers();
-        elements.overlayBoundsStatus.textContent = "尚未选择范围";
+      boundsEditor?.cancel(clearSelection);
+    }
+
+    function boundsChanged(bounds, {preview}) {
+      selectedBounds = window.HuayuOverlayBounds.normalize(bounds);
+      if (!preview) coordinatesDirty = false;
+      if (selectedBounds || !preview) {
+        for (const [key,input] of Object.entries(elements.overlayCoordinateFields)) {
+          input.value = selectedBounds ? selectedBounds[key].toFixed(7) : "";
+        }
       }
+      elements.overlayBoundsStatus.textContent = selectedBounds
+        ? `${selectedBounds.west.toFixed(4)}, ${selectedBounds.south.toFixed(4)} 至 ${selectedBounds.east.toFixed(4)}, ${selectedBounds.north.toFixed(4)}`
+        : "尚未选择有效范围";
+      elements.overlayPickBounds.innerHTML = '<i data-lucide="scan" aria-hidden="true"></i>'+(selectedBounds?"重新框选":"框选范围");
+      updateUploadAvailability();
+      if (!preview) atlas.refreshIcons();
+    }
+
+    function boundsStateChanged(state) {
+      const wasPicking = pickingBounds;
+      pickingBounds = state.editing;
+      elements.overlayCancelPick.hidden = !pickingBounds;
+      elements.overlayPickBounds.disabled = pickingBounds;
+      elements.pickBanner.hidden = !pickingBounds;
+      if (pickingBounds) {
+        elements.pickMessage.textContent = state.mode === "resize" ? "移动角点后单击确认；Esc 撤销"
+          : state.mode === "move" ? "拖动整个选框，松开完成；Esc 撤销"
+          : state.hasAnchor ? "移动鼠标后点击另一个对角点；Esc 撤销" : "按住拖动画框，或点击第一个对角点；Esc 撤销";
+      }
+      if (!wasPicking && pickingBounds) atlas.hidePanel();
+      else if (wasPicking && !pickingBounds) atlas.showPanel();
       updateUploadAvailability();
     }
 
-    function handleBoundsClick(event) {
-      if (!pickingBounds) return;
-      const point = { lat: Number(event.latlng.lat.toFixed(7)), lng: Number(event.latlng.lng.toFixed(7)) };
-      const layer = ensureDraftLayer();
-      if (!pickStart) {
-        pickStart = point;
-        layer.clearLayers();
-        window.L.circleMarker([point.lat, point.lng], {
-          radius: 5, color: "#ffffff", weight: 2, fillColor: "#087f78", fillOpacity: 1, interactive: false,
-        }).addTo(layer);
-        elements.overlayBoundsStatus.textContent = "点击另一个对角点";
-        elements.pickMessage.textContent = "点击贴图范围的另一个对角点";
-        return;
-      }
-      const bounds = {
-        west: Math.min(pickStart.lng, point.lng), south: Math.min(pickStart.lat, point.lat),
-        east: Math.max(pickStart.lng, point.lng), north: Math.max(pickStart.lat, point.lat),
-      };
-      if (bounds.east - bounds.west < 0.000001 || bounds.north - bounds.south < 0.000001
-        || bounds.east - bounds.west > 30 || bounds.north - bounds.south > 30) {
-        atlas.showToast(ERROR_MESSAGES.invalid_bounds);
-        startBoundsPick();
-        return;
-      }
-      selectedBounds = bounds;
-      layer.clearLayers();
-      window.L.rectangle(boundsArray(bounds), {
-        color: "#087f78", weight: 2, opacity: 0.95, fillColor: "#087f78", fillOpacity: 0.08,
-        dashArray: "7 5", interactive: false,
-      }).addTo(layer);
-      elements.overlayBoundsStatus.textContent = `${bounds.west.toFixed(4)}, ${bounds.south.toFixed(4)} 至 ${bounds.east.toFixed(4)}, ${bounds.north.toFixed(4)}`;
-      cancelBoundsPick(false);
-      elements.overlayPickBounds.innerHTML = '<i data-lucide="scan" aria-hidden="true"></i>重新框选';
-      atlas.refreshIcons();
+    function applyBoundsCoordinates() {
+      if (!user) return;
+      const bounds = window.HuayuOverlayBounds.normalize(Object.fromEntries(Object.entries(elements.overlayCoordinateFields).map(([key,input])=>[key,input.value])));
+      if (!bounds) {atlas.showToast(ERROR_MESSAGES.invalid_bounds);return;}
+      atlas.prepareOverlayEditing?.();
+      boundsEditor.setVisible(true);
+      boundsEditor.setBounds(bounds);
+      atlas.map.fitBounds(boundsArray(bounds),{padding:[40,40],maxZoom:17});
+    }
+
+    function clearDraftImage() {
+      boundsEditor?.setImage("");
+      if(draftImageUrl)URL.revokeObjectURL(draftImageUrl);
+      draftImageUrl=null;
     }
 
     function updateUploadAvailability() {
       const file = elements.overlayImage.files?.[0];
-      elements.overlayUpload.disabled = !user || !file || !selectedBounds || pickingBounds;
+      elements.overlayUpload.disabled = !user || !file || !selectedBounds || pickingBounds || coordinatesDirty;
+      elements.overlayMoveBounds.disabled = !user || !selectedBounds || pickingBounds || coordinatesDirty;
     }
 
     async function uploadOverlay(event) {
       event.preventDefault();
       const image = elements.overlayImage.files?.[0];
-      if (!user || !image || !selectedBounds) return;
+      if (!user || !image || !selectedBounds || pickingBounds || coordinatesDirty) return;
+      const uploadBounds = {...selectedBounds}, owner = user.id, epoch = accountEpoch;
       elements.overlayUpload.disabled = true;
       try {
         setStatus(elements.overlayAuthStatus, "正在处理图片…");
         const preparedImage = await prepareOverlayImage(image);
+        if(user?.id!==owner || epoch!==accountEpoch)return;
         setStatus(elements.overlayAuthStatus, "正在上传贴图…");
         const form = new FormData();
         form.set("image", preparedImage);
         form.set("name", elements.overlayName.value.trim());
         form.set("opacity", String(Number(elements.overlayOpacity.value) / 100));
-        Object.entries(selectedBounds).forEach(([key, value]) => form.set(key, String(value)));
+        Object.entries(uploadBounds).forEach(([key, value]) => form.set(key, String(value)));
         const payload = await api("/api/overlays", { method: "POST", form });
+        if(user?.id!==owner || epoch!==accountEpoch)return;
         overlays.unshift(payload.overlay);
         elements.overlayForm.reset();
         elements.overlayOpacity.value = "75";
@@ -667,6 +664,7 @@
         elements.overlayFileName.value = OVERLAY_FILE_PROMPT;
         elements.overlayPickBounds.innerHTML = '<i data-lucide="scan" aria-hidden="true"></i>框选范围';
         cancelBoundsPick(true);
+        clearDraftImage();
         renderOverlayLayers();
         renderOverlayList();
         renderAccount();
@@ -816,24 +814,34 @@
       } catch (error) { setStatus(elements.authStatus, errorMessage(error), true); }
     });
     elements.adminRefresh.addEventListener("click", loadAdminUsers);
+    boundsEditor = window.HuayuOverlayBounds.create({map:atlas.map,onChange:boundsChanged,onState:boundsStateChanged,
+      onError:()=>atlas.showToast(ERROR_MESSAGES.invalid_bounds)});
     elements.overlayOpacity.addEventListener("input", () => {
       elements.overlayOpacityValue.value = `${elements.overlayOpacity.value}%`;
+      boundsEditor.setImage(draftImageUrl,Number(elements.overlayOpacity.value)/100);
     });
     elements.overlayImage.addEventListener("change", () => {
       const file = elements.overlayImage.files?.[0];
+      clearDraftImage();
+      if(file && ["image/png","image/jpeg","image/webp"].includes(file.type) && file.size<=OVERLAY_SOURCE_MAX_BYTES){
+        draftImageUrl=URL.createObjectURL(file);boundsEditor.setImage(draftImageUrl,Number(elements.overlayOpacity.value)/100);
+      }
       elements.overlayFileName.value = file ? `${file.name} · ${formatBytes(file.size)}` : OVERLAY_FILE_PROMPT;
       if (file && !elements.overlayName.value) elements.overlayName.value = file.name.replace(/\.[^.]+$/u, "");
       updateUploadAvailability();
     });
     elements.overlayPickBounds.addEventListener("click", startBoundsPick);
-    elements.overlayCancelPick.addEventListener("click", () => cancelBoundsPick(true));
+    elements.overlayCancelPick.addEventListener("click", () => cancelBoundsPick(false));
+    document.getElementById("cancel-pick").addEventListener("click",event=>{
+      if(!pickingBounds)return;event.preventDefault();event.stopImmediatePropagation();cancelBoundsPick(false);
+    },{capture:true});
+    elements.overlayApplyCoordinates.addEventListener("click",applyBoundsCoordinates);
+    elements.overlayMoveBounds.addEventListener("click",()=>{atlas.prepareOverlayEditing?.();boundsEditor.setVisible(true);boundsEditor.beginMove();});
+    Object.values(elements.overlayCoordinateFields).forEach(input=>{
+      input.addEventListener("input",()=>{coordinatesDirty=true;elements.overlayBoundsStatus.textContent="坐标尚未应用，请点击“应用坐标”。";updateUploadAvailability();});
+      input.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();applyBoundsCoordinates();}});
+    });
     elements.overlayForm.addEventListener("submit", uploadOverlay);
-    atlas.map.getContainer().addEventListener("click", (event) => {
-      if (!pickingBounds || event.target.closest(".leaflet-control, .leaflet-popup")) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      handleBoundsClick({ latlng: atlas.map.mouseEventToLatLng(event) });
-    }, { capture: true });
     window.addEventListener("huayu:personal-data-changed", (event) => queueSync(event.detail?.kind, event.detail?.items));
     window.addEventListener("storage", event => {
       if (event.key !== OWNER_KEY && event.key !== null) return;
@@ -853,12 +861,15 @@
       isAuthenticated: () => Boolean(user),
       retrySync: () => flushSync().catch(() => {}),
       isPickingBounds: () => pickingBounds,
+      setOverlayViewActive: active => boundsEditor.setVisible(Boolean(active && user)),
+      suspendOverlayBounds: () => boundsEditor.setVisible(false),
       renderView(view) {
         if (view === "account") {
           renderAuthState();
           if (user?.role === "admin") loadAdminUsers();
         }
         if (view === "overlays") {
+          boundsEditor.setVisible(Boolean(user));
           renderAuthState();
           renderOverlayList();
         }

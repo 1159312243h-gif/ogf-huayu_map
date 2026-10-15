@@ -173,7 +173,7 @@ let nativeCamera = {zoom: 11.179, center: {...retainedCenter}, pitch: 48, bearin
 const nativeMap = {getCenter: () => nativeCamera.center, getZoom: () => nativeCamera.zoom, stop() {},
   jumpTo(options) {nativeCamera = {...nativeCamera, ...options};}};
 const noop = () => {};
-const exitContext = vm.createContext({vectorPerspectiveActive: true, vectorPerspectiveMap: nativeMap,
+const exitContext = vm.createContext({window: {}, vectorPerspectiveActive: true, vectorPerspectiveMap: nativeMap,
   map: {setView() {setViews++;}, getZoom: () => 12, getCenter: () => retainedCenter},
   mapViewMode: "normal", elements: {appShell: {classList: {remove: noop}}},
   clamp: (value, min, max) => Math.max(min, Math.min(max, value)),

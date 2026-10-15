@@ -6,6 +6,8 @@ export async function createLocalPersonalDatabase(filename = ":memory:") {
   const sqlite = new DatabaseSync(filename);
   sqlite.exec(await readFile(new URL("../../migrations/0001_personal_data.sql", import.meta.url), "utf8"));
   function prepare(sql, values = []) {
+    // D1 accepts ArrayBuffer blobs; Node SQLite requires an ArrayBuffer view.
+    values = values.map(value => value instanceof ArrayBuffer ? new Uint8Array(value) : value);
     const statement = sqlite.prepare(sql);
     return {
       bind: (...bound) => prepare(sql, bound),

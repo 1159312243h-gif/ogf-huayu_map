@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-account-help-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-overlay-bounds-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -596,11 +596,21 @@
               <output id="overlay-file-name">PNG、JPEG 或 WebP，自动压缩至 768 KiB</output>
             </label>
             <label class="personal-range" for="overlay-opacity"><span>透明度</span><output id="overlay-opacity-value">75%</output><input id="overlay-opacity" name="opacity" type="range" min="10" max="100" step="5" value="75" /></label>
+            <fieldset class="overlay-coordinate-fields">
+              <legend>贴图范围坐标</legend>
+              <label class="personal-field" for="overlay-west"><span>西侧经度</span><input id="overlay-west" type="number" min="-180" max="180" step="any" placeholder="例如：152.9542" /></label>
+              <label class="personal-field" for="overlay-east"><span>东侧经度</span><input id="overlay-east" type="number" min="-180" max="180" step="any" placeholder="例如：152.9619" /></label>
+              <label class="personal-field" for="overlay-south"><span>南侧纬度</span><input id="overlay-south" type="number" min="-85" max="85" step="any" placeholder="例如：14.6324" /></label>
+              <label class="personal-field" for="overlay-north"><span>北侧纬度</span><input id="overlay-north" type="number" min="-85" max="85" step="any" placeholder="例如：14.6356" /></label>
+              <button id="overlay-apply-coordinates" class="secondary-button" type="button">应用坐标</button>
+              <button id="overlay-move-bounds" class="secondary-button" type="button" disabled>移动选框</button>
+            </fieldset>
             <div class="overlay-bounds-control">
               <button id="overlay-pick-bounds" class="secondary-button" type="button"><i data-lucide="scan" aria-hidden="true"></i>框选范围</button>
               <button id="overlay-cancel-pick" class="small-icon-button" type="button" aria-label="取消框选" data-tooltip="取消框选" hidden><i data-lucide="x" aria-hidden="true"></i></button>
               <span id="overlay-bounds-status">尚未选择范围</span>
             </div>
+            <p class="view-status overlay-bounds-help">框选时按住左键或手指拖动，也可依次点两个对角点。角点可拖动，或双击后移动鼠标、单击确认；按住选框内的右键可整体拖动。手机可用“移动选框”。Esc 或“取消”撤销本次调整。坐标单位为度，西侧须小于东侧、南侧须小于北侧，单轴跨度最多 30°。</p>
             <button id="overlay-upload" class="primary-button" type="submit" disabled><i data-lucide="cloud-upload" aria-hidden="true"></i>上传贴图</button>
           </form>
           <div class="personal-section-heading"><h2>我的贴图</h2><span id="overlay-count">0</span></div>
@@ -796,7 +806,8 @@
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.1-transit-atlas-v2"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.1-account-help-v1"></script>
-    <script src="./personal-data.js?v=7.1-account-help-v1"></script>
+    <script src="./app.js?v=7.1-overlay-bounds-v1"></script>
+    <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
+    <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>
   </body>
 </html>
