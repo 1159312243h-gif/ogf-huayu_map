@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>华域桥梁 · 本地试验</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/maplibre-gl.css">
+<style>
+  *{box-sizing:border-box}body{margin:0;font:14px/1.6 system-ui,sans-serif;color:#172f38;background:#eaf0e9}
+  #map{position:absolute;inset:0}aside{position:absolute;top:20px;left:20px;width:310px;padding:20px;background:#fffffff2;
+    border:1px solid #d1ddd8;border-radius:12px;box-shadow:0 8px 32px #153e3d14}h1{font-size:20px;margin:0 0 6px}
+  p{margin:8px 0;color:#51676e}nav{display:flex;flex-wrap:wrap;gap:7px;margin:15px 0}button{cursor:pointer;background:#f0f5f2;
+    border:1px solid #c3d4cd;border-radius:6px;padding:7px 10px;color:inherit}button:hover{background:#dcece4}
+  #status{white-space:pre-line;font-size:12px;color:#45635e}label{display:block;margin-top:10px}
+  footer{position:absolute;bottom:20px;left:20px;background:#fffffff2;padding:7px 12px;border-radius:6px;font-size:12px}
+  @media(max-width:600px){aside{width:260px;left:10px;top:10px;padding:14px}h1{font-size:17px}footer{left:10px;bottom:10px}}
+</style>
+<div id="map"></div>
+<aside><h1>桥梁与立交 · 本地试验</h1>
+  <p>拖动旋转查看桥面与引道衔接。这里使用可重复验证的示例道路。</p>
+  <nav><button data-view="all">总览</button><button data-view="arch">同层拱形</button>
+    <button data-view="plateau">长桥平台</button><button data-view="incline">异层缓坡</button>
+    <button data-view="junction">高架分岔</button></nav>
+  <button id="pitch">切换俯视</button> <button id="night">切换深夜</button>
+  <label><input id="models" type="checkbox" checked> 显示桥梁模型</label>
+  <p id="status">正在准备本地桥梁…</p>
+</aside>
+<footer>本地预览 · 未上传 GitHub / Cloudflare · layer 高度为制图估算</footer>
+<script src="/maplibre-gl.js"></script>
+<script src="/bridge-models.js"></script>
+<script>
+  (async function(){
+    const roads=await fetch('/fixtures.json').then(r=>r.json());
+    const at=(x,y)=>[148.36+x/(111320*Math.cos(12.5*Math.PI/180)),12.5+y/111320];
+    const river={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[[
+      at(78,330),at(157,330),at(157,600),at(78,600),at(78,330)]]}};
+    let night=false,enabled=true;
+    const map=window.bridgePreviewMap=new maplibregl.Map({container:'map',center:at(220,150),zoom:16.4,pitch:62,bearing:-24,
+      attributionControl:false,style:{version:8,sources:{roads:{type:'geojson',data:{type:'FeatureCollection',features:roads}},
+        river:{type:'geojson',data:{type:'FeatureCollection',features:[river]}}},layers:[
+        {id:'background',type:'background',paint:{'background-color':'#e2ebe1'}},
+        {id:'river',type:'fill',source:'river',paint:{'fill-color':'#a4cfdb'}},
+        {id:'road-edge',type:'line',source:'roads',paint:{'line-width':12,'line-color':'#aebbb5'}},
+        {id:'road',type:'line',source:'roads',paint:{'line-width':9,'line-color':'#f3f6f2'}}]}});
+    function sync(){HuayuBridgeModels.sync(map,roads,{enabled,night,satellite:false,roadLayers:['road-edge','road']});}
+    map.on('load',sync);
+    const views={all:[220,150,16.4],arch:[130,450,17.7],plateau:[300,220,17.1],incline:[120,0,17.7],junction:[300,-205,17.4]};
+    document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{
+      const [x,y,zoom]=views[button.dataset.view];map.easeTo({center:at(x,y),zoom,pitch:62,bearing:-24,duration:450});});
+    document.getElementById('pitch').onclick=()=>map.easeTo({pitch:map.getPitch()>0?0:62,duration:350});
+    document.getElementById('night').onclick=()=>{night=!night;map.setPaintProperty('background','background-color',night?'#1c2c30':'#e2ebe1');
+      map.setPaintProperty('road','line-color',night?'#485256':'#f3f6f2');map.setPaintProperty('river','fill-color',night?'#274957':'#a4cfdb');sync();};
+    document.getElementById('models').onchange=event=>{enabled=event.target.checked;sync();};
+    setInterval(()=>{const c=HuayuBridgeModels.get(map),r=c?.result;
+      if(!r)return;const types={arch:'拱形',plateau:'平台',incline:'连续缓坡'};
+      document.getElementById('status').textContent=`已生成 ${r.accepted.length} 段 · ${r.positions.length/9} 三角面\n`+
+        r.accepted.map(p=>`${p.ids.join('/')}：${types[p.kind]}，最大坡度 ${(p.maxGrade*100).toFixed(1)}%`).join('\n');
+    },500);
+  })().catch(error=>{document.getElementById('status').textContent=error.message;console.error(error);});
+</script>
+</html>

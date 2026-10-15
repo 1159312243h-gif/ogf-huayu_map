@@ -48,6 +48,7 @@ for (const file of files) {
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
+  "bridge-models.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -173,7 +174,8 @@ assert.ok(worker.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
   && app.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
   && worker.includes("const treeNodes = zoom >= 15")
   && app.includes("const treeNodes = tile.z >= 15")
-  && worker.includes('schema", z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain"'),
+  && worker.includes('z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain"')
+  && worker.includes('z === 13 ? "huayu-live-basemap-v10-elevated-roads"'),
 "实时底图必须仅在 z15 查询树木点，并使用渐进地形缓存 schema");
 assert.ok(app.includes('treeTrunk: "ogf-atlas-huayu-tree-trunk"')
   && app.includes('treeCanopy: "ogf-atlas-huayu-tree-canopy"')
@@ -1489,6 +1491,8 @@ const structureModelsTest = await runCheck([path.join(root,"scripts","test-struc
 assert.equal(structureModelsTest.status, 0, `结构物模型替换回归失败：${structureModelsTest.stderr}`);
 const buildingMaterialRoofsTest = await runCheck([path.join(root,"scripts","test-building-material-roofs.mjs")]);
 assert.equal(buildingMaterialRoofsTest.status, 0, `建筑材质与坡屋顶回归失败：${buildingMaterialRoofsTest.stderr}`);
+const bridgeModelsTest = await runCheck([path.join(root, "scripts", "test-bridge-models.mjs")]);
+assert.equal(bridgeModelsTest.status, 0, `桥梁与立交纵断面回归失败：${bridgeModelsTest.stderr}`);
 const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);
 assert.equal(satelliteBasemapTest.status, 0, `模拟卫星底图回归失败：${satelliteBasemapTest.stderr}`);
 

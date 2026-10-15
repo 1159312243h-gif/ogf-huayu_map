@@ -7,6 +7,7 @@ const STRUCTURE_REFRESH_SECONDS = 10800;
 const STRUCTURE_RETENTION_SECONDS = 604800;
 const STRUCTURE_QUERY_TIMEOUT_MS = 20000;
 const LIVE_BASEMAP_TILE_ZOOMS = new Set([13, 14, 15]);
+const ROAD_OVERVIEW_TILE_ZOOMS = new Set([11, 12]);
 const LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS = new Set([13, 14]);
 const LIVE_BASEMAP_SNAPSHOT_REFRESH_SECONDS = 10800;
 const LIVE_BASEMAP_SNAPSHOT_RETENTION_SECONDS = 604800;
@@ -79,14 +80,22 @@ function structureOverpassQuery(bounds, zoom) {
 
 function liveBasemapOverpassQuery(bounds, zoom) {
   const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
+  if (zoom < 13) {
+    return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
+      + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});)->.roads;`
+      + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
+  }
   const highwaySelector = zoom <= 13
     ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
+  const elevatedWays = zoom <= 13
+    ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});` : "";
   const treeNodes = zoom >= 15
     ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
   const gardenNodes = zoom >= 15
     ? `(node["leisure"="garden"](${bbox});node["landuse"="flowerbed"](${bbox});)->.basemapGardens;` : "";
   return `[out:json][timeout:${zoom <= 13 ? 45 : 25}];(`
     + `way${highwaySelector}(${bbox});`
+    + elevatedWays
     + `way["railway"~"^(rail|narrow_gauge|light_rail|tram|monorail)$"](${bbox});`
     + `way["waterway"](${bbox});`
     + `way["natural"~"^(water|wood|scrub|grassland|wetland|beach|sand)$"](${bbox});`
@@ -180,7 +189,7 @@ function cachedBuildingResponse(response, cacheStatus, headerName = "X-OGF-Build
 }
 
 function liveBasemapCachePolicy(z) {
-  const snapshot = LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS.has(z);
+  const snapshot = LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS.has(z) || ROAD_OVERVIEW_TILE_ZOOMS.has(z);
   return {
     name: snapshot ? "snapshot-3h" : "live-2m",
     refreshSeconds: snapshot ? LIVE_BASEMAP_SNAPSHOT_REFRESH_SECONDS : LIVE_BASEMAP_DETAIL_REFRESH_SECONDS,
@@ -461,7 +470,7 @@ async function loadLiveBasemapTile(cacheKey, z, x, y, policy) {
   try {
     return await loadLiveBasemapTileOnce(cacheKey, z, x, y, policy);
   } catch (error) {
-    if (!LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS.has(z)) throw error;
+    if (!LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS.has(z) && !ROAD_OVERVIEW_TILE_ZOOMS.has(z)) throw error;
     await new Promise((resolve) => setTimeout(resolve, 600));
     return loadLiveBasemapTileOnce(cacheKey, z, x, y, policy);
   }
@@ -492,17 +501,18 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
     return buildingJsonResponse(JSON.stringify({ error: "method_not_allowed" }), 405, { Allow: "GET, OPTIONS" });
   }
   const scale = 2 ** z;
-  if (!LIVE_BASEMAP_TILE_ZOOMS.has(z) || x < 0 || y < 0 || x >= scale || y >= scale) {
+  if ((!LIVE_BASEMAP_TILE_ZOOMS.has(z) && !ROAD_OVERVIEW_TILE_ZOOMS.has(z)) || x < 0 || y < 0 || x >= scale || y >= scale) {
     return buildingJsonResponse(JSON.stringify({
       error: "invalid_live_basemap_tile",
-      requiredZooms: [...LIVE_BASEMAP_TILE_ZOOMS],
+      requiredZooms: [...ROAD_OVERVIEW_TILE_ZOOMS, ...LIVE_BASEMAP_TILE_ZOOMS],
     }), 400);
   }
 
   const policy = liveBasemapCachePolicy(z);
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain");
+  cacheUrl.searchParams.set("schema", z < 13 ? "huayu-road-overview-v1" : z === 13 ? "huayu-live-basemap-v10-elevated-roads"
+    : z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {

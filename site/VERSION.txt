@@ -1,6 +1,8 @@
 华域地图 v7.1
-Released: 2026-10-14
+Released: 2026-10-15
 Cloudflare Pages project: ogf-atlas
+
+Version-7.1 Optional bridge rendering v1 (7.1.0): Add a browser-saved bridge rendering switch in map settings, disabled by default and by Restore defaults. Enabling uses the existing layer-based bridge and approach models in tilted standard/night maps with lightweight regional roads; disabling immediately restores original roads and disposes bridge workers, listeners, pending results and graphics. Default visits do not start bridge modeling or regional bridge-only requests. Keep overhead and simulated satellite roads flat, preserve current map data, building materials, roofs, terrain and navigation, and keep local diagnostic controls opt-in.
 
 Version-7.1 Building materials and sloped roofs v1 (7.1.0): Render explicit `building:material` and `roof:material` tags with stable day and night palettes while keeping explicit colour tags authoritative. Add real triangular gabled, hipped, pyramidal and skillion roofs for simple convex four-corner buildings, respecting tagged roof height, levels, angle, direction and orientation. Keep complex footprints and holes on the existing flat-roof fallback, retain complete snapshot ownership and terrain depth, and disable three-dimensional slopes in overhead and simulated satellite views. Restore full flat-roof height whenever the custom model is unavailable and invalidate browser and Cloudflare building caches for the new geometry.
 

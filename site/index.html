@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-building-material-roofs-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-bridge-options-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -252,6 +252,14 @@
         <section id="download-view" class="panel-view" data-view="download" hidden></section>
 
         <section id="settings-view" class="panel-view" data-view="settings" hidden>
+          <fieldset class="render-settings-section">
+            <legend>桥梁与立交</legend>
+            <label class="render-setting-toggle" for="setting-bridge-models"><span>桥梁渲染</span>
+              <input id="setting-bridge-models" type="checkbox" role="switch" aria-describedby="bridge-render-note" />
+              <span class="render-setting-switch" aria-hidden="true"></span>
+            </label>
+            <p id="bridge-render-note" class="model-options-summary">在倾斜视角显示桥面与坡道，较大范围首次加载需要等待。</p>
+          </fieldset>
           <fieldset class="render-settings-section">
             <legend>植被模型</legend>
             <label class="render-setting-field" for="setting-tree-model"><span>树木模型</span>
@@ -666,7 +674,8 @@
     <script src="./structure-models.js?v=7.1-building-material-roofs-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./building-roofs.js?v=7.1-building-material-roofs-v1"></script>
-    <script src="./app.js?v=7.1-building-material-roofs-v1"></script>
+    <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
+    <script src="./app.js?v=7.1-bridge-options-v1"></script>
     <script src="./personal-data.js?v=7.1-building-material-roofs-v1"></script>
   </body>
 </html>

@@ -4673,3 +4673,33 @@ button.popup-route:focus-visible .popup-route-arrow {
     height: 48px;
   }
 }
+.bridge-map-preview {
+  position: absolute;
+  z-index: 1000;
+  left: 88px;
+  bottom: 70px;
+  width: min(330px, calc(100% - 104px));
+  padding: 14px 16px;
+  border: 1px solid #cbdcda;
+  border-radius: 10px;
+  background: #fffffff2;
+  color: #203d3b;
+  box-shadow: 0 3px 16px #193b3520;
+  font: 13px/1.6 system-ui, sans-serif;
+  cursor: default;
+}
+.bridge-map-preview p { margin: 7px 0 10px; }
+.bridge-map-preview div { display: flex; flex-wrap: wrap; gap: 8px; }
+.bridge-map-preview button {
+  border: 1px solid #b4ceca;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #edf7f4;
+  color: #176058;
+  font: inherit;
+  cursor: pointer;
+}
+.bridge-map-preview button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 680px) {
+  .bridge-map-preview { left: 12px; bottom: 120px; width: calc(100% - 24px); }
+}

@@ -45,10 +45,10 @@ try {
   const context = { waitUntil(promise) { waitUntilPromises.push(promise); } };
   const assets = { fetch: async () => new Response("asset", { status: 200 }) };
 
-  const invalid = await worker.fetch(new Request("https://example.test/api/live-basemap/12/1/1.json"),
+  const invalid = await worker.fetch(new Request("https://example.test/api/live-basemap/10/1/1.json"),
     { ASSETS: assets }, context);
   assert.equal(invalid.status, 400);
-  assert.deepEqual((await invalid.json()).requiredZooms, [13, 14, 15]);
+  assert.deepEqual((await invalid.json()).requiredZooms, [11, 12, 13, 14, 15]);
 
   const invalidTerrain = await worker.fetch(new Request("https://example.test/api/terrain/5/29/14.json"),
     { ASSETS: assets }, context);
@@ -67,6 +67,9 @@ try {
   assert.equal(upstreamQueries.length, 1);
   assert.match(upstreamQueries[0], /way\["highway"/u);
   assert.match(upstreamQueries[0], /motorway\|trunk\|primary\|secondary\|tertiary/u);
+  assert.ok(upstreamQueries[0].includes('way["highway"]["layer"](')
+    && upstreamQueries[0].includes('way["highway"]["bridge"]["bridge"!="no"]('),
+  "regional snapshots must include minor elevated roads too");
   assert.match(upstreamQueries[0], /basemapRelations/u);
   assert.match(upstreamQueries[0], /basemapPlaces/u);
   assert.match(upstreamQueries[0], /basemapImportantLabels/u);
@@ -83,7 +86,7 @@ try {
   assert.equal(upstreamQueries.length, 1, "cache hit should not request Overpass again");
 
   const liveCacheKey = [...cache.keys()].find((key) =>
-    key.includes("huayu-live-basemap-v8-progressive-terrain"));
+    key.includes("huayu-live-basemap-v10-elevated-roads"));
   assert.ok(liveCacheKey, "live basemap tile should be retained in the edge snapshot cache");
   const retained = cache.get(liveCacheKey);
   const retainedHeaders = new Headers(retained.headers);
@@ -301,10 +304,33 @@ try {
   assert.equal(absentTerrain.status, 404);
   assert.equal(absentTerrain.headers.get("content-encoding"), null);
 
+  for (const zoom of [11,12]) {
+    const url=`https://example.test/api/live-basemap/${zoom}/1/1.json`;
+    const response=await worker.fetch(new Request(url),{ASSETS:assets},context);
+    assert.equal(response.status,200);assert.equal(response.headers.get("x-ogf-basemap-policy"),"snapshot-3h");
+    const query=upstreamQueries.at(-1);
+    assert.ok(query.includes('way(bn.roadNodes)["highway"]'));
+    assert.ok(!query.includes("basemapRelations") && !query.includes("basemapTrees"));
+    const before=upstreamQueries.length;
+    assert.equal((await worker.fetch(new Request(url),{ASSETS:assets},context)).headers.get("x-ogf-basemap-cache"),"HIT");
+    assert.equal(upstreamQueries.length,before);
+    const key=[...cache.keys()].find(key=>key.includes(`/live-basemap/${zoom}/`)&&key.includes("huayu-road-overview-v1"));
+    assert.ok(key,"regional road data must have its own cache generation");
+    const retained=cache.get(key),headers=new Headers(retained.headers);
+    headers.set("X-OGF-Basemap-Fetched-At",new Date(Date.now()-4*60*60*1000).toISOString());
+    cache.set(key,new Response(await retained.text(),{headers}));
+    failNextUpstream=true;
+    const stale=await worker.fetch(new Request(url),{ASSETS:assets},context);
+    assert.equal(stale.headers.get("x-ogf-basemap-cache"),"STALE");
+    await Promise.all(waitUntilPromises.splice(0));
+    assert.equal((await stale.json()).elements.length,1,"regional refresh failures retain the complete roads");
+  }
+
   console.log(JSON.stringify({
     status: "passed",
     liveBasemapCache: "MISS/HIT/STALE/background-refresh",
-    liveBasemapZooms: [13, 14, 15],
+    liveBasemapZooms: [11, 12, 13, 14, 15],
+    roadOverview: "z11-z12/3h/roads-and-connected-approaches",
     liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
     terrainTileZoom: 9,
     terrainCache: "MISS/HIT/3h",

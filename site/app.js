@@ -7,6 +7,13 @@
   const BASEMAP_STORAGE_KEY = "ogf-atlas-basemap";
   const MAP_FEATURE_SELECTION_STORAGE_KEY = "ogf-atlas-map-feature-selection";
   const SATELLITE_ANNOTATIONS_STORAGE_KEY = "ogf-atlas-satellite-annotations";
+  const LOCAL_BRIDGE_PREVIEW = ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).get("preview") === "bridges";
+  const LOCAL_BRIDGE_DEBUG = LOCAL_BRIDGE_PREVIEW
+    && new URLSearchParams(window.location.search).get("bridgeDebug") === "1";
+  let bridgePreviewStarted = false;
+  let bridgePreviewPaused = false;
+  let bridgePreviewPanel = null;
   let vectorBasemapLibraryPromise = null;
   let huayuSatelliteStyle = null;
   let huayuSatelliteStylePromise = null;
@@ -763,6 +770,8 @@
     HUAYU_LIVE_BASEMAP_LAYERS.importantPeak,
   ];
   const HUAYU_LIVE_BASEMAP_MIN_ZOOM = 12.5;
+  const HUAYU_ROAD_OVERVIEW_MIN_ZOOM = 10.5;
+  const HUAYU_ROAD_OVERVIEW_MIN_TILE_ZOOM = 11;
   const HUAYU_TERRAIN_MIN_ZOOM = 5.5;
   const HUAYU_TERRAIN_TILE_ZOOM = 9;
   const HUAYU_WOODLAND_TEXTURE_IMAGE = "ogf-atlas-huayu-woodland-texture";
@@ -779,7 +788,7 @@
   const HUAYU_LIVE_BASEMAP_SNAPSHOT_MAX_TILE_ZOOM = 14;
   const HUAYU_LIVE_BASEMAP_TILE_CONCURRENCY = 3;
   const HUAYU_LIVE_BASEMAP_TILE_CACHE_LIMIT = 72;
-  const HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES = 24;
+  const HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES = 64;
   const HUAYU_LIVE_BASEMAP_SNAPSHOT_CACHE_MS = 3 * 60 * 60 * 1000;
   const HUAYU_LIVE_BASEMAP_DETAIL_CACHE_MS = 3 * 60 * 60 * 1000;
   const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [
@@ -795,6 +804,10 @@
     "highway-motorway-casing", "highway-path", "highway-motorway-link", "highway-link",
     "highway-minor", "highway-secondary", "highway-tertiary", "highway-primary",
     "highway-trunk", "highway-motorway",
+    "bridge-motorway-link-casing", "bridge-link-casing", "bridge-secondary-tertiary-casing",
+    "bridge-trunk-primary-casing", "bridge-motorway-casing", "bridge-path-casing", "bridge-path",
+    "bridge-motorway-link", "bridge-link", "bridge-secondary", "bridge-tertiary", "bridge-primary",
+    "bridge-trunk", "bridge-motorway",
     "railway-transit", "railway-transit-hatching", "railway-service", "railway-service-hatching",
     "railway", "railway-hatching",
   ];
@@ -1770,7 +1783,21 @@
   document.getElementById("reset-render-settings").addEventListener("click", () => {
     window.HuayuModelOptions?.reset();
     window.HuayuVegetation.setPreferences(window.HuayuVegetation.DEFAULTS);
+    window.HuayuBridgeModels.setPreferences(window.HuayuBridgeModels.DEFAULTS);
   });
+  const bridgeRenderSetting = document.getElementById("setting-bridge-models");
+  function syncBridgeRenderSettingControl() {
+    bridgeRenderSetting.checked = bridgeModelsEnabled();
+  }
+  bridgeRenderSetting.addEventListener("change", () => {
+    window.HuayuBridgeModels.setPreferences({enabled: bridgeRenderSetting.checked});
+  });
+  window.addEventListener("huayu-bridge-settings-change", event => {
+    syncBridgeRenderSettingControl();
+    applyHuayuBridgeRenderSetting(currentVectorBasemap());
+    if (!event.detail.saved) showToast("设置仅在本次打开中生效，浏览器未允许保存");
+  });
+  syncBridgeRenderSettingControl();
   window.addEventListener("huayu-render-settings-change", event => {
     syncRenderSettingControls();
     syncHuayuVegetationSettings(currentVectorBasemap());
@@ -20883,7 +20910,10 @@
       if (coordinates.length < 2) return;
       if (tags.highway && tags.area !== "yes") {
         addFeature(element, "road", huayuLiveBasemapRoadClass(tags.highway),
-          { type: "LineString", coordinates }, { highway: String(tags.highway) });
+          { type: "LineString", coordinates }, { highway: String(tags.highway),
+            layerExplicit: tags.layer !== undefined && String(tags.layer).trim() !== "" ? 1 : 0,
+            roadNodes: element.nodes?.length === coordinates.length ? element.nodes.map(String) : [],
+            width: String(tags.width || ""), lanes: String(tags.lanes || ""), oneway: String(tags.oneway || "") });
       } else if (tags.railway) {
         const railway = String(tags.railway).toLocaleLowerCase();
         const layer = Number.parseFloat(tags.layer) || 0;
@@ -24041,8 +24071,8 @@
       path: [[14.9, 0], [15, 1.2], [20, 4]],
       minor: [[13.5, 0], [14, 2.5], [18, 7.37], [20, 26.4]],
     };
-    const roadCasingWidth = styleWidthExpression(roadCasingDefinitions, [12.5, 13, 14, 18, 20]);
-    const roadWidth = styleWidthExpression(roadDefinitions, [12.5, 13, 13.5, 14, 14.9, 15, 18, 20]);
+    const roadCasingWidth = styleWidthExpression(roadCasingDefinitions, [10.5, 11, 12, 12.5, 13, 14, 18, 20]);
+    const roadWidth = styleWidthExpression(roadDefinitions, [10.5, 11, 12, 12.5, 13, 13.5, 14, 14.9, 15, 18, 20]);
     const roadCasingColorAtZoom = (closeRoadCasing) => ["match", ["get", "featureClass"],
       "motorway", palette.night ? "#664932" : "#dc9d6b",
       "motorway_link", palette.night ? "#664932" : "#dc9d6b",
@@ -24078,22 +24108,24 @@
         17, roadColorAtZoom("#f8faf9"),
         18, roadColorAtZoom("#f2f5f3"),
         20, roadColorAtZoom("#edf1ef")];
+    const roadLayerOrder = ["case", ["all", ["==", ["get", "bridge"], 1],
+      ["==", ["get", "layerExplicit"], 0], ["==", ["get", "layer"], 0]], 1, ["get", "layer"]];
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.roadCasing,
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
-      minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
+      minzoom: huayuLiveBasemapMinimumZoom(),
       filter: ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 0]],
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: { "line-cap": "round", "line-join": "round", "line-sort-key": roadLayerOrder },
       paint: { "line-color": roadCasingColor, "line-opacity": palette.satellite ? 0.25 : 1, "line-width": roadCasingWidth },
     }, roadBeforeId);
     addLayer({
       id: HUAYU_LIVE_BASEMAP_LAYERS.road,
       type: "line",
       source: HUAYU_LIVE_BASEMAP_SOURCE,
-      minzoom: HUAYU_LIVE_BASEMAP_MIN_ZOOM,
+      minzoom: huayuLiveBasemapMinimumZoom(),
       filter: ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 0]],
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: { "line-cap": "round", "line-join": "round", "line-sort-key": roadLayerOrder },
       paint: {
         "line-color": roadColor,
         "line-opacity": 1,
@@ -24434,7 +24466,7 @@
   }
 
   function huayuLiveBasemapPrimaryReady(state) {
-    if (!state?.active || state.glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM
+    if (!state?.active || state.glMap.getZoom() < huayuLiveBasemapMinimumZoom()
       || !state.snapshotTileKeys?.size) return false;
     const requiredLayers = [HUAYU_LIVE_BASEMAP_LAYERS.land, HUAYU_LIVE_BASEMAP_LAYERS.water,
       HUAYU_LIVE_BASEMAP_LAYERS.waterway, HUAYU_LIVE_BASEMAP_LAYERS.roadCasing,
@@ -24447,9 +24479,8 @@
 
   function huayuLiveBasemapViewportCoveredByCache(glMap, state) {
     const visibleBounds = huayuAdministrativeQueryBounds(glMap);
-    if (!visibleBounds || glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM) return false;
-    const tiles = huayuLiveBuildingVisibleTiles(visibleBounds,
-      Math.min(huayuLiveBasemapTileZoom(glMap), HUAYU_LIVE_BASEMAP_SNAPSHOT_MAX_TILE_ZOOM));
+    if (!visibleBounds || glMap.getZoom() < huayuLiveBasemapMinimumZoom()) return false;
+    const tiles = huayuLiveBasemapViewTiles(glMap, visibleBounds).snapshotTiles;
     return tiles.length > 0 && tiles.length <= HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES
       && tiles.every((tile) => state.tileCache.has(tile.key));
   }
@@ -24877,13 +24908,18 @@
         state.publishedLayerVisibility.set(layerId,
           glMap.getLayoutProperty(layerId, "visibility") || "visible");
       }
-      const visibility = nextEnabled ? "none" : state.publishedLayerVisibility.get(layerId);
+      // Regional road tiles omit land, water and rail; those original layers
+      // remain visible until the complete near-view basemap takes over.
+      const roadOnly = glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM || state.roadOverview;
+      const replaced = nextEnabled && (!roadOnly || /^(highway-|bridge-)/u.test(layerId));
+      const visibility = replaced ? "none" : state.publishedLayerVisibility.get(layerId);
       if (glMap.getLayoutProperty(layerId, "visibility") !== visibility) {
         glMap.setLayoutProperty(layerId, "visibility", visibility);
       }
     });
     state.primaryActive = nextEnabled;
     syncHuayuSportsSnapshotLayers(glMap, state);
+    if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
   }
 
   function clearHuayuLiveBasemapPrimarySync(state) {
@@ -24942,6 +24978,136 @@
   }
 
   const HUAYU_EMPTY_STRUCTURE_MODELS = Object.freeze([]);
+  function updateHuayuBridgePreviewStatus(status) {
+    if (!LOCAL_BRIDGE_PREVIEW || !bridgePreviewPanel) return;
+    const messages = {
+      loading: "正在加载此范围的完整道路数据…",
+      preparing: "正在生成桥面和坡道…",
+      terrain: "正在等待桥梁所在位置的地形高程，暂时保留原道路…",
+      overhead: "当前为俯视图，点击“倾斜查看”查看桥梁。",
+      distant: "此比例保留道路概览；进入城市范围后显示立体桥梁。",
+      satellite: "模拟卫星使用平面道路，请切回标准或深夜底图。",
+      failed: "桥梁准备失败，暂时显示原道路；可点击“重新尝试”。",
+      empty: "已检查当前道路，未找到可建模的高架段，保留原道路。",
+      paused: "对比中：已关闭模型，显示原道路。",
+    };
+    let message = status.state === "active"
+      ? `已启用桥梁模型 · 当前范围 ${status.count} 段，随地图移动加载。`
+      : messages[status.state] || messages.loading;
+    if (status.state === "empty") {
+      const reasons = [
+        ["missing-or-short-approach", "道路连接数据不完整"],
+        ["incomplete-elevated-connection", "相邻高架段无法完整衔接"],
+        ["terrain-clearance-or-grade", "地形、净空或坡度不合适"],
+        ["grade-over-8-percent", "坡度超过 8%"],
+        ["insufficient-grade-distance", "缓坡距离不足"],
+        ["budget", "当前范围超出模型容量"],
+        ["mesh-budget", "当前范围超出模型容量"],
+        ["invalid-topology", "道路连接节点不一致"],
+        ["sharp-reversal", "道路转折过急"],
+      ];
+      const counts = reasons.map(([key, label]) => [label, new Set((status.rejected || [])
+        .filter(item => item.reason === key).flatMap(item => item.ids)).size]).filter(([, count]) => count);
+      if (status.inventory?.missingTopology) message = "部分高架道路缺少有效连接节点，暂时保留原道路。";
+      else if (counts.length) message = `此范围保留原道路：${counts.slice(0, 2).map(([label, count]) => `${label}（${count} 条）`).join("；")}。`;
+    }
+    const output = bridgePreviewPanel.querySelector("[data-bridge-status]");
+    if (output.textContent !== message) output.textContent = message;
+    const compare = bridgePreviewPanel.querySelector("[data-bridge-compare]");
+    compare.textContent = bridgePreviewPaused ? "恢复桥梁模型" : "对比原道路";
+    compare.disabled = !status.count;
+    compare.setAttribute("aria-pressed", String(bridgePreviewPaused));
+    bridgePreviewPanel.querySelector("[data-bridge-retry]").hidden = !["failed", "empty"].includes(status.state);
+  }
+
+  function inspectHuayuBridgePreview() {
+    const current = currentVectorBasemap();
+    if (!current || selectedBasemapId === "huayu-satellite") return;
+    const center = current.getCenter();
+    enterVectorPerspectiveMode(58, -25, {center: [center.lng, center.lat],
+      zoom: current.getZoom(), silent: true});
+  }
+
+  function initializeHuayuBridgePreview(glMap, state) {
+    if (!LOCAL_BRIDGE_PREVIEW || !bridgeModelsEnabled()) return;
+    if (LOCAL_BRIDGE_DEBUG && !bridgePreviewPanel) {
+      bridgePreviewPanel = document.createElement("aside");
+      bridgePreviewPanel.className = "bridge-map-preview";
+      bridgePreviewPanel.setAttribute("aria-label", "桥梁本地预览");
+      bridgePreviewPanel.innerHTML = '<strong>桥梁本地预览 · 未发布</strong>'
+        + '<p data-bridge-status role="status">正在加载此范围的完整道路数据…</p>'
+        + '<div><button type="button" data-bridge-inspect>倾斜查看</button>'
+        + '<button type="button" data-bridge-compare disabled aria-pressed="false">对比原道路</button>'
+        + '<button type="button" data-bridge-retry hidden>重新尝试</button></div>';
+      document.getElementById("map").appendChild(bridgePreviewPanel);
+      L.DomEvent.disableClickPropagation(bridgePreviewPanel);
+      L.DomEvent.disableScrollPropagation(bridgePreviewPanel);
+      bridgePreviewPanel.querySelector("[data-bridge-inspect]").addEventListener("click", inspectHuayuBridgePreview);
+      bridgePreviewPanel.querySelector("[data-bridge-retry]").addEventListener("click", () => {
+        const current = currentVectorBasemap();
+        if (current) window.HuayuBridgeModels?.retry(current);
+      });
+      bridgePreviewPanel.querySelector("[data-bridge-compare]").addEventListener("click", () => {
+        bridgePreviewPaused = !bridgePreviewPaused;
+        const current = currentVectorBasemap();
+        if (current) syncHuayuBridgeModels(current);
+      });
+    }
+    // This dedicated local preview has an explicit camera; normal site visits
+    // retain the user's existing overhead and satellite behavior.
+    if (!bridgePreviewStarted) {
+      const start = () => {
+        if (!state.active || bridgePreviewStarted || !bridgeModelsEnabled()) return;
+        if (currentVectorBasemap() !== glMap) { state.bridgePreviewTimer = window.setTimeout(start, 100); return; }
+        bridgePreviewStarted = true;
+        inspectHuayuBridgePreview();
+      };
+      state.bridgePreviewTimer = window.setTimeout(start, 0);
+    }
+  }
+
+  function bridgeModelsEnabled() {
+    return window.HuayuBridgeModels?.getPreferences().enabled === true;
+  }
+
+  function huayuLiveBasemapMinimumZoom() {
+    return bridgeModelsEnabled() ? HUAYU_ROAD_OVERVIEW_MIN_ZOOM : HUAYU_LIVE_BASEMAP_MIN_ZOOM;
+  }
+
+  function applyHuayuBridgeRenderSetting(glMap) {
+    const state = glMap && huayuLiveBasemapStates.get(glMap);
+    if (!state?.active) return;
+    // Restore the original roads before changing the live layer range. A
+    // disabled bridge mode must not leave a model, cut road or delayed job.
+    if (!bridgeModelsEnabled()) {
+      bridgePreviewPaused = false;
+      state.primaryRevision += 1;
+      clearHuayuLiveBasemapPrimarySync(state);
+      syncHuayuLiveBasemapPrimaryLayers(glMap, state, false);
+    }
+    for (const id of [HUAYU_LIVE_BASEMAP_LAYERS.roadCasing, HUAYU_LIVE_BASEMAP_LAYERS.road]) {
+      const layer = glMap.getLayer(id), minimum = huayuLiveBasemapMinimumZoom();
+      if (layer && layer.minzoom !== minimum) glMap.setLayerZoomRange(id, minimum, layer.maxzoom ?? 24);
+    }
+    syncHuayuBridgeModels(glMap, state);
+    initializeHuayuBridgePreview(glMap, state);
+    scheduleHuayuLiveBasemap(glMap, 0);
+  }
+
+  function syncHuayuBridgeModels(glMap, state = huayuLiveBasemapStates.get(glMap)) {
+    if (!state?.active || !glMap?.getStyle?.()?.layers?.length || !window.HuayuBridgeModels) return;
+    if (!bridgeModelsEnabled()) { window.HuayuBridgeModels.dispose(glMap); return; }
+    const palette = huayuOverlayPalette(glMap);
+    window.HuayuBridgeModels.sync(glMap, state.groundRenderFeatures || HUAYU_EMPTY_STRUCTURE_MODELS, {
+      enabled: Boolean(state.primaryActive) && !(LOCAL_BRIDGE_PREVIEW && bridgePreviewPaused),
+      paused: LOCAL_BRIDGE_PREVIEW && bridgePreviewPaused,
+      night: palette.night, satellite: palette.satellite,
+      roadLayers: [HUAYU_LIVE_BASEMAP_LAYERS.roadCasing, HUAYU_LIVE_BASEMAP_LAYERS.road],
+      observeGestures: (start, end) => observeHuayuMapGestures(glMap, start, end),
+      onStatus: LOCAL_BRIDGE_PREVIEW ? updateHuayuBridgePreviewStatus : undefined,
+    });
+  }
+
   function syncHuayuStructureModels(glMap) {
     if (!glMap?.getStyle?.()?.layers?.length || !window.HuayuStructureModels) return;
     const structures = huayuStructureStates.get(glMap), buildings = huayuLiveBuildingStates.get(glMap);
@@ -25013,6 +25179,7 @@
       }
     }
     if (window.HuayuVegetation) syncHuayuVegetationSettings(glMap);
+    if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
     updateHuayuLiveBasemapDiagnostics(state);
@@ -25020,20 +25187,45 @@
 
   function huayuLiveBasemapTileZoom(glMap) {
     return clamp(Math.floor(glMap.getZoom() + 0.5),
-      HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM, HUAYU_LIVE_BASEMAP_MAX_TILE_ZOOM);
+      bridgeModelsEnabled() ? HUAYU_ROAD_OVERVIEW_MIN_TILE_ZOOM : HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM,
+      HUAYU_LIVE_BASEMAP_MAX_TILE_ZOOM);
+  }
+
+  function huayuLiveBasemapViewTiles(glMap, bounds) {
+    const tileZoom = huayuLiveBasemapTileZoom(glMap);
+    const overview = tileZoom < HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM;
+    const minimum = overview ? HUAYU_ROAD_OVERVIEW_MIN_TILE_ZOOM : HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM;
+    let snapshotZoom = Math.min(tileZoom, HUAYU_LIVE_BASEMAP_SNAPSHOT_MAX_TILE_ZOOM);
+    let snapshotTiles = huayuLiveBuildingVisibleTiles(bounds, snapshotZoom);
+    while (snapshotTiles.length > HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES && snapshotZoom > minimum)
+      snapshotTiles = huayuLiveBuildingVisibleTiles(bounds, --snapshotZoom);
+    let detailTiles = !overview && tileZoom > snapshotZoom ? huayuLiveBuildingVisibleTiles(bounds, tileZoom) : [];
+    // A large tilted viewport can exceed the fine-tile budget while the
+    // regional road snapshot still covers it. Keep that complete tier active.
+    if (detailTiles.length > HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES
+      || detailTiles.length + snapshotTiles.length > HUAYU_LIVE_BASEMAP_TILE_CACHE_LIMIT) detailTiles = [];
+    return {tileZoom, snapshotTiles, detailTiles};
   }
 
   function huayuLiveBasemapTileQuery(tile) {
     const bounds = huayuLiveBuildingTileBounds(tile);
     const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
+    if (tile.z < 13) {
+      return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
+        + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});)->.roads;`
+        + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
+    }
     const highwaySelector = tile.z <= 13
       ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
+    const elevatedWays = tile.z <= 13
+      ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});` : "";
     const treeNodes = tile.z >= 15
       ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
     const gardenNodes = tile.z >= 15
       ? `(node["leisure"="garden"](${bbox});node["landuse"="flowerbed"](${bbox});)->.basemapGardens;` : "";
     return `[out:json][timeout:${tile.z <= 13 ? 45 : 25}];(`
       + `way${highwaySelector}(${bbox});`
+      + elevatedWays
       + `way["railway"~"^(rail|narrow_gauge|light_rail|tram|monorail)$"](${bbox});`
       + `way["waterway"](${bbox});`
       + `way["natural"~"^(water|wood|scrub|grassland|wetland|beach|sand)$"](${bbox});`
@@ -25547,6 +25739,7 @@
       });
     });
     state.loadedAt = loadedAt;
+    state.roadOverview = [...renderKeys].every(key => Number(key.split("/")[0]) < 13);
     state.data = { type: "FeatureCollection", features };
     state.sourceMode = "live";
     state.appliedTerrainSignature = "";
@@ -25669,7 +25862,7 @@
     }
     const visibleBounds = huayuAdministrativeQueryBounds(glMap);
     refreshHuayuTerrainTiles(glMap, state, visibleBounds);
-    if (!visibleBounds || glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM) {
+    if (!visibleBounds || glMap.getZoom() < huayuLiveBasemapMinimumZoom()) {
       state.pendingTiles.forEach((pending) => pending.controller.abort());
       state.queue = [];
       state.queuedTileKeys.clear();
@@ -25683,11 +25876,7 @@
       applyHuayuLiveBasemap(glMap, state);
       return;
     }
-    const tileZoom = huayuLiveBasemapTileZoom(glMap);
-    const snapshotZoom = Math.min(tileZoom, HUAYU_LIVE_BASEMAP_SNAPSHOT_MAX_TILE_ZOOM);
-    const snapshotTiles = huayuLiveBuildingVisibleTiles(visibleBounds, snapshotZoom);
-    const detailTiles = tileZoom > snapshotZoom
-      ? huayuLiveBuildingVisibleTiles(visibleBounds, tileZoom) : [];
+    const {tileZoom, snapshotTiles, detailTiles} = huayuLiveBasemapViewTiles(glMap, visibleBounds);
     if (snapshotTiles.length > HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES
       || detailTiles.length > HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES) {
       state.pendingTiles.forEach((pending) => pending.controller.abort());
@@ -25808,6 +25997,7 @@
       scheduleHuayuLiveBasemap(glMap, 0);
     };
     huayuLiveBasemapStates.set(glMap, state);
+    initializeHuayuBridgePreview(glMap, state);
     glMap.on("move", state.onMove);
     glMap.on("moveend", state.onMoveEnd);
     scheduleHuayuLiveBasemap(glMap, 0);
@@ -25818,8 +26008,10 @@
     const state = glMap && huayuLiveBasemapStates.get(glMap);
     if (!state) return;
     state.active = false;
+    window.clearTimeout(state.bridgePreviewTimer);
     window.HuayuVegetation?.dispose(glMap);
     window.HuayuStructureModels?.dispose(glMap);
+    window.HuayuBridgeModels?.dispose(glMap);
     // MapLibre map.remove can discard the style without calling each custom
     // layer's onRemove. Stop the old terrain worker and timers explicitly.
     const material = huayuWoodlandMaterialLayers.get(glMap);
@@ -30645,6 +30837,11 @@
   function handleVectorPerspectiveMoveEnd() {
     if (!vectorPerspectiveActive || !vectorPerspectiveMap) return;
     const center = vectorPerspectiveMap.getCenter();
+    if (LOCAL_BRIDGE_PREVIEW) {
+      // Share the actual native view, using the existing Leaflet hash scale.
+      // replaceState does not navigate or start another map/data update.
+      writeHash({lat: center.lat, lng: center.lng, zoom: vectorPerspectiveMap.getZoom() + 1});
+    }
     if (mapViewMode === "transit") applyTransitPreloadForPoint({ lat: center.lat, lng: center.lng });
     syncHuayuCityWallPerspectiveLayers(vectorPerspectiveMap);
     syncHuayuWallPerspectiveLayers(vectorPerspectiveMap);
