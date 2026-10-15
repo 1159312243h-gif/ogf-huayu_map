@@ -4327,6 +4327,12 @@ button.popup-route:focus-visible .popup-route-arrow {
   font-size: 13px;
 }
 
+.personal-field-hint {
+  color: #63717a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .personal-field input:focus,
 .overlay-item-copy input:focus,
 .admin-user-controls select:focus {

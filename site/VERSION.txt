@@ -2,6 +2,8 @@
 Released: 2026-10-15
 Cloudflare Pages project: ogf-atlas
 
+Version-7.1 Account help v1 (7.1.0): Show persistent username, optional nickname and password rules beside registration inputs, with examples and accessible descriptions. Keep existing validation, private account storage and deployment-based administrator configuration. Retain source-data timestamps.
+
 Version-7.1 Personal places v2 (7.1.0): Add up to eight custom tags per saved place, each up to 24 characters. Preserve tags privately with account favorites, deduplicate normalized names, reuse matching preset labels and include custom labels in quick filters, search and navigation shortcuts. Keep unique defaults and existing account isolation. Publish the accumulated map export, object downloads, transit atlas and personal-place changes after required checks; retain existing source-data timestamps.
 
 Version-7.1 Personal places v1 (7.1.0): Add account-saved default locations and optional home, hometown, school and workplace labels to favorites. Search and filter personal places locally, locate them or use their coordinates directly as navigation origins and destinations. Preserve multiple places per label and a single account default; keep shared map links and manual map interaction ahead of automatic startup positioning. Synchronize metadata through existing private D1 favorites, retain failed writes for retry and clear account views on logout or account change. Local preview only until publication.

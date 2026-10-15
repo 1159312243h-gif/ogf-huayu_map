@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-personal-places-v2" />
+    <link rel="stylesheet" href="./styles.css?v=7.1-account-help-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.1">
@@ -621,9 +621,21 @@
               <button class="primary-button" type="submit"><i data-lucide="log-in" aria-hidden="true"></i>登录</button>
             </form>
             <form id="register-form" class="personal-form" hidden>
-              <label class="personal-field" for="register-username"><span>用户名</span><input id="register-username" name="username" minlength="3" maxlength="32" autocomplete="username" pattern="[A-Za-z0-9_\-\u4e00-\u9fff]{3,32}" required /></label>
-              <label class="personal-field" for="register-display-name"><span>显示名称</span><input id="register-display-name" name="displayName" maxlength="40" autocomplete="name" /></label>
-              <label class="personal-field" for="register-password"><span>密码</span><input id="register-password" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required /></label>
+              <label class="personal-field" for="register-username">
+                <span>用户名</span>
+                <input id="register-username" name="username" minlength="3" maxlength="32" autocomplete="username" pattern="[A-Za-z0-9_\-\u4e00-\u9fff]{3,32}" aria-describedby="register-username-hint" title="3–32 位，可用中文、字母、数字、下划线或短横线" placeholder="例如：huayu2026" required />
+                <small id="register-username-hint" class="personal-field-hint">登录时使用，3–32 位，可用中文、字母、数字、下划线或短横线。</small>
+              </label>
+              <label class="personal-field" for="register-display-name">
+                <span>显示名称（可选）</span>
+                <input id="register-display-name" name="displayName" maxlength="40" autocomplete="name" aria-describedby="register-display-name-hint" placeholder="例如：华域地图" />
+                <small id="register-display-name-hint" class="personal-field-hint">地图里显示的昵称，最多 40 位；不填则使用用户名。</small>
+              </label>
+              <label class="personal-field" for="register-password">
+                <span>密码</span>
+                <input id="register-password" name="password" type="password" minlength="10" maxlength="128" autocomplete="new-password" aria-describedby="register-password-hint" title="密码为 10–128 位" required />
+                <small id="register-password-hint" class="personal-field-hint">10–128 位，请自行设置并妥善保存。</small>
+              </label>
               <button class="primary-button" type="submit"><i data-lucide="user-plus" aria-hidden="true"></i>创建账号</button>
             </form>
           </div>
@@ -783,8 +795,8 @@
     <script src="./map-export.js?v=7.1-map-export-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.1-transit-atlas-v2"></script>
-    <script src="./saved-places.js?v=7.1-personal-places-v2"></script>
-    <script src="./app.js?v=7.1-personal-places-v2"></script>
-    <script src="./personal-data.js?v=7.1-personal-places-v2"></script>
+    <script src="./saved-places.js?v=7.1-account-help-v1"></script>
+    <script src="./app.js?v=7.1-account-help-v1"></script>
+    <script src="./personal-data.js?v=7.1-account-help-v1"></script>
   </body>
 </html>
