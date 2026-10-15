@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const {remapCompactRouteIndexes} = require("./remap-compact-route-indexes.cjs");
 
 const baselinePath = "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19/transit-preload.json";
 const baselineRailPath = "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19/railway-routing.json";
@@ -98,6 +99,8 @@ for (const stop of baselineNetwork.stops || []) {
   imported[7] = 0;
   imported[8] = [...new Set(mappedRoutes)];
   imported[9] = stop[9] ? 1 : 0;
+  imported[11] = remapCompactRouteIndexes(stop[11], baselineRoutes, targetRoutes,
+    targetRouteIndexes, `station ${stop[5] || stop[0]}`);
   currentStops.push(imported);
   stopIds.forEach((id) => stopsById.add(id));
   if (normalizedName) {

@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const {remapCompactRouteIndexes} = require("./remap-compact-route-indexes.cjs");
 
 const preloadPath = "outputs/ogf-atlas/transit-preload.json";
 const relationsPath = "outputs/ogf-atlas/transit-relations.json";
@@ -164,6 +165,10 @@ for (const baselineStop of baselineSnapshot.network.stops || []) {
   restored[8] = [...new Set([...(existing?.[8] || []), ...restoredTrainRoutes])];
   restored[9] = 1;
   restored[10] = baselineStop[10] ?? sourceNode.id;
+  const baselineDisplay = remapCompactRouteIndexes(baselineStop[11], baselineRoutes,
+    routeTable, routeIndexes, `station ${restored[5] || restored[0]}`);
+  const displayRoutes = [...new Set([...(existing?.[11] || []), ...(baselineDisplay || [])])];
+  restored[11] = displayRoutes.length ? displayRoutes : null;
   repaired.push({ restored, existing, distance: projection.distance });
 }
 

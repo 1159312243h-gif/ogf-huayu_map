@@ -80,13 +80,14 @@ function validateTransitPreload(payload, label) {
       `${label}/${snapshot.id} 站点 ID 重复`);
     for (const line of network.lines) {
       assert.ok(Array.isArray(line[1]) && line[1].length >= 2, `${label}/${snapshot.id} 存在空线路几何`);
-      assert.ok((line[2] || []).every((index) => network.routeTable[index]),
+      assert.ok((line[2] || []).every((index) => Number.isInteger(index) && index >= 0 && network.routeTable[index]),
         `${label}/${snapshot.id} 存在线路索引越界`);
     }
     for (const stop of network.stops) {
       assert.ok(Number.isFinite(stop[1]) && Number.isFinite(stop[2]), `${label}/${snapshot.id} 存在无效站点坐标`);
-      assert.ok((stop[8] || []).every((index) => network.routeTable[index]),
-        `${label}/${snapshot.id} 存在站点线路索引越界`);
+      assert.ok([...(stop[8] || []), ...(stop[11] || [])].every((index) =>
+        Number.isInteger(index) && index >= 0 && network.routeTable[index]),
+      `${label}/${snapshot.id} 站点 ${stop[5] || stop[0]} 存在导航或显示线路索引越界`);
     }
     if (network.displayStops !== undefined) {
       assert.ok(Array.isArray(network.displayStops) && network.displayStops.length,
@@ -95,7 +96,8 @@ function validateTransitPreload(payload, label) {
         `${label}/${snapshot.id} 显示来源 ID 重复`);
       for (const stop of network.displayStops) {
         assert.ok(Number.isFinite(stop[1]) && Number.isFinite(stop[2]), `${label}/${snapshot.id} 显示来源坐标无效`);
-        assert.ok([...(stop[8] || []), ...(stop[11] || [])].every((index) => network.routeTable[index]),
+        assert.ok([...(stop[8] || []), ...(stop[11] || [])].every((index) =>
+          Number.isInteger(index) && index >= 0 && network.routeTable[index]),
           `${label}/${snapshot.id} 显示线路索引越界`);
         assert.ok(!stop[14] || ["metro", "tram", "railway", "bus"].includes(stop[14]),
           `${label}/${snapshot.id} 显示站点系统无效`);
@@ -432,8 +434,11 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     step("build-rail-connections.cjs"),
     step("enforce-transit-service-rules.cjs"),
     step("preserve-transit-display-stations.cjs"),
-    step("build-terrain-preload.cjs", ...(resume ? ["--resume"] : [])),
   ]) await run(item);
+  await runTask("validate-transit-route-indexes", async () => {
+    validateDataset("transit-preload.json", await readDatasetFile(path.join(stagedSite, "transit-preload.json")));
+  });
+  await run(step("build-terrain-preload.cjs", ...(resume ? ["--resume"] : [])));
 }
 
 async function replaceDatasetsAtomically(candidateDirectory, runDirectory) {
