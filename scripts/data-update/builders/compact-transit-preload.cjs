@@ -129,8 +129,8 @@ function compactNetwork(network, snapshotId) {
     return routeIndexes.get(key);
   };
 
-  const lines = (network.lines || []).map((line) => {
-    const geometry = simplifyGeometry(line.geometry, toleranceMeters)
+  const compactLine = (line, preserveGeometry = false) => {
+    const geometry = (preserveGeometry ? line.geometry : simplifyGeometry(line.geometry, toleranceMeters))
       .map((point) => [roundCoordinate(point.lat), roundCoordinate(point.lon)]);
     return [
       line.id,
@@ -138,7 +138,9 @@ function compactNetwork(network, snapshotId) {
       (line.routes || []).map(compactRoute),
       (line.bbox || []).map(roundCoordinate),
     ];
-  });
+  };
+  const lines = (network.lines || []).map(line => compactLine(line));
+  const displayTracks = (network.displayTracks || []).map(line => compactLine(line, true));
   const compactStop = (stop) => {
     const displayRoutes = (stop.displayRoutes || []).map(compactRoute);
     return [
@@ -171,6 +173,7 @@ function compactNetwork(network, snapshotId) {
     format: 2,
     routeTable,
     lines,
+    ...(displayTracks.length ? {displayTracks} : {}),
     stops,
     displayStops,
     meta: {

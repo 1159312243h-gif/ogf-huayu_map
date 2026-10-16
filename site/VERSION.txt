@@ -1,6 +1,8 @@
-华域地图 v7.1
+华域地图 v7.5
 Released: 2026-10-16
 Cloudflare Pages project: ogf-atlas
+
+Version-7.5 Jinchuan physical double tracks (7.5.0): Restore original Jinchuan up/down track geometries in the traffic overview, including preload, live data and perspective. Preserve station symbols, colors, navigation centerlines and snapping, focused routes, atlas/export behavior, other regions and original data timestamps. Do not invent tracks or use decorative hollow lines.
 
 Version-7.1 Help center v1 (7.1.0): Add a dedicated Help entry to the desktop and mobile toolbar, with searchable grouped instructions and direct links to existing tools. Explain map browsing, search, administrative boundaries, measurement, routing, transit, favorites, accounts and rendering; group range selection, map/object downloads and personal image uploads in one workflow chapter. Keep existing tool behavior and source-data timestamps.
 

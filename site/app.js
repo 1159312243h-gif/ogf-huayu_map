@@ -4260,7 +4260,7 @@
   function getTransitDisplayNetwork(network) {
     let cached = transitDisplayNetworkCache.get(network);
     if (cached && cached.sourceStops === network.stops && cached.sourceDisplayStops === network.displayStops
-      && cached.sourceLines === network.lines
+      && cached.sourceLines === network.lines && cached.sourceTracks === network.displayTracks
       && cached.rules === transitServiceRules) return cached;
     const routingStops = new Map(network.stops.map((stop) => [String(stop.id), stop]));
     const displayStops = (network.displayStops || network.stops).map((stop) => {
@@ -4292,9 +4292,16 @@
         if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
       });
     });
-    cached = { stops, stopsById, cells, representedWayIds, stopAppearances: new WeakMap(),
+    // Join coincident ends on each real track without pairing or averaging
+    // opposite tracks. Cache the joined paths with this data generation.
+    const displayTracks = joinConnectedTransitLines(network.displayTracks || [], 1);
+    displayTracks.forEach((line) => transitLineBbox(line));
+    const trackRoutes = new Set(displayTracks.flatMap((line) => line.routes.map((route) => route.identity)));
+    const lines = displayTracks.length ? [...network.lines.filter((line) =>
+      !line.routes.some((route) => trackRoutes.has(route.identity))), ...displayTracks] : network.lines;
+    cached = { stops, stopsById, cells, representedWayIds, lines, stopAppearances: new WeakMap(),
       sourceStops: network.stops, sourceDisplayStops: network.displayStops,
-      sourceLines: network.lines, rules: transitServiceRules };
+      sourceLines: network.lines, sourceTracks: network.displayTracks, rules: transitServiceRules };
     transitDisplayNetworkCache.set(network, cached);
     return cached;
   }
@@ -9879,6 +9886,12 @@
         routes: routesFor(line[2]),
         bbox: line[3],
       })),
+      displayTracks: (network.displayTracks || []).map((line) => ({
+        id: line[0],
+        geometry: (line[1] || []).map((point) => ({lat: point[0], lon: point[1]})),
+        routes: routesFor(line[2]),
+        bbox: line[3],
+      })),
       stops: (network.stops || []).map(hydrateStop),
       displayStops: Array.isArray(network.displayStops) ? network.displayStops.map(hydrateStop) : undefined,
       routeCount: meta.routeCount || 0,
@@ -10344,6 +10357,7 @@
       addRouteMembership, alignTransitSampleOrientation, applyPublicTransitRailSystem,
       applyStationInterchangeOverrides, applyTransitRefCorrection, averageTransitGeometries, clamp,
       collapseJoinedParallelTransitLines, collapseParallelTransitLines, collectTransitNetwork,
+      usesJinchuanDoubleTracks,
       distanceMeters, findTransitRelationForRoute, getTransitColor, hasUrbanTrainRoute,
       invalidateTransitDisplayNetwork, isBusStopNode, isMainlineStationNode,
       isNonOperationalRailFacilityRelation, isRailStationCandidate, isRailStationNode,
@@ -10524,6 +10538,9 @@
       };
     }).filter(Boolean);
     const relationLines = collapseParallelTransitLines(rawLines);
+    // Traffic alone keeps the original Jinchuan tracks. Routing, station
+    // snapping, focused routes and the atlas retain their existing centerlines.
+    const displayTracks = rawLines.filter((line) => line.routes.some(usesJinchuanDoubleTracks));
     const infrastructureLines = railInfrastructure
       .filter((item) => Array.isArray(item.geometry) && item.geometry.length > 1 && !wayMemberships.has(item.id))
       .map((item) => {
@@ -10613,6 +10630,7 @@
 
     return applyStationInterchangeOverrides({
       lines,
+      displayTracks,
       stops: mergeTransitStops(stops),
       displayStops: stops.map((stop) => ({ ...stop,
         lat: stop.sourceLat, lon: stop.sourceLon })),
@@ -10750,9 +10768,12 @@
   function mergeTransitNetworks(base, update) {
     const lines = new Map(base.lines.map((line) => [String(line.id), line]));
     update.lines.forEach((line) => lines.set(String(line.id), line));
+    const displayTracks = new Map((base.displayTracks || []).map((line) => [String(line.id), line]));
+    (update.displayTracks || []).forEach((line) => displayTracks.set(String(line.id), line));
     return applyStationInterchangeOverrides({
       ...base,
       lines: [...lines.values()],
+      displayTracks: [...displayTracks.values()],
       stops: mergeTransitStops([...base.stops, ...update.stops]),
       displayStops: mergeTransitDisplaySources(base, update),
       routeCount: Math.max(base.routeCount || 0, update.routeCount || 0),
@@ -10989,7 +11010,7 @@
       hideTransitStationDetail();
     }
 
-    const visibleSourceLines = network.lines.filter((item) => {
+    const visibleSourceLines = displayNetwork.lines.filter((item) => {
       const visibleRoutes = getVisibleTransitRoutes(item.routes);
       return visibleRoutes.length && getTransitLineBounds(item).intersects(renderBounds);
     });
@@ -31515,7 +31536,7 @@
     enrichTransitNetworkRouteMetadata(transitNetworkData);
     const renderBounds = vectorTransitRenderBounds(glMap);
     const zoom = glMap.getZoom() + 1;
-    transitNetworkData.lines.forEach((item) => {
+    getTransitDisplayNetwork(transitNetworkData).lines.forEach((item) => {
       const routes = getVisibleTransitRoutes(item.routes);
       if (!routes.length || !getTransitLineBounds(item).intersects(renderBounds)) return;
       const railwayOnly = routes.every((route) => transitLayerCategory(route) === "railway");
@@ -33016,6 +33037,11 @@
     return collapseJoinedParallelTransitLines(connectedLines);
   }
 
+  function usesJinchuanDoubleTracks(route) {
+    return RAIL_ROUTE_TYPES.has(route.type) && (route.operator === "津川轨道交通集团"
+      || route.publicTransitRailSystem === "jinchuan-city-rail");
+  }
+
   function collapseParallelPublicTransitRailLinesForDisplay(lines) {
     const unchanged = [];
     const groups = new Map();
@@ -33023,7 +33049,7 @@
       const route = (line.routes || []).find((item) => item.type === "train"
         && item.publicTransitRailSystem
         && String(item.identity || "").startsWith("train:infrastructure:"));
-      if (!route) {
+      if (!route || usesJinchuanDoubleTracks(route)) {
         unchanged.push(line);
         return;
       }

@@ -162,7 +162,7 @@ vm.runInContext(`${app.slice(0,app.indexOf("  const elements ="))}
     trainRouteSetsConflict, uniqueTransitRoutes, transitStationDisplayMergeRadius, createTransitStopIcon,
     joinConnectedTransitLines, transitPathDirectionSimilarity,
     getVisibleTransitRoutes, getTransitLineBounds, transitStopMatchesFilters, transitLayerCategory,
-    shouldShowTransitStopLabel, collapseParallelPublicTransitRailLinesForDisplay,
+    shouldShowTransitStopLabel, collapseParallelPublicTransitRailLinesForDisplay, usesJinchuanDoubleTracks,
     vectorTransitOverlayData, setNetwork(n) {transitNetworkData=n;},
     syncVectorTransitOverlay, setVectorMap(m) {vectorPerspectiveMap=m;},
     applyStationInterchangeOverrides, transitStationDetailRoutes,
@@ -277,6 +277,21 @@ assert.equal(api.mergeTransitStopsForDisplay([pair[0],{...pair[1],name:"测试�
 api.setRules(rules);
 data = api.getTransitDisplayNetwork(network);
 const relationPayload = JSON.parse(await readFile(new URL("../site/transit-relations.json",import.meta.url),"utf8"));
+const originalWays = new Map(relationPayload.snapshots.find(s=>s.id==="huaxia").elements
+  .filter(e=>e.type==="way").map(e=>[e.id,e]));
+assert.ok(network.displayTracks.length>100,"published Jinchuan tracks are ready on the first frame");
+for (const track of network.displayTracks) {
+  assert.deepEqual(plain(track.geometry),originalWays.get(track.id)?.geometry,
+    "Jinchuan traffic uses the exact original way geometry, never an offset or averaged line");
+  assert.ok(track.routes.some(api.usesJinchuanDoubleTracks));
+}
+const displayedTracks = api.getTransitDisplayNetwork(network).lines;
+const displayedTrackIds = new Set(displayedTracks.flatMap(track=>String(track.id).split("+")));
+assert.ok(network.displayTracks.every(track=>displayedTrackIds.has(String(track.id))),
+  "all original track segments survive coincident-end joins without averaging the directions");
+const replacedRoutes = new Set(network.displayTracks.flatMap(t=>t.routes.map(r=>r.identity)));
+assert.ok(network.lines.filter(l=>!l.routes.some(r=>replacedRoutes.has(r.identity)))
+  .every(line=>displayedTracks.includes(line)),"other regions keep their existing display line objects");
 for (const snapshot of payload.snapshots) {
   const restored = api.hydrateTransitNetwork(snapshot.network);
   const before = plain({stops:restored.stops,lines:restored.lines});
@@ -452,6 +467,34 @@ const beforePerspective = createdMarkers;
 flatContext.vectorPerspectiveActive = true;
 flatContext.renderTransitNetwork(changedNetwork,16);
 assert.equal(createdMarkers,beforePerspective,"perspective never allocates a second invisible Leaflet station set");
+flatContext.vectorPerspectiveActive = false;
+const localRoute = {id:1,type:"subway",identity:"subway:津川轨道交通集团:JS01",
+  label:"JS01 · 津川轨道交通1号线",operator:"津川轨道交通集团",color:"#ed4a28"};
+const track = (id,lon,route=localRoute) => ({id,geometry:[{lat:9.5,lon},{lat:9.51,lon}],
+  bbox:[9.5,lon,9.51,lon],routes:[route]});
+const twinFixture = {lines:[track("jc-center",155.775),
+  track("other",155.78,{...localRoute,operator:"其他城市",identity:"subway:other:1"})],
+  displayTracks:[track("jc-up",155.7749),track("jc-down",155.7751)],stops:[]};
+const routingBefore = plain(twinFixture.lines);
+flatContext.renderTransitNetwork(twinFixture,16);
+const doubleLayers = flatLayers.getLayers();
+assert.ok(["jc-up","jc-down","other"].every(id=>flatContext.transitRenderedLayerCache.has(`line:${id}`)));
+assert.ok(!flatContext.transitRenderedLayerCache.has("line:jc-center"),"centerline cannot remain under the physical tracks");
+assert.deepEqual(plain(twinFixture.lines),routingBefore,"routing and atlas geometries remain unchanged");
+flatContext.renderTransitNetwork(twinFixture,16);
+assert.deepEqual(flatLayers.getLayers(),doubleLayers,"panning/refresh reuses the double-line paths");
+api.setNetwork(twinFixture);
+const twinVector = api.vectorTransitOverlayData({getBounds:()=>makeBounds(9.49,155.765,9.52,155.79),
+  getZoom:()=>15,hasImage:()=>true});
+assert.equal(twinVector.lineFeatures.length,3,"perspective uses both physical tracks and the unchanged other city");
+assert.ok(twinVector.lineFeatures.some(f=>f.geometry.coordinates[0][0]===155.7749)
+  && twinVector.lineFeatures.some(f=>f.geometry.coordinates[0][0]===155.7751));
+const refreshedTracks = {...twinFixture,displayTracks:[track("jc-up",155.7748),track("jc-down",155.7752)]};
+assert.notEqual(api.getTransitDisplayNetwork(refreshedTracks),api.getTransitDisplayNetwork(twinFixture));
+const mergedTracks = api.mergeTransitNetworks(twinFixture,refreshedTracks);
+assert.equal(mergedTracks.displayTracks.length,2,"live refresh replaces tracks by original way ID without duplicates");
+assert.equal(mergedTracks.displayTracks[0].geometry[0].lon,155.7748);
+api.setNetwork(network);
 
 const collisionFrames = [];
 const rectangles = [{left:10,right:90,top:10,bottom:25},{left:70,right:150,top:10,bottom:25},
@@ -574,6 +617,17 @@ try {
   assert.deepEqual(plain(api.transitStationDetailRoutes(collectedBinhai[0])).map(r=>r.label).sort(),
     ["筑湾地铁中心线","筑湾地铁海岸线"]);
   assert.deepEqual(plain(result.network),collectedBefore,"worker routing IDs and line geometry are untouched by the display override");
+  const twinItems = items.map(item=>item.type==="relation" && item.id===35
+    ? {...item,tags:{...item.tags,operator:"津川轨道交通集团"},members:[...item.members,{type:"way",ref:36}]}:item)
+    .concat({type:"way",id:36,tags:{railway:"subway"},geometry:[{lat:12,lon:150.0003},{lat:12.01,lon:150.0003}]});
+  const twinOutput = new Promise((resolve,reject)=>{worker.once("message",resolve);worker.once("error",reject);});
+  worker.postMessage({id:3,items:twinItems,extent:[[11.99,149.99],[12.02,150.01]],includeBus:false,
+    infrastructure:[],rules:plain(api.rules())});
+  const twinCollected = await twinOutput;
+  assert.equal(twinCollected.error,undefined,twinCollected.error);
+  assert.deepEqual(twinCollected.network,plain(api.collectTransitNetwork(twinItems,fixtureBounds,false)),
+    "live worker and three-hour collector retain the exact same physical tracks");
+  assert.deepEqual(twinCollected.network.displayTracks.map(l=>l.id).sort(),[34,36]);
 } finally {
   await worker.terminate();
 }
