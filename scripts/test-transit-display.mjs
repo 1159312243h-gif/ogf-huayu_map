@@ -231,23 +231,24 @@ vm.runInContext(`const transitPathDirectionSimilarity = api.transitPathDirection
 const joinFixtures = [network.lines.filter(l=>l.routes.some(r=>r.publicTransitRailSystem))];
 for (const reverseSeed of [false,true]) {
   for (const reverseExtension of [false,true]) {
-    for (const gap of [0,0.00003,0.002]) {
+    for (const gap of [0,0.000003,0.00003,0.002]) {
       const seed = [{lat:12,lon:150},{lat:12.01,lon:150}];
       const extension = [{lat:12.01+gap,lon:150},{lat:12.02,lon:150}];
       if (reverseSeed) seed.reverse();
       if (reverseExtension) extension.reverse();
-      joinFixtures.push([{id:1,geometry:seed,routes:[firstRoute]},
-        {id:2,geometry:extension,routes:[firstRoute]},
+      const pairFixture = [{id:1,geometry:seed,routes:[firstRoute]},
+        {id:2,geometry:extension,routes:[firstRoute]}];
+      joinFixtures.push(pairFixture,[...pairFixture,
         {id:3,geometry:[{lat:12.01,lon:150},{lat:12.01,lon:150.01}],routes:[firstRoute]}]);
     }
   }
 }
-for (const fixture of joinFixtures) {
+for (const [fixtureIndex,fixture] of joinFixtures.entries()) {
   for (const limit of [1,450]) {
     for (const certified of [false,true]) {
       assert.deepEqual(plain(runtime.joinChecks.joinConnectedTransitLines(fixture,limit,certified)),
         plain(runtime.joinChecks.legacyJoinConnectedTransitLines(fixture,limit,certified)),
-        "optimized joining preserves released geometry, IDs, route memberships and transfer-gap decisions");
+        `optimized joining preserves released geometry, IDs, route memberships and transfer-gap decisions (fixture ${fixtureIndex}, limit ${limit}, certified ${certified})`);
     }
   }
 }

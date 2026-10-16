@@ -33167,7 +33167,11 @@
             const keepBothEndpoints = certifyShortGaps && bestCandidate.distance > 1;
             geometry = bestCandidate.optionIndex < 2
               ? [...geometry, ...(keepBothEndpoints ? extension : extension.slice(1))]
-              : [...(keepBothEndpoints ? extension : extension.slice(0, -1)), ...geometry];
+              // Certified prepends keep the extension endpoint at sub-metre
+              // joins, exactly as the original concatenate(extension, geometry).
+              : certifyShortGaps
+                ? [...extension, ...(keepBothEndpoints ? geometry : geometry.slice(1))]
+                : [...extension.slice(0, -1), ...geometry];
             routingGaps.push(...(remaining[bestCandidate.index].routingGaps || []));
             if (certifyShortGaps && bestCandidate.distance > 1) routingGaps.push(bestCandidate.gap);
             ids.push(bestCandidate.id);
