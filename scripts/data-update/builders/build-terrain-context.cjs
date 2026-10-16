@@ -4,7 +4,8 @@ const {createHash} = require("node:crypto");
 
 // Context is part of the same successful snapshot transaction as the mountain
 // geometry. Inventory first avoids downloading every building in distant cities.
-async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, fetch: request = fetch, resume = false}) {
+async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, fetch: request = fetch, resume = false,
+  wait = milliseconds => new Promise(resolve => setTimeout(resolve,milliseconds))}) {
   const boundsOf = geometry => {
     const b = {west:Infinity,east:-Infinity,south:Infinity,north:-Infinity};
     const visit = value => {
@@ -67,6 +68,17 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
     for (let attempt=0;attempt<3;attempt++) {
       const response=await request("https://overpass.opengeofiction.net/api/interpreter",{
         method:"POST",body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(150000)});
+      if (response.status===429 && attempt<2) {
+        const retryAfter=response.headers.get("retry-after") || "";
+        const requestedDelay=/^\s*\d+\s*$/u.test(retryAfter) ? Number(retryAfter)*1000
+          : Math.max(0,Date.parse(retryAfter)-Date.now()) || 0;
+        const delay=Math.max(30000*(attempt+1),requestedDelay);
+        if (delay>120000) throw Error("Terrain context: HTTP 429; Retry-After exceeds the bounded retry window");
+        await response.body?.cancel();
+        console.log(`Terrain context rate limit: retry in ${Math.ceil(delay/1000)}s`);
+        await wait(delay);
+        continue;
+      }
       if (!response.ok) throw Error(`Terrain context: HTTP ${response.status}`);
       const payload=await response.json();
       if (payload.remark || !Array.isArray(payload.elements)) {

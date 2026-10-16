@@ -57,4 +57,29 @@ assert.deepEqual(await buildTerrainContext({...options,resume:true}),context);
 assert.equal(downloads,before,"resuming a preparation must reuse complete context responses");
 await assert.rejects(buildTerrainContext({...options,cacheDirectory:path.join(directory,"failure"),
   fetch:async()=>new Response(JSON.stringify({elements:[],remark:"Query timed out"}))}),/Query timed out/u);
-console.log("Terrain context passed: crossing rivers, complete lake relations, garden clearings, city exclusions, canal slopes, resume and failed fetches.");
+const retryWaits=[];
+let retryRequests=0;
+assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,"rate-limit-recovery"),
+  wait:async milliseconds=>retryWaits.push(milliseconds),fetch:async(...args)=>{
+    if (++retryRequests===1) return new Response("Rate limited",{status:429,headers:{"Retry-After":"90"}});
+    return fetch(...args);
+  }}),context,"a transient rate limit must retain the complete river, building and garden context");
+assert.deepEqual(retryWaits,[90000],"honour the server's Retry-After before repeating a request");
+let rejectedRequests=0;
+const exhaustedWaits=[];
+const exhaustedCache=path.join(directory,"rate-limit-exhausted");
+await assert.rejects(buildTerrainContext({...options,cacheDirectory:exhaustedCache,
+  wait:async milliseconds=>exhaustedWaits.push(milliseconds),fetch:async()=>{
+    rejectedRequests++; return new Response("Rate limited",{status:429});
+  }}),/HTTP 429/u);
+assert.equal(rejectedRequests,3,"persistent limits stop after three attempts");
+assert.deepEqual(exhaustedWaits,[30000,60000],"retry with bounded increasing delays");
+assert.deepEqual(await fs.readdir(exhaustedCache),[],"a failed response cannot become a successful cached packet");
+for (const [status,headers] of [[429,{"Retry-After":"600"}],[403,{}]]) {
+  let requests=0;
+  await assert.rejects(buildTerrainContext({...options,cacheDirectory:path.join(directory,`no-retry-${status}`),
+    wait:async()=>assert.fail("never retry before the server's deadline or retry access denial"),
+    fetch:async()=>{requests++;return new Response("Unavailable",{status,headers});}}),new RegExp(`HTTP ${status}`,"u"));
+  assert.equal(requests,1,"access denial and waits beyond the retry budget fail without another request");
+}
+console.log("Terrain context passed: complete geometries, resume, bounded 429 backoff, Retry-After and failed-response preservation.");

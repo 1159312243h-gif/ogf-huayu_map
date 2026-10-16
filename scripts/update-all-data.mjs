@@ -381,6 +381,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     pipelineHash.update(await fs.readFile(path.join(runDirectory, "work", name)));
   }
   pipelineHash.update(await fs.readFile(fileURLToPath(import.meta.url)));
+  pipelineHash.update(await fs.readFile(path.join(root, "scripts", "test-transit-display.mjs")));
   pipelineHash.update(await fs.readFile(path.join(stagedSite, "app.js")));
   pipelineHash.update(await fs.readFile(path.join(stagedSite, "_worker.js")));
   const pipelineFingerprint = pipelineHash.digest("hex");
@@ -438,6 +439,11 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
   await runTask("validate-transit-route-indexes", async () => {
     validateDataset("transit-preload.json", await readDatasetFile(path.join(stagedSite, "transit-preload.json")));
   });
+  await runTask("validate-transit-behavior", () => runCommand(
+    "validate-transit-behavior", process.execPath,
+    [path.join(root, "scripts", "test-transit-display.mjs"), path.join(stagedSite, "transit-preload.json")],
+    root, logDirectory,
+  ));
   await run(step("build-terrain-preload.cjs", ...(resume ? ["--resume"] : [])));
 }
 
