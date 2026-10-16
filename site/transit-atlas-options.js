@@ -23,12 +23,38 @@
   function futureNetwork(items, routeInfo) {
     const index = new Map(items.map(item => [`${item.type}/${item.id}`, item]));
     const memberships = new Map(), lines = [], stops = [];
+    const relationStates = new Map();
+    const relationLifecycle = relation => {
+      if (relationStates.has(relation.id)) return relationStates.get(relation.id);
+      const states = new Set(), seen = new Set();
+      const scan = (item, inherited = "existing") => {
+        // Missing dependencies cannot certify a wholly unfinished relation.
+        if (!item) {states.add("existing"); return;}
+        const own = lifecycle(item.tags), state = own === "existing" ? inherited : own;
+        const key = `${item.type}/${item.id}:${state}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        if (item.type === "relation") {
+          for (const member of item.members || []) {
+            if (["way", "relation"].includes(member.type)) scan(index.get(`${member.type}/${member.ref}`), state);
+          }
+        } else if (item.type === "way" && railTypes.has(routeType(item.tags))) states.add(state);
+      };
+      scan(relation);
+      const state = states.size === 1 ? [...states][0] : "existing";
+      relationStates.set(relation.id, state);
+      return state;
+    };
     const visit = (item, route, state, seen) => {
       if (!item) return;
       const key = `${item.type}/${item.id}`;
       if (seen.has(key)) return;
       seen.add(key);
-      const own = lifecycle(item.tags), effective = own === "existing" ? state : own;
+      const own = lifecycle(item.tags);
+      // A route can omit its lifecycle while every member track is explicitly
+      // unfinished. Its sibling stations inherit that unambiguous track state.
+      const inferred = own === "existing" && item.type === "relation" ? relationLifecycle(item) : own;
+      const effective = inferred === "existing" ? state : inferred;
       if (item.type === "relation") {
         for (const member of item.members || []) visit(index.get(`${member.type}/${member.ref}`), route, effective, seen);
       } else if (effective !== "existing") {

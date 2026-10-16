@@ -26,6 +26,36 @@ assert.equal(A.lifecycle({"construction:railway":"light_rail"}),"construction");
 assert.equal(A.routeType({"proposed:route":"subway"}),"subway");
 assert.equal(JSON.stringify(items),original,"atlas classification cannot mutate routing/source data");
 
+// Jinchuan's masters explicitly identify subway service, while construction
+// is tagged on their tracks and ordinary station nodes are sibling members.
+const futureStation = {type:"node",id:40,lat:12.005,lon:150.012,
+  tags:{name:"东湾",railway:"station",station:"subway",subway:"yes"}};
+const futureMaster = {type:"relation",id:41,tags:{type:"route_master",route_master:"subway",name:"规划6号线"},
+  members:[{type:"way",ref:12},{type:"node",ref:40}]};
+const stationNetwork = extra => A.futureNetwork([items[1],futureStation,futureMaster,...extra],routeInfo);
+const beforeStation = JSON.stringify([items[1],futureStation,futureMaster]);
+const inferred = stationNetwork([]);
+assert.deepEqual(plain(inferred.stops.map(s=>[s.name,s.routes[0].id,s.routes[0].type,s.routes[0].atlasLifecycle])),
+  [["东湾",41,"subway","construction"]],"stations inherit the unanimous explicit lifecycle of their relation's tracks");
+assert.equal(inferred.lines[0].routes[0].id,41,"track and station must retain the same real relation identity");
+for (const track of [way(12,{railway:"construction"}),way(12,{railway:"proposed",proposed:"subway"})]) {
+  const network=A.futureNetwork([track,futureStation,futureMaster],routeInfo);
+  assert.equal(network.stops[0].routes[0].atlasLifecycle,A.lifecycle(track.tags));
+}
+for (const extra of [items[0],way(11,{railway:"proposed",proposed:"subway"}),null]) {
+  const master={...futureMaster,members:[...futureMaster.members,{type:"way",ref:11}]};
+  const network=A.futureNetwork([items[1],futureStation,master,...(extra?[extra]:[])],routeInfo);
+  assert.equal(network.stops.length,0,"mixed lifecycles or incomplete tracks cannot relabel unspecified stations");
+}
+const child={...futureMaster,id:42,members:[...futureMaster.members,{type:"relation",ref:42}]};
+const parent={...futureMaster,members:[{type:"relation",ref:42},{type:"node",ref:40}]};
+assert.ok(A.futureNetwork([items[1],futureStation,parent,child],routeInfo).stops
+  .some(s=>s.routes.some(r=>r.id===41&&r.atlasLifecycle==="construction")),"nested and cyclic route members remain bounded");
+const explicitStation={...futureStation,tags:{...futureStation.tags,railway:"proposed",proposed:"station"}};
+assert.equal(A.futureNetwork([items[1],explicitStation,futureMaster],routeInfo).stops[0].routes[0].atlasLifecycle,"proposed",
+  "an explicit station lifecycle takes precedence over its tracks");
+assert.equal(JSON.stringify([items[1],futureStation,futureMaster]),beforeStation,"inference is atlas-only and leaves source tags untouched");
+
 context.transitRouteInfo = routeInfo;
 for (const name of ["transitAtlasApplyLifecycle","transitAtlasProjection"]) {
   vm.runInContext(app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`,"u"))[0], context);
