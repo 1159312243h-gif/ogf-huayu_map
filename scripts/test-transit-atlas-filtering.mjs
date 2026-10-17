@@ -92,4 +92,74 @@ for(const change of changes){
   current=next;
 }
 assert.equal(preparations,1+changes.length);
+
+// A failed nationwide download is not a genuine empty city. Retry the two
+// independent source packets once and reuse one in-flight load across filters.
+const loaderSource=app.match(/  async function loadTransitAtlasSources\([^]*?\n  \}/u)?.[0];
+assert.ok(loaderSource);
+function loaderContext(overrides={}){
+  const c=vm.createContext({Promise,Map,Set,transitAtlasCity:{label:"津川市"},
+    transitAtlasSourceLoad:null,transitAtlasSourcesUnavailable:false,
+    transitServicePreloadPromise:null,transitPreloadPromise:null,networks:[],
+    elements:{transitAtlasRetry:{hidden:true},transitAtlasStatus:{}},
+    setStatus:(element,text)=>{element.textContent=text;},
+    ...overrides});
+  c.transitAtlasSourceSnapshots=()=>c.networks;
+  c.rebuildTransitAtlasModel=()=>{
+    c.rebuilds=(c.rebuilds||0)+1;c.elements.transitAtlasRetry.hidden=!c.transitAtlasSourcesUnavailable;
+  };
+  vm.runInContext(loaderSource,c);return c;
+}
+let relationCalls=0,preloadCalls=0;
+const retry=loaderContext();
+retry.ensureTransitRelationsLoaded=async()=>{relationCalls++;return false;};
+retry.refreshTransitPreloadPackage=async()=>{preloadCalls++;retry.networks=[network];return true;};
+assert.equal(await retry.loadTransitAtlasSources(),true);
+assert.equal(relationCalls,1);assert.equal(preloadCalls,1);
+assert.equal(retry.transitAtlasSourcesUnavailable,false);
+assert.equal(retry.transitAtlasSourceLoad,null);
+assert.equal(retry.elements.transitAtlasRetry.hidden,true);
+await retry.loadTransitAtlasSources();assert.equal(preloadCalls,1,"available data must not be downloaded again for filtering");
+
+const failed=loaderContext();
+failed.ensureTransitRelationsLoaded=async()=>false;
+failed.refreshTransitPreloadPackage=async()=>false;
+assert.equal(await failed.loadTransitAtlasSources(),false);
+assert.equal(failed.transitAtlasSourcesUnavailable,true,"failure must remain distinguishable from a successful empty network");
+assert.equal(failed.elements.transitAtlasRetry.hidden,false);
+failed.ensureTransitRelationsLoaded=async()=>{failed.networks=[network];return true;};
+assert.equal(await failed.loadTransitAtlasSources(),true,"manual retry recovers without reloading the whole map");
+assert.equal(failed.transitAtlasSourcesUnavailable,false);
+assert.equal(failed.elements.transitAtlasRetry.hidden,true);
+
+let finish;
+const pending=loaderContext({transitPreloadPromise:new Promise(resolve=>{finish=resolve;})});
+pending.ensureTransitRelationsLoaded=async()=>{pending.networks=[network];return true;};
+pending.refreshTransitPreloadPackage=async()=>{throw new Error("not needed");};
+const first=pending.loadTransitAtlasSources(),second=pending.loadTransitAtlasSources();
+assert.ok(pending.transitAtlasSourceLoad,"mode switches can distinguish pending data from no routes");
+finish();assert.deepEqual(await Promise.all([first,second]),[true,true]);
+assert.equal(pending.rebuilds,1,"concurrent switches share one source load and one final rebuild");
+assert.equal(pending.transitAtlasSourceLoad,null);
+const emptyCity=loaderContext({networks:[{lines:[],stops:[]}]});
+emptyCity.ensureTransitRelationsLoaded=async()=>true;
+emptyCity.refreshTransitPreloadPackage=async()=>{throw new Error("an empty complete packet is not a download failure");};
+assert.equal(await emptyCity.loadTransitAtlasSources(),true);
+
+const selected=new Map(),committed=[],futureCities=[];
+const cityUI=vm.createContext({Set,transitAtlasRequestId:0,transitAtlasCity:null,transitAtlasFutureController:null,
+  transitAtlasFutureData:null,transitAtlasHiddenRouteKeys:new Set(),railwayRoutingData:null,
+  transitAtlasModes:{railway:false},polygonFeatureGeometry:r=>r.geojson,
+  primaryPlaceName:r=>r.name,activeAdministrativeFeatureBounds:()=>({minLat:0,minLon:0,maxLat:1,maxLon:1}),
+  elements:{transitAtlasQuery:{},transitAtlasResults:{replaceChildren(){}},transitAtlasWorkspace:{},transitAtlasStatus:{}},
+  setStatus:()=>{},loadTransitAtlasSources:()=>new Promise(resolve=>selected.set(cityUI.transitAtlasCity.label,resolve)),
+  rebuildTransitAtlasModel:()=>committed.push(cityUI.transitAtlasCity.label),
+  loadTransitAtlasFuture:()=>futureCities.push(cityUI.transitAtlasCity.label)});
+vm.runInContext(app.match(/  async function selectTransitAtlasCity\([^]*?\n  \}/u)[0],cityUI);
+const oldCity=cityUI.selectTransitAtlasCity({name:"旧城市",geojson:{}});
+const newCity=cityUI.selectTransitAtlasCity({name:"津川市",geojson:{}});
+selected.get("津川市")();await newCity;selected.get("旧城市")();await oldCity;
+assert.deepEqual(committed,["津川市"],"late old-city continuations cannot rebuild or relaunch future loads");
+assert.deepEqual(futureCities,["津川市"]);
+console.log("Transit atlas source recovery passed: bounded retry, explicit unavailability, manual recovery, shared pending load and complete empty-city distinction.");
 console.log("Transit atlas filtering passed: repeated switches reuse geometry, excluded modes cannot bridge outside fragments, source isolation and all prepared-data invalidation cases.");

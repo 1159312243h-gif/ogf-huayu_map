@@ -642,6 +642,7 @@
     transitAtlasQuery: document.getElementById("transit-atlas-query"),
     transitAtlasResults: document.getElementById("transit-atlas-results"),
     transitAtlasStatus: document.getElementById("transit-atlas-status"),
+    transitAtlasRetry: document.getElementById("transit-atlas-retry"),
     transitAtlasWorkspace: document.getElementById("transit-atlas-workspace"),
     transitAtlasModeToggles: [...document.querySelectorAll("[data-transit-atlas-mode]")],
     transitAtlasBuffer: document.getElementById("transit-atlas-buffer"),
@@ -734,6 +735,8 @@
   let transitAtlasCity = null;
   let transitAtlasModel = null;
   let transitAtlasPrepared = null;
+  let transitAtlasSourceLoad = null;
+  let transitAtlasSourcesUnavailable = false;
   let transitAtlasRenderFrame = null;
   const transitAtlasModes = { metro: true, light: true, tram: true, commuter: true, railway: true };
   const transitAtlasHiddenRouteKeys = new Set();
@@ -2153,6 +2156,7 @@
     renderTransitLineGuide();
   });
   elements.transitAtlasForm.addEventListener("submit", searchTransitAtlasCities);
+  elements.transitAtlasRetry.addEventListener("click", () => loadTransitAtlasSources());
   elements.transitAtlasModeToggles.forEach((input) => {
     input.addEventListener("change", async () => {
       transitAtlasModes[input.dataset.transitAtlasMode] = input.checked;
@@ -9729,6 +9733,10 @@
       transitPreloadLoaded = applied && transitPreloadSnapshots.some((snapshot) => snapshot.network?.lines?.length);
       if (!transitPreloadLoaded && !revalidate) throw new Error("NO_TRANSIT_SNAPSHOT_FOR_VIEW");
       if (revalidate && applied && mapViewMode === "transit") scheduleTransitCoverageRefresh(0);
+      if (transitAtlasCity && !transitAtlasSourceLoad) {
+        transitAtlasSourcesUnavailable = !transitAtlasSourceSnapshots(transitAtlasCity).length;
+        rebuildTransitAtlasModel();
+      }
       return true;
     } catch (error) {
       transitPreloadLastCheckedAt = Date.now();
@@ -9799,6 +9807,10 @@
       });
       invalidateTransitRoutingCaches();
       transitRelationsPreloaded = transitPreloadSnapshots.some((snapshot) => snapshot.elements.length);
+      if (transitAtlasCity && !transitAtlasSourceLoad) {
+        transitAtlasSourcesUnavailable = !transitAtlasSourceSnapshots(transitAtlasCity).length;
+        rebuildTransitAtlasModel();
+      }
       // A Vector traffic overlay may already be visible while the authoritative
       // relation packet is fetched in the background. Repaint it immediately so
       // relation colours and transfer-stop icons do not remain on the compact
@@ -11645,7 +11657,7 @@
   }
 
   async function selectTransitAtlasCity(result) {
-    ++transitAtlasRequestId;
+    const requestId = ++transitAtlasRequestId;
     transitAtlasFutureController?.abort();
     transitAtlasFutureData = null;
     const geometry = polygonFeatureGeometry(result);
@@ -11680,15 +11692,42 @@
     elements.transitAtlasResults.replaceChildren();
     elements.transitAtlasWorkspace.hidden = false;
     setStatus(elements.transitAtlasStatus, `正在从全国预载数据中提取${transitAtlasCity.label}铁路与轨道交通网络…`);
-    if (transitServicePreloadPromise) await transitServicePreloadPromise;
-    if (transitPreloadPromise) await transitPreloadPromise;
-    await ensureTransitRelationsLoaded();
+    await loadTransitAtlasSources();
+    if (requestId !== transitAtlasRequestId) return;
     if (transitAtlasModes.railway && !railwayRoutingData) {
       setStatus(elements.transitAtlasStatus, `正在加载全国铁路基础设施并提取${transitAtlasCity.label}范围…`);
       await ensureRailwayRoutingLoaded();
     }
+    if (requestId !== transitAtlasRequestId) return;
     rebuildTransitAtlasModel();
     loadTransitAtlasFuture();
+  }
+
+  async function loadTransitAtlasSources() {
+    if (!transitAtlasCity) return false;
+    if (transitAtlasSourceLoad) return transitAtlasSourceLoad;
+    transitAtlasSourcesUnavailable = false;
+    elements.transitAtlasRetry.hidden = true;
+    const hasSources = () => transitAtlasSourceSnapshots(transitAtlasCity).length > 0;
+    const load = (async () => {
+      if (transitServicePreloadPromise) await transitServicePreloadPromise;
+      if (transitPreloadPromise) await transitPreloadPromise;
+      if (!hasSources()) {
+        setStatus(elements.transitAtlasStatus, "现有线路数据加载失败，正在自动重试；已读取的线路继续显示…");
+        await Promise.allSettled([refreshTransitPreloadPackage(), ensureTransitRelationsLoaded()]);
+      } else await ensureTransitRelationsLoaded();
+      return hasSources();
+    })();
+    transitAtlasSourceLoad = load;
+    try {
+      return await load;
+    } finally {
+      if (transitAtlasSourceLoad === load) {
+        transitAtlasSourceLoad = null;
+        transitAtlasSourcesUnavailable = !hasSources();
+        rebuildTransitAtlasModel();
+      }
+    }
   }
 
   function transitAtlasModeForRoute(route) {
@@ -11733,12 +11772,16 @@
     return length >= 2000 && closureDistance <= Math.min(300, length * 0.08);
   }
 
-  function transitAtlasSnapshotNetworks(city) {
+  function transitAtlasSourceSnapshots(city) {
     const cityBounds = window.L.latLngBounds(
       [city.bounds.minLat, city.bounds.minLon],
       [city.bounds.maxLat, city.bounds.maxLon],
     );
-    return transitPreloadSnapshots.filter((snapshot) => snapshot.leafletBounds.intersects(cityBounds))
+    return transitPreloadSnapshots.filter((snapshot) => snapshot.leafletBounds.intersects(cityBounds));
+  }
+
+  function transitAtlasSnapshotNetworks(city) {
+    return transitAtlasSourceSnapshots(city)
       .map((snapshot) => {
         if (!snapshot.network) {
           snapshot.network = collectTransitNetwork(
@@ -11752,11 +11795,7 @@
   }
 
   function transitAtlasSnapshotElements(city) {
-    const cityBounds = window.L.latLngBounds(
-      [city.bounds.minLat, city.bounds.minLon],
-      [city.bounds.maxLat, city.bounds.maxLon],
-    );
-    return transitPreloadSnapshots.filter((snapshot) => snapshot.leafletBounds.intersects(cityBounds))
+    return transitAtlasSourceSnapshots(city)
       .flatMap((snapshot) => snapshot.elements || []);
   }
 
@@ -12876,7 +12915,9 @@
     transitAtlasFutureController?.abort();
     const controller = new AbortController(); transitAtlasFutureController = controller;
     const bounds = transitAtlasBufferedBounds(transitAtlasCity, transitAtlasBufferDistanceMeters());
-    setStatus(elements.transitAtlasStatus, "正在读取该范围内有明确标签的规划与在建线路，现有线路继续保留…");
+    setStatus(elements.transitAtlasStatus, transitAtlasSourcesUnavailable
+      ? "正在读取规划与在建线路；现有线路数据尚未加载完成，可点击“重新加载线路”重试。"
+      : "正在读取该范围内有明确标签的规划与在建线路，现有线路继续保留…", transitAtlasSourcesUnavailable);
     try {
       const data = await fetchMapFeatureData({mode: "atlas-future", south: bounds.minLat, west: bounds.minLon,
         north: bounds.maxLat, east: bounds.maxLon}, controller.signal);
@@ -12885,7 +12926,7 @@
       rebuildTransitAtlasModel();
     } catch (error) {
       if (!controller.signal.aborted && key === transitAtlasFutureKey()) {
-        setStatus(elements.transitAtlasStatus, `规划／在建数据未能完整读取：${error.message}。现有线路已保留，可关开选项重试。`, true);
+        setStatus(elements.transitAtlasStatus, `规划／在建数据未能完整读取：${error.message}。已读取的线路已保留，可关开选项重试。${transitAtlasSourcesUnavailable ? "现有线路数据也未加载完成，请点击“重新加载线路”。" : ""}`, true);
       }
     }
   }
@@ -13081,9 +13122,15 @@
     elements.transitAtlasAddQueue.disabled = !lines.length;
     renderTransitAtlasLegend(elements.transitAtlasLegend, transitAtlasModel);
     if (!elements.transitAtlasDialog.hidden) renderTransitAtlasLegend(elements.transitAtlasDialogLegend, transitAtlasModel);
-    setStatus(elements.transitAtlasStatus, lines.length
+    elements.transitAtlasRetry.hidden = !transitAtlasSourcesUnavailable;
+    const sourceStatus = transitAtlasSourceLoad
+      ? "正在读取现有线路数据；已读取的线路继续显示…"
+      : transitAtlasSourcesUnavailable
+        ? "现有线路数据未能加载完成，当前结果可能不完整。请点击“重新加载线路”重试。" : "";
+    setStatus(elements.transitAtlasStatus, sourceStatus || (lines.length
       ? `${transitAtlasCity.label}已识别 ${routes.length} 条铁路与轨道交通线路、${stops.length} 个站点${transitAtlasModel.nationalRailwayWayCount ? `，并补充 ${transitAtlasModel.nationalRailwayWayCount} 段全国铁路真实轨道` : ""}，真实线路几何约 ${formatDistance(transitAtlasModel.lengthMeters)}；线路在边界外 ${bufferMeters / 1000} 公里截断，截断端标注去向。`
-      : `${transitAtlasCity.label}在所选制式下没有可识别的铁路或轨道交通线路。`, !lines.length);
+      : `${transitAtlasCity.label}在所选制式下没有可识别的铁路或轨道交通线路。`),
+      transitAtlasSourcesUnavailable || (!lines.length && !transitAtlasSourceLoad));
     if (!elements.transitAtlasDialog.hidden) {
       resetTransitAtlasDialogViewport();
       updateTransitAtlasDialogText();

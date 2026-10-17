@@ -121,6 +121,17 @@ const C=stationsContext;
 const preload=JSON.parse(await readFile(new URL("../site/transit-preload.json",import.meta.url),"utf8"));
 let checked=0;
 const sourceBefore=JSON.stringify(preload);
+const relations=JSON.parse(await readFile(new URL("../site/transit-relations.json",import.meta.url),"utf8"));
+const jinchuanIds=[540666,545464,546913,547550,547555,548740,548737];
+const publishedLines=new Map();
+for(const snapshot of preload.snapshots){
+  const routes=snapshot.network.routeTable.map(r=>({id:r[0],type:r[1],color:r[2],identity:r[3],label:r[4]}));
+  for(const row of snapshot.network.lines)publishedLines.set(String(row[0]),{
+    id:row[0],geometry:row[1].map(([lat,lon])=>({lat,lon})),routes:row[2].map(i=>routes[i])});
+}
+context.transitAtlasApplyLifecycle(publishedLines,new Map(),relations.snapshots.flatMap(s=>s.elements));
+for(const id of jinchuanIds)assert.ok([...publishedLines.values()].some(line=>line.routes.some(
+  route=>route.id===id&&route.atlasLifecycle==="existing")),`existing Jinchuan relation ${id} survives future lifecycle preparation`);
 for(const snapshot of preload.snapshots){
   const table=snapshot.network.routeTable.map(r=>({id:r[0],type:r[1],color:r[2],identity:r[3],label:r[4],isFallback:true}));
   for(const stop of snapshot.network.stops){
