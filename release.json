@@ -2,7 +2,7 @@
   "releaseVersion": "7.5",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=7.5-wall-gates-v1",
+  "entryScript": "app.js?v=7.5-sunlight-v2",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "structureProbe": "/api/structures/15/30304/15036.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",

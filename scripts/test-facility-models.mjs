@@ -4,6 +4,7 @@ import vm from "node:vm";
 import {Worker} from "node:worker_threads";
 import * as THREE from "../site/three-0.160.1.module.min.js";
 import {pavilionTagRuntime as parser} from "./test-pavilion-tags.mjs";
+import {huilongToilet,huilongRoad,huilongContext} from "./fixtures/huilong-toilet.mjs";
 const source=await readFile(new URL("../site/facility-models.js",import.meta.url),"utf8");
 const app=await readFile(new URL("../site/app.js",import.meta.url),"utf8");
 const context=vm.createContext({setTimeout,clearTimeout,console});vm.runInContext(source,context);
@@ -107,6 +108,21 @@ const pathAt=y=>({type:"Feature",properties:{renderKind:"road",highway:"footway"
 const besidePath=geometry.build([toilet],{...outdoorContext,obstacles:[pathAt(2.8)]}).small[0];
 assert.ok(besidePath,"a rectangular footprint fits beside a path even when its bounding circle would overlap");
 assert.equal(besidePath.width,4.8);assert.equal(besidePath.depth,3.2);
+const huilongModel=geometry.build([huilongToilet],huilongContext).small[0];
+assert.ok(huilongModel,"the actual outdoor toilet between two buildings beside 回龙巷 fits at its original point");
+assert.deepEqual(copy(huilongModel.center),huilongToilet.geometry.coordinates);
+assert.ok(huilongModel.width>=2.4 && huilongModel.depth>=1.6);
+assert.equal(geometry.build([huilongToilet],{...huilongContext,obstacles:[
+  {...huilongRoad,properties:{...huilongRoad.properties,width:"8"}},...huilongContext.obstacles.slice(1),
+]}).small.length,0,"an explicit 8 m carriageway still prevents a model that would overlap the road");
+for(const highway of ["motorway","motorway_link","trunk","trunk_link","primary","primary_link","secondary","secondary_link",
+  "tertiary","tertiary_link","residential","unclassified","service","living_street","pedestrian","track","cycleway","footway","path","steps","unknown"])
+  for(const tags of [{highway},{highway,lanes:"4"},{highway,lanes:"1"},{highway,width:"12"}]) {
+    const half=parser.huayuPavilionRoadHalfWidth(tags),road={...pathAt(half+1.8),properties:{renderKind:"road",...tags}};
+    const expected={...road,properties:{...road.properties,width:String(half*2)}};
+    assert.deepEqual(copy(geometry.build([toilet],{...outdoorContext,obstacles:[road]}).small),
+      copy(geometry.build([toilet],{...outdoorContext,obstacles:[expected]}).small),"facility road estimates match pavilion clearance: "+JSON.stringify(tags));
+  }
 const compact=geometry.build([{...cafe,geometry:toilet.geometry}],{...outdoorContext,obstacles:[pathAt(1.9)]}).small[0];
 assert.ok(compact && compact.depth<2.8,"missing dimensions can adapt to real available space");
 assert.deepEqual(copy(compact.center),[148,12],"fitting never moves the original POI");
@@ -133,6 +149,9 @@ try {
   const adapted=await new Promise((resolve,reject)=>{worker.once("message",resolve);worker.once("error",reject);
     worker.postMessage({features:[wideKiosk],context:{...outdoorContext,obstacles:[diagonalPath]}});});
   assert.deepEqual(adapted,copy(geometry.build([wideKiosk],{...outdoorContext,obstacles:[diagonalPath]})));
+  const actualToilet=await new Promise((resolve,reject)=>{worker.once("message",resolve);worker.once("error",reject);
+    worker.postMessage({features:[huilongToilet],context:huilongContext});});
+  assert.deepEqual(actualToilet,copy(geometry.build([huilongToilet],huilongContext)),"actual roadside toilet has identical worker and fallback placement");
 }finally{await worker.terminate();}
 
 // Full raw-tag normalization: preserve geometry over duplicate center-only output.

@@ -81,6 +81,7 @@ for (const style of publishedStyles) {
   add({id:"traffic-line", type:"line"});
   add({id:"traffic-stop", type:"circle"});
   add({id:"natural-trees", type:"custom", implementation:{renderingMode:"3d"}}, "water");
+  add({id:"sun-shadow",type:"raster",metadata:{"huayu:sun-shadow":true}},"water");
   const surfaces = () => order.filter(id => ["background","fill","line"].includes(definitions.get(id).type)
     || definitions.get(id).type === "custom" && definitions.get(id).implementation?.renderingMode !== "3d");
   const groundBefore = surfaces();
@@ -89,6 +90,8 @@ for (const style of publishedStyles) {
   const verify = () => {
     const firstModel = order.findIndex(id => definitions.get(id).type === "fill-extrusion");
     const lastModel = order.findLastIndex(id => definitions.get(id).type === "fill-extrusion");
+    assert.ok(order.indexOf("sun-shadow") > Math.max(...surfaces().filter(id => !/-satellite-(surface|grain|shadow)$/u.test(id)).map(id => order.indexOf(id)))
+      && order.indexOf("sun-shadow") < firstModel,"building ground shadows cover roads and terrain, and remain below 3D solids");
     assert.ok(surfaces().every(id => order.indexOf(id) < firstModel),
       "all roads, waterways, markings and flat terrain must precede even hidden 3D layers");
     assert.ok(order.filter(id => ["symbol","circle"].includes(definitions.get(id).type))

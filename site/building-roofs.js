@@ -259,6 +259,7 @@
               const matrix = args?.defaultProjectionData?.mainMatrix || args?.projectionMatrix || args;
               owner.camera.projectionMatrix.fromArray(matrix).multiply(owner.transform);
               owner.updateWallLighting();
+              root.HuayuSunlight?.applyScene(map, owner.scene);
               owner.renderer.resetState();
               owner.renderer.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
               owner.renderer.render(owner.scene, owner.camera); owner.renderer.resetState();

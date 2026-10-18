@@ -1879,7 +1879,71 @@
     window.HuayuModelOptions?.reset();
     window.HuayuVegetation.setPreferences(window.HuayuVegetation.DEFAULTS);
     window.HuayuBridgeModels.setPreferences(window.HuayuBridgeModels.DEFAULTS);
+    window.HuayuSunlight.setPreferences(window.HuayuSunlight.DEFAULTS);
   });
+  const sunlightFields = {
+    enabled: document.getElementById("setting-sunlight-enabled"),
+    date: document.getElementById("setting-sunlight-date"),
+    minutes: document.getElementById("setting-sunlight-time"),
+    brightness: document.getElementById("setting-sunlight-brightness"),
+    contrast: document.getElementById("setting-sunlight-contrast"),
+    shadows: document.getElementById("setting-sunlight-shadows"),
+    shadowOpacity: document.getElementById("setting-sunlight-shadowOpacity"),
+  };
+  const sunlightSlider = document.getElementById("setting-sunlight-slider");
+  function syncSunlightControls() {
+    const settings = window.HuayuSunlight.getPreferences();
+    sunlightFields.enabled.checked = settings.enabled;
+    sunlightFields.date.value = settings.date;
+    sunlightFields.shadows.checked = settings.shadows;
+    sunlightFields.minutes.value = `${String(Math.floor(settings.minutes / 60)).padStart(2, "0")}:${String(settings.minutes % 60).padStart(2, "0")}`;
+    sunlightSlider.value = settings.minutes;
+    for (const key of ["brightness", "contrast", "shadowOpacity"]) {
+      sunlightFields[key].value = settings[key];
+      document.getElementById(`sunlight-${key}-value`).value = `${settings[key]}%`;
+    }
+    document.getElementById("sunlight-controls").hidden = !settings.enabled;
+    sunlightFields.shadowOpacity.disabled = !settings.shadows;
+    const glMap = currentVectorBasemap(), controller = glMap && window.HuayuSunlight.get(glMap);
+    const sun = controller?.current?.sun;
+    const directions = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"];
+    document.getElementById("sunlight-status").textContent = sun
+      ? sun.altitude > 0 ? `太阳高度 ${sun.altitude.toFixed(1)}° · 方位 ${directions[Math.round(sun.azimuth / 45) % 8]} ${sun.azimuth.toFixed(0)}°`
+        : sun.altitude > -6 ? "太阳位于地平线下，当前为晨昏光照。" : "太阳位于地平线下，当前为夜间环境光。"
+      : "选择华域标准或深夜底图后生效；倾斜视角可观察墙体与屋顶受光。";
+    const shadows = controller?.shadows;
+    document.getElementById("sunlight-shadow-status").textContent = !sun ? ""
+      : !settings.shadows || settings.shadowOpacity === 0 ? "建筑阴影已关闭。"
+      : sun.altitude <= 0 ? "太阳已落山，不生成日照投影。"
+      : shadows?.state === "ready" ? `建筑阴影已就绪 · ${shadows.display?.stats?.count || 0} 个建筑部件${shadows.display?.stats?.omitted ? `，${shadows.display.stats.omitted} 项超出本批预算` : ""}`
+      : shadows?.state === "preparing" ? "正在后台生成建筑阴影…"
+      : shadows?.state === "unavailable" ? "建筑阴影暂不可用，保留表面光照；可重新开启重试。"
+      : shadows?.state === "zoom" ? "放大到建筑近景后显示地面阴影。"
+      : "等待完整建筑数据后生成地面阴影。";
+  }
+  for (const [key, field] of Object.entries(sunlightFields)) {
+    field.addEventListener(field.type === "range" ? "input" : "change", () => {
+      let value = field.type === "checkbox" ? field.checked : field.value;
+      if (key === "minutes") {
+        if (!/^\d{2}:\d{2}$/u.test(value)) {syncSunlightControls(); return;}
+        const [hour, minute] = value.split(":").map(Number); value = hour * 60 + minute;
+      } else if (key === "date" && !window.HuayuSunlight.validDate(value)) {syncSunlightControls(); return;}
+      else if (["brightness", "contrast", "shadowOpacity"].includes(key)) value = Number(value);
+      window.HuayuSunlight.setPreferences({[key]: value});
+    });
+  }
+  sunlightSlider.addEventListener("input", () => window.HuayuSunlight.setPreferences({minutes: Number(sunlightSlider.value)}));
+  document.querySelectorAll("[data-sunlight-time]").forEach(button => button.addEventListener("click", () =>
+    window.HuayuSunlight.setPreferences({minutes: Number(button.dataset.sunlightTime)})));
+  document.querySelectorAll("[data-sunlight-date]").forEach(button => button.addEventListener("click", () =>
+    window.HuayuSunlight.setPreferences({date: button.dataset.sunlightDate === "today" ? window.HuayuSunlight.today()
+      : `${window.HuayuSunlight.getPreferences().date.slice(0, 4)}-${button.dataset.sunlightDate}`})));
+  window.addEventListener("huayu-sunlight-change", event => {
+    syncSunlightControls();
+    if (!event.detail.saved) showToast("设置仅在本次打开中生效，浏览器未允许保存");
+  });
+  window.addEventListener("huayu-sunlight-status", syncSunlightControls);
+  syncSunlightControls();
   const bridgeRenderSetting = document.getElementById("setting-bridge-models");
   function syncBridgeRenderSettingControl() {
     bridgeRenderSetting.checked = bridgeModelsEnabled();
@@ -19933,7 +19997,7 @@
         } else if (layer.type === "custom"
           && (layer.renderingMode || layer.implementation?.renderingMode) === "3d") {
           models.push(id);
-        } else if (layer.metadata?.["huayu:satellite-shadow"]) {
+        } else if (layer.metadata?.["huayu:satellite-shadow"] || layer.metadata?.["huayu:sun-shadow"]) {
           shadows.push(id);
         } else if (layer.metadata?.["huayu:satellite-model"]) {
           surfaces.push(id);
@@ -20008,9 +20072,11 @@
     // snapshot handoff. Repair before drawing, without waiting for full idle.
     glMap.on("styledata", state.onStyleData);
     syncHuayuModelOcclusion(glMap);
+    globalThis.HuayuSunlight?.sync(glMap);
   }
 
   function deactivateHuayuModelOcclusion(glMap) {
+    globalThis.HuayuSunlight?.dispose(glMap);
     const state = glMap && huayuModelOcclusionStates.get(glMap);
     if (!state) return;
     glMap.off("styledata", state.onStyleData);
@@ -28132,6 +28198,7 @@
     const state = glMap && huayuLiveBuildingStates.get(glMap);
     if (!state || !window.HuayuBuildingRoofs) return;
     const palette = huayuOverlayPalette(glMap);
+    window.HuayuSunlight?.syncBuildings(glMap, state.data, Boolean(state.active && state.primaryActive && !palette.satellite));
     window.HuayuBuildingRoofs.sync(glMap, state.data, {
       enabled: Boolean(state.active && state.primaryActive),
       satellite: Boolean(palette.satellite),

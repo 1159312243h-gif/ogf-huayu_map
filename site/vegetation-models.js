@@ -224,6 +224,7 @@
             owner.gardenGroup.visible = mapZoom(owner.map) >= 16;
             owner.camera.projectionMatrix.fromArray(matrix).multiply(owner.transform);
             // Use MapLibre's target and depth buffer, without clearing ground or buildings.
+            root.HuayuSunlight?.applyScene(map, owner.scene);
             owner.renderer.resetState();
             owner.renderer.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
             owner.renderer.render(owner.scene, owner.camera);

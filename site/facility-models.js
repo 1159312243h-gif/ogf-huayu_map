@@ -11,6 +11,19 @@
       const n=match && Number(match[1])*(/^(ft|')$/i.test(match[2] || "") ? 0.3048 : 1);
       return n>0 && n<=1000 ? n : fallback;
     };
+    function obstacleHalfWidth(p) {
+      const width=measure(p.width,NaN);
+      if(Number.isFinite(width))return width/2;
+      if(p.renderKind!=="road")return p.renderKind==="railway" ? 2.5 : 2;
+      const lanes=Number(p.lanes);
+      if(Number.isFinite(lanes) && lanes>0)return Math.max(1.2,Math.min(14,lanes*1.6));
+      // Match the existing pavilion road estimates; small streets are not 8 m wide.
+      return ({motorway:7,motorway_link:4,trunk:6,trunk_link:3.5,
+        primary:5.5,primary_link:3.2,secondary:4.5,secondary_link:3,
+        tertiary:3.8,tertiary_link:2.8,residential:3,unclassified:2.8,
+        service:2.2,living_street:2.5,pedestrian:2,track:1.5,
+        cycleway:1,footway:.9,path:.8,steps:.8})[value(p.highway)] || 2.5;
+    }
     function kind(tags={}) {
       if(["yes","1","true"].includes(value(tags.disused)) || ["yes","1","true"].includes(value(tags.abandoned))
         || tags.construction || tags.proposed)return "";
@@ -110,7 +123,7 @@
       for(const feature of obstacles) {
         if(!feature.geometry)continue;
         const b=bounds(feature.geometry),p=feature.properties || {};
-        const padding=polygons(feature.geometry).length ? 0 : measure(p.width,0)/2 || 4;
+        const padding=polygons(feature.geometry).length ? 0 : obstacleHalfWidth(p);
         const padX=padding/(111320*Math.max(.1,Math.cos((b.south+b.north)/2*Math.PI/180))),padY=padding/111320;
         const item={feature,b},x0=Math.floor((b.west-padX)/.001),x1=Math.floor((b.east+padX)/.001),y0=Math.floor((b.south-padY)/.001),y1=Math.floor((b.north+padY)/.001);
         if(!Number.isFinite(x0))continue;
@@ -158,7 +171,7 @@
           const p=feature.properties || {},g=feature.geometry;
           return {b,polys:polygons(g),lines:g.type==="LineString" ? [g.coordinates] : g.type==="MultiLineString" ? g.coordinates : [],
             ignored:p.tunnel || Number(p.layer)<0,
-            clearance:measure(p.width,0)/2 || (p.renderKind==="road" ? (/^(path|footway|steps|cycleway)$/.test(p.highway) ? 1 : 4) : p.renderKind==="railway" ? 2.5 : 2)};
+            clearance:obstacleHalfWidth(p)};
         }).filter(item=>!item.ignored && point[0]>=item.b.west-(reach+item.clearance+.15)/sx
           && point[0]<=item.b.east+(reach+item.clearance+.15)/sx
           && point[1]>=item.b.south-(reach+item.clearance+.15)/111320
@@ -403,6 +416,7 @@
             owner.scene=new T.Scene();owner.camera=new T.Camera();owner.scene.add(new T.AmbientLight(0xffffff,1.5));
             const light=new T.DirectionalLight(0xffffff,1.1);light.position.set(-60,-40,100);owner.scene.add(light);},
           render(gl,args){if(!owner.alive || !owner.layer?.enabled || !owner.origin || owner.options.satellite || owner.map.getPitch()<=0.5)return;
+            root.HuayuSunlight?.applyScene(map, owner.scene);
             const matrix=args?.defaultProjectionData?.mainMatrix || args?.projectionMatrix || args;
             owner.camera.projectionMatrix.fromArray(matrix).multiply(owner.transform);owner.renderer.resetState();
             owner.renderer.setViewport(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight);owner.renderer.render(owner.scene,owner.camera);owner.renderer.resetState();},

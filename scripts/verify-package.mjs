@@ -48,7 +48,7 @@ for (const file of files) {
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
-  "bridge-models.js", "facility-models.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
+  "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -514,7 +514,7 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 "发布建筑兜底时面状候车亭模型不得与建筑面重复");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=7.5-gable-colors-v1')
+assert.ok(index.includes('building-roofs.js?v=7.5-sunlight-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -1516,6 +1516,10 @@ const facilityModelsTest = await runCheck([path.join(root,"scripts","test-facili
 assert.equal(facilityModelsTest.status, 0, `摩天轮与停车场渲染回归失败：${facilityModelsTest.stderr}`);
 const buildingMaterialRoofsTest = await runCheck([path.join(root,"scripts","test-building-material-roofs.mjs")]);
 assert.equal(buildingMaterialRoofsTest.status, 0, `建筑材质与坡屋顶回归失败：${buildingMaterialRoofsTest.stderr}`);
+const sunlightTest = await runCheck([path.join(root,"scripts","test-sunlight.mjs")]);
+assert.equal(sunlightTest.status, 0, `光影日照回归失败：${sunlightTest.stderr}`);
+const sunlightShadowsTest = await runCheck([path.join(root,"scripts","test-sunlight-shadows.mjs")]);
+assert.equal(sunlightShadowsTest.status, 0, `建筑日照阴影回归失败：${sunlightShadowsTest.stderr}`);
 const bridgeModelsTest = await runCheck([path.join(root, "scripts", "test-bridge-models.mjs")]);
 assert.equal(bridgeModelsTest.status, 0, `桥梁与立交纵断面回归失败：${bridgeModelsTest.stderr}`);
 const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);

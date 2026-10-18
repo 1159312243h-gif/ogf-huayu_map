@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.1-help-center-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.5-sunlight-v2" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.5">
@@ -319,6 +319,29 @@
         </section>
 
         <section id="settings-view" class="panel-view" data-view="settings" hidden>
+          <fieldset class="render-settings-section" id="sunlight-settings">
+            <legend>光影与日照</legend>
+            <label class="render-setting-toggle" for="setting-sunlight-enabled"><span>按时间模拟日照</span>
+              <input id="setting-sunlight-enabled" type="checkbox" role="switch" aria-describedby="sunlight-note" />
+              <span class="render-setting-switch" aria-hidden="true"></span>
+            </label>
+            <div id="sunlight-controls" hidden>
+              <label class="render-setting-field" for="setting-sunlight-date"><span>日期</span>
+                <input id="setting-sunlight-date" type="date" min="0001-01-01" max="9999-12-31" required />
+              </label>
+              <div class="sunlight-presets" role="group" aria-label="常用日期"><button type="button" class="secondary-button" data-sunlight-date="today">今天</button><button type="button" class="secondary-button" data-sunlight-date="03-20">3月20日</button><button type="button" class="secondary-button" data-sunlight-date="06-21">6月21日</button><button type="button" class="secondary-button" data-sunlight-date="09-22">9月22日</button><button type="button" class="secondary-button" data-sunlight-date="12-21">12月21日</button></div>
+              <label class="render-setting-field" for="setting-sunlight-time"><span>当地太阳时</span><input id="setting-sunlight-time" type="time" step="60" value="12:00" /></label>
+              <input id="setting-sunlight-slider" class="sunlight-slider" type="range" min="0" max="1439" step="1" value="720" aria-label="当地太阳时，拖动预览一天日照" />
+              <div class="sunlight-presets" role="group" aria-label="常用日照时间"><button type="button" class="secondary-button" data-sunlight-time="420">清晨 07:00</button><button type="button" class="secondary-button" data-sunlight-time="720">正午 12:00</button><button type="button" class="secondary-button" data-sunlight-time="1020">傍晚 17:00</button></div>
+              <label class="render-setting-field" for="setting-sunlight-brightness"><span>环境亮度 <output id="sunlight-brightness-value">100%</output></span><input id="setting-sunlight-brightness" type="range" min="50" max="150" step="5" value="100" /></label>
+              <label class="render-setting-field" for="setting-sunlight-contrast"><span>明暗对比 <output id="sunlight-contrast-value">35%</output></span><input id="setting-sunlight-contrast" type="range" min="0" max="100" step="5" value="35" /></label>
+              <label class="render-setting-toggle" for="setting-sunlight-shadows"><span>建筑地面阴影</span><input id="setting-sunlight-shadows" type="checkbox" role="switch" checked /><span class="render-setting-switch" aria-hidden="true"></span></label>
+              <label class="render-setting-field" for="setting-sunlight-shadowOpacity"><span>阴影浓度 <output id="sunlight-shadowOpacity-value">28%</output></span><input id="setting-sunlight-shadowOpacity" type="range" min="0" max="60" step="1" value="28" /></label>
+              <p id="sunlight-status" class="model-options-summary" role="status" aria-live="polite"></p>
+              <p id="sunlight-shadow-status" class="model-options-summary" role="status" aria-live="polite"></p>
+            </div>
+            <p id="sunlight-note" class="model-options-summary">按日期、当前纬度与当地太阳时模拟日照，夜间使用中性弱光。放大到建筑近景可显示地面阴影，倾斜可看墙面受光。投影按建筑高度估算并随地形贴地，不含山体遮光或建筑间反射，不作为工程日照分析。当地太阳时不是北京时间；模拟卫星与 OGF 栅格不应用此设置。</p>
+          </fieldset>
           <fieldset class="render-settings-section">
             <legend>桥梁与立交</legend>
             <label class="render-setting-toggle" for="setting-bridge-models"><span>桥梁渲染</span>
@@ -806,6 +829,8 @@
               <p>“设置”可选择经典柱形、双层柱形或自然树冠，调整面状植被密度，单独开关花园花簇。经典样式中普通树木为单层圆柱，花园观赏树保留原先略有偏移的双层树冠；可选“双层柱形”的上下树冠居中对齐。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
               <h3>建筑材质与屋顶</h3>
               <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和支持的屋顶形状标签显示。倾斜近景可查看适用建筑的双坡、四坡等屋顶；缺少标签或不适用的轮廓使用已有模型，不根据名称猜测材质或形状。</p>
+              <h3>光影与日照</h3>
+              <p>在“设置 → 光影与日照”开启按时间模拟日照，直接选择年月日，或用今天及四个代表日快捷按钮；同一日期在南北半球自然呈现不同季节。拖动时间或输入精确到分钟的当地太阳时，可观察太阳方向与高度变化，环境亮度和明暗对比可分别调节，夜间采用中性弱光。建筑地面阴影可独立开关、调节浓度，近景建筑完整加载后后台生成，早晚拉长、正午缩短，太阳落山后关闭；俯视与倾斜均可查看。阴影按原建筑轮廓、孔洞、高度和已显示的坡屋顶估算，重叠不反复加深，拖动地图时保留上一份完整结果。投影随现有地形贴地，但不计算山体遮光、其他建筑墙面上的投影或反射；局部数据和高度为制图表达，不代表真实天气或工程日照分析。当地太阳时不是北京时间。仅用于主地图的华域标准与深夜底图，模拟卫星、OGF 栅格及独立下载不继承。默认关闭，关闭恢复原有光照；偏好保存在本机，“恢复默认”同时重置日期、时间与阴影设置。</p>
               <h3>摩天轮与停车场</h3>
               <p>近景中，明确标注的摩天轮在倾斜视角显示轮圈、辐条、支架与吊舱，优先读取高度、直径和方向；缺少尺寸时采用示意尺寸。露天停车场显示边界、P 标识及范围内的车位线，并避开已标注停车通道；自动车位线仅为示意，不代表真实布局、车位总数或余位。停车楼沿用已有建筑模型，地下、屋顶及有顶停车区域不生成露天车位。模拟卫星保留原有平面表达。</p>
               <h3>室外公厕与售卖亭</h3>
@@ -953,17 +978,19 @@
     <script src="./lucide.min.js"></script>
     <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-assets.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./vegetation-models.js?v=7.5-tree-styles-v1"></script>
-    <script src="./facility-models.js?v=7.5-parking-style-v1"></script>
-    <script src="./structure-models.js?v=7.1-building-material-roofs-v1"></script>
+    <script src="./sunlight-shadows.js?v=7.5-sunlight-v2"></script>
+    <script src="./sunlight.js?v=7.5-sunlight-v2"></script>
+    <script src="./vegetation-models.js?v=7.5-sunlight-v1"></script>
+    <script src="./facility-models.js?v=7.5-roadside-sunlight-v1"></script>
+    <script src="./structure-models.js?v=7.5-sunlight-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./building-roofs.js?v=7.5-gable-colors-v1"></script>
+    <script src="./building-roofs.js?v=7.5-sunlight-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
     <script src="./map-export.js?v=7.5-download-list-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.5-wall-gates-v1"></script>
+    <script src="./app.js?v=7.5-sunlight-v2"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>

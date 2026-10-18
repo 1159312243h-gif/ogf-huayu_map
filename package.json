@@ -12,6 +12,7 @@
     "verify:online": "node scripts/verify-online.mjs",
     "test:worker": "node scripts/test-worker.mjs",
     "test:personal-data": "node scripts/test-personal-data.mjs",
+    "test:sunlight": "node scripts/test-sunlight.mjs && node scripts/test-sunlight-shadows.mjs",
     "check:data": "node scripts/check-data-freshness.mjs",
     "probe:live": "node scripts/probe-live-basemap.mjs",
     "data:update": "node scripts/update-all-data.mjs",
