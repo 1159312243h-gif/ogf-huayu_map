@@ -29,6 +29,12 @@ const rectangle = (id, x, tags) => ({type:"way", id, tags,
   geometry:[[x,0],[x+0.00012,0],[x+0.00012,0.00012],[x,0.00012],[x,0]]
     .map(([lon,lat]) => ({lon,lat})),
 });
+// Real source geometry and tags from the pavilion the user reported missing.
+export const shenmingPavilion = {type:"way",id:41639299,
+  tags:{amenity:"shelter",building:"yes",height:"5",name:"申明亭"},
+  geometry:[[152.9356827,14.6368156],[152.9356458,14.6367194],[152.9357802,14.6366711],
+    [152.9358171,14.6367674],[152.9356827,14.6368156]].map(([lon,lat])=>({lon,lat})),
+};
 export const pavilionTagFixtures = [
   {type:"node",id:1,lat:0.00006,lon:0.00006,tags:{leisure:"gazebo",name:"休憩处",height:"5.2"}},
   rectangle(2,0.00025,{building:"pavilion",name:"凉亭",height:"4.8"}),
@@ -42,14 +48,20 @@ export const pavilionTagFixtures = [
     members:[{type:"way",ref:8,role:"outer"}]},
   {type:"node",id:10,lat:0.00025,lon:0.00056,
     tags:{leisure:"gazebo",amenity:"shelter",shelter_type:"public_transport",bus:"yes"}},
+  shenmingPavilion,
+  ...["basic_hut","weather_shelter","lean_to","public_transport"].map((shelter_type,index)=>
+    rectangle(11+index,0.002+index*0.001,{building:"yes",amenity:"shelter",shelter_type,name:"休息亭"})),
+  ...[{bus:"yes"},{highway:"bus_stop"},{public_transport:"platform"},{railway:"station"}]
+    .map((tags,index)=>({type:"node",id:15+index,lat:0.001,lon:0.001+index*0.001,
+      tags:{amenity:"shelter",...tags}})),
 ];
 
 // Feed the same mixed payload to both renderers, including old cached name-only candidates.
 export const pavilionTagModels = JSON.parse(JSON.stringify(runtime.huayuPavilionFeatureCollection(pavilionTagFixtures)));
 export const ordinaryBuildingModels = JSON.parse(JSON.stringify(runtime.huayuLiveBuildingFeatureCollection(pavilionTagFixtures)));
 const roofs = pavilionTagModels.features.filter(feature => feature.properties.pavilionPart === "roof");
-assert.deepEqual(roofs.map(feature => feature.properties.osmId), ["1","2","7","9"]);
-assert.equal(pavilionTagModels.features.length,12,"each tagged pavilion retains roof, base and open columns");
+assert.deepEqual(roofs.map(feature => feature.properties.osmId), ["1","2","6","7","9","41639299"]);
+assert.equal(pavilionTagModels.features.length,18,"each tagged pavilion retains roof, base and open columns");
 for (const roof of roofs) {
   const parts = pavilionTagModels.features.filter(feature => feature.properties.osmId === roof.properties.osmId);
   assert.deepEqual(parts.map(feature => feature.properties.pavilionPart),["roof","base","column"]);
@@ -62,7 +74,14 @@ for (const roof of roofs) {
 assert.equal(roofs[0].properties.renderHeight,5.2,"point pavilion uses tagged height");
 assert.equal(roofs[1].properties.renderHeight,4.8,"area pavilion uses tagged height");
 assert.deepEqual(roofs[1].geometry.coordinates[0],pavilionTagFixtures[1].geometry.map(({lon,lat}) => [lon,lat]));
-assert.deepEqual(ordinaryBuildingModels.features.map(feature => feature.properties.osmId),["3","4"]);
+const shenmingRoof=roofs.find(feature=>feature.properties.osmId==="41639299");
+assert.equal(shenmingRoof.properties.renderHeight,5);
+assert.ok(shenmingRoof.properties.renderMinHeight>4,"the pavilion stays open beneath its thin roof");
+assert.deepEqual(shenmingRoof.geometry.coordinates[0],shenmingPavilion.geometry.map(({lon,lat})=>[lon,lat]),
+  "untyped area shelters preserve their exact original footprint");
+assert.equal(runtime.huayuPavilionKind({amenity:"shelter"}),"pavilion","no name is needed for the shelter fallback");
+assert.equal(runtime.huayuPavilionKind({amenity:"shelter",shelter_type:""}),"pavilion");
+assert.deepEqual(ordinaryBuildingModels.features.map(feature => feature.properties.osmId),["3","4","11","12","13"]);
 assert.ok(ordinaryBuildingModels.features.every(feature => feature.properties.structureKind === "building"
   && feature.properties.renderMinHeight === 0 && !feature.properties.pavilionPart),
   "name-only candidates remain ordinary buildings without pavilion roofs or columns");

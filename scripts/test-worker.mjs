@@ -199,7 +199,7 @@ try {
 
   const structureUrl = "https://example.test/api/structures/15/30304/15036.json?probe=1";
   const legacyStructureUrl = new URL(structureUrl);
-  legacyStructureUrl.search = "?schema=huayu-structures-v2-open-pavilions";
+  legacyStructureUrl.search = "?schema=huayu-structures-v4-untyped-shelters";
   cache.set(legacyStructureUrl.toString(), new Response(JSON.stringify({elements:[]}), {
     headers:{"X-OGF-Structure-Fetched-At":new Date().toISOString()},
   }));
@@ -210,10 +210,12 @@ try {
   assert.match(structure.headers.get("cache-control") || "", /max-age=60/u);
   assert.match(upstreamQueries.at(-1), /barrierWays/u);
   assert.match(upstreamQueries.at(-1), /pavilionStructures/u);
+  assert.ok(upstreamQueries.at(-1).includes('way["barrier"~"^(wall|fence|gate|entrance)$"]'),
+    "structure snapshots include the original gate ways needed for overhead wall joins");
   assert.match(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]\["shelter_type"~"\^\(gazebo\|pavilion\|picnic_shelter\)\$"\]/u,
-    "only explicitly typed pavilion shelters should reach client-side classification");
-  assert.doesNotMatch(upstreamQueries.at(-1), /nwr\["amenity"="shelter"\]\(/u,
-    "untyped shelters must not be queried as pavilions");
+    "explicitly typed pavilion shelters should still reach client-side classification");
+  assert.ok(upstreamQueries.at(-1).includes('nwr["amenity"="shelter"]["shelter_type"!~"."]'),
+    "untyped shelters must reach the shared pavilion classifier, which excludes transit stops");
   assert.match(upstreamQueries.at(-1), /leisure"="gazebo/u);
   assert.match(upstreamQueries.at(-1), /man_made"~"\^\(gazebo\|pavilion\)\$"/u);
   assert.match(upstreamQueries.at(-1), /building:part"~"\^\(gazebo\|pavilion\)\$"/u);
@@ -227,7 +229,7 @@ try {
   const structureHit = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
   assert.equal(structureHit.headers.get("x-ogf-structure-cache"), "HIT");
   assert.equal(upstreamQueries.length, structureQueriesAfterMiss);
-  const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v3-tagged-pavilions"));
+  const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v5-wall-gates"));
   assert.ok(structureCacheKey, "structures should use an independent edge snapshot cache");
 
   const invalidStructure = await worker.fetch(

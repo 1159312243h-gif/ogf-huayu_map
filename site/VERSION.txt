@@ -1,6 +1,8 @@
 华域地图 v7.5
-Released: 2026-10-16
+Released: 2026-10-18
 Cloudflare Pages project: ogf-atlas
+
+Version-7.5 Wall gates and map details v1 (7.5.0): Connect the tops of short gate/entrance ways to compatible walls through their actual shared OSM nodes, retaining an open passage below and inherited wall height, width and colors. Refresh structure query and processed caches without clearing unrelated model or terrain data. Publish the accumulated unified map/object download queue and object image styles, wall-colored roof gables, non-bus shelter pavilion recognition and model replacement, restored garden tree crowns, Ferris wheels, refined outdoor parking markings and standalone outdoor toilet/shop models. Preserve source-data timestamps, existing rendering defaults, navigation, private account data and three-hour data updates.
 
 Version-7.5 Jinchuan physical double tracks (7.5.0): Restore original Jinchuan up/down track geometries in the traffic overview, including preload, live data and perspective. Preserve station symbols, colors, navigation centerlines and snapping, focused routes, atlas/export behavior, other regions and original data timestamps. Do not invent tracks or use decorative hollow lines.
 

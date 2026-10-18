@@ -26,6 +26,32 @@ assert.ok(plantCount(plain)>120 && plantCount(plain)<=160,
   "medium garden areas get denser planting within the per-garden geometry limit");
 assert.ok(models.version.startsWith("gardens-v2-"),"density changes invalidate only the garden model algorithm cache");
 assert.deepEqual([...new Set(plain.features.map(f => f.properties.plantType))].sort(),["flower","shrub","tree"]);
+const gardenTreeGroups=Map.groupBy(plain.features.filter(f=>f.properties.plantType==="tree"),f=>f.properties.plantKey);
+for(const parts of gardenTreeGroups.values()) {
+  assert.equal(parts.length,3,"garden ornamental trees retain their original trunk and two crown tiers");
+  const crown=parts.find(f=>f.id.endsWith(":crown")),top=parts.find(f=>f.id.endsWith(":crown-top")),
+    trunk=parts.find(f=>f.id.endsWith(":trunk"));
+  assert.ok(crown && top && trunk);
+  const p=crown.properties,ring=crown.geometry.coordinates[0][0].slice(0,-1);
+  for(const [axis,center] of [[0,p.plantX],[1,p.plantY]])
+    assert.ok(Math.abs(ring.reduce((sum,point)=>sum+point[axis]/ring.length,0)-center)<1e-10,
+      "lower crown retains the original planting point");
+  const height=top.properties.plantHeight-p.plantGround;
+  assert.ok(height>=3.8 && height<=5.6000001,"restored tiers retain the complete original tree height");
+  assert.ok(Math.abs((p.plantBase-p.plantGround)/height-0.42)<1e-10);
+  assert.equal(p.plantHeight,top.properties.plantBase,"original crown tiers meet without a gap");
+  assert.ok(Math.abs((p.plantHeight-p.plantGround)/height-0.78)<1e-10);
+  const upperRing=top.geometry.coordinates[0][0].slice(0,-1);
+  const upperCenter=[0,1].map(axis=>upperRing.reduce((sum,point)=>sum+point[axis]/upperRing.length,0));
+  assert.ok(Math.abs((upperCenter[0]-p.plantX)*111320*Math.cos(p.plantY*Math.PI/180)-0.18)<1e-7);
+  assert.ok(Math.abs((upperCenter[1]-p.plantY)*111320-0.08)<1e-7,
+    "ornamental upper crown keeps its original small horizontal offset");
+  const upperRadius=Math.hypot((upperRing[0][0]-upperCenter[0])*Math.cos(p.plantY*Math.PI/180),
+    upperRing[0][1]-upperCenter[1])*111320;
+  assert.ok(Math.abs(upperRadius/p.plantRadius-0.72)<1e-7);
+  assert.equal(p.color,"#629575");assert.equal(top.properties.color,"#7ba483");
+  assert.equal(p.nightColor,"#42634e");assert.equal(top.properties.nightColor,"#55785f");
+}
 assert.equal(JSON.stringify(plain),JSON.stringify(models.build([garden],options)),"revisiting never randomizes planting");
 assert.equal(models.build([garden],{...options,zoom:14}).features.length,0,"overview tiles never carry close model geometry");
 assert.equal(models.build([way(2,{building:"yes",name:"花园大厦"}),way(3,{leisure:"park",name:"森林花园公园"})],options).features.length,0,
@@ -146,12 +172,12 @@ const factory=vm.createContext({});
 const names=declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1].split(",").map(s => s.trim());
 for(const name of [...names,"createHuayuGardenModels","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
   vm.runInContext(declaration(name),factory);
-// Building materials and roof geometry intentionally invalidate the shared
-// building/structure model metadata. Gardens retain their independent cache
+// The reviewed shelter classification and wall gate changes invalidate shared
+// building/structure geometry. Gardens retain their independent cache
 // version and must continue to produce identical geometry below.
 assert.equal(createHash("sha256").update(names.map(name=>factory[name].toString()).join("\n")).digest("hex"),
-  "53df39f0bb314ca5fb05b62260a378830de5462b1d122c3208860bb25c02df55",
-  "material and roof changes use the reviewed v16 building/structure cache algorithm");
+  "b6d333d4f2966c2682beffdc9ebc35516a581160723947680d3aede5fcd0774f",
+  "the reviewed shelter/gate changes invalidate building/structure geometry without changing garden caches");
 const worker=new Worker(`const {parentPort}=require("node:worker_threads");
 global.self={postMessage:value=>parentPort.postMessage(value)};
 parentPort.on("message",data=>self.onmessage({data}));

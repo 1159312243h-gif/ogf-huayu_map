@@ -77,7 +77,7 @@ for (const name of ["administrativeExportResolution", "activeAdministrativeFeatu
   "encodeAdministrativeShapefileLayer", "administrativeShapeRecord", "administrativeSignedArea", "sameAdministrativeCoordinate",
   "encodeAdministrativeShapeContent", "writeShapefileHeader", "encodeAdministrativeDbf", "encodeDbfText",
   "buildAdministrativeOsmXml", "xmlEscape", "buildStoredZip", "crc32", "safeDownloadName",
-  "downloadAdministrativeBoundary", "updateAdministrativeExportAvailability", "updateAdministrativeExportOptions",
+  "captureAdministrativeDownload", "buildAdministrativeDownload", "downloadAdministrativeBoundary", "updateAdministrativeExportAvailability", "updateAdministrativeExportOptions",
   "updateAdministrativeExtentStatus", "updateAdministrativeResolutionNote"]) {
   const declaration = app.match(new RegExp(`  (?:async )?function ${name}\\([^]*?\\n  \\}`, "u"))?.[0];
   assert.ok(declaration, name);

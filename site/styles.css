@@ -4802,6 +4802,9 @@ button.popup-route:focus-visible .popup-route-arrow {
 .feature-name-inputs select { flex: 0 0 auto; max-width: 46%; }
 .feature-object-row button { border: 0; background: transparent; color: #1769e0; font: inherit; cursor: pointer; padding: 5px; }
 .feature-object-row small { display: block; color: #66747e; font-size: 11px; margin-top: 3px; }
+#download-queue { margin-top: 20px; }
+#download-queue > legend { font-weight: 600; }
+#feature-output-options .boundary-resolution-row { margin: 12px 0; }
 .feature-object-row button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
 .boundary-polygon-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .boundary-resolution-row input[type="number"] { width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #c7d0d5; border-radius: 6px; font: inherit; }

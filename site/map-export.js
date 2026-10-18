@@ -121,5 +121,110 @@
       }
     } finally {try{dispose?.();}finally{map?.remove();host.remove();}}
   }
-  root.HuayuMapExport={MIN_RESOLUTION,MAX_RESOLUTION,resolution,polygon,mask,flatten,attribution,vectorCanvas,waitForMap};
+  // A separate, north-up renderer for selected objects. Coordinates stay intact;
+  // fitting adds space around their full extent rather than clipping to the pick box.
+  function featureLayout(features, size = 2400) {
+    size = resolution(size);
+    if (!size) throw Error("图片长边须为 512–8192 的整数像素");
+    const half = Math.PI * 6378137, limit = 85.05112878;
+    let left=Infinity, right=-Infinity, top=-Infinity, bottom=Infinity, count=0;
+    const mercator = coordinate => {
+      const [lon,lat]=coordinate || [];
+      if (!Number.isFinite(lon)||!Number.isFinite(lat)||Math.abs(lon)>180||Math.abs(lat)>limit) throw Error("地物坐标超出墨卡托图片支持范围");
+      return [lon/180*half, Math.log(Math.tan(Math.PI/4+lat*Math.PI/360))*6378137];
+    };
+    const visitCoordinates = coordinates => {
+      if (!Array.isArray(coordinates)) throw Error("地物几何不完整");
+      if (typeof coordinates[0] === "number") {
+        const [x,y]=mercator(coordinates);left=Math.min(left,x);right=Math.max(right,x);
+        bottom=Math.min(bottom,y);top=Math.max(top,y);count++;
+      } else coordinates.forEach(visitCoordinates);
+    };
+    const visit = geometry => {
+      if (geometry?.type === "GeometryCollection") geometry.geometries.forEach(visit);
+      else if (["Point","MultiPoint","LineString","MultiLineString","Polygon","MultiPolygon"].includes(geometry?.type)) visitCoordinates(geometry.coordinates);
+      else throw Error("不支持的地物几何");
+    };
+    features.forEach(feature=>visit(feature.geometry));
+    if (!count) throw Error("清单中没有可绘制的地物");
+    if (right-left>half) throw Error("地物跨度超过 180°，请分批导出图片");
+    let spanX=Math.max(right-left,100),spanY=Math.max(top-bottom,100);
+    spanX=Math.max(spanX,spanY*.3);spanY=Math.max(spanY,spanX*.3);
+    const centerX=(left+right)/2,centerY=(top+bottom)/2;
+    const widthMeters=Math.min(half*2,spanX*1.2),heightMeters=Math.min(half*2,spanY*1.2);
+    left=Math.max(-half,Math.min(half-widthMeters,centerX-widthMeters/2));right=left+widthMeters;
+    bottom=Math.max(-half,Math.min(half-heightMeters,centerY-heightMeters/2));top=bottom+heightMeters;
+    const width=Math.max(1,Math.round(size*widthMeters/Math.max(widthMeters,heightMeters)));
+    const height=Math.max(1,Math.round(size*heightMeters/Math.max(widthMeters,heightMeters)));
+    const latitude = y => (2*Math.atan(Math.exp(y/6378137))-Math.PI/2)*180/Math.PI;
+    return {width,height,bounds:{minLon:left/half*180,maxLon:right/half*180,minLat:latitude(bottom),maxLat:latitude(top)},
+      project(coordinate) {const [x,y]=mercator(coordinate);return [(x-left)/widthMeters*width,(top-y)/heightMeters*height];},
+      geoReference:{epsg:3857,pixelScaleX:widthMeters/width,pixelScaleY:heightMeters/height,tieX:0,tieY:0,tieLon:left,tieLat:top}};
+  }
+
+  const featurePalettes = {
+    map:{paper:"#f5f3ed",ink:"#41525d",building:"#c8b8a5",road:"#f3b85a",railway:"#815e80",water:"#8bc4e3",vegetation:"#a9c88d",landuse:"#d5d5b3",point:"#d35447",halo:"#fffdf5"},
+    night:{paper:"#172436",ink:"#d4dfec",building:"#51677f",road:"#e9b85e",railway:"#bd9cdd",water:"#244e70",vegetation:"#3c6857",landuse:"#374d58",point:"#ff9f89",halo:"#172436"},
+    blueprint:{paper:"#123f70",ink:"#d5eeff",building:"#356596",road:"#a2d8ff",railway:"#ffffff",water:"#25578a",vegetation:"#407f99",landuse:"#28517c",point:"#ffffff",halo:"#123f70"},
+    monochrome:{paper:"#ffffff",ink:"#202020",building:"#eeeeee",road:"#555555",railway:"#202020",water:"#e5e5e5",vegetation:"#f4f4f4",landuse:"#fafafa",point:"#202020",halo:"#ffffff"},
+  };
+
+  function drawFeatures(canvas, features, layout, options = {}) {
+    const palette=featurePalettes[options.style];
+    if (!palette) throw Error("请选择有效的地物渲染风格");
+    const ctx=canvas.getContext("2d"),scale=Math.max(.5,Math.max(canvas.width,canvas.height)/1200);
+    ctx.save();
+    try {
+      if (options.background === "paper") {ctx.fillStyle=palette.paper;ctx.fillRect(0,0,canvas.width,canvas.height);}
+      ctx.lineJoin="round";ctx.lineCap="round";
+      const path = (points, close=false) => {
+        points.forEach((point,index)=>{const [x,y]=layout.project(point);if(index)ctx.lineTo(x,y);else ctx.moveTo(x,y);});
+        if(close)ctx.closePath();
+      };
+      const jobs=[];
+      const collect=(geometry,feature)=>{
+        if(geometry.type==="GeometryCollection")geometry.geometries.forEach(g=>collect(g,feature));
+        else if(geometry.type.startsWith("Multi"))geometry.coordinates.forEach(coordinates=>collect({type:geometry.type.slice(5),coordinates},feature));
+        else jobs.push({geometry,feature});
+      };
+      features.forEach(feature=>collect(feature.geometry,feature));
+      const order={Polygon:0,LineString:1,Point:2};jobs.sort((a,b)=>order[a.geometry.type]-order[b.geometry.type]);
+      for(const {geometry,feature} of jobs) {
+        const tags=feature.properties?.tags||{},kind=feature.properties?.kind;
+        const color=options.style==="map" && /^#[0-9a-f]{6}$/iu.test(feature.properties?.color||tags.colour||"")
+          ? (feature.properties.color||tags.colour) : palette[kind]||palette.point;
+        ctx.setLineDash([]);ctx.strokeStyle=palette.ink;ctx.lineWidth=1.2*scale;ctx.fillStyle=color;
+        if(geometry.type==="Polygon") {
+          ctx.beginPath();geometry.coordinates.forEach(ring=>path(ring,true));ctx.fill("evenodd");ctx.stroke();
+        } else if(geometry.type==="LineString") {
+          const road=kind==="road",width=(road?(["motorway","trunk"].includes(tags.highway)?5:3.5):2)*scale;
+          ctx.beginPath();path(geometry.coordinates);ctx.strokeStyle=palette.ink;ctx.lineWidth=width+1.5*scale;ctx.stroke();
+          ctx.strokeStyle=color;ctx.lineWidth=width;
+          if(kind==="railway" || tags.construction || tags.proposed || feature.properties?.status==="proposed")ctx.setLineDash([6*scale,4*scale]);
+          ctx.stroke();
+        } else if(geometry.type==="Point") {
+          const [x,y]=layout.project(geometry.coordinates);ctx.beginPath();ctx.arc(x,y,4*scale,0,Math.PI*2);ctx.fill();ctx.stroke();
+        }
+      }
+      if(options.labels) {
+        ctx.setLineDash([]);ctx.font=`${12*scale}px system-ui, sans-serif`;ctx.textBaseline="middle";
+        ctx.strokeStyle=palette.halo;ctx.fillStyle=palette.ink;ctx.lineWidth=3*scale;
+        const occupied=[];
+        const first=geometry=>!geometry?undefined:geometry.type==="GeometryCollection"?first(geometry.geometries[0])
+          : geometry.type==="Point"?geometry.coordinates
+          : geometry.type==="MultiPolygon"?geometry.coordinates[0]?.[0]?.[0]
+          : ["MultiLineString","Polygon"].includes(geometry.type)?geometry.coordinates[0]?.[0]:geometry.coordinates[0];
+        for(const feature of features) {
+          const name=String(feature.properties?.name||feature.properties?.tags?.name||"").slice(0,80),anchor=first(feature.geometry);
+          if(!name||!anchor)continue;
+          const point=layout.project(anchor),x=point[0]+7*scale,y=point[1]-7*scale,w=ctx.measureText(name).width,h=16*scale;
+          const box={x,y:y-h/2,w,h};
+          if(x+w>canvas.width-6*scale||y<h||y>canvas.height-35*scale||occupied.some(b=>x<b.x+b.w&&x+w>b.x&&box.y<b.y+b.h&&box.y+h>b.y))continue;
+          ctx.strokeText(name,x,y);ctx.fillText(name,x,y);occupied.push(box);
+          if(occupied.length>=200)break;
+        }
+      }
+    } finally {ctx.restore();}
+  }
+  root.HuayuMapExport={MIN_RESOLUTION,MAX_RESOLUTION,resolution,polygon,mask,flatten,attribution,vectorCanvas,waitForMap,featureLayout,drawFeatures};
 })(typeof window!=="undefined"?window:globalThis);

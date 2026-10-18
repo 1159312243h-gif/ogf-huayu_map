@@ -165,7 +165,7 @@
           </div>
           <p id="feature-pick-status" class="view-status" aria-live="polite" hidden></p>
           <section id="feature-candidates" aria-label="点击位置的候选物体" hidden><h2>选择目标物体</h2><div id="feature-candidate-list" class="feature-object-list"></div></section>
-          <button id="feature-open-queue" class="text-button" type="button" hidden>查看物体下载清单</button>
+          <button id="feature-open-queue" class="text-button" type="button" hidden>查看下载清单</button>
           <div class="panel-section location-section">
             <i data-lucide="map-pin" aria-hidden="true"></i>
             <div><h2 id="location-heading">已选择地点</h2><p id="location-description">点击地图任意位置可查看坐标，并生成可分享的视图链接。</p></div>
@@ -187,7 +187,7 @@
             </div>
             <div class="boundary-selection-actions">
               <button id="boundary-select-area" class="secondary-button" type="button" hidden><i data-lucide="search" aria-hidden="true"></i>选择行政区</button>
-              <button id="boundary-add-selection" class="secondary-button" type="button"><i data-lucide="list-plus" aria-hidden="true"></i>加入下载清单</button>
+              <button id="boundary-add-selection" class="secondary-button" type="button"><i data-lucide="list-plus" aria-hidden="true"></i>添加到行政区组合</button>
               <button id="boundary-clear-selections" class="text-button" type="button" hidden>清空多选</button>
             </div>
             <div id="boundary-selection-list" class="boundary-selection-list" aria-live="polite"></div>
@@ -248,7 +248,7 @@
                 </div>
                 <p class="boundary-resolution-note">PNG / TIF 的轮廓外透明，JPG 为白色；行政区孔洞会保留。</p>
               </div>
-              <p id="boundary-extent-status" class="boundary-extent-status" aria-live="polite">将使用下载清单内所有行政区的联合范围。</p>
+              <p id="boundary-extent-status" class="boundary-extent-status" aria-live="polite">将使用行政区组合与当前选择的联合范围。</p>
             </fieldset>
             <div class="boundary-resolution-row">
               <label for="boundary-resolution">图片分辨率（长边）</label>
@@ -275,14 +275,14 @@
                 <option value="shp">SHP（ZIP）</option>
                 <option value="osm">OSM XML</option>
               </select>
-              <button id="boundary-download-button" class="primary-button" type="button"><i data-lucide="download" aria-hidden="true"></i>下载</button>
+              <button id="boundary-download-button" class="primary-button" type="button"><i data-lucide="list-plus" aria-hidden="true"></i>加入下载清单</button>
             </div>
             <p id="boundary-format-note" class="boundary-export-note">下载包含所选边界与已确认的行政中心。数据来自 OpenGeofiction。</p>
           </section>
         </section>
 
         <section id="download-view" class="panel-view" data-view="download" hidden>
-          <div class="boundary-resolution-row"><label for="download-content-mode">下载内容</label><select id="download-content-mode"><option value="map">底图与行政区</option><option value="objects">地图物体与下载清单</option></select></div>
+          <div class="boundary-resolution-row"><label for="download-content-mode">添加内容</label><select id="download-content-mode"><option value="map">底图与行政区</option><option value="objects">地图物体</option></select><p class="boundary-resolution-note">选择内容后加入下方同一份清单，可混合打包下载。</p></div>
           <section id="feature-download-panel" hidden>
             <fieldset class="boundary-extent-fieldset"><legend>按范围与类型选择</legend>
               <div class="boundary-resolution-row"><label for="feature-range">范围</label><select id="feature-range"><option value="view">当前地图范围</option><option value="rectangle">矩形框选</option><option value="polygon">手绘多边形</option><option value="administrative">已选行政区轮廓</option></select></div>
@@ -298,15 +298,24 @@
               <div id="feature-query-results" class="feature-object-list"></div>
             </fieldset>
             <label class="boundary-toggle-option"><input id="feature-pick-map" type="checkbox" /><span><strong>在地图上点选物体</strong><small>点击目标后查看轮廓与属性，再点击“加入下载”</small></span></label>
-            <fieldset class="boundary-extent-fieldset"><legend id="feature-queue-heading">物体下载清单 · 0 个</legend>
-              <p class="boundary-resolution-note">可混合加入不同类型。按原始对象去重；读取失败保留已有清单。单次最多 2000 个，过大时请缩小范围分批下载。清单在本页会话中保留，刷新前请先下载。</p>
+          </section>
+            <fieldset id="download-queue" class="boundary-extent-fieldset"><legend id="feature-queue-heading">下载清单 · 0 项</legend>
+              <p class="boundary-resolution-note">底图、行政区与地物共用清单。底图和行政区保存加入时的范围、格式与选项；地物按下方设置合并导出。多个文件自动打包 ZIP。最多 2000 项，其中底图／行政区任务最多 10 项。清单仅保留在本页，刷新前请先下载。</p>
               <div id="feature-queue-list" class="feature-object-list" aria-live="polite"></div>
-              <button id="feature-clear-queue" class="text-button" type="button" disabled>清空物体清单</button>
-              <div class="boundary-resolution-row"><label for="feature-export-format">文件格式</label><select id="feature-export-format"><option value="geojson">GeoJSON · 完整几何与标签</option><option value="shp">Shapefile ZIP · 点 / 线 / 面</option><option value="osm">OSM XML · 原始对象与依赖</option><option value="csv">CSV · 属性与几何表</option></select></div>
-              <button id="feature-export-button" class="primary-button boundary-full-button" type="button" disabled>下载清单中的物体</button>
+              <button id="feature-clear-queue" class="text-button" type="button" disabled>清空下载清单</button>
+              <div id="feature-output-options">
+              <div class="boundary-resolution-row"><label for="feature-export-format">地物导出格式</label><select id="feature-export-format"><option value="geojson">GeoJSON · 完整几何与标签</option><option value="shp">Shapefile ZIP · 点 / 线 / 面</option><option value="osm">OSM XML · 原始对象与依赖</option><option value="csv">CSV · 属性与几何表</option><option value="png">PNG · 地物图片</option><option value="jpg">JPG · 地物图片</option><option value="tif">GeoTIFF · 地物图片与空间参考</option></select></div>
+              <div id="feature-image-options" hidden>
+                <div class="boundary-resolution-row"><label for="feature-image-style">地物渲染风格</label><select id="feature-image-style"><option value="map">地图配色</option><option value="night">深夜配色</option><option value="blueprint">蓝图</option><option value="monochrome">黑白线稿</option></select></div>
+                <div class="boundary-resolution-row"><label for="feature-image-background">图片背景</label><select id="feature-image-background"><option value="transparent">透明（JPG 为白色）</option><option value="paper">风格底色</option><option value="huayu">华域标准</option><option value="huayu-night">华域深夜</option><option value="huayu-satellite">华域模拟卫星（非实拍）</option><option value="carto">OGF-Carto US</option><option value="carto-gb">OGF-Carto GB</option></select></div>
+                <div class="boundary-resolution-row"><label for="feature-image-resolution">图片分辨率（长边）</label><select id="feature-image-resolution"><option value="800">800 像素</option><option value="1200">1200 像素</option><option value="1600">1600 像素</option><option value="2400" selected>2400 像素</option><option value="3200">3200 像素</option><option value="4800">4800 像素</option><option value="6400">6400 像素</option><option value="8192">8192 像素</option><option value="custom">自定义</option></select><label id="feature-image-custom-label" for="feature-image-custom" hidden>自定义长边（512–8192 像素）<input id="feature-image-custom" type="number" min="512" max="8192" step="1" value="3600" /></label></div>
+                <label class="boundary-toggle-option"><input id="feature-image-labels" type="checkbox" checked /><span><strong>显示地物名称</strong><small>保留真实轮廓与孔洞；样式仅作用于导出，不改变主地图</small></span></label>
+                <p id="feature-image-note" class="boundary-resolution-note" aria-live="polite"></p>
+              </div>
+              </div>
+              <button id="feature-export-button" class="primary-button boundary-full-button" type="button" disabled>下载整个清单</button>
               <p id="feature-export-status" class="view-status" aria-live="polite" hidden></p>
             </fieldset>
-          </section>
         </section>
 
         <section id="settings-view" class="panel-view" data-view="settings" hidden>
@@ -321,7 +330,7 @@
           <fieldset class="render-settings-section">
             <legend>植被模型</legend>
             <label class="render-setting-field" for="setting-tree-model"><span>树木模型</span>
-              <select id="setting-tree-model"><option value="classic">经典柱形</option><option value="natural">自然树冠</option></select>
+              <select id="setting-tree-model"><option value="classic">经典柱形</option><option value="tiered">双层柱形</option><option value="natural">自然树冠</option></select>
             </label>
             <label class="render-setting-field" for="setting-vegetation-density"><span>面状植被密度</span>
               <select id="setting-vegetation-density"><option value="light">疏朗</option><option value="standard">适中</option><option value="dense">茂密</option></select>
@@ -724,7 +733,7 @@
               <h3>搜索地名或坐标</h3>
               <p>在顶部搜索框输入名称并搜索；同名地点按所在地区选择。坐标按“纬度,经度”输入，例如 <code>14.634,152.958</code>。最近搜索可再次使用或清空；登录后搜索记录跟随账号同步，收藏地点还可按个人名称、标签查找。</p>
               <h3>查看行政区和下级区划</h3>
-              <p>搜索并选中实际行政区后，可查看边界、加入行政区下载清单。点击“查看下级行政层级”，勾选需要的层级再加载；已加载的下级行政区可点击进入，并可查看面积。导出区域、边界和底图的操作见“范围、下载与贴图”。</p>
+              <p>搜索并选中实际行政区后，可查看边界、添加到行政区组合。点击“查看下级行政层级”，勾选需要的层级再加载；已加载的下级行政区可点击进入，并可查看面积。导出区域、边界和底图的操作见“范围、下载与贴图”。</p>
               <h3>距离、面积与角度</h3>
               <p>打开“测量”并选择测距或测面积，依次点击地图添加点。测距至少 2 点，面积至少 3 点；结果包含距离或面积、周长及点数。测距时还可查看末段方位角与最近夹角；正北为 0°，顺时针计角。“撤销”退回一步，“完成”结束本次绘制，“清除”重新开始。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="search">前往搜索</button><button class="secondary-button" type="button" data-action="measure">前往测量</button></div>
@@ -743,7 +752,7 @@
               <p>在线路页上方搜索城市，选择有实际行政边界的结果。可分别筛选地铁、轻轨／单轨、有轨电车、市域铁路和普通铁路／城际，调整边界外缓冲，逐条开关线路；点击缩略图可放大、平移和缩放。</p>
               <p>“纳入在建线路”“纳入规划线路”默认关闭；开启后分别以长虚线、点虚线区分，不代表已通车。线路图可显示货运站，但货运站不作为客运导航站点。底图可选择简洁背景、华域或 OGF，和线路一起导出 PNG、SVG 或 GeoJSON。</p>
               <h3>把线路放入下载清单</h3>
-              <p>可将单条线路或当前可见线路与站点加入下载清单，再到“下载 → 地图物体与下载清单”导出 GeoJSON、SHP 或 CSV。清单沿用当前线路、建设状态与范围筛选；线路图数据可能按边界截断，含此类数据时不能导出原始 OSM。</p>
+              <p>可将单条线路或当前可见线路与站点加入下载清单，再到“下载”下方的统一清单导出 GeoJSON、SHP、CSV 或地物图片。清单沿用当前线路、建设状态与范围筛选；线路图数据可能按边界截断，含此类数据时不能导出原始 OSM。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="directions">前往导航</button><button class="secondary-button" type="button" data-action="transit">前往线路</button></div>
             </div>
           </details>
@@ -751,15 +760,17 @@
           <details id="help-ranges" class="help-topic" data-help-section open>
             <summary><span>范围、下载与贴图<small>选中一块区域，下载地图或放置自己的图片</small></span></summary>
             <div class="help-topic-content">
-              <p class="help-callout">先确定用途：保存地图画面选“底图与行政区”；获取建筑、道路等数据选“地图物体与下载清单”；把自己的图片放到地图上选“贴图”。这些功能都使用地理范围，但范围需在各自面板中设置。</p>
+              <p class="help-callout">“底图与行政区”和“地图物体”共用页面下方的下载清单，两类内容都可加入。下载整个清单时，多个文件自动合并为 ZIP。把自己的图片放到地图上则选“贴图”；上传范围需在贴图面板中设置。</p>
               <h3>① 确定范围</h3>
               <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
               <h3>② 下载底图与行政区</h3>
               <p>进入“下载 → 底图与行政区”，按需勾选“同步下载底图”，选择华域标准、深夜、模拟卫星或 OGF-Carto US／GB。可独立控制地理坐标信息、行政中心点、高亮边界和建筑模型；OGF 栅格图中已有的建筑或地名无法单独去掉，模拟卫星始终为平面表达。</p>
               <p>图片长边可选 800–8192 像素，或自定义 512–8192 整数像素；界面会显示实际尺寸。格式包含 PNG、JPG、带地理参考的 TIF，以及行政边界 SHP ZIP、OSM XML。按轮廓裁切时，PNG／TIF 外部透明、JPG 外部为白色；更高输出分辨率仍受源数据细节限制。</p>
               <h3>③ 下载范围内物体或任意选中物体</h3>
-              <p>切换“地图物体与下载清单”，选择范围、大类和细分类。建筑可细分住宅、商业、办公、工业等；也可叠加名称关键词、完全匹配，或填写原始标签名与标签值。点击“读取范围内物体”，确认结果后全部加入清单。</p>
-              <p>单个物体可在地图上点选、查看候选与属性后“加入下载”。清单可混合不同类型并自动去重，可逐项移除或清空，再导出 GeoJSON、SHP ZIP、CSV 或原始 OSM XML。与范围相交的原始物体保留完整几何；单批最多 2000 个，过大请缩小范围分批。物体清单仅在当前页面会话保留，刷新前先下载保存。</p>
+              <p>多选行政区时先“添加到行政区组合”；设置好范围、格式和样式后，点击“加入下载清单”。每项保存加入时的范围与选项，之后移动地图不改变该任务；可继续加入其他范围，最后在下方“下载整个清单”。</p>
+              <p>切换“地图物体”，选择范围、大类和细分类。建筑可细分住宅、商业、办公、工业等；也可叠加名称关键词、完全匹配，或填写原始标签名与标签值。点击“读取范围内物体”，确认结果后全部加入清单。</p>
+              <p>单个物体可在地图上点选、查看候选与属性后“加入下载”。地物可合并导出 GeoJSON、SHP ZIP、CSV 或原始 OSM XML，也可选 PNG、JPG、GeoTIFF 图片。图片提供地图配色、深夜、蓝图、黑白线稿，可选透明、风格底色或华域／OGF 底图，设置名称与分辨率。地物图片独立平面制图，保留完整轮廓、孔洞与多段几何，自动容纳全部选中地物；GeoTIFF 带 EPSG:3857 空间参考，JPG 透明处为白色。渲染风格只影响导出，不改变主地图或原始矢量数据。</p>
+              <p>清单去重，可逐项移除或清空；最多 2000 项，其中底图／行政区任务最多 10 项。打包文件上限 256 MiB，过大时减少任务或分辨率后分批下载。读取或下载失败保留清单；清单仅在当前页面会话保留，刷新前先下载保存。</p>
               <h3>④ 上传图片并调整放置范围</h3>
               <p>先登录，再打开“贴图”、选择图片并设置名称与透明度。可填写西／东经度、南／北纬度后点击“应用坐标”，或点击“框选范围”在地图上绘制；范围与图片会先在本机预览，点击“上传贴图”才保存到账号。</p>
               <ul>
@@ -792,9 +803,13 @@
             <summary><span>渲染设置与模型<small>植被、建筑材质、桥梁和替代模型</small></span></summary>
             <div class="help-topic-content">
               <h3>植被与恢复默认</h3>
-              <p>“设置”可选择经典柱形或自然树冠，调整面状植被密度，单独开关花园花簇。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
+              <p>“设置”可选择经典柱形、双层柱形或自然树冠，调整面状植被密度，单独开关花园花簇。经典样式中普通树木为单层圆柱，花园观赏树保留原先略有偏移的双层树冠；可选“双层柱形”的上下树冠居中对齐。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
               <h3>建筑材质与屋顶</h3>
               <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和支持的屋顶形状标签显示。倾斜近景可查看适用建筑的双坡、四坡等屋顶；缺少标签或不适用的轮廓使用已有模型，不根据名称猜测材质或形状。</p>
+              <h3>摩天轮与停车场</h3>
+              <p>近景中，明确标注的摩天轮在倾斜视角显示轮圈、辐条、支架与吊舱，优先读取高度、直径和方向；缺少尺寸时采用示意尺寸。露天停车场显示边界、P 标识及范围内的车位线，并避开已标注停车通道；自动车位线仅为示意，不代表真实布局、车位总数或余位。停车楼沿用已有建筑模型，地下、屋顶及有顶停车区域不生成露天车位。模拟卫星保留原有平面表达。</p>
+              <h3>室外公厕与售卖亭</h3>
+              <p>近景倾斜视角中，独立的厕所点可显示小型公厕，商店、咖啡店、快餐、冰淇淋店及餐馆点可显示带遮棚和售卖窗的小亭。仅在建筑与近景底图数据完整后补充，已有建筑或同类设施面覆盖的点，以及明确标为室内、地下、屋顶或其他楼层的点保留原有表达；新模型按完整占地避开已知道路、铁路、水体、建筑、亭子及本批小模型。未标尺寸、方向时可在原点位转向或缩小以适应可用空间，明确标注的参数保持不变；仍放不下时保留原图标。尺寸、外观缺少标注时为制图示意，不代表真实建筑；实际点位、图标、名称和原始数据不变。俯视、模拟卫星或模型失败时继续显示原有标识。</p>
               <h3>桥梁与立交</h3>
               <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。俯视仍显示平面道路。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
               <h3>模型替代方案与本机导入</h3>
@@ -938,16 +953,17 @@
     <script src="./lucide.min.js"></script>
     <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-assets.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./vegetation-models.js?v=7.1-huayu-model-options-v1"></script>
+    <script src="./vegetation-models.js?v=7.5-tree-styles-v1"></script>
+    <script src="./facility-models.js?v=7.5-parking-style-v1"></script>
     <script src="./structure-models.js?v=7.1-building-material-roofs-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./building-roofs.js?v=7.1-building-material-roofs-v1"></script>
+    <script src="./building-roofs.js?v=7.5-gable-colors-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
-    <script src="./map-export.js?v=7.1-map-export-v1"></script>
+    <script src="./map-export.js?v=7.5-download-list-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.5-atlas-loading-v1"></script>
+    <script src="./app.js?v=7.5-wall-gates-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>

@@ -4,9 +4,11 @@ import vm from "node:vm";
 import worker, {featureDataQuery} from "../site/_worker.js";
 
 const moduleSource=await readFile(new URL("../site/feature-data.js",import.meta.url),"utf8");
+const exportSource=await readFile(new URL("../site/map-export.js",import.meta.url),"utf8");
 const app=await readFile(new URL("../site/app.js",import.meta.url),"utf8");
-const context=vm.createContext({TextEncoder,Blob,Map,Set,AbortController,URLSearchParams});
+const context=vm.createContext({TextEncoder,Blob,Map,Set,AbortController,URLSearchParams,structuredClone});
 context.window=context;vm.runInContext(moduleSource,context);
+vm.runInContext(exportSource,context);
 const F=context.HuayuFeatures;
 const nodes=[[0,0],[4,0],[4,4],[0,4],[1,1],[2,1],[2,2],[1,2],[6,6]].map(([lon,lat],i)=>({type:"node",id:i+1,lon,lat}));
 nodes[8].tags={amenity:"bench",name:"=测试长椅"};
@@ -104,13 +106,17 @@ const controls={featureExportFormat:control("shp"),featureExportStatus:control()
   featureClearQueue:control(),featureExportButton:control(),featureReadRange:control(),featureAddResults:control(),featureQueryResults:control(),featureQueryStatus:control(),
   featureKind:control("building"),featureTag:control(),featureTagValue:control(),featureOpenQueue:control(),
   featureSubtype:control(),featureName:control(),featureNameMode:control("contains")};
+Object.assign(controls,{featureOutputOptions:control(),featureImageOptions:control(),featureImageStyle:control("map"),
+  featureImageBackground:control("transparent"),featureImageResolution:control("1200"),featureImageCustom:control("3600"),
+  featureImageCustomLabel:control(),featureImageLabels:{checked:true},featureImageNote:control()});
 const downloads=[],queue=new Map();
 Object.assign(context,{elements:controls,featureDownloadQueue:queue,document:{createElement:()=>({append(){},addEventListener(){}})},
   setStatus:(_,message,error)=>{if(error)throw Error(message);},showToast:()=>{},downloadBlob:(blob,name)=>downloads.push({blob,name}),
+  featureExportBusy:false,administrativeExportBusy:false,updateAdministrativeExportAvailability:()=>{},
   featureRangeSequence:0,featureRangeController:null,featureRangeResult:null});
 for(const name of ["activeAdministrativeFeatureBounds","encodeAdministrativeShapefileLayer","administrativeShapeRecord","sameAdministrativeCoordinate",
   "administrativeSignedArea","encodeAdministrativeShapeContent","writeShapefileHeader","encodeAdministrativeDbf","encodeDbfText","administrativeLevelLabel",
-  "buildStoredZip","crc32","featureObjectRow","addFeatureDownloadEntries","renderFeatureDownloadQueue","downloadFeatureQueue","invalidateFeatureRange","readFeatureDownloadRange"]) {
+  "buildStoredZip","crc32","featureObjectRow","addFeatureDownloadEntries","renderFeatureDownloadQueue","featureImageSettings","downloadFeatureQueue","buildFeatureDownload","renderFeatureDownloadImage","invalidateFeatureRange","readFeatureDownloadRange"]) {
   const source=app.match(new RegExp(`  (?:async )?function ${name}\\([^]*?\\n  \\}`,"u"))?.[0];assert.ok(source,name);vm.runInContext(source,context);
 }
 context.addFeatureDownloadEntries([selectedRoad,selectedBuilding,F.entry(data,bench),selectedRoad]);
@@ -129,6 +135,84 @@ for(const format of ["geojson","osm","csv"]) {controls.featureExportFormat.value
 const downloadedJSON=JSON.parse(await downloads[1].blob.text());
 assert.equal(downloadedJSON.features.length,3);assert.equal(downloadedJSON.features[1].properties.tags.building,"yes");
 assert.equal(queue.size,3,"下载后保留清单供其他格式下载");
+
+// Full extents, including collections and every multipolygon part, drive fitting.
+const multi={...building,id:"derived/multi",geometry:{type:"MultiPolygon",coordinates:[building.geometry.coordinates[0],
+  [[[10,10],[11,10],[11,11],[10,11],[10,10]]]]}};
+const allImages=[road,bench,multi,mixed.features[0]];
+const imageBefore=JSON.stringify(allImages),M=context.HuayuMapExport;
+for(const size of [512,800,1200,2400,8192]) {
+  const layout=M.featureLayout(allImages,size);
+  assert.equal(Math.max(layout.width,layout.height),size);
+  for(const coordinate of [[0,0],[11,11],[6,6]]) {
+    const [x,y]=layout.project(coordinate);
+    assert.ok(x>0&&x<layout.width&&y>0&&y<layout.height,"full objects are inside the image, never cut at query bounds");
+    const mercatorX=coordinate[0]*Math.PI*6378137/180;
+    const mercatorY=Math.log(Math.tan(Math.PI/4+coordinate[1]*Math.PI/360))*6378137;
+    assert.ok(Math.abs(layout.geoReference.tieLon+x*layout.geoReference.pixelScaleX-mercatorX)<1e-7);
+    assert.ok(Math.abs(layout.geoReference.tieLat-y*layout.geoReference.pixelScaleY-mercatorY)<1e-7,"pixel reference agrees with draw projection");
+  }
+}
+for(const feature of [bench,{...road,geometry:{type:"LineString",coordinates:[[0,0],[0,4]]}}]) {
+  const layout=M.featureLayout([feature],800);assert.ok(layout.width>=240&&layout.height>=240,"single points/straight lines retain space for symbols and attribution");
+}
+assert.throws(()=>M.featureLayout([bench],511));
+assert.throws(()=>M.featureLayout([{geometry:{type:"Point",coordinates:[0,89]}}]));
+assert.throws(()=>M.featureLayout([{geometry:{type:"MultiPoint",coordinates:[[-179,0],[179,0]]}}]),/180/);
+const fills=[],strokes=[],texts=[];
+const ctx=new Proxy({fill(rule){fills.push(rule);},stroke(){strokes.push(this.strokeStyle);},fillText(text){texts.push(text);},measureText:()=>({width:40})},
+  {get:(target,key)=>key in target?target[key]:()=>{}});
+const canvas={width:1200,height:1200,getContext:()=>ctx};
+const layout=M.featureLayout(allImages,1200);
+for(const style of ["map","night","blueprint","monochrome"])M.drawFeatures(canvas,allImages,layout,{style,labels:false,background:"transparent"});
+assert.ok(fills.filter(rule=>rule==="evenodd").length>=8,"holes stay empty in each polygon part, in every style");
+assert.ok(new Set(strokes).size>=4,"render styles produce distinct actual strokes");assert.equal(texts.length,0,"labels toggle is respected");
+assert.equal(JSON.stringify(allImages),imageBefore,"rendering must not rewrite geometry or source tags");
+
+// A map task shares the list, but is never inserted into object OSM/GeoJSON.
+controls.featureExportFormat.value="osm";
+const mapEntry={id:"map/test",elements:[],mapExport:{title:"范围 A",format:"png",options:{resolution:800},features:[]}};
+let builtMaps=0;
+context.buildAdministrativeDownload=async job=>{builtMaps++;assert.equal(job.title,"范围 A");return {blob:new Blob(["map-image"]),name:"地图.png",message:"完成",warning:false};};
+context.addFeatureDownloadEntries([mapEntry,mapEntry]);assert.equal(queue.size,4);
+mapEntry.mapExport.title="后来修改的范围";
+assert.equal(queue.get("map/test").mapExport.title,"范围 A","queued map settings are immutable snapshots");
+const mixedStart=downloads.length;await context.downloadFeatureQueue();
+assert.equal(builtMaps,1);assert.match(downloads.at(-1).name,/下载清单.zip$/);
+const archive=new TextDecoder().decode(await downloads.at(-1).blob.arrayBuffer());
+for(const text of ["地图.png",".osm","download-list.json","<way id=\"10\"","范围 A"])assert.ok(archive.includes(text),text);
+assert.ok(!archive.includes('<node id="map/'),"map bounds must not be fabricated as OSM objects");
+assert.equal(downloads.length,mixedStart+1,"mixed export downloads one ZIP");
+const preserved=JSON.stringify([...queue]);
+context.addFeatureDownloadEntries(Array.from({length:10},(_,i)=>({...mapEntry,id:`map/${i}`})));
+assert.equal(JSON.stringify([...queue]),preserved,"map batch limit rejects atomically");
+let lastError="";context.setStatus=(_,message,error)=>{if(error)lastError=message;};
+context.buildAdministrativeDownload=async()=>{throw Error("模拟背景下载失败");};
+const failedStart=downloads.length;await context.downloadFeatureQueue();
+assert.equal(downloads.length,failedStart);assert.match(lastError,/清单已保留/);
+assert.equal(JSON.stringify([...queue]),preserved);assert.equal(context.featureExportBusy,false,"failure releases export lock");
+// Changes during a pending map render apply only to a future batch.
+let releaseMap,exportedBatch;
+const realBuild=context.buildFeatureDownload;
+context.buildAdministrativeDownload=()=>new Promise(resolve=>{releaseMap=()=>resolve({blob:new Blob(["map"]),name:"map.png"});});
+context.buildFeatureDownload=async(entries,format,settings)=>{
+  exportedBatch={entries,format,settings};return {blob:new Blob(["objects"]),name:"objects.png"};
+};
+controls.featureExportFormat.value="png";controls.featureImageStyle.value="blueprint";
+const exporting=context.downloadFeatureQueue();
+controls.featureExportFormat.value="csv";controls.featureImageStyle.value="night";
+queue.get("way/10").feature.properties.name="下载期间更改的名称";
+releaseMap();await exporting;
+assert.equal(exportedBatch.format,"png");assert.equal(exportedBatch.settings.style,"blueprint");
+assert.equal(exportedBatch.entries.find(e=>e.feature.id==="way/10").feature.properties.name,"测试路");
+context.buildFeatureDownload=realBuild;
+queue.get("way/10").feature.properties.name="测试路";
+queue.delete("map/test");
+// Incomplete image backgrounds reject export and release the offscreen canvas.
+const failedCanvas={width:1200,height:1200};
+context.renderAdministrativeBasemapCanvas=async()=>({canvas:failedCanvas,missingTiles:1});
+await assert.rejects(context.renderFeatureDownloadImage([road],"png",{background:"carto",resolution:1200,style:"map"},"test"),/背景瓦片/);
+assert.equal(failedCanvas.width,0);assert.equal(failedCanvas.height,0);
 
 // A late response after changing range must never replace the current result or queue.
 let finish;

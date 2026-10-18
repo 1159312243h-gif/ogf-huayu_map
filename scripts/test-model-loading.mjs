@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import {courtyardGateWays} from "./fixtures/wall-gates.mjs";
 
 const source = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
 const declaration = name => {
@@ -68,7 +69,9 @@ const elements = [closedWay(1, {building:"yes", name:"兰亭大厦", color:"FFAA
   {type:"node", id:3, lon:0.002, lat:0.001, tags:{leisure:"gazebo", height:"3.5"}},
   {type:"way", id:4, tags:{barrier:"wall", height:"2"},
     geometry:[{lon:0,lat:0},{lon:0.001,lat:0.001}]},
-  closedWay(5, {building:"roof", amenity:"shelter", shelter_type:"public_transport"}, 0.003)];
+  closedWay(5, {building:"roof", amenity:"shelter", shelter_type:"public_transport"}, 0.003),
+  closedWay(6, {building:"yes", amenity:"shelter", height:"5"}, 0.004),
+  {type:"node",id:7,lon:0.005,lat:0.001,tags:{amenity:"shelter"}},...courtyardGateWays];
 const text = JSON.stringify({elements});
 for (const kind of ["building", "structure"]) {
   const prepared = await request({action:"decode", kind, text});
@@ -82,8 +85,14 @@ for (const kind of ["building", "structure"]) {
     assert.equal(prepared.data.features.length, 1);
     assert.equal(prepared.data.features[0].properties.color, "#ffaa00");
   } else {
-    assert.equal(prepared.pavilionData.features.length, 6);
+    assert.equal(prepared.pavilionData.features.length, 12);
+    assert.ok(prepared.pavilionData.features.some(feature=>feature.properties.osmId==="6"
+      && feature.properties.pavilionPart==="roof" && feature.properties.renderHeight===5
+      && feature.properties.renderMinHeight>4),"background decoding preserves the newly supported open shelter");
     assert.ok(prepared.wallData.features.length > 0);
+    const gate=prepared.wallData.features.find(feature=>feature.properties.wallPart==="gate-lintel");
+    assert.equal(gate?.properties.osmId,"41637302");
+    assert.equal(gate.properties.minHeight,3.2,"background decoding retains real opening clearance");
   }
   const entry = {...prepared, loadedAt:Date.now(), cachedAt:Date.now()};
   assert.equal(await request({action:"write", kind, key:"15/123/456", entry}), true);

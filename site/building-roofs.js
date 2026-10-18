@@ -139,6 +139,44 @@
       .filter((item) => item.triangles.length);
   }
 
+  // Continue the native fill-extrusion wall above its eaves. MapLibre shades
+  // sRGB vertex colours directly; Three's Lambert material uses linear colours
+  // and different lights, so even identical tags previously produced a seam.
+  // Keep this equation in step with the bundled MapLibre 5.24 fillExtrusion shader.
+  const WALL_VERTEX_SHADER = `
+    precision highp float;
+    uniform mat4 projectionMatrix;
+    uniform mat4 modelViewMatrix;
+    uniform vec3 wallLightPosition;
+    uniform vec3 wallLightColor;
+    uniform float wallLightIntensity;
+    uniform float wallVerticalGradient;
+    attribute vec3 position;
+    attribute vec3 normal;
+    attribute vec3 color;
+    attribute vec2 wallHeights;
+    varying vec3 wallColor;
+    void main() {
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      float colorValue = dot(color, vec3(0.2126, 0.7152, 0.0722));
+      float directional = clamp(dot(normal, wallLightPosition), 0.0, 1.0);
+      directional = mix(1.0-wallLightIntensity, max(1.0-colorValue+wallLightIntensity, 1.0), directional);
+      if (normal.y != 0.0) {
+        // The native wall's top-edge brightness continues over the whole
+        // gable, rather than restarting a second vertical gradient there.
+        float topShade = clamp((1.0+wallHeights.x)*sqrt(max(0.0,wallHeights.y)/150.0),
+          mix(0.7,0.98,1.0-wallLightIntensity), 1.0);
+        directional *= mix(1.0, topShade, wallVerticalGradient);
+      }
+      wallColor = clamp((color+vec3(0.03))*directional*wallLightColor,
+        mix(vec3(0.0),vec3(0.3),vec3(1.0)-wallLightColor),vec3(1.0));
+    }`;
+  const WALL_FRAGMENT_SHADER = `
+    precision highp float;
+    uniform float wallOpacity;
+    varying vec3 wallColor;
+    void main() { gl_FragColor = vec4(wallColor,1.0)*wallOpacity; }`;
+
   class Controller {
     constructor(map, options) {
       this.map = map; this.options = options; this.data = null; this.items = []; this.alive = true;
@@ -220,6 +258,7 @@
               if (!owner.layer?.enabled || !owner.mesh || !owner.origin || !owner.renderer) return;
               const matrix = args?.defaultProjectionData?.mainMatrix || args?.projectionMatrix || args;
               owner.camera.projectionMatrix.fromArray(matrix).multiply(owner.transform);
+              owner.updateWallLighting();
               owner.renderer.resetState();
               owner.renderer.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
               owner.renderer.render(owner.scene, owner.camera); owner.renderer.resetState();
@@ -256,33 +295,89 @@
       this.scale = this.origin.meterInMercatorCoordinateUnits();
       this.transform = new T.Matrix4().makeTranslation(this.origin.x, this.origin.y, 0)
         .scale(new T.Vector3(this.scale, -this.scale, this.scale));
-      const positions = [], colors = [], color = new T.Color();
+      const batches = {roof:[], wall:[]}, color = new T.Color();
+      const nativePaint = this.map.style?.getLayer?.(this.options.buildingLayer)?.paint;
       for (const item of this.items) {
         const feature = item.feature, properties = feature.properties || {};
         const rings = polygons(feature), all = rings.flat();
         const center = all.reduce((sum, point) => [sum[0] + point[0] / all.length,
           sum[1] + point[1] / all.length], [0, 0]);
         const elevation = this.map.getTerrain?.() ? Number(this.map.queryTerrainElevation(center)) || 0 : 0;
+        const nativeColor = nativePaint?.get("fill-extrusion-color")?.evaluate(feature, {});
         for (const triangle of item.triangles) {
           color.set(taggedColor(properties, triangle.kind === "roof", this.options.night, this.options));
+          const rgb = triangle.kind === "wall"
+            ? nativeColor ? [nativeColor.r,nativeColor.g,nativeColor.b] : color.clone().convertLinearToSRGB().toArray()
+            : [color.r,color.g,color.b];
+          const vertices=[];
           for (const point of triangle.points) {
             const coordinate = root.maplibregl.MercatorCoordinate.fromLngLat(point);
             const ratio = coordinate.meterInMercatorCoordinateUnits() / this.scale;
-            positions.push((coordinate.x - this.origin.x) / this.scale,
-              -(coordinate.y - this.origin.y) / this.scale, (elevation + point[2]) * ratio);
-            colors.push(color.r, color.g, color.b);
+            vertices.push([(coordinate.x - this.origin.x) / this.scale,
+              -(coordinate.y - this.origin.y) / this.scale, (elevation + point[2]) * ratio]);
           }
+          let normal=[0,0,0];
+          if(triangle.kind === "wall") {
+            const [a,b,c]=vertices,ab=b.map((v,i)=>v-a[i]),ac=c.map((v,i)=>v-a[i]);
+            let nx=ab[1]*ac[2]-ab[2]*ac[1],ny=ab[2]*ac[0]-ab[0]*ac[2];
+            const face=triangle.points.reduce((sum,p)=>[sum[0]+p[0]/3,sum[1]+p[1]/3],[0,0]);
+            const footprint=rings.find(ring=>ring.some(point=>point[0]===triangle.points[0][0]
+              && point[1]===triangle.points[0][1]));
+            const wallCenter=footprint.reduce((sum,p)=>[sum[0]+p[0]/4,sum[1]+p[1]/4],[0,0]);
+            // GeoJSON tile rings are rewound by MapLibre. Its extrusion
+            // lighting normal points into the outer ring, in east/south axes.
+            // Match that convention independently of the source winding.
+            if(nx*(face[0]-wallCenter[0])+ny*(face[1]-wallCenter[1])>0) {nx=-nx;ny=-ny;}
+            const length=Math.hypot(nx,ny)||1;
+            normal=[(Math.floor(nx/length*8192)*2+1)/16384,Math.trunc(-ny/length*16384)/16384,0];
+          }
+          batches[triangle.kind].push({vertices,rgb,normal,heights:[Math.max(0,Number(properties.renderMinHeight)||0)
+            +elevation-(this.map.getTerrain?.() && !(Number(properties.renderMinHeight)>0)?10:0),Number(properties.roofBaseHeight)+elevation]});
         }
+      }
+      const positions=[],colors=[],heights=[],wallNormals=[];
+      for(const batch of [batches.roof,batches.wall])for(const triangle of batch)for(const vertex of triangle.vertices) {
+        positions.push(...vertex);colors.push(...triangle.rgb);heights.push(...triangle.heights);wallNormals.push(...triangle.normal);
       }
       if (!positions.length) return;
       const geometry = new T.BufferGeometry();
       geometry.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
       geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute("wallHeights", new T.Float32BufferAttribute(heights, 2));
       geometry.computeVertexNormals();
+      const roofVertices=batches.roof.length*3;
+      for(let i=roofVertices;i<positions.length/3;i++)geometry.attributes.normal.setXYZ(i,...wallNormals.slice(i*3,i*3+3));
+      geometry.addGroup(0,roofVertices,0);geometry.addGroup(roofVertices,batches.wall.length*3,1);
       const material = new T.MeshLambertMaterial({vertexColors: true, side: T.DoubleSide});
       material.depthTest = true; material.depthWrite = true;
-      this.mesh = new T.Mesh(geometry, material); this.mesh.frustumCulled = false;
+      this.wallMaterial = new T.RawShaderMaterial({vertexShader:WALL_VERTEX_SHADER,fragmentShader:WALL_FRAGMENT_SHADER,
+        side:T.DoubleSide,uniforms:{wallLightPosition:{value:new T.Vector3()},wallLightColor:{value:new T.Vector3(1,1,1)},
+          wallLightIntensity:{value:.5},wallVerticalGradient:{value:1},wallOpacity:{value:1}},
+        blending:T.CustomBlending,blendSrc:T.OneFactor,blendDst:T.OneMinusSrcAlphaFactor,depthTest:true,depthWrite:true});
+      this.mesh = new T.Mesh(geometry, [material,this.wallMaterial]); this.mesh.frustumCulled = false;
       this.geometry = geometry; this.material = material; this.scene.add(this.mesh);
+      this.updateWallLighting();
+    }
+
+    updateWallLighting() {
+      if(!this.wallMaterial)return;
+      // Read the same evaluated light and paint as the native wall, including
+      // light transitions and viewport-relative rotation, on each render.
+      const light=this.map.style?.light?.properties,settings=this.map.getLight?.()||{};
+      const [radius,azimuth,polar]=settings.position||[1.15,210,30];
+      const phi=polar*Math.PI/180,theta=(azimuth+90)*Math.PI/180;
+      const position=light?.get("position")||{x:radius*Math.cos(theta)*Math.sin(phi),y:radius*Math.sin(theta)*Math.sin(phi),z:radius*Math.cos(phi)};
+      const angle=(light?.get("anchor")||settings.anchor||"viewport")==="viewport"?(this.map.getBearing?.()||0)*Math.PI/180:0;
+      const uniforms=this.wallMaterial.uniforms,cos=Math.cos(angle),sin=Math.sin(angle);
+      uniforms.wallLightPosition.value.set(position.x*cos-position.y*sin,position.x*sin+position.y*cos,position.z);
+      const tint=light?.get("color");
+      if(tint)uniforms.wallLightColor.value.set(tint.r,tint.g,tint.b);
+      else {const color=new this.T.Color(settings.color||"#fff").convertLinearToSRGB();uniforms.wallLightColor.value.set(color.r,color.g,color.b);}
+      uniforms.wallLightIntensity.value=light?.get("intensity")??settings.intensity??.5;
+      const paint=this.map.style?.getLayer?.(this.options.buildingLayer)?.paint;
+      uniforms.wallVerticalGradient.value=paint?.get("fill-extrusion-vertical-gradient")===false?0:1;
+      const opacity=paint?.get("fill-extrusion-opacity")??1;
+      uniforms.wallOpacity.value=opacity;this.wallMaterial.transparent=opacity<1;
     }
 
     notify() {
@@ -295,6 +390,7 @@
     clearMesh() {
       if (this.mesh) this.scene?.remove(this.mesh);
       this.geometry?.dispose(); this.material?.dispose();
+      this.wallMaterial?.dispose();this.wallMaterial=null;
       this.mesh = null; this.geometry = null; this.material = null;
     }
 

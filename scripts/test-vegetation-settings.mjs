@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import * as THREE from "../site/three-0.160.1.module.min.js";
 
 const source = await readFile(new URL("../site/vegetation-models.js", import.meta.url), "utf8");
 const app = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
@@ -84,6 +85,11 @@ api.sync(map, ground, garden, options);
 await new Promise(resolve => setTimeout(resolve, 20));
 assert.equal(controller.status, "failed");
 assert.ok(!JSON.stringify(filters.get("canopy")).includes("false"), "failed natural component retains classic crowns");
+api.setPreferences({treeModel:"tiered"});
+assert.equal(api.getPreferences().treeModel,"tiered","two-tier cylinders are a separate persistent option");
+assert.equal(clone(api.normalize({treeModel:"tiered"})).treeModel,"tiered");
+api.sync(map,ground,garden,options);
+assert.ok(!JSON.stringify(filters.get("canopy")).includes("false"),"failed tiered component also retains the original crowns");
 api.sync(map, ground, garden, {...options, satellite: true});
 assert.equal(controller.status, "classic", "simulated satellite never starts 3D trees");
 api.dispose(map); assert.equal(listeners.size, 0);
@@ -96,8 +102,45 @@ await new Promise(resolve => setTimeout(resolve, 20));
 map.getLayer = getLayer;
 assert.equal(listeners.size, 0, "late failed imports do not revive a disposed controller");
 
+// Verify actual instance geometry, including roof-garden bases and terrain.
+context.maplibregl={MercatorCoordinate:{fromLngLat:([x,y])=>({x:x*1e-5,y:-y*1e-5,meterInMercatorCoordinateUnits:()=>1e-5})}};
+const meshController=api.sync(map,ground,garden,options);
+meshController.THREE=THREE;meshController.scene=new THREE.Scene();
+meshController.imported={batches:new Map(),keys:new Set()};
+meshController.trees=descriptions.slice(0,1).concat(descriptions.find(t=>t.garden));
+meshController.selected=new Set(meshController.trees.map(t=>t.key));
+meshController.options=options;
+map.getTerrain=()=>({source:"terrain"});map.queryTerrainElevation=()=>13;
+for(const model of ["tiered","natural"]) {
+  api.setPreferences({treeModel:model});meshController.buildScene();
+  for(const {batch,crowns,trunks} of meshController.meshes) {
+    const count=model==="tiered" ? 2 : 3;
+    assert.equal(crowns.count,batch.length*count);
+    crowns.geometry.computeBoundingBox();
+    if(model!=="tiered")continue;
+    batch.forEach((tree,index)=>{
+      const trunk=new THREE.Matrix4(),low=new THREE.Matrix4(),high=new THREE.Matrix4();
+      trunks.getMatrixAt(index,trunk);crowns.getMatrixAt(index*2,low);crowns.getMatrixAt(index*2+1,high);
+      for(const axis of [12,13]) {
+        assert.ok(Math.abs(low.elements[axis]-trunk.elements[axis])<1e-6);
+        assert.ok(Math.abs(high.elements[axis]-trunk.elements[axis])<1e-6,"both crowns stay coaxial above the trunk");
+      }
+      for(const matrix of [low,high]) for(const axis of [1,2,4,6,8,9])
+        assert.equal(matrix.elements[axis],0,"cylinders have no tilt or sideways shear");
+      const lowBox=crowns.geometry.boundingBox.clone().applyMatrix4(low);
+      const highBox=crowns.geometry.boundingBox.clone().applyMatrix4(high);
+      assert.ok(Math.abs(lowBox.min.z-(13+tree.crownBase))<1e-5);
+      assert.ok(Math.abs(lowBox.max.z-highBox.min.z)<1e-5,"two crowns meet with no vertical gap");
+      assert.ok(Math.abs(highBox.max.z-(13+tree.height))<1e-5,"total height and terrain base remain exact");
+      assert.ok(Math.abs(high.elements[0]/low.elements[0]-0.72)<1e-6);
+    });
+  }
+}
+api.dispose(map);assert.equal(listeners.size,0);
+delete map.getTerrain;delete map.queryTerrainElevation;
+
 assert.ok(html.includes('data-action="settings"') && html.includes('id="settings-view"'));
-assert.ok(html.includes('value="classic"') && html.includes('value="natural"'));
+assert.ok(html.includes('value="classic"') && html.includes('value="natural"') && html.includes('value="tiered"'));
 const actions = app.match(/  function runAction\([^]*?\n  \}/u)[0];
 assert.ok(actions.indexOf('action === "settings"') < actions.indexOf("exitVectorPerspectiveMode"));
 assert.ok(actions.includes('showView("settings", {preservePerspective: true})'));

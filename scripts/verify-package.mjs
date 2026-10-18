@@ -48,7 +48,7 @@ for (const file of files) {
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
-  "bridge-models.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
+  "bridge-models.js", "facility-models.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -480,10 +480,13 @@ const buildingMap = {
 const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
   "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window",
   `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {});
+const facilityOwnershipCalls = [];
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
   "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuBuildingRoofs", "syncHuayuStructureModels",
+  "window", "syncHuayuFacilityModels",
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
-  ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {});
+  ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {}, {HuayuFacilityModels: {}},
+  () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive));
 const buildingOwnerState = { primaryActive: false };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "none")
@@ -509,7 +512,9 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
   ["all", ["has", "busFacilityPart"],
     ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]],
 "发布建筑兜底时面状候车亭模型不得与建筑面重复");
-assert.ok(index.includes('building-roofs.js?v=7.1-building-material-roofs-v1')
+assert.deepEqual(facilityOwnershipCalls, [true, false],
+  "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
+assert.ok(index.includes('building-roofs.js?v=7.5-gable-colors-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -599,12 +604,12 @@ assert.ok(app.includes("const HUAYU_WALL_MIN_ZOOM = HUAYU_LIVE_BUILDING_MIN_ZOOM
   && app.includes('[[10, 0.45], [15, 1.1]')
   && app.includes('[[10, 0.35], [16, 0.8]'),
 "普通墙与栅栏必须和建筑模型使用相同起始比例尺，并在远景使用克制线宽");
-assert.ok(app.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
-  && worker.includes('way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;')
+assert.ok(app.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->.barrierWays;')
+  && worker.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->.barrierWays;')
   && app.includes("wallData: result.wallData")
   && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
-  && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`")
-  && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"')
+  && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates`")
+  && worker.includes('schema", "huayu-structures-v5-wall-gates"')
   && worker.includes('schema", "huayu-building-v6-material-roofs"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
@@ -694,7 +699,7 @@ assert.ok(app.includes('function huayuPavilionKind(tags = {})')
   && worker.includes('nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"]')
   && worker.includes('way["highway"](${bbox})->.pavilionClearanceWays;')
   && worker.includes('way(r.pavilionStructures)')
-  && worker.includes('schema", "huayu-structures-v3-tagged-pavilions"'),
+  && worker.includes('schema", "huayu-structures-v5-wall-gates"'),
 "亭子与凉亭必须使用道路净距自适应节点轮廓、真实面屋顶、薄地台和开放立柱结构");
 const pavilionKindSource = app.match(/function huayuPavilionKind\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
 const liveBuildingHeightSource = app.match(/function huayuLiveBuildingHeight\(tags = \{\}\) \{[\s\S]*?\n  \}/)?.[0];
@@ -724,7 +729,11 @@ for (const shelterType of ["pavilion", "gazebo"]) {
   assert.equal(pavilionKind({ amenity: "shelter", shelter_type: shelterType }), "pavilion",
     "明确亭子或凉亭类型的遮蔽物未识别");
 }
-for (const shelterType of [undefined, "basic_hut", "weather_shelter", "lean_to"]) {
+for (const shelterType of [undefined, ""]) {
+  assert.equal(pavilionKind({ amenity: "shelter", shelter_type: shelterType }), "pavilion",
+    "用户确认的无细分类非公交遮蔽物必须支持中空亭子，无需名称");
+}
+for (const shelterType of ["basic_hut", "weather_shelter", "lean_to"]) {
   assert.equal(pavilionKind({ amenity: "shelter", shelter_type: shelterType, name: "休息亭" }), "",
     "普通遮蔽物不得因名称变为亭子");
 }
@@ -733,8 +742,8 @@ assert.equal(pavilionKind({ amenity: "shelter", shelter_type: "public_transport"
 assert.equal(pavilionKind({ building: "roof", name: "望湖亭" }), "", "屋顶不得仅因名称变为亭子");
 assert.equal(pavilionKind({ tourism: "attraction", name: "睡莲亭" }), "", "景点不得仅因名称变为亭子");
 assert.equal(pavilionKind({ historic: "building", name: "归云亭" }), "", "历史建筑不得仅因名称变为亭子");
-assert.equal(pavilionKind({ amenity: "shelter", building: "yes", name: "公明亭" }), "",
-  "未注明亭子类型的建筑遮蔽物不得变为亭子");
+assert.equal(pavilionKind({ amenity: "shelter", building: "yes", name: "公明亭" }), "pavilion",
+  "普通 building=yes 标签不能掩盖用户确认的非公交亭子");
 for (const name of ["晴风亭", "亭子", "凉亭", "亭湖大厦"]) {
   assert.equal(pavilionKind({ building: "yes", name }), "", "普通建筑不得仅因名称变为亭子");
 }
@@ -754,7 +763,8 @@ for (const zoom of [11, 14, 15]) {
   const query = structureClientQuery({z:zoom});
   assert.equal(query, structureWorkerQuery(structureQueryBounds, zoom), "前端与 Worker 亭子查询必须一致");
   assert.doesNotMatch(query, /\["name"~/u, "亭子查询不能根据名称推断类型");
-  assert.doesNotMatch(query, /nwr\["amenity"="shelter"\]\(/u, "亭子查询不能包含未注明类型的遮蔽物");
+  assert.ok(query.includes('nwr["amenity"="shelter"]["shelter_type"!~"."]'),
+    "结构物查询必须包含缺少细分类或空值的非公交遮蔽物，再由同一分类函数排除公交要素");
 }
 assert.equal(pavilionHeight({ leisure: "gazebo", height: "5.2" }), 5.2, "亭子未优先使用 height");
 assert.equal(pavilionHeight({ man_made: "pavilion", "building:levels": "2" }), 6,
@@ -1429,7 +1439,7 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["app.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "_worker.js", "terrain-perspective.js"]) {
+for (const script of ["app.js", "facility-models.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
@@ -1502,6 +1512,8 @@ const modelBatchTest = await runCheck([path.join(root,"scripts","test-model-batc
 assert.equal(modelBatchTest.status, 0, `批量模型下载导入回归失败：${modelBatchTest.stderr}`);
 const structureModelsTest = await runCheck([path.join(root,"scripts","test-structure-models.mjs")]);
 assert.equal(structureModelsTest.status, 0, `结构物模型替换回归失败：${structureModelsTest.stderr}`);
+const facilityModelsTest = await runCheck([path.join(root,"scripts","test-facility-models.mjs")]);
+assert.equal(facilityModelsTest.status, 0, `摩天轮与停车场渲染回归失败：${facilityModelsTest.stderr}`);
 const buildingMaterialRoofsTest = await runCheck([path.join(root,"scripts","test-building-material-roofs.mjs")]);
 assert.equal(buildingMaterialRoofsTest.status, 0, `建筑材质与坡屋顶回归失败：${buildingMaterialRoofsTest.stderr}`);
 const bridgeModelsTest = await runCheck([path.join(root, "scripts", "test-bridge-models.mjs")]);

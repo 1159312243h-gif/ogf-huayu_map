@@ -1,11 +1,53 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {pavilionTagRuntime} from './test-pavilion-tags.mjs';
+import {pavilionTagRuntime,shenmingPavilion} from './test-pavilion-tags.mjs';
+import {courtyardGateWays} from './fixtures/wall-gates.mjs';
 
 const context=vm.createContext({setTimeout,clearTimeout,console});
 vm.runInContext(await readFile(new URL('../site/structure-models.js',import.meta.url),'utf8'),context);
 const api=context.HuayuStructureModels,copy=value=>JSON.parse(JSON.stringify(value));
+const app=await readFile(new URL('../site/app.js',import.meta.url),'utf8');
+for(const name of ['huayuWallColor','huayuWallNightColor','huayuFenceColor','huayuFenceNightColor',
+  'huayuWallSegmentPolygons','huayuWallFeatureCollection'])
+  vm.runInContext(app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`,'u'))[0],pavilionTagRuntime);
+const wallData=elements=>copy(pavilionTagRuntime.huayuWallFeatureCollection(elements));
+const lintels=elements=>wallData(elements).features.filter(f=>f.properties.wallPart==='gate-lintel');
+const [courtyardWall,westGate,courtyardSide]=courtyardGateWays;
+const gateModels=wallData(courtyardGateWays),lintel=lintels(courtyardGateWays)[0];
+assert.ok(lintel,'The actual 西角门 connects the existing walls above the opening.');
+assert.equal(lintel.properties.height,4.5);assert.equal(lintel.properties.minHeight,3.2);
+assert.equal(lintel.properties.openingEstimated,true);
+assert.equal(lintel.properties.color,gateModels.features.find(f=>f.properties.osmId==='41637294').properties.color);
+assert.deepEqual(gateModels.features.filter(f=>!f.properties.wallPart),wallData([courtyardWall,courtyardSide]).features,
+  'Adding a lintel does not reshape or remove either existing wall.');
+assert.ok(lintel.geometry.coordinates.every(poly=>poly[0].every(p=>{
+  const [a,b]=westGate.geometry,dx=(b.lon-a.lon)*Math.cos(a.lat*Math.PI/180),dy=b.lat-a.lat,
+    along=((p[0]-a.lon)*Math.cos(a.lat*Math.PI/180)*dx+(p[1]-a.lat)*dy)/(dx*dx+dy*dy);
+  return along>=-1e-6 && along<=1+1e-6;
+})),'The overhead wall stays within the actual gate span.');
+const taggedGate={...westGate,tags:{...westGate.tags,'maxheight:physical':'3.6'}};
+assert.equal(lintels([courtyardWall,taggedGate,courtyardSide])[0].properties.minHeight,3.6);
+assert.equal(lintels([courtyardWall,{...taggedGate,tags:{...taggedGate.tags,'maxheight:physical':'5'}},courtyardSide]).length,0,
+  'An incompatible explicitly tagged clearance cannot be silently lowered.');
+for(const elements of [
+  [westGate], [courtyardWall,westGate],
+  [courtyardWall,{...westGate,nodes:[1,2]},courtyardSide],
+  [courtyardWall,{...westGate,type:'node'},courtyardSide],
+  [courtyardWall,{...westGate,tags:{barrier:'lift_gate'}},courtyardSide],
+  [courtyardWall,{...westGate,tags:{barrier:'gate',building:'gatehouse'}},courtyardSide],
+  [courtyardWall,{...westGate,tags:{barrier:'gate',disused:'yes'}},courtyardSide],
+  [courtyardWall,westGate,{...courtyardSide,tags:{barrier:'fence',height:'4.5'}}],
+  [courtyardWall,westGate,{...courtyardSide,tags:{...courtyardSide.tags,layer:'1'}}],
+  [courtyardWall,westGate,{...courtyardSide,tags:{...courtyardSide.tags,height:'2.2'}}],
+  [courtyardWall,westGate,courtyardSide,{...westGate,id:0,tags:{barrier:'wall',height:'4.5'}}],
+])assert.equal(lintels(elements).length,0,'Unconnected, incompatible or already filled openings retain their existing expression.');
+assert.equal(lintels([courtyardWall,{...westGate,tags:{barrier:'entrance'}},courtyardSide]).length,1);
+assert.equal(lintels([...courtyardGateWays,westGate]).length,1,'A repeated gate cannot duplicate the overhead band.');
+assert.deepEqual(lintels(courtyardGateWays),lintels(courtyardGateWays.slice().reverse()),'Joining is independent of response order.');
+const importedLintel=api.describe({walls:[lintel]})[0];
+assert.ok(importedLintel && importedLintel.pieces.every(p=>p.base===3.2 && p.height===4.5),
+  'Optional wall replacement preserves the passable opening beneath the lintel.');
 const polygon=(x=0,y=0,length=30,width=3,angle=0)=>{
   const point=([a,b])=>[x+(a*Math.cos(angle)-b*Math.sin(angle))/111320,y+(a*Math.sin(angle)+b*Math.cos(angle))/111320];
   return [[[-length/2,-width/2],[length/2,-width/2],[length/2,width/2],[-length/2,width/2],[-length/2,-width/2]].map(point)];
@@ -48,6 +90,15 @@ assert.equal(api.plan(items,assets,{...settings,satellite:true}).count,0);
 assert.equal(api.plan(items,assets,{zoom:10,pitch:50}).count,0);
 assert.ok(!api.plan(items,assets,{zoom:19,pitch:0}).keys.has('cityWall'));
 assert.equal(api.plan(items,new Map([['pavilion',{triangles:20001}]]),settings).count,0);
+const shenmingInputs={pavilions:copy(pavilionTagRuntime.huayuPavilionFeatureCollection([shenmingPavilion]).features),
+  buildingPrimary:true};
+const shenmingItems=api.describe(shenmingInputs);
+assert.equal(shenmingItems.length,1,'The real untyped shelter reaches the pavilion replacement adapter.');
+assert.equal(shenmingItems[0].key,'way:41639299');
+assert.equal(shenmingItems[0].pieces[0].height,5);
+assert.equal(api.plan(shenmingItems,assets,settings).count,1,'The actual pavilion fits an imported model.');
+assert.equal(api.describe({...shenmingInputs,buildingPrimary:false}).length,0,
+  'Area shelters wait for complete building ownership before replacement.');
 const huge=[{category:'cityWall',key:'way:huge',pieces:Array(90).fill(at(5).pieces[0])}];
 assert.equal(api.plan(huge,new Map([['cityWall',{triangles:5000}]]),settings).count,0,
   'A wall must fall back as a whole when it cannot be replaced within the batch budget.');

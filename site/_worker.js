@@ -69,8 +69,9 @@ function structureOverpassQuery(bounds, zoom) {
   const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
   const clearanceWays = zoom >= 14
     ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
-  return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
+  return `[out:json][timeout:15];way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->.barrierWays;${clearanceWays}(`
     + `nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"](${bbox});`
+    + `nwr["amenity"="shelter"]["shelter_type"!~"."](${bbox});`
     + `nwr["leisure"="gazebo"](${bbox});`
     + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
     + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});)->.pavilionStructures;`
@@ -395,7 +396,7 @@ async function fetchStructureTile(request, context, z, x, y) {
   }
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-structures-v3-tagged-pavilions");
+  cacheUrl.searchParams.set("schema", "huayu-structures-v5-wall-gates");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {

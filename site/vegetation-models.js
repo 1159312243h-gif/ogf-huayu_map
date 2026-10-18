@@ -7,7 +7,7 @@
   const controllers = new WeakMap();
   let libraryPromise;
   function normalize(value) {
-    return {treeModel: value?.treeModel === "natural" ? "natural" : "classic",
+    return {treeModel: ["natural", "tiered"].includes(value?.treeModel) ? value.treeModel : "classic",
       vegetationDensity: ["light", "standard", "dense"].includes(value?.vegetationDensity) ? value.vegetationDensity : "dense",
       gardenFlowers: typeof value?.gardenFlowers === "boolean" ? value.gardenFlowers : true};
   }
@@ -162,8 +162,8 @@
     }
     apply() {
       if (!this.alive) return;
-      const natural = preferences.treeModel === "natural" && !this.options.satellite;
-      const wanted=(natural || this.assets?.size>0) && !this.options.satellite;
+      const modeled = preferences.treeModel !== "classic" && !this.options.satellite;
+      const wanted=(modeled || this.assets?.size>0) && !this.options.satellite;
       if (wanted && !this.layer && !this.loading && this.status !== "failed") this.start();
       if (!wanted) this.status = "classic";
       else if (this.layer) this.status = "ready";
@@ -183,11 +183,11 @@
         const density=preferences.vegetationDensity === "dense" ? base
           : ["all", base, ["any", ["!=", ["get", "treeOrigin"], "woodland"],
             ["in", ["get", "osmId"], ["literal", treeIds]]]];
-        this.setFilter(id,ready && natural ? ["all",base,false] : hiddenIds.length
+        this.setFilter(id,ready && modeled ? ["all",base,false] : hiddenIds.length
           ? ["all",density,["!",["in",["get","osmId"],["literal",hiddenIds]]]] : density);
       }
       const gardenFilter = ["all", ["==", ["get", "renderKind"], "garden-plant"]];
-      if (ready && natural) gardenFilter.push(["!=", ["get", "plantType"], "tree"]);
+      if (ready && modeled) gardenFilter.push(["!=", ["get", "plantType"], "tree"]);
       if (this.imported.keys.size) gardenFilter.push(["!",["in",["get","plantKey"],["literal",[...this.imported.keys]]]]);
       if (!preferences.gardenFlowers) gardenFilter.push(["!=", ["get", "plantType"], "flower"]);
       if (preferences.vegetationDensity !== "dense") gardenFilter.push(["in", ["get", "plantKey"],
@@ -204,7 +204,7 @@
       this.loading = true; this.status = "loading"; this.notify();
       try {
         const THREE = await loadLibrary();
-        if (!this.alive || preferences.treeModel !== "natural" && !this.assets?.size || this.options.satellite) return;
+        if (!this.alive || preferences.treeModel === "classic" && !this.assets?.size || this.options.satellite) return;
         this.THREE = THREE;
         const owner = this;
         const layer = {id: LAYER_ID, type: "custom", renderingMode: "3d", enabled: false,
@@ -239,13 +239,14 @@
         this.status = "failed";
         if (this.map.getLayer(LAYER_ID)) this.map.removeLayer(LAYER_ID);
         this.releaseGraphics();
-        console.warn("Natural tree renderer unavailable; retaining classic trees.", error);
+        console.warn("Tree renderer unavailable; retaining classic trees.", error);
       } finally {this.loading = false; if (this.alive) this.apply();}
     }
     buildScene() {
       const T = this.THREE;
       this.clearMeshes();
-      const trees = preferences.treeModel === "natural" ? this.trees.filter(t => this.selected.has(t.key) && !this.imported.keys.has(t.key)) : [];
+      const trees = preferences.treeModel !== "classic" ? this.trees.filter(t => this.selected.has(t.key) && !this.imported.keys.has(t.key)) : [];
+      const tiered = preferences.treeModel === "tiered";
       this.woodGroup = new T.Group(); this.gardenGroup = new T.Group();
       this.scene.add(this.woodGroup, this.gardenGroup);
       const origin=trees[0] || [...this.imported.batches.values()][0]?.[0];
@@ -254,8 +255,9 @@
       this.scale = this.origin.meterInMercatorCoordinateUnits();
       this.transform = new T.Matrix4().makeTranslation(this.origin.x, this.origin.y, 0)
         .scale(new T.Vector3(this.scale, -this.scale, this.scale));
-      const trunkGeometry = new T.CylinderGeometry(0.8, 1, 1, 7).rotateX(Math.PI / 2);
-      const crownGeometry = new T.SphereGeometry(1, 14, 10);
+      const trunkGeometry = new T.CylinderGeometry(tiered ? 1 : 0.8, 1, 1, 7).rotateX(Math.PI / 2);
+      const crownGeometry = tiered ? new T.CylinderGeometry(1, 1, 1, 12).rotateX(Math.PI / 2)
+        : new T.SphereGeometry(1, 14, 10);
       const trunkMaterial = new T.MeshLambertMaterial({color: this.options.night ? "#6b6254" : "#8c7860"});
       const crownMaterial = new T.MeshLambertMaterial({color: "#ffffff"});
       this.resources = [trunkGeometry, crownGeometry, trunkMaterial, crownMaterial];
@@ -264,10 +266,10 @@
         const batch = trees.filter(t => t.garden === garden);
         if (!batch.length) continue;
         const trunks = new T.InstancedMesh(trunkGeometry, trunkMaterial, batch.length);
-        const crowns = new T.InstancedMesh(crownGeometry, crownMaterial, batch.length * 3);
+        const crowns = new T.InstancedMesh(crownGeometry, crownMaterial, batch.length * (tiered ? 2 : 3));
         trunks.frustumCulled = crowns.frustumCulled = false;
         (garden ? this.gardenGroup : this.woodGroup).add(trunks, crowns);
-        this.meshes.push({batch, trunks, crowns});
+        this.meshes.push({batch, trunks, crowns, tiered});
       }
       this.importMeshes=[];
       for(const [asset,batch] of this.imported.batches) for(const garden of [false,true]) {
@@ -287,7 +289,7 @@
       if (!this.origin || !this.meshes) return;
       const T = this.THREE, object = new T.Object3D(), color = new T.Color();
       const colors = this.options.night ? ["#395b48", "#42634e", "#55785f"] : ["#5f9569", "#629575", "#7ba483"];
-      for (const {batch, trunks, crowns} of this.meshes) {
+      for (const {batch, trunks, crowns, tiered} of this.meshes) {
         batch.forEach((tree, index) => {
           const coordinate = root.maplibregl.MercatorCoordinate.fromLngLat(tree.center);
           const ratio = coordinate.meterInMercatorCoordinateUnits() / this.scale;
@@ -300,6 +302,18 @@
           object.scale.set(tree.trunkRadius * ratio, tree.trunkRadius * ratio, trunkHeight * ratio);
           object.updateMatrix(); trunks.setMatrixAt(index, object.matrix);
           const span = tree.height - tree.crownBase;
+          if (tiered) {
+            // Coaxial cylinders share an exact join and keep the source crown's height.
+            for (let level = 0; level < 2; level++) {
+              const low = level ? 0.62 : 0, high = level ? 1 : 0.62;
+              const radius = tree.radius * (level ? 0.72 : 1) * ratio;
+              object.position.set(x, y, (elevation + tree.crownBase + span * (low + high) / 2) * ratio);
+              object.scale.set(radius, radius, span * (high - low) * ratio);
+              object.updateMatrix(); crowns.setMatrixAt(index * 2 + level, object.matrix);
+              color.set(colors[(tree.variant + level) % colors.length]); crowns.setColorAt(index * 2 + level, color);
+            }
+            return;
+          }
           const angle = hash(tree.key) / 0xffffffff * Math.PI * 2;
           for (let lobe = 0; lobe < 3; lobe++) {
             const side = lobe === 0 ? 0 : lobe === 1 ? -1 : 1;
@@ -352,7 +366,7 @@
       const element = root.document?.getElementById("map");
       if (element) {
         element.dataset.huayuTreeModel = this.layer?.enabled && this.imported?.keys.size ? "imported"
-          : this.layer?.enabled && preferences.treeModel === "natural" ? "natural" : "classic";
+          : this.layer?.enabled ? preferences.treeModel : "classic";
         element.dataset.huayuImportedPlants=String(this.layer?.enabled ? this.imported?.keys.size || 0 : 0);
         element.dataset.huayuNaturalTrees = String(this.layer?.enabled && preferences.treeModel === "natural"
           ? this.trees.filter(t => this.selected?.has(t.key) && !this.imported?.keys.has(t.key)).length : 0);

@@ -579,11 +579,21 @@
     featureQueryResults: document.getElementById("feature-query-results"),
     featurePickMap: document.getElementById("feature-pick-map"),
     featureQueueHeading: document.getElementById("feature-queue-heading"),
+    downloadQueue: document.getElementById("download-queue"),
     featureQueueList: document.getElementById("feature-queue-list"),
     featureClearQueue: document.getElementById("feature-clear-queue"),
     featureExportFormat: document.getElementById("feature-export-format"),
     featureExportButton: document.getElementById("feature-export-button"),
     featureExportStatus: document.getElementById("feature-export-status"),
+    featureOutputOptions: document.getElementById("feature-output-options"),
+    featureImageOptions: document.getElementById("feature-image-options"),
+    featureImageStyle: document.getElementById("feature-image-style"),
+    featureImageBackground: document.getElementById("feature-image-background"),
+    featureImageResolution: document.getElementById("feature-image-resolution"),
+    featureImageCustom: document.getElementById("feature-image-custom"),
+    featureImageCustomLabel: document.getElementById("feature-image-custom-label"),
+    featureImageLabels: document.getElementById("feature-image-labels"),
+    featureImageNote: document.getElementById("feature-image-note"),
     satelliteAnnotationOption: document.getElementById("satellite-annotation-option"),
     satelliteAnnotations: document.getElementById("satellite-annotations"),
     vectorCameraControls: document.getElementById("vector-camera-controls"),
@@ -685,6 +695,7 @@
   let selectedObjectEntry = null, featurePickSequence = 0, featurePickController = null;
   let featureRangeResult = null, featureRangeController = null, featureRangeSequence = 0;
   const featureDownloadQueue = new Map();
+  let featureExportBusy = false;
   const administrativeBoundaryCache = new Map();
   const administrativeCenterCache = new Map();
   const administrativeLevelCache = new Map();
@@ -1937,7 +1948,7 @@
   elements.boundaryApplyCoordinates.addEventListener("click", applyAdministrativeCoordinateBounds);
   elements.boundaryDrawBox.addEventListener("click", startAdministrativeBoxPick);
   elements.boundaryFormat.addEventListener("change", updateAdministrativeExportOptions);
-  elements.boundaryDownloadButton.addEventListener("click", downloadAdministrativeBoundary);
+  elements.boundaryDownloadButton.addEventListener("click", addAdministrativeDownloadToQueue);
   elements.downloadContentMode.addEventListener("change", () => {cancelAdministrativeBoxPick();invalidateFeatureRange();updateFeatureDownloadMode();});
   elements.featurePickMap.addEventListener("change", () => {
     if(elements.featurePickMap.checked && !mapFeatureSelectionEnabled) {
@@ -1965,8 +1976,11 @@
       catch(error) {setStatus(elements.featureQueryStatus,error.message,true);}
     }
   });
-  elements.featureClearQueue.addEventListener("click",()=>{featureDownloadQueue.clear();renderFeatureDownloadQueue();});
+  elements.featureClearQueue.addEventListener("click",()=>{if(!featureExportBusy){featureDownloadQueue.clear();renderFeatureDownloadQueue();}});
   elements.featureExportButton.addEventListener("click",downloadFeatureQueue);
+  [elements.featureExportFormat,elements.featureImageResolution,elements.featureImageStyle,elements.featureImageBackground,
+    elements.featureImageLabels].forEach(control=>control.addEventListener("change",renderFeatureDownloadQueue));
+  elements.featureImageCustom.addEventListener("input",renderFeatureDownloadQueue);
 
   elements.closePanel.addEventListener("click", hidePanel);
   elements.openOgfEditor.addEventListener("click", () => {
@@ -14952,7 +14966,8 @@
     };
 
     if (view === "place" || view === "download") {
-      (view === "download" ? elements.downloadView : elements.placeView).appendChild(elements.boundaryExportSection);
+      if(view === "download")elements.downloadView.insertBefore(elements.boundaryExportSection,elements.downloadQueue);
+      else elements.placeView.appendChild(elements.boundaryExportSection);
       elements.boundarySelectArea.hidden = view !== "download";
       elements.boundaryExportHeading.textContent = view === "download" ? "下载范围" : "行政区划边界";
       updateAdministrativeBoundaryControls();
@@ -15511,40 +15526,121 @@
 
   function addFeatureDownloadEntries(entries) {
     const next=new Map(featureDownloadQueue);
-    entries.forEach(entry=>next.set(entry.feature.id,entry));
-    if(next.size>2000) {showToast("清单最多 2000 个物体，请先下载或移除部分物体");return;}
+    // Clone a batch as one graph so objects sharing OSM dependencies also share
+    // those dependencies in memory; individual JSON clones would multiply them.
+    structuredClone(entries).forEach(entry=>next.set(entry.mapExport?entry.id:entry.feature.id,entry));
+    if(next.size>2000) {showToast("清单最多 2000 项，请先下载或移除部分内容");return false;}
+    if([...next.values()].filter(entry=>entry.mapExport).length>10) {showToast("底图／行政区任务最多 10 项，请先分批下载；本批未加入");return false;}
     const objects=new Map();for(const entry of next.values())for(const object of entry.elements)objects.set(`${object.type}/${object.id}`,object);
     let bytes=0;for(const object of objects.values()) {bytes+=new TextEncoder().encode(JSON.stringify(object)).length;if(bytes>48*1024*1024)break;}
-    for (const entry of next.values()) if (entry.derived) bytes += new TextEncoder().encode(JSON.stringify(entry.feature)).length;
-    if(bytes>48*1024*1024) {showToast("清单数据过大，请先下载现有物体；本批未加入");return;}
+    for (const entry of next.values()) if (entry.derived || entry.mapExport) bytes += new TextEncoder().encode(JSON.stringify(entry.mapExport||entry.feature)).length;
+    if(bytes>48*1024*1024) {showToast("清单数据过大，请先下载现有内容；本批未加入");return false;}
     featureDownloadQueue.clear();for(const [id,entry]of next)featureDownloadQueue.set(id,entry);
-    renderFeatureDownloadQueue();showToast(`已加入下载清单，共 ${next.size} 个物体`);
+    renderFeatureDownloadQueue();showToast(`已加入下载清单，共 ${next.size} 项`);return true;
   }
 
   function renderFeatureDownloadQueue() {
+    const entries=[...featureDownloadQueue.values()],objects=entries.filter(entry=>!entry.mapExport);
+    const maps=entries.length-objects.length;
     elements.featureOpenQueue.hidden=!featureDownloadQueue.size;
-    elements.featureQueueHeading.textContent=`物体下载清单 · ${featureDownloadQueue.size} 个`;
+    elements.featureQueueHeading.textContent=`下载清单 · ${maps} 项底图／行政区 · ${objects.length} 个地物`;
     elements.featureQueueList.replaceChildren();
-    for(const [id,entry]of featureDownloadQueue)elements.featureQueueList.appendChild(featureObjectRow(entry.feature,()=>{
-      featureDownloadQueue.delete(id);renderFeatureDownloadQueue();
-    },"移除"));
-    elements.featureClearQueue.disabled=!featureDownloadQueue.size;
-    elements.featureExportButton.disabled=!featureDownloadQueue.size;
-    const derived = [...featureDownloadQueue.values()].some(entry => entry.derived);
+    for(const [id,entry]of featureDownloadQueue) {
+      const remove=()=>{
+        if(featureExportBusy)return;
+        featureDownloadQueue.delete(id);renderFeatureDownloadQueue();
+      };
+      if(entry.mapExport) {
+        const row=document.createElement("div");row.className="feature-object-row";
+        const label=document.createElement("span"),button=document.createElement("button"),job=entry.mapExport;
+        label.textContent=`${job.title} · ${job.includeBasemap?job.basemapLabel:"行政区"} · ${job.format.toUpperCase()}${["png","jpg","tif"].includes(job.format)||job.includeBasemap?` · ${job.options.resolution}px`:""} · 范围与选项已保存`;
+        const detail=document.createElement("small"),bounds=job.coordinateExtent;
+        detail.textContent=[bounds?`范围：${bounds.minLon.toFixed(5)}, ${bounds.minLat.toFixed(5)} → ${bounds.maxLon.toFixed(5)}, ${bounds.maxLat.toFixed(5)}`:`${job.features.length} 个边界`,
+          job.options.includeHighlight?"含高亮边界":"无高亮边界",job.options.includePoints?"含行政中心":"无行政中心",
+          job.includeBasemap?(job.options.basemapStyle.startsWith("huayu")?(job.options.includeBuildings?"建筑模型开启":"平面底图"):"OGF 栅格底图"):""].filter(Boolean).join(" · ");
+        label.append(detail);
+        button.type="button";button.className="text-button";button.textContent="移除";button.disabled=featureExportBusy;
+        button.addEventListener("click",remove);row.append(label,button);elements.featureQueueList.appendChild(row);
+      } else elements.featureQueueList.appendChild(featureObjectRow(entry.feature,remove,"移除"));
+    }
+    if(!entries.length) {
+      const empty=document.createElement("p");empty.className="boundary-resolution-note";empty.textContent="清单为空。从上方添加底图、行政区或地图物体。";
+      elements.featureQueueList.appendChild(empty);
+    }
+    elements.featureClearQueue.disabled=featureExportBusy||!featureDownloadQueue.size;
+    elements.featureExportButton.disabled=featureExportBusy||!featureDownloadQueue.size;
+    elements.featureExportButton.textContent=featureExportBusy?"正在生成下载文件…":"下载整个清单";
+    elements.featureOutputOptions.hidden=!objects.length;
+    const derived = objects.some(entry => entry.derived);
     const osmOption = elements.featureExportFormat.querySelector('option[value="osm"]');
     if (osmOption) {osmOption.disabled = derived; osmOption.textContent = derived ? "OSM XML（线路图几何不适用）" : "OSM XML 原始数据";}
     if (derived && elements.featureExportFormat.value === "osm") elements.featureExportFormat.value = "geojson";
+    const image=["png","jpg","tif"].includes(elements.featureExportFormat.value);
+    elements.featureImageOptions.hidden=!image;
+    elements.featureImageCustomLabel.hidden=elements.featureImageResolution.value!=="custom";
+    if(image&&objects.length)try {
+      const layout=window.HuayuMapExport.featureLayout(objects.map(entry=>entry.feature),featureImageSettings().resolution);
+      elements.featureImageNote.textContent=`输出 ${layout.width} × ${layout.height} 像素；自动容纳全部地物，PNG / TIF 可透明，JPG 使用白底。底图自带标注不受地物名称开关影响。`;
+    } catch(error) {elements.featureImageNote.textContent=error.message;elements.featureExportButton.disabled=true;}
+  }
+
+  function featureImageSettings() {
+    return {style:elements.featureImageStyle.value,background:elements.featureImageBackground.value,
+      resolution:window.HuayuMapExport.resolution(elements.featureImageResolution.value==="custom"?elements.featureImageCustom.value:elements.featureImageResolution.value),
+      labels:elements.featureImageLabels.checked};
   }
 
   async function downloadFeatureQueue() {
-    const entries=[...featureDownloadQueue.values()];if(!entries.length)return;
-    const features=entries.map(entry=>entry.feature),format=elements.featureExportFormat.value;
+    if(featureExportBusy)return;
+    // Freeze this batch before any async image/data loading. Later edits apply to the next download.
+    const snapshot=structuredClone([...featureDownloadQueue.values()]);if(!snapshot.length)return;
+    const format=elements.featureExportFormat.value,image=featureImageSettings();
+    const maps=snapshot.filter(entry=>entry.mapExport),objects=snapshot.filter(entry=>!entry.mapExport);
+    featureExportBusy=true;administrativeExportBusy=true;
+    elements.featureExportStatus.hidden=false;renderFeatureDownloadQueue();updateAdministrativeExportAvailability();
+    try {
+      const artifacts=[],report=[];let bytes=0;
+      const add=result=>{
+        bytes+=result.blob.size;
+        if(maps.length+Boolean(objects.length)>1 && bytes>256*1024*1024)throw Error("打包文件超过 256 MiB，请减少清单任务或图片分辨率后分批下载；清单已保留");
+        artifacts.push(result);
+      };
+      for(const [index,entry]of maps.entries()) {
+        setStatus(elements.featureExportStatus,`正在生成底图／行政区 ${index+1} / ${maps.length}：${entry.mapExport.title}…`);
+        const result=await buildAdministrativeDownload(entry.mapExport);add(result);
+        report.push({file:result.name,kind:"map",addedAt:entry.addedAt,message:result.message,warning:result.warning,settings:entry.mapExport});
+      }
+      if(objects.length) {
+        setStatus(elements.featureExportStatus,`正在生成 ${objects.length} 个地物的 ${format.toUpperCase()} 文件…`);
+        const result=await buildFeatureDownload(objects,format,image);add(result);
+        report.push({file:result.name,kind:"objects",format,objectCount:objects.length,image:result.image||null,
+          sources:objects.map(entry=>({id:entry.feature.id,fetchedAt:entry.fetchedAt||null,derived:Boolean(entry.derived)}))});
+      }
+      if(artifacts.length===1)downloadBlob(artifacts[0].blob,artifacts[0].name);
+      else {
+        const files=[];
+        for(const [index,result]of artifacts.entries()) {
+          const name=`${String(index+1).padStart(2,"0")}-${result.name}`;
+          report[index].file=name;files.push({name,data:new Uint8Array(await result.blob.arrayBuffer())});
+        }
+        const encoder=new TextEncoder();files.push({name:"download-list.json",data:encoder.encode(JSON.stringify({exportedAt:new Date().toISOString(),source:"OpenGeofiction and contributors",items:report},null,2))},
+          {name:"README.txt",data:encoder.encode("华域地图统一下载清单\n每项底图／行政区沿用加入清单时的选项；地物按下载时所选格式合并。\nGeoTIFF：EPSG:3857（无底图的行政区图可能为 EPSG:4326，见文件自身配准）；矢量：EPSG:4326。\n图片为制图渲染，不是新增源细节；模拟卫星非实拍。原始数据时间（如已提供）与导出时间分别记录。\n范围或样式变化不改写源几何。线路图为派生几何，不可作为原始 OSM 上传。\n请查看 download-list.json 内每项说明及可能的中心缺失警告。\n")});
+        if(files.reduce((total,file)=>total+file.data.byteLength,0)>256*1024*1024)throw Error("打包文件含清单说明超过 256 MiB，请减少任务后分批下载");
+        downloadBlob(buildStoredZip(files),"华域地图-下载清单.zip");
+      }
+      const warnings=report.filter(item=>item.warning).map(item=>item.message);
+      setStatus(elements.featureExportStatus,`已导出 ${maps.length} 项底图／行政区和 ${objects.length} 个地物${artifacts.length>1?"，已合并为 ZIP":""}。清单保留，可继续下载其他格式。${warnings.length?` ${warnings.join(" ")}`:""}`);
+    } catch(error) {setStatus(elements.featureExportStatus,`${error.message}。下载未完成，清单已保留。`,true);}
+    finally {featureExportBusy=false;administrativeExportBusy=false;renderFeatureDownloadQueue();updateAdministrativeExportAvailability();}
+  }
+
+  async function buildFeatureDownload(entries,format,imageOptions) {
+    const features=entries.map(entry=>entry.feature);
     const collection={type:"FeatureCollection",source:"OpenGeofiction and contributors",crs_note:"WGS84 / EPSG:4326",
       exportedAt:new Date().toISOString(),features:features.map((feature,index)=>({...feature,properties:{...feature.properties,fetched_at:entries[index].fetchedAt}}))};
     const filename=`华域地图-物体-${features.length}`;
-    elements.featureExportStatus.hidden=false;
-    try {
       let blob,extension=format;
+      if(["png","jpg","tif"].includes(format))return renderFeatureDownloadImage(features,format,imageOptions,filename);
       if(format==="geojson")blob=new Blob([JSON.stringify(collection,null,2)],{type:"application/geo+json"});
       else if(format==="csv")blob=new Blob([window.HuayuFeatures.csv(features)],{type:"text/csv;charset=utf-8"});
       else if(format==="osm")blob=new Blob([window.HuayuFeatures.osm(entries)],{type:"application/xml;charset=utf-8"});
@@ -15558,12 +15654,33 @@
         const encoder=new TextEncoder();
         files.push({name:"objects.geojson",data:encoder.encode(JSON.stringify(collection,null,2))},
           {name:"attributes.csv",data:encoder.encode(window.HuayuFeatures.csv(features))},
-          {name:"README.txt",data:encoder.encode("OpenGeofiction and contributors\nWGS84 EPSG:4326\n点、线、面分层；标签及属性保存在 objects.geojson / attributes.csv。\n线路图为按范围截断的派生几何，保留来源及建设状态，仅支持 GeoJSON、SHP、CSV；完整原始物体另可导出 OSM XML。\n")});
+          {name:"README.txt",data:encoder.encode("OpenGeofiction and contributors\nWGS84 EPSG:4326\n点、线、面分层；标签及属性保存在 objects.geojson / attributes.csv。\n线路图为按范围截断的派生几何，保留来源及建设状态，可导出矢量或图片；完整原始物体另可导出 OSM XML。\n")});
         blob=buildStoredZip(files);extension="zip";
       } else throw Error("不支持的导出格式");
-      downloadBlob(blob,`${filename}.${extension}`);
-      setStatus(elements.featureExportStatus,`已导出 ${features.length} 个物体，保留完整几何与标签。`);
-    } catch(error) {setStatus(elements.featureExportStatus,error.message,true);}
+      return {blob,name:`${filename}.${extension}`};
+  }
+
+  async function renderFeatureDownloadImage(features,format,options,filename) {
+    const layout=window.HuayuMapExport.featureLayout(features,options.resolution);
+    let rendered;
+    try {
+      if(!["transparent","paper"].includes(options.background)) {
+        rendered=await renderAdministrativeBasemapCanvas([],"地物图片",layout.bounds,{resolution:options.resolution,
+          basemapStyle:options.background,includePoints:false,includeCoordinates:false,includeHighlight:false,includeBuildings:false,
+          skipAttribution:true,parentKeys:[],onProgress:message=>setStatus(elements.featureExportStatus,message)});
+        if(rendered.missingTiles)throw Error("部分背景瓦片加载失败，请重试或选择透明背景");
+        if(rendered.canvas.width!==layout.width || rendered.canvas.height!==layout.height)throw Error("图片背景尺寸不匹配，请重试");
+      } else {
+        const canvas=document.createElement("canvas");canvas.width=layout.width;canvas.height=layout.height;
+        rendered={canvas,bounds:layout.bounds,geoReference:layout.geoReference,transparent:options.background==="transparent"};
+      }
+      window.HuayuMapExport.drawFeatures(rendered.canvas,features,layout,options);
+      window.HuayuMapExport.attribution(rendered.canvas,`${features.length} 个地物 · OpenGeofiction contributors · 华域地图`,options.resolution/2400,false);
+      if(format==="jpg")window.HuayuMapExport.flatten(rendered.canvas);
+      const blob=format==="tif"?buildAdministrativeGeoTiff(rendered,true)
+        :await canvasToBlob(rendered.canvas,format==="jpg"?"image/jpeg":"image/png",.94);
+      return {blob,name:`${filename}.${format}`,image:{...options,width:layout.width,height:layout.height,bounds:layout.bounds,epsg:3857}};
+    } finally {if(rendered?.canvas)rendered.canvas.width=rendered.canvas.height=0;}
   }
 
   async function enrichSelectedPlace(place) {
@@ -16943,7 +17060,7 @@
     if (!boundary?.selectionKey) return;
     administrativeExportSelections.set(boundary.selectionKey, boundary);
     renderAdministrativeExportSelections();
-    showToast("已加入行政区下载清单");
+    showToast("已添加到行政区组合；设置导出选项后可加入下方下载清单");
   }
 
   function clearAdministrativeExportSelections() {
@@ -16976,7 +17093,7 @@
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "boundary-selection-remove";
-        remove.setAttribute("aria-label", `从下载清单移除${boundary.label}`);
+        remove.setAttribute("aria-label", `从行政区组合移除${boundary.label}`);
         const icon = document.createElement("i");
         icon.dataset.lucide = "x";
         icon.setAttribute("aria-hidden", "true");
@@ -16994,7 +17111,7 @@
       && administrativeExportSelections.has(selectedAdministrativeBoundary.selectionKey));
     elements.boundaryAddSelection.disabled = !selectedAdministrativeBoundary || currentSaved;
     elements.boundaryAddSelection.hidden = !selectedAdministrativeBoundary;
-    setIconButtonText(elements.boundaryAddSelection, currentSaved ? "check" : "list-plus", currentSaved ? "已加入下载清单" : "加入下载清单");
+    setIconButtonText(elements.boundaryAddSelection, currentSaved ? "check" : "list-plus", currentSaved ? "已在行政区组合中" : "添加到行政区组合");
     elements.boundaryClearSelections.hidden = administrativeExportSelections.size === 0;
     placeExportSelectionLayer.clearLayers();
     const currentKey = selectedAdministrativeBoundary?.selectionKey;
@@ -17781,8 +17898,7 @@
     return inside;
   }
 
-  async function downloadAdministrativeBoundary() {
-    if (administrativeExportBusy) return;
+  function captureAdministrativeDownload() {
     const boundaries = administrativeExportBoundaries();
     const features = administrativeExportFeatures();
     const format = elements.boundaryFormat.value;
@@ -17794,12 +17910,10 @@
     const coordinateExtent = includeBasemap ? administrativeExportBasemapBounds(features) : null;
     if (((raster || includeBasemap) && !resolution) || administrativePolygonPoints || (!raster && !features.length) || (includeBasemap && !coordinateExtent)
       || (includeBasemap && elements.boundaryClipShape.value === "polygon" && !administrativeExportPolygon)) {
-      showToast("请确认行政区选择和底图范围");
-      return;
+      throw Error("请确认行政区选择和底图范围");
     }
     if (!features.length && !includeBasemap) {
-      showToast("尚未选择行政区或底图范围");
-      return;
+      throw Error("尚未选择行政区或底图范围");
     }
     const title = boundaries.length === 0 ? "地图范围"
       : boundaries.length === 1 ? boundaries[0].label : `${boundaries[0].label}等${boundaries.length}个行政区`;
@@ -17809,12 +17923,41 @@
     const options = { includeCoordinates, includePoints, resolution, basemapStyle,
       includeHighlight: elements.boundaryIncludeHighlight.checked,
       includeBuildings: elements.boundaryIncludeBuildings.checked && !elements.boundaryIncludeBuildings.disabled,
-      maskFeatures: administrativeExportMask(), format };
+      maskFeatures: administrativeExportMask(), format,
+      parentKeys: boundaries.map(boundary=>administrativeBoundaryFeatureKey(boundary.feature)) };
+    return JSON.parse(JSON.stringify({title,baseName,basemapLabel,format,includeBasemap,coordinateExtent,features,options,
+      boundaryCount:boundaries.length}));
+  }
+
+  async function addAdministrativeDownloadToQueue() {
+    try {
+      const mapExport=captureAdministrativeDownload();
+      const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(mapExport)));
+      const id=`map/${Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,"0")).join("")}`;
+      if(addFeatureDownloadEntries([{id,mapExport,elements:[],addedAt:new Date().toISOString()}])) {
+        setStatus(elements.boundaryLevelStatus,"已加入下方下载清单，范围与选项已保存；可继续添加地物或其他范围。");
+      }
+    } catch(error) {showToast(error.message);}
+  }
+
+  async function downloadAdministrativeBoundary() {
+    if(administrativeExportBusy)return;
     administrativeExportBusy = true;
     elements.boundaryLevelStatus.hidden = false;
     elements.boundaryDownloadButton.disabled = true;
-    setStatus(elements.boundaryLevelStatus, `正在生成 ${format.toUpperCase()} 文件…`);
     try {
+      const result=await buildAdministrativeDownload(captureAdministrativeDownload());
+      downloadBlob(result.blob,result.name);
+      setStatus(elements.boundaryLevelStatus,result.message,result.warning);
+    } catch(error) {setStatus(elements.boundaryLevelStatus,humanizeError(error,"边界文件生成失败，请减少加载层级后重试。"),true);}
+    finally {administrativeExportBusy=false;updateAdministrativeExportAvailability();updateAdministrativeResolutionNote();}
+  }
+
+  async function buildAdministrativeDownload(job) {
+      // Center enrichment works on this export's copy, never on the queued or displayed geometry.
+      const {features,options,title,baseName,basemapLabel,format,includeBasemap,coordinateExtent,boundaryCount}=JSON.parse(JSON.stringify(job));
+      const {includePoints,includeCoordinates,resolution,basemapStyle}=options;
+      let blob,name,missingTiles=0;
       const centerWarning = includePoints ? await ensureAdministrativeExportCenters(features) : "";
       const centers = includePoints ? administrativeExportCenters(features) : [];
       const missing = includePoints ? features.filter((feature) => !feature.properties.admin_center).length : 0;
@@ -17825,19 +17968,20 @@
           ? await renderAdministrativeBasemapCanvas(features, title, extent, options)
           : renderAdministrativeBoundaryCanvas(features, title, options);
         imageSize = ` 图片尺寸 ${rendered.canvas.width} × ${rendered.canvas.height} 像素。`;
-        if (format === "tif") {
-          downloadBlob(buildAdministrativeGeoTiff(rendered, includeCoordinates), `${baseName}.tif`);
+        missingTiles+=rendered.missingTiles||0;
+        try {if (format === "tif") {
+          blob=buildAdministrativeGeoTiff(rendered, includeCoordinates);
         } else {
           const mimeType = format === "png" ? "image/png" : "image/jpeg";
           if (format === "jpg") window.HuayuMapExport.flatten(rendered.canvas);
-          const blob = await canvasToBlob(rendered.canvas, mimeType, 0.94);
-          downloadBlob(blob, `${baseName}.${format}`);
-        }
+          blob = await canvasToBlob(rendered.canvas, mimeType, 0.94);
+        }} finally {rendered.canvas.width=rendered.canvas.height=0;}
+        name=`${baseName}.${format}`;
       } else {
         const encoder = new TextEncoder();
         const xml = format === "osm" ? buildAdministrativeOsmXml(features, centers, centerWarning, options) : "";
         if (format === "osm" && !includeBasemap) {
-          downloadBlob(new Blob([xml], { type: "application/xml;charset=utf-8" }), `${baseName}.osm`);
+          blob=new Blob([xml], { type: "application/xml;charset=utf-8" });name=`${baseName}.osm`;
         } else {
           const entries = format === "shp" ? buildAdministrativeShapefileEntries(features, centers, title, options)
             : [{ name: "administrative-boundaries.osm", data: encoder.encode(xml) }];
@@ -17845,34 +17989,24 @@
           if (includeBasemap) {
             const rendered = await renderAdministrativeBasemapCanvas(features, title, extent, {...options, includeCoordinates: false, includePoints: false});
             const filename = basemapStyle.startsWith("huayu") ? `${basemapStyle}-basemap.tif` : "ogf-basemap.tif";
-            entries.push({ name: filename, data: new Uint8Array(await buildAdministrativeGeoTiff(rendered, true).arrayBuffer()) });
+            try {entries.push({ name: filename, data: new Uint8Array(await buildAdministrativeGeoTiff(rendered, true).arrayBuffer()) });
             report.basemap = { file: filename, style: basemapStyle, epsg: 3857, bounds: extent, missingTiles: rendered.missingTiles,
               width: rendered.canvas.width, height: rendered.canvas.height, resolution,
               includeHighlight: options.includeHighlight, includeBuildings: options.includeBuildings,
               clipFeatures: options.maskFeatures };
             imageSize = ` 底图尺寸 ${rendered.canvas.width} × ${rendered.canvas.height} 像素。`;
+            missingTiles+=rendered.missingTiles||0;
+            } finally {rendered.canvas.width=rendered.canvas.height=0;}
           }
           entries.push({ name: "export-info.json", data: encoder.encode(JSON.stringify(report, null, 2)) });
           if (format === "osm") entries.push({ name: "README.txt", data: encoder.encode(administrativeExportReadme(title, options)) });
-          downloadBlob(buildStoredZip(entries), `${baseName}-${format}.zip`);
+          blob=buildStoredZip(entries);name=`${baseName}-${format}.zip`;
         }
       }
-      setStatus(elements.boundaryLevelStatus, features.length
-        ? `已生成 ${boundaries.length} 个已选行政区、共 ${features.length} 个边界${includePoints ? `和 ${centers.length} 个行政中心` : "（不含行政中心点）"}的 ${format.toUpperCase()} 下载。${imageSize}${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
-        : `已生成 ${basemapLabel} 底图 ${format.toUpperCase()} 下载。${imageSize}`, Boolean(missing || centerWarning));
-      showToast(features.length ? "行政区划边界文件已生成" : "地图文件已生成");
-    } catch (error) {
-      const message = error?.message === "INVALID_EXPORT_BOUNDS"
-        ? "底图范围坐标无效，请确认西经度小于东经度、南纬度小于北纬度。"
-        : error?.message === "EXPORT_BOUNDS_TOO_LARGE"
-          ? "所选底图范围过大，请缩小坐标框选范围后重试。"
-          : humanizeError(error, "边界文件生成失败，请减少加载层级后重试。");
-      setStatus(elements.boundaryLevelStatus, message, true);
-    } finally {
-      administrativeExportBusy = false;
-      updateAdministrativeExportAvailability();
-      updateAdministrativeResolutionNote();
-    }
+      const tileWarning=missingTiles?` ${missingTiles} 张底图瓦片未加载，图片中保留空白。`:"";
+      return {blob,name,warning:Boolean(missing||centerWarning||missingTiles),message: (features.length
+        ? `已生成 ${boundaryCount} 个已选行政区、共 ${features.length} 个边界${includePoints ? `和 ${centers.length} 个行政中心` : "（不含行政中心点）"}的 ${format.toUpperCase()} 下载。${imageSize}${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
+        : `已生成 ${basemapLabel} 底图 ${format.toUpperCase()} 下载。${imageSize}`)+tileWarning};
   }
 
   function activeAdministrativeFeatureBounds(features) {
@@ -17942,7 +18076,7 @@
     if (options.includeCoordinates) drawAdministrativeCoordinateGrid(context, bounds, project, {
       left: offsetX, top: offsetY, right: offsetX + longitudeSpan * scale, bottom: offsetY + latitudeSpan * scale,
     });
-    const parentKeys = new Set(administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
+    const parentKeys = new Set(options.parentKeys || administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
     if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
@@ -18093,6 +18227,7 @@
     const canvas = document.createElement("canvas");
     canvas.width = plan.width;
     canvas.height = plan.height;
+    try {
     const context = canvas.getContext("2d");
     context.fillStyle = "#e9eeee";
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -18132,7 +18267,7 @@
     if (options.includeCoordinates) drawAdministrativeCoordinateGrid(context, bounds, project, {
       left: 0, top: 0, right: frameWidth, bottom: frameHeight,
     });
-    const parentKeys = new Set(administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
+    const parentKeys = new Set(options.parentKeys || administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
     if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
@@ -18144,7 +18279,7 @@
     if (options.maskFeatures?.length) window.HuayuMapExport.mask(canvas,options.maskFeatures,coordinate=>{
       const point=project(coordinate);return [point[0]*styleScale,point[1]*styleScale];
     });
-    window.HuayuMapExport.attribution(canvas,`${title} · OpenGeofiction contributors · 华域地图`,styleScale,Boolean(options.maskFeatures?.length));
+    if(!options.skipAttribution)window.HuayuMapExport.attribution(canvas,`${title} · OpenGeofiction contributors · 华域地图`,styleScale,Boolean(options.maskFeatures?.length));
     if (failed) showToast(`${failed} 张底图瓦片不可用，已保留空白位置`);
     const earthHalf = Math.PI * 6378137;
     return {
@@ -18162,6 +18297,7 @@
         tieLat: earthHalf - plan.pixelTop / plan.worldSize * earthHalf * 2,
       },
     };
+    } catch(error) {canvas.width=canvas.height=0;throw error;}
   }
 
   function administrativeTilePlan(bounds, resolution = 2400) {
@@ -20583,6 +20719,9 @@
 
   function huayuWallFeatureCollection(elements) {
     const features = [];
+    const wallsByNode = new Map();
+    const wallEdges = new Set();
+    const edgeKey = (a, b) => [String(a), String(b)].sort().join("/");
     (elements || []).forEach((element) => {
       const tags = element.tags || {};
       const barrierKind = String(tags.barrier || "").toLocaleLowerCase();
@@ -20614,6 +20753,14 @@
         osmId: String(element.id),
         heightSource: taggedHeight !== undefined ? "tagged" : "default",
       };
+      if (!fence && element.nodes?.length === coordinates.length) {
+        element.nodes.forEach((nodeId, index) => {
+          const key = String(nodeId);
+          if (!wallsByNode.has(key)) wallsByNode.set(key, []);
+          wallsByNode.get(key).push({ properties, tags, point: coordinates[index] });
+          if (index) wallEdges.add(edgeKey(element.nodes[index - 1], nodeId));
+        });
+      }
       features.push({
         type: "Feature",
         id: `${barrierKind}-line:${element.id}`,
@@ -20631,6 +20778,63 @@
         geometry: { type: "MultiPolygon", coordinates: polygons },
       });
     });
+    // Gate ways carry the actual opening span. Only shared OSM nodes can attach
+    // their overhead wall band; proximity alone must never bridge a real gap.
+    const seenGates = new Set();
+    const gates = (elements || []).filter(element => element.type === "way"
+      && ["gate", "entrance"].includes(element.tags?.barrier))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))).slice(0, 1024);
+    for (const gate of gates) {
+      const tags = gate.tags || {};
+      if (seenGates.has(String(gate.id))) continue;
+      seenGates.add(String(gate.id));
+      if (tags.building && tags.building !== "no" || tags.historic === "city_gate"
+        || tags.construction || tags.proposed || ["yes", "1", "true"].includes(tags.disused)
+        || ["yes", "1", "true"].includes(tags.abandoned)) continue;
+      const coordinates = huayuWallCoordinates(gate);
+      if (coordinates.length < 2 || gate.nodes?.length !== coordinates.length
+        || gate.nodes[0] === gate.nodes.at(-1)
+        || gate.nodes.slice(1).some((id, index) => wallEdges.has(edgeKey(gate.nodes[index], id)))) continue;
+      const length = coordinates.slice(1).reduce((sum, point, index) => {
+        const previous = coordinates[index];
+        return sum + Math.hypot((point[0] - previous[0]) * 111320 * Math.cos(point[1] * Math.PI / 180),
+          (point[1] - previous[1]) * 111320);
+      }, 0);
+      if (length < .6 || length > 20) continue;
+      const candidates = (id, point) => (wallsByNode.get(String(id)) || [])
+        .filter(wall => huayuWallPointKey(wall.point) === huayuWallPointKey(point)).sort((a, b) =>
+        String(a.properties.osmId).localeCompare(String(b.properties.osmId))).slice(0, 8);
+      let joined;
+      for (const left of candidates(gate.nodes[0], coordinates[0])) {
+        for (const right of candidates(gate.nodes.at(-1), coordinates.at(-1))) {
+          const layer = Number(left.tags.layer || 0);
+          if (!Number.isFinite(layer) || Number(right.tags.layer || 0) !== layer
+            || tags.layer !== undefined && Number(tags.layer) !== layer
+            || Math.abs(left.properties.height - right.properties.height) > .15
+            || Math.abs(left.properties.minHeight - right.properties.minHeight) > .1) continue;
+          joined = [left.properties, right.properties];
+          break;
+        }
+        if (joined) break;
+      }
+      if (!joined) continue;
+      const height = Math.min(...joined.map(p => p.height));
+      const wallBase = Math.max(...joined.map(p => p.minHeight));
+      const taggedClearance = parseHuayuWallMeasurement(tags["maxheight:physical"] ?? tags.maxheight, NaN, 30);
+      const clearance = Number.isFinite(taggedClearance) ? taggedClearance
+        : Math.min(3.2, Math.max(2, (height - wallBase) * .78));
+      const minHeight = wallBase + clearance;
+      if (clearance <= 0 || height - minHeight < .15) continue;
+      const width = Math.min(...joined.map(p => p.width));
+      const polygons = huayuWallSegmentPolygons(coordinates, width, .2);
+      if (!polygons.length) continue;
+      features.push({ type: "Feature", id: `wall-gate-lintel:${gate.id}`,
+        properties: { ...joined[0], name: String(tags.name || "").trim(), osmId: String(gate.id),
+          renderKind: "extrusion", wallPart: "gate-lintel", sourceBarrierKind: tags.barrier,
+          height, minHeight, width, openingHeight: clearance, openingEstimated: !Number.isFinite(taggedClearance),
+          adjoiningWallIds: joined.map(p => p.osmId).join(",") },
+        geometry: { type: "MultiPolygon", coordinates: polygons } });
+    }
     return { type: "FeatureCollection", features };
   }
 
@@ -26030,6 +26234,7 @@
     state.primaryActive = nextEnabled;
     syncHuayuSportsSnapshotLayers(glMap, state);
     if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
+    if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
   }
 
   function clearHuayuLiveBasemapPrimarySync(state) {
@@ -26080,8 +26285,8 @@
       plants: HUAYU_LIVE_BASEMAP_LAYERS.gardenPlants,
       onStatus(status) {
         const element = document.getElementById("render-settings-status");
-        element.textContent = status === "loading" ? "正在准备自然树冠…"
-          : status === "failed" ? "自然树冠未能加载，已保留经典模型。" : "";
+        element.textContent = status === "loading" ? "正在准备树木模型…"
+          : status === "failed" ? "树木模型未能加载，已保留经典模型。" : "";
         element.hidden = !element.textContent;
       },
     });
@@ -26290,6 +26495,7 @@
     }
     if (window.HuayuVegetation) syncHuayuVegetationSettings(glMap);
     if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
+    if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
     updateHuayuLiveBasemapDiagnostics(state);
@@ -27206,7 +27412,7 @@
     if (["pavilion", "gazebo"].includes(building) || leisure === "gazebo"
       || ["pavilion", "gazebo"].includes(buildingPart)
       || ["pavilion", "gazebo"].includes(manMade)
-      || (amenity === "shelter" && ["pavilion", "gazebo", "picnic_shelter"].includes(shelterType))) {
+      || (amenity === "shelter" && ["", "pavilion", "gazebo", "picnic_shelter"].includes(shelterType))) {
       return "pavilion";
     }
     return "";
@@ -27967,7 +28173,9 @@
       syncPublishedLayers("visible");
     }
     syncHuayuBuildingReplacementLayers(glMap, nextEnabled);
+    const ownershipChanged = state.primaryActive !== nextEnabled;
     state.primaryActive = nextEnabled;
+    if (ownershipChanged && window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
     syncHuayuBuildingRoofs(glMap);
     syncHuayuStructureModels(glMap);
     if (nextEnabled && state.addedAt && !state.firstModelMs) state.firstModelMs = Math.round(performance.now() - state.addedAt);
@@ -28128,6 +28336,7 @@
     }
     scheduleHuayuLiveBuildingPrimarySync(glMap, state);
     syncHuayuStructureModels(glMap);
+    if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
     updateHuayuLiveBuildingDiagnostics(state);
   }
 
@@ -28950,8 +29159,9 @@
     const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
     const clearanceWays = tile.z >= 14
       ? `way["highway"](${bbox})->.pavilionClearanceWays;` : "";
-    return `[out:json][timeout:15];way["barrier"~"^(wall|fence)$"](${bbox})->.barrierWays;${clearanceWays}(`
+    return `[out:json][timeout:15];way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->.barrierWays;${clearanceWays}(`
       + `nwr["amenity"="shelter"]["shelter_type"~"^(gazebo|pavilion|picnic_shelter)$"](${bbox});`
+      + `nwr["amenity"="shelter"]["shelter_type"!~"."](${bbox});`
       + `nwr["leisure"="gazebo"](${bbox});`
       + `nwr["man_made"~"^(gazebo|pavilion)$"](${bbox});nwr["building"~"^(gazebo|pavilion)$"](${bbox});`
       + `nwr["building:part"~"^(gazebo|pavilion)$"](${bbox});)->.pavilionStructures;`
@@ -28968,7 +29178,7 @@
       externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
       const timer = window.setTimeout(() => controller.abort(), 25000);
       try {
-        const response = await fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json`, {
+        const response = await fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates`, {
           headers: { Accept: "application/json" },
           signal: controller.signal,
         });
@@ -29028,6 +29238,7 @@
     }
     syncHuayuWallPerspectiveLayers(glMap);
     syncHuayuStructureModels(glMap);
+    if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
     updateHuayuStructureDiagnostics(state);
   }
 
@@ -30478,8 +30689,8 @@
     if (leisure === "playground") return { icon: "huayu-poi-playground", kind: "playground", priority: 3 };
     if (["amusement_arcade", "water_park", "bowling_alley", "escape_game"].includes(leisure)
       || tourism === "theme_park" || [
-      "amusement_ride", "carousel", "roller_coaster", "water_slide", "big_wheel", "train",
-    ].includes(attraction)) {
+      "amusement_ride", "carousel", "roller_coaster", "water_slide", "big_wheel", "ferris_wheel", "train",
+    ].includes(attraction) || tags?.man_made === "ferris_wheel") {
       return { icon: "huayu-poi-amusement", kind: "amusement", priority: 3 };
     }
     if (amenity === "police") return { icon: "huayu-poi-police", kind: "police", priority: 1 };
@@ -31210,6 +31421,76 @@
     glMap.getSource(HUAYU_SUPPLEMENTAL_POI_SOURCE)?.setData(state.data
       || { type: "FeatureCollection", features: [] });
     syncHuayuStructureModels(glMap);
+    syncHuayuFacilityModels(glMap, state.facilities || []);
+  }
+
+  function syncHuayuFacilityModels(glMap, features) {
+    if (!window.HuayuFacilityModels || !glMap.getStyle?.()?.layers?.length) return;
+    const supplemental = huayuSupplementalPoiStates.get(glMap);
+    features = glMap.getZoom() >= 15.25 ? features || supplemental?.facilities : [];
+    if (!features) return;
+    const palette = huayuOverlayPalette(glMap);
+    window.HuayuFacilityModels.sync(glMap, features, {
+      night: palette.night, satellite: palette.satellite,
+      context: huayuFacilityModelContext(glMap, supplemental),
+      observeGestures: (start, end) => observeHuayuMapGestures(glMap, start, end),
+    });
+  }
+
+  function huayuFacilityModelContext(glMap, state) {
+    if (!state) return undefined;
+    const buildings = huayuLiveBuildingStates.get(glMap), ground = huayuLiveBasemapStates.get(glMap);
+    const pavilions = huayuStructureStates.get(glMap)?.pavilionData;
+    const refs = [buildings?.data, buildings?.renderTileRevisions, buildings?.primaryActive,
+      ground?.groundRenderFeatures, ground?.activeTier, pavilions];
+    if (state.facilityContextRefs?.every((ref, i) => ref === refs[i])) return state.facilityContext;
+    state.facilityContextRefs = refs;
+    const coverage = buildings?.primaryActive && ground?.activeTier === "live"
+      ? [...(buildings.renderTileRevisions?.keys() || [])].map(key => {
+        const [z, x, y] = key.split("/").map(Number);
+        return huayuLiveBuildingTileBounds({z, x, y});
+      }) : [];
+    state.facilityContext = {coverage, obstacles: [
+      ...(buildings?.data?.features || []), ...(pavilions?.features || []),
+      ...(ground?.groundRenderFeatures || []).filter(feature =>
+        ["road", "railway", "waterway", "water"].includes(feature.properties?.renderKind)),
+    ]};
+    return state.facilityContext;
+  }
+
+  function huayuFacilityPointColors(tags) {
+    const colors = huayuBuildingColorProperties(tags), materials = huayuBuildingMaterialProperties(tags);
+    const valid = keys => keys.map(key => colors[key]).find(color => window.CSS?.supports("color", color)) || "";
+    const wall = valid(["building:colour", "building:color", "colour", "color"]);
+    const roof = valid(["roof:colour", "roof:color"]);
+    return {facilityWallColor: wall || materials.buildingMaterialColor || "",
+      facilityWallNightColor: wall || materials.buildingMaterialNightColor || "",
+      facilityRoofColor: roof || materials.roofMaterialColor || "",
+      facilityRoofNightColor: roof || materials.roofMaterialNightColor || ""};
+  }
+
+  function huayuFacilityFeatures(elements) {
+    const models = window.HuayuFacilityModels;
+    if (!models) return [];
+    const features = new Map();
+    const relations = new Set(elements.filter(element => element.type === "relation" && models.kind(element.tags))
+      .flatMap(element => (element.members || []).filter(member => member.type === "way").map(member => String(member.ref))));
+    for (const element of elements) {
+      const tags = element.tags || {};
+      if (!models.kind(tags) && tags.service !== "parking_aisle") continue;
+      if (element.type === "way" && relations.has(String(element.id))) continue;
+      const id = `${element.type}:${element.id}`;
+      let geometry = huayuSupplementalFacilityAreaGeometry(element);
+      if (!geometry && element.geometry?.length >= 2) geometry = {type: "LineString", coordinates: huayuWallCoordinates(element)};
+      if (!geometry) {
+        const point = huayuSupplementalElementCenter(element);
+        if (point) geometry = {type: "Point", coordinates: point};
+      }
+      if (geometry && (!features.has(id) || geometry.type !== "Point")) features.set(id, {
+        type: "Feature", id, properties: {...tags, ...huayuFacilityPointColors(tags), osmId: String(element.id), osmType: element.type}, geometry,
+      });
+    }
+    return [...features.values()];
   }
 
   async function refreshHuayuSupplementalPois(glMap) {
@@ -31231,16 +31512,19 @@
       state.pendingHighDetail = false;
       state.shelterBuildingIds = [];
       glMap.getSource(HUAYU_SUPPLEMENTAL_POI_SOURCE)?.setData({ type: "FeatureCollection", features: [] });
+      syncHuayuFacilityModels(glMap, []);
       return;
     }
     const highDetailRequested = generalRequested && zoom >= 17.5;
     const generalDataCovered = !generalRequested
       || (huayuAdministrativeBoundsContain(state.queryBounds, visibleBounds)
-        && state.data && (!highDetailRequested || state.highDetailLoaded));
+        && state.data && Date.now() - (state.loadedAt || 0) < 3 * 60 * 60 * 1000
+        && (!highDetailRequested || state.highDetailLoaded));
     const sportsDataCovered = !sportsRequested
       || huayuAdministrativeBoundsContain(state.sportsQueryBounds, visibleBounds);
     if (generalDataCovered && sportsDataCovered) {
       applyHuayuSupplementalPois(glMap, state);
+      scheduleHuayuSupplementalPois(glMap, Math.max(1000, state.loadedAt + 3 * 60 * 60 * 1000 - Date.now()));
       return;
     }
     if ((!generalRequested || huayuAdministrativeBoundsContain(state.pendingBounds, visibleBounds))
@@ -31258,6 +31542,11 @@
       `["leisure"~"^(playground|amusement_arcade|water_park|bowling_alley|escape_game)$"]`,
       `["tourism"~"^(theme_park|zoo|aquarium|museum|gallery)$"]`,
       `["attraction"~"^(amusement_ride|carousel|roller_coaster|water_slide|big_wheel|train)$"]`,
+      `["attraction"="ferris_wheel"]`,
+      `["man_made"="ferris_wheel"]`,
+      `["amenity"="parking"]`,
+      `["amenity"~"^(toilets|cafe|fast_food|ice_cream|restaurant)$"]`,
+      `["shop"]["shop"!~"^(no|vacant|closed|disused|abandoned)$"]`,
       `["amenity"="fountain"]`,
       `["waterway"="fountain"]`,
       `["man_made"="fountain"]`,
@@ -31290,6 +31579,12 @@
       : "";
     const areaSelectors = [
       `["amenity"~"^(fire_station|fuel|charging_station|recycling|waste_disposal|waste_transfer_station|waster_transfer_station)$"]`,
+      `["amenity"="parking"]`,
+      `["attraction"~"^(big_wheel|ferris_wheel)$"]`,
+      `["man_made"="ferris_wheel"]`,
+      `["service"="parking_aisle"]`,
+      `["amenity"~"^(toilets|cafe|fast_food|ice_cream|restaurant)$"]`,
+      `["shop"]["shop"!~"^(no|vacant|closed|disused|abandoned)$"]`,
       `["landuse"="landfill"]`,
       `["amenity"="fountain"]`,
       `["waterway"="fountain"]`,
@@ -31366,13 +31661,22 @@
         state.data = huayuSupplementalPoiFeatureCollection(glMap,
           [...(payload?.elements || []), ...(sportsPayload.elements || [])]);
         state.shelterBuildingIds = state.data.shelterBuildingIds || [];
+        state.facilities = huayuFacilityFeatures(payload?.elements || []);
+        state.loadedAt = Date.now();
       }
+      state.failureBbox = null;
+      state.failureRetries = 0;
       applyHuayuSupplementalPois(glMap, state);
+      scheduleHuayuSupplementalPois(glMap, 3 * 60 * 60 * 1000);
     } catch {
       if (requestId === state.requestId) {
         state.pendingBounds = null;
         state.pendingSportsBounds = null;
         state.pendingHighDetail = false;
+        const attempts = state.failureBbox === bbox ? state.failureRetries || 0 : 0;
+        state.failureBbox = bbox;
+        state.failureRetries = attempts + 1;
+        scheduleHuayuSupplementalPois(glMap, [2000, 10000][attempts] || 3 * 60 * 60 * 1000);
       }
     }
   }
@@ -31409,6 +31713,7 @@
     const state = glMap && huayuSupplementalPoiStates.get(glMap);
     if (!state) return;
     window.clearTimeout(state.timer);
+    window.HuayuFacilityModels?.dispose(glMap);
     state.requestId += 1;
     glMap.off("moveend", state.onMoveEnd);
     huayuSupplementalPoiStates.delete(glMap);

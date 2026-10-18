@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import * as THREE from "../site/three-0.160.1.module.min.js";
 import {pavilionTagRuntime as runtime} from "./test-pavilion-tags.mjs";
 
 const roofSource = await readFile(new URL("../site/building-roofs.js", import.meta.url), "utf8");
@@ -128,5 +129,65 @@ controller.update(controller.data,{...options,satellite:false});
 assert.equal(controller.wanted(),false,"俯视不得启用三维坡屋顶");
 roofs.dispose(map);
 
+// Exercise the actual mesh/material path: the upper walls must use the same
+// evaluated colour as native extrusions, including palette/material fallbacks.
+roofContext.maplibregl={MercatorCoordinate:{fromLngLat:([lon,lat])=>({x:0.5+lon/360,y:0.5-lat/360,
+  meterInMercatorCoordinateUnits:()=>1/40075016.68557849})}};
+let bearing=90,anchor="viewport",nativeColor={r:0.2,g:0.3,b:0.4},evaluatedFeature;
+const lightValues={position:{x:0.3,y:-0.5,z:1},color:{r:1,g:0.8,b:0.7},intensity:0.6};
+const paintValues={"fill-extrusion-color":{evaluate(feature){evaluatedFeature=feature;return nativeColor;}},
+  "fill-extrusion-vertical-gradient":true,"fill-extrusion-opacity":1};
+const renderMap={...map,getPitch:()=>45,getBearing:()=>bearing,getTerrain:()=>null,
+  style:{getLayer:()=>({paint:{get:key=>paintValues[key]}}),
+    light:{properties:{get:key=>key==="anchor"?anchor:lightValues[key]}}}};
+const renderController=roofs.sync(renderMap,{type:"FeatureCollection",features:[explicitAndMaterial]},options);
+renderController.T=THREE;renderController.scene=new THREE.Scene();renderController.build();
+assert.equal(evaluatedFeature,explicitAndMaterial);
+const wallGroup=renderController.geometry.groups[1],wallStart=wallGroup.start;
+assert.equal(wallGroup.count,6);
+for(let i=wallStart;i<wallStart+wallGroup.count;i++) {
+  const color=renderController.geometry.attributes.color;
+  [color.getX(i),color.getY(i),color.getZ(i)].forEach((value,j)=>
+    assert.ok(Math.abs(value-Object.values(nativeColor)[j])<1e-6,"山墙必须读取原生墙体最终取色，不能使用屋顶色或固定默认色"));
+}
+const roofColor=new THREE.Color("#654321"),meshColors=renderController.geometry.attributes.color;
+assert.ok(Math.abs(meshColors.getX(0)-roofColor.r)<1e-6,"屋顶坡面继续独立使用屋顶颜色");
+const uniforms=renderController.wallMaterial.uniforms;
+assert.ok(Math.abs(uniforms.wallLightPosition.value.x-0.5)<1e-6);
+assert.ok(Math.abs(uniforms.wallLightPosition.value.y-0.3)<1e-6,"转动地图时山墙灯光须跟随原生墙体");
+anchor="map";renderController.updateWallLighting();
+assert.equal(uniforms.wallLightPosition.value.x,0.3,"地图固定光源不能随相机转动");
+assert.equal(uniforms.wallLightIntensity.value,0.6);
+assert.equal(uniforms.wallLightColor.value.y,0.8);
+paintValues["fill-extrusion-vertical-gradient"]=false;
+paintValues["fill-extrusion-opacity"]=0.7;renderController.updateWallLighting();
+assert.equal(uniforms.wallVerticalGradient.value,0);
+assert.equal(uniforms.wallOpacity.value,0.7);
+assert.equal(renderController.wallMaterial.transparent,true);
+
+const normals=Array.from(renderController.geometry.attributes.normal.array).slice(wallStart*3);
+const reversed=structuredClone(explicitAndMaterial);reversed.geometry.coordinates[0].reverse();
+renderController.update({type:"FeatureCollection",features:[reversed]},options);renderController.build();
+const reversedNormals=Array.from(renderController.geometry.attributes.normal.array).slice(wallStart*3);
+const normalsByFace=values=>Array.from({length:values.length/9},(_,i)=>values.slice(i*9,i*9+3).join(",")).sort();
+assert.deepEqual(normalsByFace(normals),normalsByFace(reversedNormals),"源轮廓反向不能使山墙光照翻转");
+
+const multiple=structuredClone(explicitAndMaterial),firstRing=multiple.geometry.coordinates;
+multiple.geometry={type:"MultiPolygon",coordinates:[firstRing,firstRing.map(ring=>ring.map(([x,y])=>[x+0.001,y]))]};
+renderController.update({type:"FeatureCollection",features:[multiple]},options);renderController.build();
+const multiNormals=Array.from(renderController.geometry.attributes.normal.array).slice(renderController.geometry.groups[1].start*3);
+assert.deepEqual(normalsByFace(multiNormals),[...normalsByFace(normals),...normalsByFace(normals)].sort(),
+  "多面建筑须按各自轮廓判断山墙朝向，不能共用全建筑中心");
+nativeColor={r:0.08,g:0.1,b:0.12};
+renderController.update(renderController.data,{...options,night:true});renderController.build();
+assert.ok(Math.abs(renderController.geometry.attributes.color.getX(renderController.geometry.groups[1].start)-0.08)<1e-6,
+  "日夜切换后须重新使用原生墙体颜色");
+let disposed=0;
+for(const resource of [renderController.geometry,renderController.material,renderController.wallMaterial])
+  resource.addEventListener("dispose",()=>disposed++);
+roofs.dispose(renderMap);
+assert.equal(disposed,3,"清理时必须释放屋顶与山墙的几何和材质");
+
 console.log(JSON.stringify({status:"passed",materials:Object.keys(wallMaterials).length,
-  roofShapes:Object.keys(shapes),fallbacks:["complex","holes","overhead","satellite","controller"]}));
+  roofShapes:Object.keys(shapes),wallColorContinuity:true,
+  fallbacks:["complex","holes","overhead","satellite","controller"]}));

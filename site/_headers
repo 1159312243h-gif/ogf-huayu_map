@@ -13,6 +13,9 @@
 /vegetation-models.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/facility-models.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /bridge-models.js
   Cache-Control: public, max-age=0, must-revalidate
 
