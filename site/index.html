@@ -828,7 +828,8 @@
               <h3>植被与恢复默认</h3>
               <p>“设置”可选择经典柱形、双层柱形或自然树冠，调整面状植被密度，单独开关花园花簇。经典样式中普通树木为单层圆柱，花园观赏树保留原先略有偏移的双层树冠；可选“双层柱形”的上下树冠居中对齐。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
               <h3>建筑材质与屋顶</h3>
-              <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和支持的屋顶形状标签显示。倾斜近景可查看适用建筑的双坡、四坡等屋顶；缺少标签或不适用的轮廓使用已有模型，不根据名称猜测材质或形状。</p>
+              <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和 <code>roof:shape</code> 显示屋顶。支持水平、山墙、高差山墙、单坡、庑殿、半庑殿、单侧庑殿、单侧半庑殿、孟莎、复式、歇山、攒尖、十字脊、锯齿、蝴蝶、尖顶、圆穹、洋葱和弯隆，共 19 种。倾斜近景可查看立体形态，水平式保留平顶；缺少标签、不支持的形状、带孔或不适用的复杂轮廓保留原有模型，不根据名称猜测。</p>
+              <p><code>roof:orientation=along</code> 让屋脊沿建筑长边，<code>across</code> 沿短边；<code>roof:direction</code> 优先指定坡面向下的方位，0° 为北、90° 为东，单坡的相反方向会真正交换高低边。未标方向时按轮廓稳定定向，不因拖动或转动地图改变；曲线顶沿真实凸轮廓适配。形状细节缺少标注时是制图示意，墙面和山墙仍使用墙色，坡面独立使用屋顶色；屋顶与日照阴影使用同一几何。</p>
               <h3>光影与日照</h3>
               <p>在“设置 → 光影与日照”开启按时间模拟日照，直接选择年月日，或用今天及四个代表日快捷按钮；同一日期在南北半球自然呈现不同季节。拖动时间或输入精确到分钟的当地太阳时，可观察太阳方向与高度变化，环境亮度和明暗对比可分别调节，夜间采用中性弱光。建筑地面阴影可独立开关、调节浓度，近景建筑完整加载后后台生成，早晚拉长、正午缩短，太阳落山后关闭；俯视与倾斜均可查看。阴影按原建筑轮廓、孔洞、高度和已显示的坡屋顶估算，重叠不反复加深，拖动地图时保留上一份完整结果。投影随现有地形贴地，但不计算山体遮光、其他建筑墙面上的投影或反射；局部数据和高度为制图表达，不代表真实天气或工程日照分析。当地太阳时不是北京时间。仅用于主地图的华域标准与深夜底图，模拟卫星、OGF 栅格及独立下载不继承。默认关闭，关闭恢复原有光照；偏好保存在本机，“恢复默认”同时重置日期、时间与阴影设置。</p>
               <h3>摩天轮与停车场</h3>
@@ -978,19 +979,19 @@
     <script src="./lucide.min.js"></script>
     <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-assets.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./sunlight-shadows.js?v=7.5-sunlight-v2"></script>
+    <script src="./sunlight-shadows.js?v=7.5-roof-shapes-v1"></script>
     <script src="./sunlight.js?v=7.5-sunlight-v2"></script>
     <script src="./vegetation-models.js?v=7.5-sunlight-v1"></script>
     <script src="./facility-models.js?v=7.5-roadside-sunlight-v1"></script>
     <script src="./structure-models.js?v=7.5-sunlight-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./building-roofs.js?v=7.5-sunlight-v1"></script>
+    <script src="./building-roofs.js?v=7.5-roof-shapes-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
     <script src="./map-export.js?v=7.5-download-list-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.5-sunlight-v2"></script>
+    <script src="./app.js?v=7.5-roof-shapes-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>

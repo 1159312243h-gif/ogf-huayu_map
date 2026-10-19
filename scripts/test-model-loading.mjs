@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {courtyardGateWays} from "./fixtures/wall-gates.mjs";
+import {roofShapeElements} from "./fixtures/roof-shapes.mjs";
 
 const source = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
 const declaration = name => {
@@ -98,6 +99,9 @@ for (const kind of ["building", "structure"]) {
   assert.equal(await request({action:"write", kind, key:"15/123/456", entry}), true);
   assert.ok(await request({action:"read", kind, key:"15/123/456"}), "reopening must restore prepared models");
 }
+const roofDecoded=await request({action:"decode",kind:"building",text:JSON.stringify({elements:roofShapeElements})});
+assert.deepEqual(JSON.parse(JSON.stringify(roofDecoded.data)),JSON.parse(JSON.stringify(factory.huayuLiveBuildingFeatureCollection(roofShapeElements))),
+  "all 19 roof tags, curved footprints and orientation metadata match background decoding");
 const readWrites = modelBlobWrites;
 const readAge = [...records.values()][0].cachedAt;
 await request({action:"read", kind:"building", key:"15/123/456"});

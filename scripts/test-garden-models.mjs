@@ -172,12 +172,15 @@ const factory=vm.createContext({});
 const names=declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1].split(",").map(s => s.trim());
 for(const name of [...names,"createHuayuGardenModels","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
   vm.runInContext(declaration(name),factory);
-// The reviewed shelter classification and wall gate changes invalidate shared
-// building/structure geometry. Gardens retain their independent cache
-// version and must continue to produce identical geometry below.
+// Reviewed roof-shape parsing now invalidates shared building/structure
+// geometry as intended. Freeze the unchanged garden factory independently,
+// including its cache version, as well as testing actual geometry below.
+assert.equal(createHash("sha256").update(declaration("createHuayuGardenModels")).digest("hex"),
+  "3a1f9af4806619f56c111b8f42c1535791a365ed4633e2ec263d9128570689a8",
+  "roof expansion must preserve the existing garden algorithms and their independent cache");
 assert.equal(createHash("sha256").update(names.map(name=>factory[name].toString()).join("\n")).digest("hex"),
-  "b6d333d4f2966c2682beffdc9ebc35516a581160723947680d3aede5fcd0774f",
-  "the reviewed shelter/gate changes invalidate building/structure geometry without changing garden caches");
+  "65dc263c093666f8a184dd6b50090c6141b3f7f6fdc822adcbf21c1d07b1d6c6",
+  "the reviewed roof expansion invalidates building/structure geometry without changing garden caches");
 const worker=new Worker(`const {parentPort}=require("node:worker_threads");
 global.self={postMessage:value=>parentPort.postMessage(value)};
 parentPort.on("message",data=>self.onmessage({data}));

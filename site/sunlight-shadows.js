@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "7.5-sunlight-v2", PREFIX = "ogf-atlas-sun-shadow";
+  const VERSION = "7.5-roof-shapes-v1", PREFIX = "ogf-atlas-sun-shadow";
   const scriptUrl = root.document?.currentScript?.src;
   const R = 6378137, rad = Math.PI / 180, MAX_VERTICES = 400000;
   const project = point => [R * point[0] * rad,
@@ -13,6 +13,8 @@
   // worker and replaced only when the complete displayed building owner changes.
   function prepare(data) {
     const items = [];
+    const modeled = new Map((root.HuayuBuildingRoofs?.describe(data) || [])
+      .map(item => [item.feature.id, item.triangles]));
     for (const feature of data?.features || []) {
       const p = feature.properties || {}, height = Number(p.renderHeight), bottom = Number(p.renderMinHeight || 0);
       if (p.structureKind && p.structureKind !== "building") continue;
@@ -29,7 +31,7 @@
       }
       const lat = (rings[0][0][0][1] + rings[0][0][1][1]) / 2;
       const scale = 1 / Math.cos(lat * rad);
-      const roof = root.HuayuBuildingRoofs?.roofTriangles(feature) || [];
+      const roof = modeled.get(feature.id) || [];
       items.push({rings: mercator, bounds, height, bottom, scale, vertices,
         eaves: roof.length ? Number(p.roofBaseHeight) : height,
         roof: roof.map(triangle => triangle.points.map(pt => [...project(pt), pt[2]]))});

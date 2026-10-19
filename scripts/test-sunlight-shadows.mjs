@@ -21,7 +21,8 @@ const context = vm.createContext({document: {currentScript: {src: "https://map.t
 vm.runInContext(await readFile(new URL("../site/building-roofs.js", import.meta.url), "utf8"), context);
 vm.runInContext(await readFile(new URL("../site/sunlight-shadows.js", import.meta.url), "utf8"), context);
 const api = context.HuayuSunShadows, copy = value => JSON.parse(JSON.stringify(value));
-const feature = (polys, properties = {}) => ({type: "Feature", properties: {renderHeight: 10, renderMinHeight: 0, ...properties},
+let featureId=0;
+const feature = (polys, properties = {}) => ({type: "Feature", id:++featureId, properties: {renderHeight: 10, renderMinHeight: 0, ...properties},
   geometry: {type: "MultiPolygon", coordinates: polys.map(poly => poly.map(ring => ring.map(api.unproject)))}});
 const box = (x, y, width, height) => [[x,y],[x+width,y],[x+width,y+height],[x,y+height],[x,y]];
 const data = {type: "FeatureCollection", features: [feature([[box(0,0,20,20)]])]}, original = JSON.stringify(data);

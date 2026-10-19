@@ -514,7 +514,7 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 "发布建筑兜底时面状候车亭模型不得与建筑面重复");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=7.5-sunlight-v1')
+assert.ok(index.includes('building-roofs.js?v=7.5-roof-shapes-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -523,7 +523,8 @@ assert.ok(index.includes('building-roofs.js?v=7.5-sunlight-v1')
   && buildingRoofs.includes("this.options.enabled && !this.options.satellite")
   && buildingRoofs.includes("this.map.getPitch() > 0.5")
   && buildingRoofs.includes("this.setWallMode(false)")
-  && buildingRoofs.includes('["gabled", "hipped", "pyramidal", "skillion"]'),
+  && ["gabled", "hipped", "pyramidal", "skillion", "half-hipped", "dome", "onion", "sawtooth"]
+    .every(shape => buildingRoofs.includes(`"${shape}"`)),
 "建筑材质与坡屋顶必须接入完整建筑所有权、共享三维深度、俯视/卫星禁用及失败回退");
 const mergeBuildingTilesSource = app.match(/function mergeHuayuLiveBuildingTiles\(state\) \{[\s\S]*?\n  \}/u)?.[0];
 assert.ok(mergeBuildingTilesSource, "无法读取实时建筑分片合并状态机");
@@ -610,7 +611,7 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->
   && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
   && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates`")
   && worker.includes('schema", "huayu-structures-v5-wall-gates"')
-  && worker.includes('schema", "huayu-building-v6-material-roofs"')
+  && worker.includes('schema", "huayu-building-v7-roof-shapes"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
 "墙和栅栏必须使用独立轻量分片与三小时缓存，不得被建筑查询超时连带清空");
@@ -1516,6 +1517,8 @@ const facilityModelsTest = await runCheck([path.join(root,"scripts","test-facili
 assert.equal(facilityModelsTest.status, 0, `摩天轮与停车场渲染回归失败：${facilityModelsTest.stderr}`);
 const buildingMaterialRoofsTest = await runCheck([path.join(root,"scripts","test-building-material-roofs.mjs")]);
 assert.equal(buildingMaterialRoofsTest.status, 0, `建筑材质与坡屋顶回归失败：${buildingMaterialRoofsTest.stderr}`);
+const roofShapesTest = await runCheck([path.join(root,"scripts","test-roof-shapes.mjs")]);
+assert.equal(roofShapesTest.status, 0, `19 种屋顶形状与方向回归失败：${roofShapesTest.stderr}`);
 const sunlightTest = await runCheck([path.join(root,"scripts","test-sunlight.mjs")]);
 assert.equal(sunlightTest.status, 0, `光影日照回归失败：${sunlightTest.stderr}`);
 const sunlightShadowsTest = await runCheck([path.join(root,"scripts","test-sunlight-shadows.mjs")]);

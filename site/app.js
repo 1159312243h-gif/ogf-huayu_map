@@ -27849,13 +27849,18 @@
   function huayuRoofShape(tags = {}) {
     const value = String(tags["roof:shape"] || "").trim().toLocaleLowerCase().replace(/[\s_]+/gu, "-");
     return ({gable: "gabled", gabled: "gabled", hip: "hipped", hipped: "hipped",
-      "half-hipped": "hipped", pyramid: "pyramidal", pyramidal: "pyramidal",
-      shed: "skillion", skillion: "skillion"})[value] || "";
+      flat:"flat", "gabled-height-moved":"gabled_height_moved", "half-hipped":"half-hipped",
+      "side-hipped":"side_hipped", "side-half-hipped":"side_half-hipped",
+      "half-side-hipped":"side_half-hipped", "hipped-and-gabled":"hipped-and-gabled",
+      mansard:"mansard", gambrel:"gambrel", crosspitched:"crosspitched", sawtooth:"sawtooth",
+      butterfly:"butterfly", cone:"cone", dome:"dome", onion:"onion", round:"round",
+      pyramid: "pyramidal", pyramidal: "pyramidal", shed: "skillion", skillion: "skillion"})[value] || "";
   }
 
   function huayuRoofDirection(tags = {}) {
-    const raw = String(tags["roof:direction"] || "").trim().toLocaleLowerCase();
-    const numeric = Number.parseFloat(raw.replace(/deg(?:rees?)?$/u, ""));
+    const raw = String(tags["roof:direction"] ?? "").trim().toLocaleLowerCase();
+    const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*(?:°|deg(?:rees?)?)?$/u.test(raw)
+      ? Number.parseFloat(raw) : NaN;
     if (Number.isFinite(numeric)) return ((numeric % 360) + 360) % 360;
     const directions = ["n", "nne", "ne", "ene", "e", "ese", "se", "sse",
       "s", "ssw", "sw", "wsw", "w", "wnw", "nw", "nnw"];
@@ -27869,13 +27874,13 @@
       (Number(second?.[1]) - Number(first?.[1])) * 111320);
   }
 
-  function huayuRoofSimpleRing(ring) {
-    if (!Array.isArray(ring) || ring.length < 4) return null;
-    const points = huayuWallPointKey(ring[0]) === huayuWallPointKey(ring.at(-1))
-      ? ring.slice(0, -1).map((point) => point.map(Number)) : ring.map((point) => point.map(Number));
-    if (points.some((point) => point.length < 2 || !point.every(Number.isFinite))) return null;
+  function huayuRoofSimpleRing(ring, limit = 4) {
+    if (!Array.isArray(ring) || ring.length < 4 || ring.length > 257) return null;
+    const points = ring.map(point => [Number(point?.[0]),Number(point?.[1])]);
+    if (points.some(point => !point.every(Number.isFinite))) return null;
+    if (huayuRoofDistanceMeters(points[0],points.at(-1)) < 1e-6) points.pop();
     let changed = true;
-    while (changed && points.length > 4) {
+    while (changed && points.length > 3) {
       changed = false;
       for (let index = 0; index < points.length; index += 1) {
         const previous = points[(index + points.length - 1) % points.length];
@@ -27884,38 +27889,62 @@
         const first = huayuRoofDistanceMeters(previous, point);
         const second = huayuRoofDistanceMeters(point, next);
         const direct = huayuRoofDistanceMeters(previous, next);
-        if (first + second - direct > Math.max(0.08, direct * 0.004)) continue;
+        if (first + second - direct > 1e-6) continue;
         points.splice(index, 1); changed = true; break;
       }
     }
-    if (points.length !== 4 || points.some((point, index) =>
-      huayuRoofDistanceMeters(point, points[(index + 1) % 4]) < 0.5)) return null;
-    const latitude = points.reduce((sum, point) => sum + point[1], 0) / 4 * Math.PI / 180;
-    const projected = points.map((point) => [point[0] * Math.cos(latitude), point[1]]);
-    const crosses = projected.map((point, index) => {
-      const next = projected[(index + 1) % 4], after = projected[(index + 2) % 4];
+    if (points.length < 3 || points.length > limit || limit === 4 && points.length !== 4 || points.some((point, index) =>
+      huayuRoofDistanceMeters(point, points[(index + 1) % points.length]) < 0.5)) return null;
+    const crosses = points.map((point, index) => {
+      const next = points[(index + 1) % points.length], after = points[(index + 2) % points.length];
       return (next[0] - point[0]) * (after[1] - next[1])
         - (next[1] - point[1]) * (after[0] - next[0]);
     });
     if (crosses.some((cross) => Math.abs(cross) < 1e-14)
       || crosses.some((cross) => Math.sign(cross) !== Math.sign(crosses[0]))) return null;
+    for(let i=0;i<points.length;i++)for(let j=i+2;j<points.length;j++) {
+      if(i===0 && j===points.length-1)continue;
+      const a=points[i],b=points[(i+1)%points.length],c=points[j],d=points[(j+1)%points.length];
+      const cross=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+      if(cross(a,b,c)*cross(a,b,d)<0 && cross(c,d,a)*cross(c,d,b)<0)return null;
+    }
     return points;
   }
 
-  function huayuRoofSimpleRings(geometry) {
+  function huayuRoofSimpleRings(geometry, limit = 4) {
     const polygons = geometry?.type === "Polygon" ? [geometry.coordinates]
       : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
     if (!polygons.length || polygons.some((polygon) => !Array.isArray(polygon) || polygon.length !== 1)) return [];
-    const rings = polygons.map((polygon) => huayuRoofSimpleRing(polygon[0]));
+    const rings = polygons.map((polygon) => huayuRoofSimpleRing(polygon[0], limit));
     return rings.every(Boolean) ? rings : [];
   }
 
   function huayuBuildingRoofProperties(tags, geometry, height, minHeight) {
     const roofShape = huayuRoofShape(tags);
-    const rings = roofShape ? huayuRoofSimpleRings(geometry) : [];
+    if(roofShape === "flat")return {roofShape};
+    const radial=["pyramidal","cone","dome","onion"].includes(roofShape);
+    const rings = roofShape ? huayuRoofSimpleRings(geometry, radial ? 64 : 4) : [];
     if (!roofShape || !rings.length) return {};
-    const spans = rings.flatMap((ring) => ring.map((point, index) =>
-      huayuRoofDistanceMeters(point, ring[(index + 1) % 4])));
+    const direction = huayuRoofDirection(tags);
+    const orientation=String(tags["roof:orientation"] || "").trim().toLocaleLowerCase();
+    const spans=rings.map(ring=>{
+      if(radial) {
+        const xs=ring.map(p=>p[0]),ys=ring.map(p=>p[1]);
+        const west=Math.min(...xs),east=Math.max(...xs),south=Math.min(...ys),north=Math.max(...ys);
+        return Math.min(huayuRoofDistanceMeters([west,south],[east,south]),huayuRoofDistanceMeters([west,south],[west,north]));
+      }
+      const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
+      const pairA=huayuRoofDistanceMeters(ring[0],ring[1])+huayuRoofDistanceMeters(ring[2],ring[3]);
+      const pairB=huayuRoofDistanceMeters(ring[1],ring[2])+huayuRoofDistanceMeters(ring[3],ring[0]);
+      let useA=pairA>=pairB;if(orientation==="across")useA=!useA;
+      if(Number.isFinite(direction)) {
+        const bearing=(a,b)=>(Math.atan2((b[0]-a[0])*Math.cos((a[1]+b[1])/2*Math.PI/180),b[1]-a[1])*180/Math.PI+360)%360;
+        const diff=b=>{const d=Math.abs(direction-b)%180;return Math.min(d,180-d);};
+        useA=diff(bearing(mid(ring[2],ring[3]),mid(ring[0],ring[1])))<=diff(bearing(mid(ring[3],ring[0]),mid(ring[1],ring[2])));
+      }
+      return useA?huayuRoofDistanceMeters(mid(ring[0],ring[1]),mid(ring[2],ring[3]))
+        :huayuRoofDistanceMeters(mid(ring[1],ring[2]),mid(ring[3],ring[0]));
+    });
     const shortSpan = Math.max(1, Math.min(...spans));
     const taggedRoofHeight = tags["roof:height"] ?? tags["building:roof:height"];
     const roofLevels = Number.parseFloat(tags["roof:levels"]);
@@ -27926,7 +27955,8 @@
     else if (Number.isFinite(roofAngle) && roofAngle > 0 && roofAngle < 80) {
       const run = roofShape === "skillion" ? shortSpan : shortSpan / 2;
       roofHeight = Math.tan(roofAngle * Math.PI / 180) * run;
-    } else roofHeight = shortSpan * (roofShape === "skillion" ? 0.18 : 0.28);
+    } else roofHeight = roofShape==="sawtooth" ? Math.max(.6,shortSpan/Math.max(2,Math.min(6,Math.round(shortSpan/8)))*.28)
+      :shortSpan * ({skillion:.18,dome:.5,onion:.8,round:.5,cone:.5}[roofShape] || .28);
     roofHeight = Math.max(0, Math.min(40, roofHeight));
     if (roofHeight < 0.2) return {};
     const hasTaggedTotal = tags.height !== undefined || tags.est_height !== undefined;
@@ -27935,7 +27965,6 @@
     roofHeight = Math.min(roofHeight, roofTopHeight - minHeight - 0.6);
     if (roofHeight < 0.2) return {};
     const roofBaseHeight = roofTopHeight - roofHeight;
-    const direction = huayuRoofDirection(tags);
     return {
       roofModel: 1,
       roofShape,
@@ -27943,8 +27972,7 @@
       roofBaseHeight,
       roofTopHeight,
       ...(Number.isFinite(direction) ? { roofDirection: direction } : {}),
-      ...(["along", "across"].includes(String(tags["roof:orientation"] || "").toLocaleLowerCase())
-        ? { roofOrientation: String(tags["roof:orientation"]).toLocaleLowerCase() } : {}),
+      ...(["along", "across"].includes(orientation) ? { roofOrientation: orientation } : {}),
     };
   }
 

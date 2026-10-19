@@ -43,10 +43,10 @@ const materialOnly = model({height:"10","building:material":"glass","roof:materi
 assert.equal(roofs.taggedColor(materialOnly.properties,false,false,{wallDefault:"#fff"}),"#73aab7");
 assert.equal(roofs.taggedColor(materialOnly.properties,true,true,{roofDefault:"#fff"}),"#40474d");
 
-const aliases = {gable:"gabled",gabled:"gabled",hip:"hipped","half hipped":"hipped",
+const aliases = {gable:"gabled",gabled:"gabled",hip:"hipped","half hipped":"half-hipped",
   pyramid:"pyramidal",shed:"skillion",skillion:"skillion"};
 for (const [tag,shape] of Object.entries(aliases)) assert.equal(runtime.huayuRoofShape({"roof:shape":tag}),shape);
-assert.equal(runtime.huayuRoofShape({"roof:shape":"dome"}),"");
+assert.equal(runtime.huayuRoofShape({"roof:shape":"unknown_shape"}),"");
 
 const shapes = {
   gabled:{roof:4,wall:2,total:6},
@@ -116,8 +116,31 @@ const options={enabled:true,satellite:false,night:false,buildingLayer:"live-buil
   roofDefault:"#999",ancientWall:"#876",ancientRoof:"#765"};
 const controller=roofs.sync(map,{type:"FeatureCollection",features:[materialOnly]},options);
 controller.setWallMode(true);
-assert.deepEqual(JSON.parse(JSON.stringify(wallHeight)),["case",["==",["get","roofModel"],1],
-  ["get","roofBaseHeight"],["get","renderHeight"]]);
+// Evaluate the emitted paint with the string-ID coercion used by GeoJSON
+// tiling. Only actual modeled OSM objects may have their walls shortened.
+function evaluate(expression,feature) {
+  if(!Array.isArray(expression))return expression;
+  const [op,...args]=expression,run=value=>evaluate(value,feature);
+  if(op==="literal")return args[0];
+  if(op==="get")return feature.properties[args[0]] ?? null;
+  if(op==="id")return feature.id;
+  if(op==="case")return run(args[0])?run(args[1]):run(args[2]);
+  if(op==="all")return args.every(run);if(op==="any")return args.some(run);
+  if(op==="==")return run(args[0])===run(args[1]);
+  if(op==="in")return run(args[1]).includes(run(args[0]));
+  if(op==="concat")return args.map(run).join("");
+  if(op==="to-string")return String(run(args[0]));
+  if(op==="coalesce")return args.map(run).find(v=>v!==null && v!==undefined);
+  throw new Error(`Unexpected paint operator: ${op}`);
+}
+const tiled={...materialOnly,id:0};
+assert.equal(evaluate(wallHeight,tiled),8,"tiled string IDs must not leave a flat cap hiding the modeled roof");
+for(const properties of [{...tiled.properties,osmType:"relation"},{...tiled.properties,osmId:"2"},
+  {...tiled.properties,roofModel:undefined}])assert.equal(evaluate(wallHeight,{...tiled,properties}),10,
+    "unmodeled objects keep their complete native height, including way/relation ID collisions");
+const modeledItems=controller.items;controller.items=[];controller.setWallMode(true);
+assert.equal(evaluate(wallHeight,tiled),10,"valid roof tags alone cannot shorten walls after the mesh budget excludes a building");
+controller.items=modeledItems;
 controller.setWallMode(false);
 assert.deepEqual(JSON.parse(JSON.stringify(wallHeight)),["get","renderHeight"],
   "坡屋顶关闭或失败时墙体必须恢复完整平屋顶高度");

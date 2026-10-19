@@ -2,7 +2,10 @@
   "use strict";
 
   const LAYER_ID = "ogf-atlas-building-roofs";
-  const SUPPORTED = new Set(["gabled", "hipped", "pyramidal", "skillion"]);
+  const VERSION = "7.5-roof-shapes-v1";
+  const SUPPORTED = new Set(["flat", "gabled", "gabled_height_moved", "skillion", "hipped",
+    "half-hipped", "side_hipped", "side_half-hipped", "mansard", "gambrel", "hipped-and-gabled",
+    "pyramidal", "crosspitched", "sawtooth", "butterfly", "cone", "dome", "onion", "round"]);
   const controllers = new WeakMap();
 
   function distance(first, second) {
@@ -36,9 +39,42 @@
     const geometry = feature?.geometry;
     const values = geometry?.type === "Polygon" ? [geometry.coordinates]
       : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
-    return values.filter((polygon) => polygon?.length === 1 && polygon[0]?.length === 5)
-      .map((polygon) => polygon[0].slice(0, -1).map((point) => point.map(Number)))
-      .filter((ring) => ring.length === 4 && ring.flat().every(Number.isFinite));
+    const radial = ["pyramidal", "cone", "dome", "onion"].includes(feature?.properties?.roofShape);
+    const rings = values.map(polygon => polygon?.length === 1 ? simpleRing(polygon[0], radial ? 64 : 4) : null);
+    return rings.length && rings.every(Boolean) ? rings : [];
+  }
+
+  function simpleRing(source, limit = 4) {
+    if (!Array.isArray(source) || source.length < 4 || source.length > 257) return null;
+    const ring = source.map(p => [Number(p?.[0]), Number(p?.[1])]);
+    if (!ring.flat().every(Number.isFinite)) return null;
+    if (distance(ring[0], ring.at(-1)) < 1e-6) ring.pop();
+    let changed = true;
+    while (changed && ring.length > 3) {
+      changed = false;
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[(i + ring.length - 1) % ring.length], b = ring[i], c = ring[(i + 1) % ring.length];
+        // Only redundant, exactly collinear source vertices may be omitted in the mesh.
+        if (distance(a,b) + distance(b,c) - distance(a,c) > 1e-6) continue;
+        ring.splice(i,1); changed = true; break;
+      }
+    }
+    if (ring.length < 3 || ring.length > limit || ![3,64].includes(limit) && ring.length !== 4) return null;
+    let sign = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a=ring[i],b=ring[(i+1)%ring.length],c=ring[(i+2)%ring.length];
+      const cross=(b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]);
+      if (distance(a,b)<.5 || Math.abs(cross)<1e-14 || sign && Math.sign(cross)!==sign) return null;
+      sign=Math.sign(cross);
+    }
+    // Convex turns alone do not reject self-intersecting star polygons.
+    for (let i=0;i<ring.length;i++) for(let j=i+2;j<ring.length;j++) {
+      if(i===0 && j===ring.length-1)continue;
+      const a=ring[i],b=ring[(i+1)%ring.length],c=ring[j],d=ring[(j+1)%ring.length];
+      const cross=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+      if(cross(a,b,c)*cross(a,b,d)<0 && cross(c,d,a)*cross(c,d,b)<0)return null;
+    }
+    return ring;
   }
 
   function orientedRing(ring, properties) {
@@ -46,13 +82,20 @@
     const pairB = distance(ring[1], ring[2]) + distance(ring[3], ring[0]);
     let useA = pairA >= pairB;
     if (properties.roofOrientation === "across") useA = !useA;
-    if (Number.isFinite(Number(properties.roofDirection))) {
+    if (typeof properties.roofDirection === "number" && Number.isFinite(properties.roofDirection)) {
       const direction = Number(properties.roofDirection);
       const slopeA = bearing(midpoint(ring[2], ring[3]), midpoint(ring[0], ring[1]));
       const slopeB = bearing(midpoint(ring[3], ring[0]), midpoint(ring[1], ring[2]));
       useA = bearingDifference(direction, slopeA) <= bearingDifference(direction, slopeB);
     }
-    return useA ? ring : [ring[1], ring[2], ring[3], ring[0]];
+    let result = useA ? [...ring] : [ring[1], ring[2], ring[3], ring[0]];
+    const a=midpoint(result[3],result[0]), b=midpoint(result[1],result[2]);
+    if(b[0]<a[0]-1e-12 || Math.abs(b[0]-a[0])<=1e-12 && b[1]<a[1])
+      result=[result[2],result[3],result[0],result[1]];
+    const [p,q,r]=result;
+    if((q[0]-p[0])*(r[1]-q[1])-(q[1]-p[1])*(r[0]-q[0])<0)
+      result=[result[3],result[2],result[1],result[0]];
+    return result;
   }
 
   function roofTriangles(feature) {
@@ -60,58 +103,97 @@
     const shape = properties.roofShape;
     const base = Number(properties.roofBaseHeight);
     const top = Number(properties.roofTopHeight);
-    if (!SUPPORTED.has(shape) || properties.roofModel !== 1
+    if (!SUPPORTED.has(shape) || shape === "flat" || properties.roofModel !== 1
       || !Number.isFinite(base) || !Number.isFinite(top) || top <= base) return [];
     const result = [];
-    const add = (kind, ...points) => result.push({kind, points});
+    let footprint;
+    const add = (kind, ...points) => {
+      const [a,b,c]=points,lat=a[1]*Math.PI/180;
+      const ab=[(b[0]-a[0])*111320*Math.cos(lat),(b[1]-a[1])*111320,b[2]-a[2]];
+      const ac=[(c[0]-a[0])*111320*Math.cos(lat),(c[1]-a[1])*111320,c[2]-a[2]];
+      if(Math.hypot(ab[1]*ac[2]-ab[2]*ac[1],ab[2]*ac[0]-ab[0]*ac[2],ab[0]*ac[1]-ab[1]*ac[0])<1e-8)return;
+      result.push({kind, points, footprint});
+    };
+    const face=(kind,points)=>{for(let i=1;i<points.length-1;i++)add(kind,points[0],points[i],points[i+1]);};
     for (const sourceRing of polygons(feature)) {
+      footprint=sourceRing;
+      if (["pyramidal", "cone", "dome", "onion"].includes(shape)) {
+        const center=sourceRing.reduce((s,p)=>[s[0]+p[0]/sourceRing.length,s[1]+p[1]/sourceRing.length],[0,0]);
+        const levels=shape==="dome"?Array.from({length:13},(_,i)=>[Math.cos(i/12*Math.PI/2),Math.sin(i/12*Math.PI/2)])
+          :shape==="onion"?[[1,0],[.62,0],[.77,.15],[1,.38],[.93,.56],[.67,.74],[.34,.88],[0,1]]:[[1,0],[0,1]];
+        const at=(p,[radius,height])=>[...interpolate(center,p,radius),base+(top-base)*height];
+        for(let k=1;k<levels.length;k++)for(let i=0;i<sourceRing.length;i++) {
+          const p=sourceRing[i],q=sourceRing[(i+1)%sourceRing.length];
+          face("roof",[at(p,levels[k-1]),at(q,levels[k-1]),at(q,levels[k]),at(p,levels[k])]);
+        }
+        continue;
+      }
       const ring = orientedRing(sourceRing, properties);
       const [p0, p1, p2, p3] = ring;
       const low = (point) => [point[0], point[1], base];
       const high = (point) => [point[0], point[1], top];
       const endA = midpoint(p3, p0), endB = midpoint(p1, p2);
-      if (shape === "gabled") {
-        const rA = high(endA), rB = high(endB);
-        add("roof", low(p0), low(p1), rB); add("roof", low(p0), rB, rA);
-        add("roof", low(p2), low(p3), rA); add("roof", low(p2), rA, rB);
-        add("wall", low(p1), low(p2), rB); add("wall", low(p3), low(p0), rA);
-      } else if (shape === "hipped") {
-        const center = midpoint(endA, endB);
-        const longSpan = Math.max(0.1, distance(endA, endB));
-        const shortSpan = (distance(p0, p3) + distance(p1, p2)) / 2;
-        const inset = Math.min(0.45, Math.max(0.08, shortSpan / (2 * longSpan)));
-        const rA = high(interpolate(endA, center, inset));
-        const rB = high(interpolate(endB, center, inset));
-        add("roof", low(p0), low(p1), rB); add("roof", low(p0), rB, rA);
-        add("roof", low(p2), low(p3), rA); add("roof", low(p2), rA, rB);
-        add("roof", low(p1), low(p2), rB); add("roof", low(p3), low(p0), rA);
-      } else if (shape === "pyramidal") {
-        const apex = high([(p0[0] + p1[0] + p2[0] + p3[0]) / 4,
-          (p0[1] + p1[1] + p2[1] + p3[1]) / 4]);
-        for (let index = 0; index < 4; index += 1) {
-          add("roof", low(ring[index]), low(ring[(index + 1) % 4]), apex);
+      const at=(u,v,h)=>[...interpolate(interpolate(p0,p1,u),interpolate(p3,p2,u),v),base+(top-base)*h];
+      if (["hipped","half-hipped","side_hipped","side_half-hipped"].includes(shape)) {
+        const inset=Math.min(.45,Math.max(.08,(distance(p0,p3)+distance(p1,p2))/4/Math.max(.1,distance(endA,endB))));
+        const half=shape.includes("half"),one=shape.startsWith("side_");
+        const end=(u,kind)=>{
+          const amount=kind==="half"?.5:kind==="hip"?1:0;
+          return {ridge:at(u===0?inset*amount:1-inset*amount,.5,1),
+            cuts:kind==="half"?[at(u,.25,.5),at(u,.75,.5)]:null,kind};
+        };
+        const a=end(0,one?"gable":half?"half":"hip"),b=end(1,half?"half":"hip");
+        face("roof",[low(p0),low(p1),...(b.cuts?[b.cuts[0]]:[]),b.ridge,a.ridge,...(a.cuts?[a.cuts[0]]:[])]);
+        face("roof",[low(p2),low(p3),...(a.cuts?[a.cuts[1]]:[]),a.ridge,b.ridge,...(b.cuts?[b.cuts[1]]:[])]);
+        for(const [e,x,y] of [[a,p0,p3],[b,p1,p2]]) {
+          if(e.cuts){face("wall",[low(x),low(y),e.cuts[1],e.cuts[0]]);face("roof",[e.cuts[0],e.cuts[1],e.ridge]);}
+          else face(e.kind==="gable"?"wall":"roof",[low(x),low(y),e.ridge]);
+        }
+      } else if(shape==="mansard" || shape==="hipped-and-gabled") {
+        const ringAt=(inset,h)=>[[inset,inset],[1-inset,inset],[1-inset,1-inset],[inset,1-inset]].map(([u,v])=>at(u,v,h));
+        const layers=shape==="mansard"?[[0,0],[.16,.72],[.3,1]]:[[0,0],[.16,.55]];
+        for(let i=1;i<layers.length;i++) {
+          const a=ringAt(...layers[i-1]),b=ringAt(...layers[i]);
+          for(let k=0;k<4;k++)face("roof",[a[k],a[(k+1)%4],b[(k+1)%4],b[k]]);
+        }
+        const cap=ringAt(...layers.at(-1));
+        if(shape==="mansard")face("roof",cap);
+        else {
+          const a=at(.16,.5,1),b=at(.84,.5,1);
+          face("roof",[cap[0],cap[1],b,a]);face("roof",[cap[2],cap[3],a,b]);
+          face("wall",[cap[0],cap[3],a]);face("wall",[cap[1],cap[2],b]);
+        }
+      } else if(shape==="crosspitched") {
+        const center=at(.5,.5,1),corners=ring.map(low);
+        for(let i=0;i<4;i++) {
+          const next=(i+1)%4,previous=(i+3)%4,a=high(midpoint(ring[i],ring[next])),b=high(midpoint(ring[previous],ring[i]));
+          face("roof",[corners[i],a,center,b]);face("wall",[corners[i],corners[next],a]);
         }
       } else {
-        let lowSide = 0;
-        if (Number.isFinite(Number(properties.roofDirection))) {
-          const direction = Number(properties.roofDirection);
-          const fromSecondToFirst = bearing(midpoint(p2, p3), midpoint(p0, p1));
-          lowSide = bearingDifference(direction, fromSecondToFirst) <= 45 ? 0 : 2;
+        let profile=shape==="gambrel"?[[0,0],[.22,.65],[.5,1],[.78,.65],[1,0]]
+          :shape==="gabled_height_moved"?[[0,0],[.5,.7],[.5,1],[1,.3]]
+          :shape==="butterfly"?[[0,1],[.5,0],[1,1]]
+          :shape==="round"?Array.from({length:17},(_,i)=>[(1-Math.cos(i/16*Math.PI))/2,Math.sin(i/16*Math.PI)])
+          :shape==="skillion"?[[0,0],[1,1]]:[[0,0],[.5,1],[1,0]];
+        if(shape==="sawtooth") {
+          const count=Math.max(2,Math.min(6,Math.round((distance(p0,p3)+distance(p1,p2))/16)));
+          profile=[[0,0]];for(let i=1;i<=count;i++)profile.push([i/count,1],[i/count,0]);
         }
-        const heights = lowSide === 0 ? [base, base, top, top] : [top, top, base, base];
-        const at = (point, index) => [point[0], point[1], heights[index]];
-        add("roof", at(p0, 0), at(p1, 1), at(p2, 2));
-        add("roof", at(p0, 0), at(p2, 2), at(p3, 3));
-        const highSide = lowSide === 0 ? [p2, p3] : [p0, p1];
-        add("wall", low(highSide[0]), low(highSide[1]), high(highSide[1]));
-        add("wall", low(highSide[0]), high(highSide[1]), high(highSide[0]));
-        const addSlopedEnd = (first, second, firstIndex, secondIndex) => {
-          if (heights[firstIndex] === heights[secondIndex]) return;
-          const highIndex = heights[firstIndex] > heights[secondIndex] ? firstIndex : secondIndex;
-          add("wall", low(first), low(second), at(ring[highIndex], highIndex));
-        };
-        addSlopedEnd(p1, p2, 1, 2);
-        addSlopedEnd(p3, p0, 3, 0);
+        if(["skillion","gabled_height_moved","sawtooth"].includes(shape)
+          && typeof properties.roofDirection==="number" && Number.isFinite(properties.roofDirection)) {
+          const downhill=bearing(midpoint(p2,p3),midpoint(p0,p1));
+          if(Math.cos((properties.roofDirection-downhill)*Math.PI/180)<0)profile=profile.map(([v,h])=>[1-v,h]).reverse();
+        }
+        for(let i=1;i<profile.length;i++) {
+          const [v0,h0]=profile[i-1],[v1,h1]=profile[i];
+          face(v0===v1?"wall":"roof",[at(0,v0,h0),at(1,v0,h0),at(1,v1,h1),at(0,v1,h1)]);
+          if(shape!=="gabled")
+            for(const u of [0,1])face("wall",[at(u,v0,0),at(u,v1,0),at(u,v1,h1),at(u,v0,h0)]);
+        }
+        if(shape==="gabled")for(const u of [0,1])
+          face("wall",[at(u,0,0),at(u,1,0),at(u,profile[1][0],1)]);
+        for(const [v,h] of [profile[0],profile.at(-1)])if(h>0)
+          face("wall",[at(0,v,0),at(1,v,0),at(1,v,h),at(0,v,h)]);
       }
     }
     return result;
@@ -135,8 +217,14 @@
   }
 
   function describe(data) {
-    return (data?.features || []).map((feature) => ({feature, triangles: roofTriangles(feature)}))
-      .filter((item) => item.triangles.length);
+    const items=[];let count=0;
+    for(const feature of data?.features || []) {
+      if(typeof feature.id!=="string" && typeof feature.id!=="number")continue;
+      const triangles=roofTriangles(feature);
+      if(!triangles.length || count+triangles.length>120000)continue;
+      count+=triangles.length;items.push({feature,triangles});
+    }
+    return items;
   }
 
   // Continue the native fill-extrusion wall above its eaves. MapLibre shades
@@ -226,7 +314,17 @@
       const layer = this.options.buildingLayer;
       if (!this.map.getLayer(layer)) return;
       const expression = shaped
-        ? ["case", ["==", ["get", "roofModel"], 1], ["get", "roofBaseHeight"], ["get", "renderHeight"]]
+        ? ["case", ["all", ["==", ["get", "roofModel"], 1],
+          // GeoJSON tiling coerces unpromoted string IDs to zero. The OSM
+          // type/id properties survive tiling and distinguish ways/relations.
+          ["any", ["in", ["concat", ["coalesce", ["get", "osmType"], ""], ":",
+            ["to-string", ["coalesce", ["get", "osmId"], ""]]],
+            ["literal", this.items.filter(item=>item.feature.properties?.osmType
+              && item.feature.properties.osmId!==undefined)
+              .map(item=>`${item.feature.properties.osmType}:${item.feature.properties.osmId}`)]],
+            ["in", ["id"], ["literal", this.items.filter(item=>!item.feature.properties?.osmType
+              || item.feature.properties.osmId===undefined).map(item=>item.feature.id)]]]],
+          ["get", "roofBaseHeight"], ["get", "renderHeight"]]
         : ["get", "renderHeight"];
       if (JSON.stringify(this.map.getPaintProperty(layer, "fill-extrusion-height")) !== JSON.stringify(expression)) {
         this.map.setPaintProperty(layer, "fill-extrusion-height", expression);
@@ -322,9 +420,8 @@
             const [a,b,c]=vertices,ab=b.map((v,i)=>v-a[i]),ac=c.map((v,i)=>v-a[i]);
             let nx=ab[1]*ac[2]-ab[2]*ac[1],ny=ab[2]*ac[0]-ab[0]*ac[2];
             const face=triangle.points.reduce((sum,p)=>[sum[0]+p[0]/3,sum[1]+p[1]/3],[0,0]);
-            const footprint=rings.find(ring=>ring.some(point=>point[0]===triangle.points[0][0]
-              && point[1]===triangle.points[0][1]));
-            const wallCenter=footprint.reduce((sum,p)=>[sum[0]+p[0]/4,sum[1]+p[1]/4],[0,0]);
+            const footprint=triangle.footprint;
+            const wallCenter=footprint.reduce((sum,p)=>[sum[0]+p[0]/footprint.length,sum[1]+p[1]/footprint.length],[0,0]);
             // GeoJSON tile rings are rewound by MapLibre. Its extrusion
             // lighting normal points into the outer ring, in east/south axes.
             // Match that convention independently of the source winding.
@@ -349,7 +446,8 @@
       const roofVertices=batches.roof.length*3;
       for(let i=roofVertices;i<positions.length/3;i++)geometry.attributes.normal.setXYZ(i,...wallNormals.slice(i*3,i*3+3));
       geometry.addGroup(0,roofVertices,0);geometry.addGroup(roofVertices,batches.wall.length*3,1);
-      const material = new T.MeshLambertMaterial({vertexColors: true, side: T.DoubleSide});
+      const material = new T.MeshLambertMaterial({vertexColors: true, side: T.DoubleSide,
+        polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1});
       material.depthTest = true; material.depthWrite = true;
       this.wallMaterial = new T.RawShaderMaterial({vertexShader:WALL_VERTEX_SHADER,fragmentShader:WALL_FRAGMENT_SHADER,
         side:T.DoubleSide,uniforms:{wallLightPosition:{value:new T.Vector3()},wallLightColor:{value:new T.Vector3(1,1,1)},
@@ -411,7 +509,7 @@
   }
 
   root.HuayuBuildingRoofs = {
-    LAYER_ID, SUPPORTED, polygons, orientedRing, roofTriangles, taggedColor, describe,
+    VERSION, LAYER_ID, SUPPORTED, simpleRing, polygons, orientedRing, roofTriangles, taggedColor, describe,
     sync(map, data, options) {
       let controller = controllers.get(map);
       if (!controller) { controller = new Controller(map, options); controllers.set(map, controller); }

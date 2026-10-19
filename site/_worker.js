@@ -242,7 +242,7 @@ async function fetchBuildingTile(request, context, z, x, y) {
 
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-building-v6-material-roofs");
+  cacheUrl.searchParams.set("schema", "huayu-building-v7-roof-shapes");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) return cachedBuildingResponse(cached, "HIT");
