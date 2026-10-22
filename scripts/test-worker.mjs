@@ -182,7 +182,9 @@ try {
   assert.equal(building.status, 200);
   assert.equal(building.headers.get("x-ogf-building-cache"), "MISS");
   assert.equal(building.headers.get("x-ogf-basemap-cache"), null);
-  assert.match(building.headers.get("cache-control") || "", /max-age=10800/u);
+  assert.equal(building.headers.get("x-ogf-building-policy"), "live-2m");
+  assert.match(building.headers.get("cache-control") || "", /max-age=15/u);
+  assert.ok(Number(building.headers.get("x-ogf-building-refresh-after")) <= 120);
   assert.match(upstreamQueries.at(-1), /buildingWays/u);
   assert.match(upstreamQueries.at(-1), /barrierWays/u,
     "legacy building snapshots should remain reusable");
@@ -206,8 +208,8 @@ try {
   const structure = await worker.fetch(new Request(structureUrl), { ASSETS: assets }, context);
   assert.equal(structure.status, 200);
   assert.equal(structure.headers.get("x-ogf-structure-cache"), "MISS");
-  assert.equal(structure.headers.get("x-ogf-structure-policy"), "snapshot-3h");
-  assert.match(structure.headers.get("cache-control") || "", /max-age=60/u);
+  assert.equal(structure.headers.get("x-ogf-structure-policy"), "live-2m");
+  assert.match(structure.headers.get("cache-control") || "", /max-age=15/u);
   assert.match(upstreamQueries.at(-1), /barrierWays/u);
   assert.match(upstreamQueries.at(-1), /pavilionStructures/u);
   assert.ok(upstreamQueries.at(-1).includes('way["barrier"~"^(wall|fence|gate|entrance)$"]'),
@@ -231,6 +233,49 @@ try {
   assert.equal(upstreamQueries.length, structureQueriesAfterMiss);
   const structureCacheKey = [...cache.keys()].find((key) => key.includes("huayu-structures-v5-wall-gates"));
   assert.ok(structureCacheKey, "structures should use an independent edge snapshot cache");
+
+  // Cache hits must carry only their remaining lifetime, not restart two minutes.
+  const ageModel = async (key, seconds, suffix) => {
+    const value = cache.get(key), headers = new Headers(value.headers);
+    headers.set(`X-OGF-${suffix}-Fetched-At`, new Date(Date.now() - seconds * 1000).toISOString());
+    cache.set(key, new Response(await value.clone().text(), {status:200, headers}));
+  };
+  const buildingCacheKey = [...cache.keys()].find(key => key.includes("/buildings/11/1893/939.json") && key.includes("refresh=live-2m"));
+  assert.ok(buildingCacheKey && structureCacheKey.includes("refresh=live-2m"), "new policy avoids old three-hour HTTP/cache keys");
+  await Promise.all(waitUntilPromises.splice(0));
+  await ageModel(buildingCacheKey, 110, "Building");
+  const nearExpiry = await worker.fetch(new Request("https://example.test/api/buildings/11/1893/939.json"), {ASSETS:assets}, context);
+  assert.equal(nearExpiry.headers.get("x-ogf-building-cache"), "HIT");
+  assert.ok(Number(nearExpiry.headers.get("x-ogf-building-refresh-after")) <= 10);
+  assert.match(nearExpiry.headers.get("cache-control"), /max-age=\d, must-revalidate|max-age=10, must-revalidate/u);
+  await ageModel(buildingCacheKey, 121, "Building");
+  const modelQueries = upstreamQueries.length;
+  const updatedBuilding = await worker.fetch(new Request("https://example.test/api/buildings/11/1893/939.json"), {ASSETS:assets}, context);
+  assert.equal(updatedBuilding.headers.get("x-ogf-building-cache"), "MISS");
+  assert.equal(upstreamQueries.length, modelQueries + 1, "two minutes expires a building even if an edge still retained it");
+  await Promise.all(waitUntilPromises.splice(0));
+  await ageModel(buildingCacheKey, 121, "Building");
+  partialNextUpstream = true;
+  const incompleteBuilding = await worker.fetch(new Request("https://example.test/api/buildings/11/1893/939.json"), {ASSETS:assets}, context);
+  assert.equal(incompleteBuilding.status, 502, "partial HTTP-200 building results never overwrite complete data");
+  assert.equal((await cache.get(buildingCacheKey).clone().json()).elements.length, 1);
+
+  await ageModel(structureCacheKey, 110, "Structure");
+  const nearStructureExpiry = await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context);
+  assert.ok(Number(nearStructureExpiry.headers.get("x-ogf-structure-refresh-after")) <= 10);
+  await ageModel(structureCacheKey, 121, "Structure");
+  const oldStructure = await cache.get(structureCacheKey).clone().text();
+  partialNextUpstream = true;
+  const retainedStructure = await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context);
+  assert.equal(retainedStructure.headers.get("x-ogf-structure-cache"), "STALE");
+  assert.equal(retainedStructure.headers.get("x-ogf-structure-refresh-after"), "30");
+  await Promise.allSettled(waitUntilPromises.splice(0));
+  assert.equal(await cache.get(structureCacheKey).clone().text(), oldStructure, "failed background refresh retains complete structures");
+  const beforeStructureRefresh = upstreamQueries.length;
+  await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context);
+  await Promise.all(waitUntilPromises.splice(0));
+  assert.equal(upstreamQueries.length, beforeStructureRefresh + 1);
+  assert.equal((await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context)).headers.get("x-ogf-structure-cache"), "HIT");
 
   const invalidStructure = await worker.fetch(
     new Request("https://example.test/api/structures/16/60608/30072.json"), { ASSETS: assets }, context);
@@ -337,9 +382,9 @@ try {
     terrainTileZoom: 9,
     terrainCache: "MISS/HIT/3h",
     buildingZooms: [11, 12, 13, 14, 15],
-    buildingCache: "3h",
+    buildingCache: "2m",
     structureZooms: [11, 12, 13, 14, 15],
-    structureCache: "MISS/HIT/3h",
+    structureCache: "MISS/HIT/STALE/background-refresh/2m",
     transitTileZooms: { rail: 10, bus: 12 },
     transitCache: "MISS/HIT/STALE/background-refresh/3h",
   }, null, 2));

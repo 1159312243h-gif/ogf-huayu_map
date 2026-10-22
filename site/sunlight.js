@@ -1,11 +1,12 @@
 (function (root) {
   "use strict";
   const STORAGE_KEY = "ogf-atlas-sunlight-v1";
-  const today = () => {
-    const date = new Date();
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  };
-  const DEFAULTS = Object.freeze({enabled: false, date: today(), minutes: 720, brightness: 100, contrast: 35,
+  function clockTime(date = new Date()) {
+    return {date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+      minutes: date.getHours() * 60 + date.getMinutes()};
+  }
+  const today = () => clockTime().date;
+  const DEFAULTS = Object.freeze({enabled: true, timeMode: "realtime", ...clockTime(), brightness: 100, contrast: 35,
     shadows: true, shadowOpacity: 28});
   const controllers = new WeakMap(), scenes = new WeakMap();
   const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
@@ -15,9 +16,14 @@
     && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
   function normalize(value) {
     const legacy = {spring: "03-20", summer: "06-21", autumn: "09-22", winter: "12-21"}[value?.season];
-    return {enabled: value?.enabled === true,
-      date: validDate(value?.date) ? value.date : legacy ? `${DEFAULTS.date.slice(0, 4)}-${legacy}` : DEFAULTS.date,
-      minutes: Math.round(number(value?.minutes, DEFAULTS.minutes, 0, 1439)),
+    const now = clockTime();
+    const oldManual = validDate(value?.date) || typeof value?.minutes === "number" && Number.isFinite(value.minutes) || Boolean(legacy);
+    const timeMode = ["realtime", "manual"].includes(value?.timeMode) ? value.timeMode
+      : oldManual ? "manual" : DEFAULTS.timeMode;
+    return {enabled: typeof value?.enabled === "boolean" ? value.enabled : DEFAULTS.enabled, timeMode,
+      date: timeMode === "realtime" ? now.date
+        : validDate(value?.date) ? value.date : legacy ? `${now.date.slice(0, 4)}-${legacy}` : now.date,
+      minutes: timeMode === "realtime" ? now.minutes : Math.round(number(value?.minutes, now.minutes, 0, 1439)),
       brightness: Math.round(number(value?.brightness, DEFAULTS.brightness, 50, 150)),
       contrast: Math.round(number(value?.contrast, DEFAULTS.contrast, 0, 100)),
       shadows: value?.shadows !== false,
@@ -26,6 +32,7 @@
   let preferences;
   try { preferences = normalize(JSON.parse(root.localStorage.getItem(STORAGE_KEY))); }
   catch { preferences = {...DEFAULTS}; }
+  const resolvedPreferences = () => preferences.timeMode === "realtime" ? {...preferences, ...clockTime()} : {...preferences};
   // Local apparent solar time avoids imposing real-world time zones on OGF.
   // Calendar date supplies solar declination (NOAA solar-coordinate equations).
   // The same date has opposite seasons in the two hemispheres.
@@ -51,7 +58,7 @@
     const azimuth = (Math.atan2(east, north) * 180 / Math.PI + 360) % 360;
     return {altitude, azimuth, east, north, up};
   }
-  function lighting(latitude, settings = preferences) {
+  function lighting(latitude, settings = resolvedPreferences()) {
     const sun = solarPosition(latitude, settings.minutes, settings.date);
     const daylight = clamp((sun.altitude + 6) / 16, 0, 1);
     const warmth = 1 - clamp(sun.altitude / 35, 0, 1);
@@ -74,9 +81,21 @@
       this.onMove = () => this.apply();
       this.onStyle = () => {if (!this.applying) this.apply();};
       this.onRemove = () => this.destroy(false);
+      this.onVisibility = () => {if (root.document?.hidden) this.updateClock(false); else this.apply();};
       map.on("moveend", this.onMove); map.on("styledata", this.onStyle); map.on("remove", this.onRemove);
       root.addEventListener("huayu-sunlight-change", this.onChange);
+      root.document?.addEventListener("visibilitychange", this.onVisibility);
       this.apply();
+    }
+    updateClock(active) {
+      if (!active || root.document?.hidden) {
+        root.clearTimeout(this.clockTimer); this.clockTimer = null; return;
+      }
+      if (this.clockTimer != null) return;
+      // Read the device clock at each minute boundary; never accumulate elapsed
+      // ticks or persist automatic updates. Returning from a hidden tab resyncs.
+      this.clockTimer = root.setTimeout(() => {this.clockTimer = null; this.apply();},
+        Math.max(100, 60000 - Date.now() % 60000));
     }
     apply() {
       if (!this.alive || this.applying) return;
@@ -92,13 +111,15 @@
         }
         const latitude = this.map.getCenter().lat;
         const theme = String(style.metadata?.["ogf-atlas:theme"] || "");
-        const next = preferences.enabled && theme.startsWith("huayu") && !theme.startsWith("huayu-satellite") ? lighting(latitude) : null;
+        const settings = resolvedPreferences();
+        const next = settings.enabled && theme.startsWith("huayu") && !theme.startsWith("huayu-satellite") ? lighting(latitude, settings) : null;
+        this.updateClock(Boolean(next) && settings.timeMode === "realtime");
         let changed = false;
         const sceneSignature = JSON.stringify(next);
         if (this.sceneSignature !== sceneSignature) {this.sceneSignature = sceneSignature; this.revision++;}
         const signature = JSON.stringify(next?.native || this.original);
         this.current = next;
-        this.shadows?.update(next, preferences);
+        this.shadows?.update(next, settings);
         if ((signature !== this.signature || next && JSON.stringify(this.map.getLight()) !== signature) && (next || this.signature)) {
           this.map.setLight(next?.native || this.original, {duration: 0});
           this.signature = signature; changed = true;
@@ -117,7 +138,7 @@
         }
         if (!next) this.gradients.clear();
         if (changed) this.map.triggerRepaint();
-        const statusSignature = `${latitude}:${sceneSignature}`;
+        const statusSignature = `${settings.timeMode}:${settings.date}:${settings.minutes}:${latitude}:${sceneSignature}`;
         if (this.statusSignature !== statusSignature) {
           this.statusSignature = statusSignature;
           root.dispatchEvent(new root.CustomEvent("huayu-sunlight-status", {detail: {latitude, active: Boolean(next), sun: next?.sun}}));
@@ -129,6 +150,8 @@
       this.alive = false;
       this.map.off("moveend", this.onMove); this.map.off("styledata", this.onStyle); this.map.off("remove", this.onRemove);
       root.removeEventListener("huayu-sunlight-change", this.onChange);
+      root.document?.removeEventListener("visibilitychange", this.onVisibility);
+      this.updateClock(false);
       this.shadows?.destroy();
       if (restore && this.signature && (this.map.style || this.map.getStyle?.())) {
         this.map.setLight(this.original, {duration: 0});
@@ -159,9 +182,11 @@
     }
   }
   root.HuayuSunlight = {STORAGE_KEY, DEFAULTS, today, validDate, normalize, solarPosition, lighting, applyScene,
-    getPreferences: () => ({...preferences}),
+    getPreferences: resolvedPreferences,
     setPreferences(changes) {
-      preferences = normalize({...preferences, ...changes});
+      const manual = changes?.timeMode == null && (validDate(changes?.date)
+        || typeof changes?.minutes === "number" && Number.isFinite(changes.minutes));
+      preferences = normalize({...resolvedPreferences(), ...changes, ...(manual ? {timeMode: "manual"} : {})});
       let saved = true;
       try { root.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences)); } catch { saved = false; }
       root.dispatchEvent(new root.CustomEvent("huayu-sunlight-change", {detail: {saved}})); return saved;

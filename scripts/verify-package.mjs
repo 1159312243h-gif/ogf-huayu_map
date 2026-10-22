@@ -157,7 +157,7 @@ assert.ok(worker.includes(`BUILDING_CACHE_SECONDS = ${release.expectedBuildingCa
   "Worker 建筑缓存周期不一致");
 assert.ok(worker.includes(`STRUCTURE_REFRESH_SECONDS = ${release.expectedStructureRefreshSeconds}`)
   && worker.includes("fetchStructureTile") && release.structureProbe.startsWith("/api/structures/"),
-"Worker 缺少独立墙、栅栏与亭子三小时分片接口");
+"Worker 缺少独立墙、栅栏与亭子两分钟分片接口");
 assert.ok(app.includes(`HUAYU_LIVE_BASEMAP_MIN_ZOOM = ${release.expectedLiveBasemapMinZoom}`),
   "实时底图起始缩放级别不一致");
 assert.ok(worker.includes(`new Set([${release.expectedLiveBasemapTileZooms.join(", ")}])`),
@@ -609,12 +609,12 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->
   && worker.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->.barrierWays;')
   && app.includes("wallData: result.wallData")
   && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
-  && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates`")
+  && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates&refresh=live-2m`")
   && worker.includes('schema", "huayu-structures-v5-wall-gates"')
   && worker.includes('schema", "huayu-building-v7-roof-shapes"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
-"墙和栅栏必须使用独立轻量分片与三小时缓存，不得被建筑查询超时连带清空");
+"墙和栅栏必须使用独立轻量分片与两分钟刷新，不得被建筑查询超时连带清空");
 const buildingWorkerQuerySource = worker.match(/function buildingOverpassQuery\(bounds\) \{[\s\S]*?\n\}/u)?.[0] || "";
 const buildingClientQuerySource = app.match(/function huayuLiveBuildingTileQuery\(tile\) \{[\s\S]*?\n  \}/u)?.[0] || "";
 assert.ok(buildingWorkerQuerySource && buildingClientQuerySource

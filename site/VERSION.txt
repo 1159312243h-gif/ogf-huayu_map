@@ -1,6 +1,10 @@
 华域地图 v7.5
-Released: 2026-10-18
+Released: 2026-10-22
 Cloudflare Pages project: ogf-atlas
+
+Version-7.5 Live models 2m v1 (2026-10-22, 7.5-live-models-2m-v1): Restore two-minute visible building/roof and pavilion/wall/fence data refresh across browser memory, prepared disk cache and Cloudflare. Preserve source age on cache hits, retry retained stale structures after 30 seconds and retain complete displayed models on failures. Keep garden/vegetation caches, other facility cycles, nationwide three-hour snapshots and private data unchanged.
+
+Included revision 7.5-realtime-sunlight-v1 (published 2026-10-22): Follow the device's current local date and time by default, updating surface light and building shadows each minute and resynchronizing after midnight or a background pause. Date/time edits freeze a manual solar-time preview; return to current time resumes continuous following. Preserve explicitly saved off/manual preferences, support reset and update the in-app guide without changing source-data timestamps or update workflows.
 
 Version-7.5 Roof shapes v1 (7.5.0): Support the editor's 19 roof:shape values, including height-moved gables, partial hips, mansard, gambrel, hipped-and-gabled, cross-pitched, sawtooth, butterfly, round, cone, dome and onion roofs. Use roof:orientation=along/across for long/short-edge ridges, with valid roof:direction taking priority. Preserve actual outlines, tagged heights, native wall colors and shared sunlight/shadow geometry. Select complete roof meshes within the triangle budget and retain full native roofs on unsupported outlines or failures. Refresh only affected building/model caches, preserving garden algorithms, private account data, complete generated snapshots, original data timestamps and three-hour updates.
 

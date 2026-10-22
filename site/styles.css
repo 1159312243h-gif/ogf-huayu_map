@@ -211,7 +211,8 @@ select:focus-visible {
 .render-setting-toggle input:focus-visible + .render-setting-switch {outline: 2px solid var(--blue); outline-offset: 3px;}
 .render-settings-reset {margin-top: 8px;}
 .render-setting-field input[type="time"], .render-setting-field input[type="date"] {min-width:0;width:100%;height:36px;padding:0 8px;color:var(--text);border:1px solid #d5dbe0;border-radius:4px;background:var(--surface);}
-.render-setting-field input[type="range"], .sunlight-slider {min-width:0;width:100%;accent-color:var(--teal);}
+#sunlight-now {width:100%;margin:6px 0;}
+.render-setting-field input[type="range"], .sunlight-slider {min-width:0;width:100%;margin-inline:0;accent-color:var(--teal);}
 .sunlight-slider {margin:14px 0;}
 .sunlight-presets {display:flex;flex-wrap:wrap;gap:6px;}
 .sunlight-presets button {flex:1;padding:7px 5px;font-size:11px;white-space:nowrap;}

@@ -53,7 +53,9 @@ const indexedDB = {open() {
   return request;
 }};
 let answer;
-const worker = vm.createContext({indexedDB, setTimeout, clearTimeout,
+let modelNow;
+class ModelDate extends Date {static now() {return modelNow ?? Date.now();}}
+const worker = vm.createContext({indexedDB, setTimeout, clearTimeout, Date:ModelDate,
   self:{postMessage(value) {answer = value;}}});
 vm.runInContext(workerSource, worker);
 let sequence = 0;
@@ -109,6 +111,34 @@ await new Promise(resolve => setImmediate(resolve));
 assert.equal(modelBlobWrites, readWrites, "returning touches metadata without rewriting large geometry blobs");
 assert.equal([...records.values()][0].cachedAt, readAge);
 
+modelNow = Date.now();
+const modelEpoch = modelNow;
+for (const kind of ["building", "structure", "garden"]) {
+  modelNow = modelEpoch;
+  await request({action:"write", kind, key:"refresh-boundary", entry:{data:{features:[]},cachedAt:modelEpoch}});
+  modelNow = modelEpoch + 119999;
+  assert.ok(await request({action:"read",kind,key:"refresh-boundary"}));
+  modelNow = modelEpoch + 120000;
+  const cached = await request({action:"read",kind,key:"refresh-boundary"});
+  if (kind === "garden") {
+    assert.ok(cached, "the model refresh change preserves garden's three-hour cache");
+    modelNow = modelEpoch + 3 * 60 * 60 * 1000;
+    assert.equal(await request({action:"read",kind,key:"refresh-boundary"}), null);
+  } else assert.equal(cached, null, "old prepared building/structure caches expire at exactly two minutes");
+}
+modelNow = modelEpoch;
+await request({action:"write",kind:"structure",key:"retained-stale",entry:{data:{features:[]},
+  cachedAt:modelEpoch - 180000,loadedAt:modelEpoch - 180000,refreshAt:modelEpoch + 30000}});
+modelNow += 29999;
+assert.ok(await request({action:"read",kind:"structure",key:"retained-stale"}));
+modelNow++;
+assert.equal(await request({action:"read",kind:"structure",key:"retained-stale"}),null,
+  "stale source is only reused until its short recheck deadline, never another full model TTL");
+modelNow = undefined;
+for (const key of [...records.keys()]) if (key.endsWith("/refresh-boundary") || key.endsWith("/retained-stale")) {
+  records.delete(key); usageRecords.delete(key);
+}
+
 // Walking through many districts used to evict at 144 records. Keep 1024
 // lightweight tiles, protect recently revisited tiles, and bound dense blobs.
 const small = {data:{type:"FeatureCollection",features:[]},cachedAt:Date.now(),cacheBytes:1024};
@@ -136,7 +166,7 @@ assert.ok(await request({action:"read",kind:"structure",key:"dense-2"}),
   "expired blobs must be removed before evicting valid recently used geometry to meet the byte budget");
 for (const entry of records.values()) entry.cachedAt -= 4 * 60 * 60 * 1000;
 assert.equal(await request({action:"read", kind:"structure", key:"dense-4"}), null,
-  "cache reads must not reset age and suppress three-hour refreshes");
+  "cache reads must not reset source age and suppress refreshes");
 await worker.self.onmessage({data:{action:"decode", kind:"building", text:JSON.stringify({elements,remark:"timeout"})}});
 assert.equal(answer.error, "INCOMPLETE_MODEL_TILE", "incomplete upstream data must not replace a snapshot");
 // Changing a geometry dependency automatically prevents old prepared models from being reused.
@@ -214,6 +244,50 @@ await loader.loadHuayuModelTile("building", {key:"tile"}, async () => {
   fetches++; return {data:{features:[]},loadedAt:Date.now()};
 }, {aborted:false});
 assert.equal(fetches, 1, "slow cache startup must not block live model loading");
+loader.getHuayuModelTileWorker = () => null;
+const oldFetchedAt = Date.now() - 110000, deadline = oldFetchedAt + 120000;
+const fromEdge = await loader.loadHuayuModelTile("building",{key:"edge-hit"},async () => ({data:{features:[]},
+  loadedAt:oldFetchedAt,refreshAt:deadline}),new AbortController().signal);
+assert.equal(fromEdge.cachedAt,oldFetchedAt,"decoding a network hit must preserve source data age");
+assert.equal(fromEdge.refreshAt,deadline,"a late edge hit cannot earn a new two-minute lifetime");
+
+// Exercise the actual client API and stationary refresh scheduling with a controlled clock.
+const apiCalls = [], scheduled = [], epoch = Date.now();
+class ApiDate extends Date {static now() {return epoch;}}
+let apiKind = "building", apiStatus = "HIT";
+const liveClient = vm.createContext({Date:ApiDate,AbortController,
+  window:{location:{protocol:"https:"},setTimeout,clearTimeout},
+  HUAYU_LIVE_BUILDING_CACHE_MS:120000,HUAYU_STRUCTURE_CACHE_MS:120000,
+  decodeHuayuModelTile:async () => ({data:{features:[]}}),
+  fetch:async (url,options) => {apiCalls.push({url,options});return new Response("{}",{headers:{
+    [`X-OGF-${apiKind === "building" ? "Building" : "Structure"}-Cache`]:apiStatus,
+    [`X-OGF-${apiKind === "building" ? "Building" : "Structure"}-Fetched-At`]:new Date(epoch-110000).toISOString(),
+  }});},
+  scheduleHuayuLiveBuildings:(_map,delay) => scheduled.push(delay),scheduleHuayuStructures:(_map,delay) => scheduled.push(delay),
+});
+for (const name of ["fetchHuayuLiveBuildingTile","fetchHuayuStructureTile","huayuLiveBuildingEntryFresh","huayuStructureEntryFresh",
+  "scheduleNextHuayuLiveBuildingRefresh","scheduleNextHuayuStructureRefresh"]) vm.runInContext(declaration(name),liveClient);
+for (const kind of ["building","structure"]) {
+  apiKind=kind;
+  const value = await liveClient[kind === "building" ? "fetchHuayuLiveBuildingTile" : "fetchHuayuStructureTile"]({z:15,x:1,y:1});
+  assert.equal(value.refreshAt,epoch+10000);
+  assert.equal(apiCalls.at(-1).options.cache,"no-cache");
+  assert.ok(apiCalls.at(-1).url.includes("refresh=live-2m"),"old long-lived browser HTTP responses use a different key");
+  const fresh = liveClient[kind === "building" ? "huayuLiveBuildingEntryFresh" : "huayuStructureEntryFresh"];
+  assert.equal(fresh({cachedAt:epoch-119999}),true);
+  assert.equal(fresh({cachedAt:epoch-120000}),false);
+  assert.equal(fresh({cachedAt:epoch-5000,refreshAt:epoch-1}),false);
+  const state={active:true,coverageReady:true,glMap:{},visibleTileKeys:new Set(["tile"]),pendingTiles:new Map(),queuedTileKeys:new Set(),
+    failedTiles:new Map(),tileCache:new Map([["tile",{cachedAt:epoch-110000,refreshAt:value.refreshAt}]])};
+  const schedule = liveClient[kind === "building" ? "scheduleNextHuayuLiveBuildingRefresh" : "scheduleNextHuayuStructureRefresh"];
+  schedule(state); assert.equal(scheduled.at(-1),10000,"a stationary view refreshes at the source's original expiry");
+  state.tileCache.get("tile").refreshAt=epoch-1;state.failedTiles.set("tile",epoch);
+  schedule(state);assert.equal(scheduled.at(-1),15000,"failed source refreshes are limited instead of polling every second");
+  const count=scheduled.length;state.pendingTiles.set("tile",{});schedule(state);assert.equal(scheduled.length,count);
+}
+apiKind="structure";apiStatus="STALE";
+const retained=await liveClient.fetchHuayuStructureTile({z:15,x:1,y:1});
+assert.equal(retained.refreshAt,epoch+30000,"retained edge results trigger a short recheck");
 let redundantAborted=false;
 const lateCache=vm.createContext({DOMException,AbortController,
   window:{setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,5)),clearTimeout},
@@ -289,7 +363,7 @@ const touched={tileCache:new Map([["tile",{cachedAt:1000,loadedAt:1000}]])};
 residency.touchHuayuModelTiles("building",touched,[{key:"tile"}],70000);
 residency.touchHuayuModelTiles("building",touched,[{key:"tile"}],70001);
 assert.equal(touches.length,1,"frequent camera movements must not rewrite disk metadata continuously");
-assert.equal(touched.tileCache.get("tile").cachedAt,1000,"LRU use must not change the three-hour data age");
+assert.equal(touched.tileCache.get("tile").cachedAt,1000,"LRU use must not change source data age");
 // Track the real controller in each view. Overhead camera synchronization
 // emits artificial MapLibre gesture pairs that must not trigger data commits.
 const emitter=()=>{

@@ -906,11 +906,11 @@
   const HUAYU_LIVE_BUILDING_TILE_CONCURRENCY = 3;
   const HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT = 256;
   const HUAYU_LIVE_BUILDING_CACHE_BYTES = 48 * 1024 * 1024;
-  const HUAYU_LIVE_BUILDING_CACHE_MS = 3 * 60 * 60 * 1000;
+  const HUAYU_LIVE_BUILDING_CACHE_MS = 2 * 60 * 1000;
   const HUAYU_STRUCTURE_TILE_CONCURRENCY = 3;
   const HUAYU_STRUCTURE_TILE_CACHE_LIMIT = 256;
   const HUAYU_STRUCTURE_CACHE_BYTES = 16 * 1024 * 1024;
-  const HUAYU_STRUCTURE_CACHE_MS = 3 * 60 * 60 * 1000;
+  const HUAYU_STRUCTURE_CACHE_MS = 2 * 60 * 1000;
   const HUAYU_SUPPLEMENTAL_POI_SOURCE = "ogf-atlas-huayu-supplemental-pois";
   const HUAYU_SUPPLEMENTAL_POI_LAYER = "ogf-atlas-huayu-supplemental-pois";
   const HUAYU_SUPPLEMENTAL_TOILET_LAYER = "ogf-atlas-huayu-supplemental-toilets";
@@ -1883,6 +1883,7 @@
   });
   const sunlightFields = {
     enabled: document.getElementById("setting-sunlight-enabled"),
+    timeMode: document.getElementById("setting-sunlight-timeMode"),
     date: document.getElementById("setting-sunlight-date"),
     minutes: document.getElementById("setting-sunlight-time"),
     brightness: document.getElementById("setting-sunlight-brightness"),
@@ -1894,10 +1895,18 @@
   function syncSunlightControls() {
     const settings = window.HuayuSunlight.getPreferences();
     sunlightFields.enabled.checked = settings.enabled;
-    sunlightFields.date.value = settings.date;
+    sunlightFields.timeMode.value = settings.timeMode;
+    if (settings.timeMode !== "realtime" || document.activeElement !== sunlightFields.date) sunlightFields.date.value = settings.date;
     sunlightFields.shadows.checked = settings.shadows;
-    sunlightFields.minutes.value = `${String(Math.floor(settings.minutes / 60)).padStart(2, "0")}:${String(settings.minutes % 60).padStart(2, "0")}`;
+    const clockText = `${String(Math.floor(settings.minutes / 60)).padStart(2, "0")}:${String(settings.minutes % 60).padStart(2, "0")}`;
+    if (settings.timeMode !== "realtime" || document.activeElement !== sunlightFields.minutes) sunlightFields.minutes.value = clockText;
     sunlightSlider.value = settings.minutes;
+    let timeZone = "设备时区";
+    try {timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || timeZone;} catch {}
+    document.getElementById("sunlight-time-label").textContent = settings.timeMode === "realtime" ? "设备当前时间" : "模拟太阳时";
+    document.getElementById("sunlight-clock-status").textContent = settings.timeMode === "realtime"
+      ? `正在跟随现实时间 · ${settings.date} ${clockText} · ${timeZone}，每分钟更新。`
+      : `手动预览 · ${settings.date} ${clockText}，已暂停自动跟随；点击“回到现实时间”恢复。`;
     for (const key of ["brightness", "contrast", "shadowOpacity"]) {
       sunlightFields[key].value = settings[key];
       document.getElementById(`sunlight-${key}-value`).value = `${settings[key]}%`;
@@ -1933,6 +1942,7 @@
     });
   }
   sunlightSlider.addEventListener("input", () => window.HuayuSunlight.setPreferences({minutes: Number(sunlightSlider.value)}));
+  document.getElementById("sunlight-now").addEventListener("click", () => window.HuayuSunlight.setPreferences({timeMode: "realtime"}));
   document.querySelectorAll("[data-sunlight-time]").forEach(button => button.addEventListener("click", () =>
     window.HuayuSunlight.setPreferences({minutes: Number(button.dataset.sunlightTime)})));
   document.querySelectorAll("[data-sunlight-date]").forEach(button => button.addEventListener("click", () =>
@@ -28649,6 +28659,8 @@
     let hash = 2166136261;
     for (let index = 0; index < schema.length; index++) hash = Math.imul(hash ^ schema.charCodeAt(index), 16777619);
     const version = `models-v1-${hash >>> 0}`;
+    const fresh = (entry, key) => entry && Date.now() < (entry.refreshAt
+      ?? entry.cachedAt + (key.includes("/garden/") ? 3 * 60 * 60 * 1000 : 2 * 60 * 1000));
     let storageStatus = "opening";
     let databasePromise;
     const database = () => databasePromise ||= new Promise(resolve => {
@@ -28692,7 +28704,7 @@
           request.onsuccess = () => {
             clearTimeout(timer);
             const entry = request.result;
-            if (entry && Date.now() - entry.cachedAt < 3 * 60 * 60 * 1000) {
+            if (fresh(entry, key)) {
               entry.cacheBytes = huayuModelEntryBytes(entry);
               // Touch lightweight metadata, never rewrite the model blob or
               // change its age merely because the user returned to this area.
@@ -28748,7 +28760,7 @@
         const key = `${cacheVersion}/${job.kind}/${job.key}`;
         if (job.action === "read") {
           result = await read(key);
-          if (result && Date.now() - result.cachedAt >= 3 * 60 * 60 * 1000) result = null;
+          if (!fresh(result, key)) result = null;
         } else if (job.action === "write") {
           result = await write({...job.entry, key});
         } else if (job.action === "touch") {
@@ -28880,7 +28892,8 @@
     const prepared = result.data || result.pavilionData ? result
       : {...result, ...(kind === "building" ? {data:huayuLiveBuildingFeatureCollection(result.payload.elements)}
         : {pavilionData:huayuPavilionFeatureCollection(result.payload.elements), wallData:huayuWallFeatureCollection(result.payload.elements)})};
-    const entry = {...prepared, payload:undefined, cachedAt:Date.now(), cacheBytes:huayuModelEntryBytes(prepared)};
+    const entry = {...prepared, payload:undefined,
+      cachedAt:Math.min(Date.now(), Number(prepared.loadedAt) || Date.now()), cacheBytes:huayuModelEntryBytes(prepared)};
     if (!signal.aborted) worker?.request({action:"write", kind, key:tile.key, entry}).catch(() => {});
     return entry;
   }
@@ -28894,8 +28907,9 @@
       externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
       const timer = window.setTimeout(() => controller.abort(), 35000);
       try {
-        const response = await fetch(`/api/buildings/${tile.z}/${tile.x}/${tile.y}.json`, {
+        const response = await fetch(`/api/buildings/${tile.z}/${tile.x}/${tile.y}.json?refresh=live-2m`, {
           headers: { Accept: "application/json" },
+          cache: "no-cache",
           signal: controller.signal,
         });
         apiResponded = response.status !== 404;
@@ -28907,6 +28921,7 @@
             ...prepared,
             source: `edge-${cacheStatus}`,
             loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
+            refreshAt: Math.min(Date.now(), Number.isFinite(fetchedAt) ? fetchedAt : Date.now()) + HUAYU_LIVE_BUILDING_CACHE_MS,
           };
         }
         if (apiResponded) throw new Error(`BUILDING_TILE_HTTP_${response.status}`);
@@ -28928,7 +28943,7 @@
   }
 
   function huayuLiveBuildingEntryFresh(entry) {
-    return entry && Date.now() - (entry.cachedAt || entry.loadedAt) < HUAYU_LIVE_BUILDING_CACHE_MS;
+    return entry && Date.now() < (entry.refreshAt ?? (entry.cachedAt || entry.loadedAt) + HUAYU_LIVE_BUILDING_CACHE_MS);
   }
 
   function mergeHuayuLiveBuildingTiles(state) {
@@ -29018,7 +29033,8 @@
       const entry = state.tileCache.get(key);
       if (entry) {
         delay = Math.min(delay, Math.max(1000,
-          (entry.cachedAt || entry.loadedAt) + HUAYU_LIVE_BUILDING_CACHE_MS - now));
+          (entry.refreshAt ?? (entry.cachedAt || entry.loadedAt) + HUAYU_LIVE_BUILDING_CACHE_MS) - now,
+          (state.failedTiles.get(key) || 0) + 15000 - now));
       } else {
         const failedAt = state.failedTiles.get(key) || 0;
         delay = Math.min(delay, Math.max(1000, failedAt + 15000 - now));
@@ -29044,6 +29060,7 @@
             data: result.data,
             loadedAt: result.loadedAt,
             cachedAt: result.cachedAt || Date.now(),
+            refreshAt: result.refreshAt,
             cacheBytes: result.cacheBytes,
             lastUsed: Date.now(),
             source: result.source,
@@ -29273,8 +29290,9 @@
       externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
       const timer = window.setTimeout(() => controller.abort(), 25000);
       try {
-        const response = await fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates`, {
+        const response = await fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates&refresh=live-2m`, {
           headers: { Accept: "application/json" },
+          cache: "no-cache",
           signal: controller.signal,
         });
         apiResponded = response.status !== 404;
@@ -29286,6 +29304,8 @@
             ...prepared,
             source: `edge-${cacheStatus}`,
             loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
+            refreshAt: cacheStatus === "stale" ? Date.now() + 30000
+              : Math.min(Date.now(), Number.isFinite(fetchedAt) ? fetchedAt : Date.now()) + HUAYU_STRUCTURE_CACHE_MS,
           };
         }
         if (apiResponded) throw new Error(`STRUCTURE_TILE_HTTP_${response.status}`);
@@ -29306,7 +29326,7 @@
   }
 
   function huayuStructureEntryFresh(entry) {
-    return entry && Date.now() - (entry.cachedAt || entry.loadedAt) < HUAYU_STRUCTURE_CACHE_MS;
+    return entry && Date.now() < (entry.refreshAt ?? (entry.cachedAt || entry.loadedAt) + HUAYU_STRUCTURE_CACHE_MS);
   }
 
   function applyHuayuStructures(glMap, state) {
@@ -29441,7 +29461,8 @@
       const entry = state.tileCache.get(key);
       if (entry) {
         delay = Math.min(delay, Math.max(1000,
-          (entry.cachedAt || entry.loadedAt) + HUAYU_STRUCTURE_CACHE_MS - now));
+          (entry.refreshAt ?? (entry.cachedAt || entry.loadedAt) + HUAYU_STRUCTURE_CACHE_MS) - now,
+          (state.failedTiles.get(key) || 0) + 15000 - now));
       } else {
         const failedAt = state.failedTiles.get(key) || 0;
         delay = Math.min(delay, Math.max(1000, failedAt + 15000 - now));
@@ -29468,6 +29489,7 @@
             wallData: result.wallData,
             loadedAt: result.loadedAt,
             cachedAt: result.cachedAt || Date.now(),
+            refreshAt: result.refreshAt,
             cacheBytes: result.cacheBytes,
             lastUsed: Date.now(),
             source: result.source,

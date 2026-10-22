@@ -47,6 +47,13 @@ async function verify() {
   const building = await buildingResponse.json();
   assert.equal(buildingResponse.status, 200, "生产建筑 API 未返回 200");
   assert.ok(Array.isArray(building.elements) && building.elements.length > 0, "生产建筑 API 没有返回 OGF 要素");
+  assert.equal(buildingResponse.headers.get("x-ogf-building-policy"), "live-2m", "生产建筑尚未启用两分钟更新");
+  const structureResponse = await fetch(`${baseUrl}${release.structureProbe}?refresh=live-2m&verify=${encodeURIComponent(cacheKey)}`, {
+    signal: AbortSignal.timeout(60000),
+  });
+  assert.equal(structureResponse.status, 200, "生产结构物 API 未返回 200");
+  assert.ok(Array.isArray((await structureResponse.json()).elements), "生产结构物 API 数据不完整");
+  assert.equal(structureResponse.headers.get("x-ogf-structure-policy"), "live-2m", "生产结构物尚未启用两分钟更新");
 
   const basemapResponse = await fetch(`${baseUrl}${release.liveBasemapProbe}?verify=${encodeURIComponent(cacheKey)}`, {
     signal: AbortSignal.timeout(60000),

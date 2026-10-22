@@ -1,9 +1,9 @@
 const OGF_OVERPASS_URL = "https://overpass.opengeofiction.net/api/interpreter";
 const BUILDING_TILE_ZOOMS = new Set([11, 12, 13, 14, 15]);
-const BUILDING_CACHE_SECONDS = 10800;
+const BUILDING_CACHE_SECONDS = 120;
 const BUILDING_QUERY_TIMEOUT_MS = 30000;
 const STRUCTURE_TILE_ZOOMS = BUILDING_TILE_ZOOMS;
-const STRUCTURE_REFRESH_SECONDS = 10800;
+const STRUCTURE_REFRESH_SECONDS = 120;
 const STRUCTURE_RETENTION_SECONDS = 604800;
 const STRUCTURE_QUERY_TIMEOUT_MS = 20000;
 const LIVE_BASEMAP_TILE_ZOOMS = new Set([13, 14, 15]);
@@ -182,6 +182,12 @@ function buildingJsonResponse(body, status, headers = {}) {
 function cachedBuildingResponse(response, cacheStatus, headerName = "X-OGF-Building-Cache") {
   const headers = new Headers(response.headers);
   headers.set(headerName, cacheStatus);
+  const fetchedAt = Date.parse(headers.get("X-OGF-Building-Fetched-At") || "");
+  const age = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : BUILDING_CACHE_SECONDS;
+  const remaining = Math.max(0, BUILDING_CACHE_SECONDS - age);
+  headers.set("X-OGF-Building-Policy", "live-2m");
+  headers.set("X-OGF-Building-Refresh-After", String(remaining));
+  headers.set("Cache-Control", `public, max-age=${Math.min(15, remaining)}, must-revalidate`);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -243,9 +249,11 @@ async function fetchBuildingTile(request, context, z, x, y) {
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
   cacheUrl.searchParams.set("schema", "huayu-building-v7-roof-shapes");
+  cacheUrl.searchParams.set("refresh", "live-2m");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
-  if (cached) return cachedBuildingResponse(cached, "HIT");
+  if (cached && Date.now() - Date.parse(cached.headers.get("X-OGF-Building-Fetched-At") || "") < BUILDING_CACHE_SECONDS * 1000)
+    return cachedBuildingResponse(cached, "HIT");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BUILDING_QUERY_TIMEOUT_MS);
@@ -275,7 +283,7 @@ async function fetchBuildingTile(request, context, z, x, y) {
         "Cache-Control": "no-store",
       });
     }
-    if (!Array.isArray(payload?.elements)) {
+    if (!Array.isArray(payload?.elements) || payload.remark) {
       return buildingJsonResponse(JSON.stringify({ error: "invalid_overpass_payload" }), 502, {
         "Cache-Control": "no-store",
       });
@@ -289,7 +297,7 @@ async function fetchBuildingTile(request, context, z, x, y) {
       "X-OGF-Building-Tile": `${z}/${x}/${y}`,
     });
     context.waitUntil(caches.default.put(cacheKey, response.clone()));
-    return response;
+    return cachedBuildingResponse(response, "MISS");
   } catch (error) {
     return buildingJsonResponse(JSON.stringify({
       error: error?.name === "AbortError" ? "overpass_timeout" : "overpass_unavailable",
@@ -304,11 +312,11 @@ function structureTileClientResponse(response, cacheStatus) {
   const fetchedAt = Date.parse(headers.get("X-OGF-Structure-Fetched-At") || "");
   const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, Math.floor((Date.now() - fetchedAt) / 1000)) : 0;
   headers.set("X-OGF-Structure-Cache", cacheStatus);
-  headers.set("X-OGF-Structure-Policy", "snapshot-3h");
+  headers.set("X-OGF-Structure-Policy", "live-2m");
   headers.set("X-OGF-Structure-Age", String(ageSeconds));
   headers.set("X-OGF-Structure-Refresh-After", String(cacheStatus === "STALE"
     ? 30 : Math.max(0, STRUCTURE_REFRESH_SECONDS - ageSeconds)));
-  headers.set("Cache-Control", `public, max-age=${cacheStatus === "STALE" ? 0 : 60}, must-revalidate`);
+  headers.set("Cache-Control", `public, max-age=${cacheStatus === "STALE" ? 0 : Math.min(15, Math.max(0, STRUCTURE_REFRESH_SECONDS - ageSeconds))}, must-revalidate`);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -345,7 +353,7 @@ async function loadStructureTile(cacheKey, z, x, y) {
       error.responseStatus = 502;
       throw error;
     }
-    if (!Array.isArray(payload?.elements)) {
+    if (!Array.isArray(payload?.elements) || payload.remark) {
       const error = new Error("invalid_overpass_payload");
       error.responseStatus = 502;
       throw error;
@@ -354,7 +362,7 @@ async function loadStructureTile(cacheKey, z, x, y) {
       "Cache-Control": `public, max-age=0, s-maxage=${STRUCTURE_RETENTION_SECONDS}`,
       "X-OGF-Structure-Fetched-At": new Date().toISOString(),
       "X-OGF-Structure-Tile": `${z}/${x}/${y}`,
-      "X-OGF-Structure-Policy": "snapshot-3h",
+      "X-OGF-Structure-Policy": "live-2m",
     });
     await caches.default.put(cacheKey, response.clone());
     return response;
@@ -397,6 +405,7 @@ async function fetchStructureTile(request, context, z, x, y) {
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
   cacheUrl.searchParams.set("schema", "huayu-structures-v5-wall-gates");
+  cacheUrl.searchParams.set("refresh", "live-2m");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {
