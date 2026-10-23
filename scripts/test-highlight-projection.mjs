@@ -169,23 +169,70 @@ console.log("Highlights passed: geographic geometry, native camera reuse, late s
 // Fractional native zooms can round back to the unchanged retained Leaflet
 // view. A no-op setView must still hand the basemap camera back explicitly.
 const retainedCenter = {lat: 14.63, lng: 152.96};
-let nativeCamera = {zoom: 11.179, center: {...retainedCenter}, pitch: 48, bearing: 28}, setViews = 0;
+let nativeCamera = {zoom: 11.179, center: {...retainedCenter}, pitch: 90, bearing: 28}, setViews = 0;
 const nativeMap = {getCenter: () => nativeCamera.center, getZoom: () => nativeCamera.zoom, stop() {},
+  getPitch: () => nativeCamera.pitch, getBearing: () => nativeCamera.bearing,
   jumpTo(options) {nativeCamera = {...nativeCamera, ...options};}};
 const noop = () => {};
 const exitContext = vm.createContext({window: {}, vectorPerspectiveActive: true, vectorPerspectiveMap: nativeMap,
   map: {setView() {setViews++;}, getZoom: () => 12, getCenter: () => retainedCenter},
-  mapViewMode: "normal", elements: {appShell: {classList: {remove: noop}}},
+  mapViewMode: "normal", elements: {appShell: {classList: {remove: noop}}, vectorPitch: {value: "90"}, vectorBearing: {value: "28"}},
   clamp: (value, min, max) => Math.max(min, Math.min(max, value)),
   syncVectorCameraControls: noop, syncVectorCameraFromMap: noop, handleVectorPerspectiveMoveEnd: noop,
   removeVectorTransitOverlay: noop, removeVectorHighlightOverlay: noop, setMaplibrePerspectiveInteraction: noop,
   syncHuayuCityWallPerspectiveLayers: noop, syncHuayuWallPerspectiveLayers: noop, syncHuayuElevatedGreenLayers: noop,
   syncHuayuTerrainPerspective: noop, restoreLeafletPerspectiveInteraction: noop, showToast: noop,
 });
+vm.runInContext(app.match(/  const VECTOR_MAX_PITCH = [^;]+;/u)[0], exitContext);
+for (const name of ["normalizedVectorBearing", "currentVectorCameraSnapshot", "applyVectorCameraControls"])
+  vm.runInContext(app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, "u"))[0], exitContext);
+exitContext.applyVectorCameraControls();
+assert.equal(nativeCamera.pitch, 90, "slider must actually request a horizontal native camera, not just display 90");
+assert.equal(exitContext.currentVectorCameraSnapshot().pitch, 90, "basemap handoff must retain the horizontal view");
+exitContext.elements.vectorPitch.value = "100";
+exitContext.applyVectorCameraControls();
+assert.equal(nativeCamera.pitch, 90, "camera controls must not go past the horizontal limit");
 vm.runInContext(app.match(/  function exitVectorPerspectiveMode\([^]*?\n  \}/u)[0], exitContext);
 exitContext.exitVectorPerspectiveMode({silent: true});
 assert.equal(setViews, 1);
 assert.equal(nativeCamera.zoom, 11, "native basemap must match Leaflet even if setView emits no camera event");
 assert.deepEqual(Array.from(nativeCamera.center), [retainedCenter.lng, retainedCenter.lat]);
 assert.equal(nativeCamera.pitch, 0); assert.equal(nativeCamera.bearing, 0);
-console.log("Camera handoff passed: fractional native zoom cannot leave the overhead basemap at a different scale.");
+console.log("Camera handoff passed: 90-degree controls and snapshots, bounded tilt and exact overhead recovery after fractional zoom.");
+
+const horizonContext = vm.createContext({});
+for (const name of ["keepVectorCameraAboveGround", "installVectorCameraCoverageBounds"])
+  vm.runInContext(app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, "u"))[0], horizonContext);
+const transform = (pitch, elevation = 0) => ({pitch, elevation,
+  getCameraAltitude() {return this.elevation + 1000 * Math.cos(this.pitch * Math.PI / 180);},
+  setPitch(value) {this.pitch = value;}, clone() {return transform(this.pitch, this.elevation);},
+});
+let clamped = true;
+const groundMap = {setCenterClampedToGround: value => {clamped = value;}, getTerrain: () => true,
+  queryTerrainElevation: () => 120};
+const referenceClearance = 1000 * Math.cos(85 * Math.PI / 180);
+for (const pitch of [89, 90]) {
+  const requested = transform(pitch, 120), original = requested.getCameraAltitude();
+  const result = horizonContext.keepVectorCameraAboveGround.call(groundMap, requested);
+  const resultingClearance = result.elevation - 120 + original - 120;
+  assert.ok(Math.abs(resultingClearance - referenceClearance) < 1e-9,
+    "horizontal viewing must retain reference ground clearance without altering terrain height");
+  assert.equal(requested.elevation, 120, "do not mutate the requested camera or accumulate target elevation");
+  assert.equal(requested.pitch, pitch);
+  assert.equal(clamped, false);
+}
+assert.deepEqual(plain(horizonContext.keepVectorCameraAboveGround.call(groundMap, transform(85,120))), {});
+assert.equal(clamped, true, "normal tilt restores native ground tracking");
+const coverage = {pitch: 90, copies: 0, getCameraLngLat: () => ({lng:152.9,lat:14.6}),
+  clone() {this.copies++;return {pitch:this.pitch,setPitch(p){this.pitch=p;},getBounds(){
+    assert.equal(this.pitch,70);return {points:[],extend(point){this.points.push(point);return this;}};
+  }};}};
+let actualPitch = 90;
+const coverageMap = {getBounds: () => "native", getPitch: () => actualPitch, transform:coverage,
+  getCenter: () => ({lng:152.94,lat:14.64})};
+horizonContext.installVectorCameraCoverageBounds(coverageMap);
+assert.equal(coverageMap.getBounds().points.length,2,"bounded horizon coverage includes target and actual camera position");
+assert.equal(coverage.pitch,90,"coverage projection must not lower the rendered tilt");
+actualPitch = 70;
+assert.equal(coverageMap.getBounds(),"native");assert.equal(coverage.copies,1);
+console.log("Horizon passed: camera clearance, unchanged ground/requested state, bounded coverage and native recovery.");

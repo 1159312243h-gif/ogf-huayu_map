@@ -779,7 +779,7 @@
     "boxZoom", "scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom",
     "touchZoomRotate", "touchPitch",
   ];
-  const VECTOR_MAX_PITCH = 70;
+  const VECTOR_MAX_PITCH = 90;
   const VECTOR_PERSPECTIVE_PRESET_PITCH = 48;
   const VECTOR_PERSPECTIVE_PRESET_BEARING = 342;
   const VECTOR_TRANSIT_LINE_SOURCE = "ogf-atlas-perspective-transit-lines";
@@ -1273,6 +1273,7 @@
         style: id === "huayu-satellite" ? JSON.parse(JSON.stringify(huayuSatelliteStyle)) : style.url,
         interactive: false,
         maxPitch: VECTOR_MAX_PITCH,
+        transformCameraUpdate: keepVectorCameraAboveGround,
         pane: "tilePane",
         padding: 0.1,
         attributionControl: { customAttribution: attribution },
@@ -1284,6 +1285,7 @@
       layer.on("add", () => {
         const glMap = layer.getMaplibreMap();
         vectorMap = glMap;
+        installVectorCameraCoverageBounds(glMap);
         if (isHuayuBasemapId(id)) {
           onStyleImageMissing = (event) => addHuayuPoiImage(glMap, event.id);
           glMap.on("styleimagemissing", onStyleImageMissing);
@@ -31842,6 +31844,35 @@
     return Math.abs(rounded) < 0.5 ? 0 : rounded;
   }
 
+  function keepVectorCameraAboveGround(transform) {
+    // At exactly 90 degrees an orbit centred on the ground puts the camera
+    // on that same plane. Lift the camera target only when eye clearance is
+    // exhausted; never change model or terrain elevations.
+    const horizontal = transform.pitch > 85;
+    this.setCenterClampedToGround(!horizontal);
+    if (!horizontal) return {};
+    const ground = this.getTerrain()
+      ? (this.queryTerrainElevation(transform.center) ?? transform.elevation) : 0;
+    const reference = transform.clone();
+    reference.setPitch(85);
+    const minimumClearance = reference.getCameraAltitude() - reference.elevation;
+    const clearance = transform.getCameraAltitude() - transform.elevation;
+    return {elevation: ground + Math.max(0, minimumClearance - clearance)};
+  }
+
+  function installVectorCameraCoverageBounds(glMap) {
+    const nativeBounds = glMap.getBounds.bind(glMap);
+    glMap.getBounds = () => {
+      if (glMap.getPitch() <= 70) return nativeBounds();
+      // The horizon's intersection with the target plane degenerates to a
+      // line at 90 degrees. Keep the existing bounded 70-degree data envelope
+      // so models/terrain are not discarded or fetched across the whole world.
+      const coverage = glMap.transform.clone();
+      coverage.setPitch(70);
+      return coverage.getBounds().extend(glMap.getCenter()).extend(glMap.transform.getCameraLngLat());
+    };
+  }
+
   function syncVectorCameraControls() {
     const vectorSelected = BASEMAP_STYLES[selectedBasemapId]?.kind === "vector"
       && selectedBasemapId !== "huayu-satellite";
@@ -31849,6 +31880,7 @@
     const glMap = vectorPerspectiveActive ? vectorPerspectiveMap : null;
     const pitch = glMap ? Math.round(glMap.getPitch()) : 0;
     const bearing = glMap ? normalizedVectorBearing(glMap.getBearing()) : 0;
+    elements.appShell.classList.toggle("is-vector-horizon", vectorPerspectiveActive && pitch > 70);
     elements.vectorPitch.value = String(pitch);
     elements.vectorBearing.value = String(bearing);
     elements.vectorPitchValue.textContent = `${pitch}°`;

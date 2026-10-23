@@ -638,6 +638,10 @@ select:focus-visible {
   cursor: grab;
 }
 
+.app-shell.is-vector-horizon .leaflet-tile-pane > .leaflet-layer:not(.leaflet-gl-layer) {
+  visibility: hidden;
+}
+
 .app-shell.is-vector-perspective .leaflet-gl-layer:active {
   cursor: grabbing;
 }

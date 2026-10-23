@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=7.5-realtime-sunlight-v1" />
+    <link rel="stylesheet" href="./styles.css?v=7.5-pitch-90-v1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.5">
@@ -102,7 +102,7 @@
           </header>
           <label class="vector-camera-slider" for="vector-pitch">
             <span>倾斜角</span><output id="vector-pitch-value" for="vector-pitch">0°</output>
-            <input id="vector-pitch" type="range" min="0" max="70" step="1" value="0" />
+            <input id="vector-pitch" type="range" min="0" max="90" step="1" value="0" />
           </label>
           <label class="vector-camera-slider" for="vector-bearing">
             <span>旋转角</span><output id="vector-bearing-value" for="vector-bearing">0°</output>
@@ -748,7 +748,7 @@
               <h3>底图与叠加图层</h3>
               <p>打开工具栏中的“视图”（启用地形时显示“地形图”），选择华域标准、深夜、模拟卫星，或 OGF、地形、骑行等底图。华域模拟卫星由地图地物生成，并非实拍；可用“影像注记”控制地名。交通与地形可以分别开关，也可以同时显示；交通还可筛选地铁、电车、铁路和公交站。</p>
               <h3>倾斜与旋转</h3>
-              <p>在支持的矢量底图中，展开“矢量视角”，调整倾斜角、旋转角，或使用倾斜预设；“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。</p>
+              <p>在支持的矢量底图中，展开“矢量视角”，调整 0°–90° 倾斜角和旋转角，或使用倾斜预设；0° 为俯视，90° 为水平视角，“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。</p>
               <h3>点击地图上的物体</h3>
               <p>开启“点击选择要素”，点击点、道路或面，查看坐标、轮廓与原始属性；重叠时从候选列表选择目标。地点可收藏、设为导航终点、分享，原始物体可“加入下载”。框选、测量或导航选点期间，点击优先完成当前操作。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="map-view">打开视图与图层</button></div>
@@ -1000,7 +1000,7 @@
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.5-live-models-2m-v1"></script>
+    <script src="./app.js?v=7.5-pitch-90-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>

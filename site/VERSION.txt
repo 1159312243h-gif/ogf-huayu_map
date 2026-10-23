@@ -1,6 +1,8 @@
 华域地图 v7.5
-Released: 2026-10-22
+Released: 2026-10-23
 Cloudflare Pages project: ogf-atlas
+
+Version-7.5 Pitch 90 v1 (2026-10-23, 7.5-pitch-90-v1): Extend the vector camera tilt range from 0–70 to 0–90 degrees in both the slider and native camera. Above 85 degrees retain the reference camera's ground clearance; keep bounded nearby data coverage at the horizon instead of a degenerate line. Preserve tilt and bearing when switching supported vector basemaps, overhead reset and the simulated satellite's overhead-only behavior. Update the guide without changing models, source-data timestamps or refresh workflows.
 
 Version-7.5 Live models 2m v1 (2026-10-22, 7.5-live-models-2m-v1): Restore two-minute visible building/roof and pavilion/wall/fence data refresh across browser memory, prepared disk cache and Cloudflare. Preserve source age on cache hits, retry retained stale structures after 30 seconds and retain complete displayed models on failures. Keep garden/vegetation caches, other facility cycles, nationwide three-hour snapshots and private data unchanged.
 
