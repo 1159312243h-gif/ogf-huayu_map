@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import {pavilionTagRuntime as buildingRuntime} from "./test-pavilion-tags.mjs";
+import {raisedSkillionRoof} from "./fixtures/roof-only.mjs";
 
 const timers = new Map(), revoked = [], workers = [], urls = [];
 let timerId = 0;
@@ -60,6 +62,13 @@ const roof = api.prepare(roofData)[0], northSun = {east:0,north:1,up:1};
 assert.ok(roof.roof.length > 0);
 assert.equal(covered(api.faces(roof,northSun,false), [16,-9]), true);
 assert.equal(covered(api.faces(roof,northSun,true), [16,-9]), false, "pitched roof projects its actual eave and ridge heights");
+const canopy = api.prepare(buildingRuntime.huayuLiveBuildingFeatureCollection([raisedSkillionRoof]))[0];
+const canopyFaces = api.faces(canopy,morning,true), canopyWidth = api.project([.0002,0])[0];
+assert.equal(canopyFaces.length,2,"只有屋面的结构仅按实际两块屋面投影，不补底板或侧墙阴影");
+assert.equal(covered(canopyFaces,[canopyWidth-4.25,api.project([0,.00005])[1]]),false,
+  "较高边下方不能留下虚构水平底板的阴影");
+assert.equal(covered(canopyFaces,[canopyWidth-5,api.project([0,.00005])[1]]),true);
+assert.ok(api.faces(canopy,morning,false).length>2,"平顶回退仍使用完整对应表达的阴影");
 assert.equal(JSON.stringify(data), original, "shadow preparation never changes source geometry or tags");
 // Draw two identical casters and inspect real drawing commands: opacity is
 // applied once by the map, not inside individual paths or via destination-out.

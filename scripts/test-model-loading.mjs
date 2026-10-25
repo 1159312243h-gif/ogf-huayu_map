@@ -3,6 +3,7 @@ import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {courtyardGateWays} from "./fixtures/wall-gates.mjs";
 import {roofShapeElements} from "./fixtures/roof-shapes.mjs";
+import {raisedSkillionRoof} from "./fixtures/roof-only.mjs";
 
 const source = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
 const declaration = name => {
@@ -104,6 +105,12 @@ for (const kind of ["building", "structure"]) {
 const roofDecoded=await request({action:"decode",kind:"building",text:JSON.stringify({elements:roofShapeElements})});
 assert.deepEqual(JSON.parse(JSON.stringify(roofDecoded.data)),JSON.parse(JSON.stringify(factory.huayuLiveBuildingFeatureCollection(roofShapeElements))),
   "all 19 roof tags, curved footprints and orientation metadata match background decoding");
+const canopyDecoded = await request({action:"decode",kind:"building",text:JSON.stringify({elements:[raisedSkillionRoof]})});
+assert.deepEqual(JSON.parse(JSON.stringify(canopyDecoded.data)),
+  JSON.parse(JSON.stringify(factory.huayuLiveBuildingFeatureCollection([raisedSkillionRoof]))), "屋顶独占高度在后台与前端完全一致");
+assert.equal(canopyDecoded.data.features[0].properties.roofOnly, 1);
+assert.equal(canopyDecoded.data.features[0].properties.renderMinHeight, 4);
+assert.equal(canopyDecoded.data.features[0].properties.renderHeight, 4.5);
 const readWrites = modelBlobWrites;
 const readAge = [...records.values()][0].cachedAt;
 await request({action:"read", kind:"building", key:"15/123/456"});
@@ -217,8 +224,11 @@ await unavailable.self.onmessage({data:{action:"decode", kind:"building", text}}
 assert.equal(answer.error, undefined, "denied storage must not prevent rendering");
 
 const selection = vm.createContext({clamp:(value, min, max) => Math.min(max, Math.max(min, value)),
-  HUAYU_LIVE_BUILDING_MIN_TILE_ZOOM:11, HUAYU_LIVE_BUILDING_MAX_TILE_ZOOM:15});
-for (const name of ["huayuLiveBuildingTileZoom", "huayuLiveBuildingTileAt", "huayuLiveBuildingVisibleTiles"])
+  HUAYU_LIVE_BUILDING_MIN_TILE_ZOOM:11, HUAYU_LIVE_BUILDING_MAX_TILE_ZOOM:15,HUAYU_MODEL_VIEW_TILE_LIMIT:32,
+  huayuAdministrativeQueryBounds:map=>map.getBounds()});
+for (const name of ["huayuLiveBuildingTileZoom", "huayuLiveBuildingTileAt", "huayuLiveBuildingVisibleTiles",
+  "huayuLiveBuildingTileBounds","huayuModelEntryBytes","huayuModelTileWindow","huayuModelWindowTiles",
+  "huayuModelDetailView","huayuModelDetailTiles","selectHuayuModelTiles","rememberHuayuModelTileCost","huayuModelCoverage","huayuModelFeatureInside"])
   vm.runInContext(declaration(name), selection);
 const bounds = {west:155.9, east:156.3, south:11.95, north:12.2};
 const coarse = selection.huayuLiveBuildingTileZoom({getZoom:() => 11});
@@ -226,6 +236,77 @@ assert.ok(selection.huayuLiveBuildingVisibleTiles(bounds, coarse).length
   < selection.huayuLiveBuildingVisibleTiles(bounds, 12).length);
 assert.equal(selection.huayuLiveBuildingTileZoom({getZoom:() => 16}), 15,
   "close views must keep the original full-detail tile level");
+
+// A horizon-sized footprint must not enumerate/queue hundreds of detailed
+// tiles. Dense views shrink complete windows rather than punching model holes.
+const horizon={west:152.7,east:153.2,south:14.4,north:14.9};
+const camera={getBounds:()=>horizon,getZoom:()=>15,getCenter:()=>({lng:152.93546,lat:14.63852})};
+const detailState={tileCache:new Map(),pendingTiles:new Map(),queue:[],tileZoom:15};
+let detail=selection.huayuModelDetailTiles(camera,detailState,12*1024*1024);
+assert.ok(detail.length>0 && detail.length<=32);
+const focus=selection.huayuLiveBuildingTileAt(152.93546,14.63852,15);
+assert.ok(detail.some(t=>t.key===focus.key),"nearby buildings remain the priority at the horizon");
+const frozenView=selection.huayuModelDetailView(camera), originalCenter=camera.getCenter;
+camera.getCenter=()=>({lng:0,lat:0});
+assert.deepEqual(selection.huayuModelDetailTiles(frozenView,detailState,12*1024*1024).map(t=>t.key),detail.map(t=>t.key),
+  "arriving data during a gesture uses the settled view rather than chasing every camera frame");
+camera.getCenter=originalCenter;
+for(const tile of detail)detailState.tileCache.set(tile.key,{cacheBytes:1024*1024});
+detail=selection.huayuModelDetailTiles(camera,detailState,4*1024*1024);
+assert.ok(detail.length>0 && detail.length<=4,"required visible tiles obey the byte budget too");
+assert.equal(selection.huayuModelWindowTiles(selection.huayuModelTileWindow(detail.map(t=>t.key))).length,detail.length,
+  "the budgeted region is contiguous and complete");
+let aborted=false;
+detailState.pendingTiles.set("old",{controller:{abort:()=>{aborted=true;}}});
+detailState.queue=[{key:"old"},detail[0]];
+selection.selectHuayuModelTiles(detailState,detail);
+assert.equal(aborted,true);assert.equal(detailState.queue.length,1);
+detailState.tileCache.clear();
+selection.rememberHuayuModelTileCost(detailState,focus.key,{cacheBytes:20*1024*1024});
+assert.equal(selection.huayuModelDetailTiles(camera,detailState,12*1024*1024).length,0,
+  "an oversized near tile stays on the native fallback instead of reloading in a loop");
+const wrapped=selection.huayuModelCoverage(["15/32767/16000","15/0/16000"]);
+assert.equal(wrapped.coordinates.length,2,"ownership wraps at the date line without claiming the whole world");
+const coverage={type:"MultiPolygon",coordinates:[[[[0,0],[2,0],[2,2],[0,2],[0,0]]]]};
+const shape=points=>({geometry:{type:"Polygon",coordinates:[points]}});
+assert.equal(selection.huayuModelFeatureInside(shape([[.1,.1],[1,.1],[1,1],[.1,.1]]),coverage),true);
+assert.equal(selection.huayuModelFeatureInside(shape([[1,1],[3,1],[3,2],[1,1]]),coverage),false,
+  "edge-crossing buildings retain a whole native fallback, not clipped detail roofs");
+
+// Exercise asynchronous completion, not only cancellation of the HTTP request:
+// even a server/cache that resolves after abort cannot repopulate old regions.
+let finishTile;
+const pumps=vm.createContext({AbortController,
+  HUAYU_LIVE_BUILDING_TILE_CONCURRENCY:3,HUAYU_STRUCTURE_TILE_CONCURRENCY:3,
+  HUAYU_BUILDING_SOURCE_BYTES:12*1024*1024,HUAYU_STRUCTURE_SOURCE_BYTES:4*1024*1024,
+  HUAYU_LIVE_BUILDING_CACHE_MS:120000,HUAYU_STRUCTURE_CACHE_MS:120000,
+  huayuLiveBuildingTileRevision:0,huayuStructureTileRevision:0,
+  loadHuayuModelTile:()=>new Promise(resolve=>{finishTile=resolve;}),fetchHuayuLiveBuildingTile:()=>{},fetchHuayuStructureTile:()=>{},
+  rememberHuayuModelTileCost:selection.rememberHuayuModelTileCost,huayuModelEntryBytes:selection.huayuModelEntryBytes,
+  selectHuayuModelTiles:selection.selectHuayuModelTiles,huayuModelDetailTiles:selection.huayuModelDetailTiles,
+  pruneHuayuLiveBuildingTileCache:()=>{},pruneHuayuStructureTileCache:()=>{},
+  updateHuayuLiveBuildingDiagnostics:()=>{},updateHuayuStructureDiagnostics:()=>{},
+  mergeHuayuLiveBuildingTiles:()=>{},mergeHuayuStructureTiles:()=>{},
+  scheduleNextHuayuLiveBuildingRefresh:()=>{},scheduleNextHuayuStructureRefresh:()=>{},
+  scheduleHuayuLiveBuildings:()=>{},scheduleHuayuStructures:()=>{}});
+for(const name of ["pumpHuayuLiveBuildingTiles","pumpHuayuStructureTiles"])vm.runInContext(declaration(name),pumps);
+for(const name of ["pumpHuayuLiveBuildingTiles","pumpHuayuStructureTiles"]){
+  const state={active:true,glMap:camera,tileCache:new Map(),visibleTileKeys:new Set([focus.key]),
+    queue:[focus],queuedTileKeys:new Set([focus.key]),pendingTiles:new Map(),failedTiles:new Map(),tileZoom:15};
+  pumps[name](state);
+  state.visibleTileKeys.clear();state.pendingTiles.get(focus.key).controller.abort();
+  finishTile({data:{features:[]},pavilionData:{features:[]},wallData:{features:[]},cacheBytes:1024});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(state.tileCache.size,0);assert.equal(state.pendingTiles.size,0);
+  assert.equal(state.requestCount||0,0,"late discarded work cannot count as an accepted model load");
+  state.visibleTileKeys=new Set([focus.key]);state.queue=[focus];state.queuedTileKeys=new Set([focus.key]);
+  pumps[name](state);
+  finishTile({data:{features:[]},pavilionData:{features:[]},wallData:{features:[]},cacheBytes:20*1024*1024});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(state.tileCache.size,0,"an oversized completed tile is not admitted to model memory");
+  assert.equal(state.visibleTileKeys.size,0,"oversized region falls back without an endless missing-tile queue");
+  assert.ok(state.tileCosts.get(focus.key).bytes>12*1024*1024);
+}
 
 // A completed cached result avoids network; cancellation and slow storage remain bounded.
 let fetches = 0;
@@ -305,21 +386,27 @@ assert.equal(redundantAborted,true,"late cache reuse cancels the redundant API r
 
 let commits=0;
 const residency=vm.createContext({HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT:256,
+  HUAYU_BUILDING_SOURCE_BYTES:12*1024*1024,HUAYU_STRUCTURE_SOURCE_BYTES:4*1024*1024,
   HUAYU_LIVE_BUILDING_CACHE_BYTES:48*1024*1024,HUAYU_STRUCTURE_TILE_CACHE_LIMIT:256,
   HUAYU_STRUCTURE_CACHE_BYTES:16*1024*1024,applyHuayuLiveBuildings:()=>commits++,
   applyHuayuStructures:()=>commits++,updateHuayuLiveBuildingDiagnostics:()=>{},
   updateHuayuStructureDiagnostics:()=>{},syncHuayuLiveBuildingPrimaryLayers:()=>{},
   clearHuayuLiveBuildingPrimarySync:()=>{}});
-for(const name of ["huayuModelEntryBytes","huayuModelResidentTiles","pruneHuayuModelTileCache",
+for(const name of ["huayuModelEntryBytes","huayuModelTileWindow","huayuModelWindowTiles","huayuModelCoverage",
+  "huayuLiveBuildingTileBounds","huayuModelFeatureInside","huayuModelResidentTiles","pruneHuayuModelTileCache",
   "pruneHuayuLiveBuildingTileCache","pruneHuayuStructureTileCache",
   "mergeHuayuLiveBuildingTiles","mergeHuayuStructureTiles"]) vm.runInContext(declaration(name),residency);
 // Count source submissions, including the production no-op on an unchanged revision.
 residency.applyHuayuLiveBuildings=residency.applyHuayuStructures=(_,state)=>{
   if(state.appliedRevision!==state.renderRevision){commits++;state.appliedRevision=state.renderRevision;}
 };
-const tileEntry=(id,revision=1,cacheBytes=2048)=>({revision,cacheBytes,lastUsed:1,loadedAt:Date.now(),
-  data:{features:[{id,geometry:{type:"Polygon",coordinates:[]},properties:{}}]},
-  pavilionData:{features:[{id:`p-${id}`,properties:{}}]},wallData:{features:[]}});
+const tileEntry=(id,revision=1,cacheBytes=2048)=>{
+  const b=residency.huayuLiveBuildingTileBounds({z:15,x:id===3?200:100,y:id===3?200:100});
+  const x=(b.west+b.east)/2,y=(b.north+b.south)/2;
+  return {revision,cacheBytes,lastUsed:1,loadedAt:Date.now(),
+    data:{features:[{id,geometry:{type:"Polygon",coordinates:[[[x,y],[x+.00001,y],[x,y+.00001],[x,y]]]},properties:{}}]},
+    pavilionData:{features:[{id:`p-${id}`,properties:{}}]},wallData:{features:[]}};
+};
 for(const merge of ["mergeHuayuLiveBuildingTiles","mergeHuayuStructureTiles"]){
   const a="15/100/100",b="15/101/100",far="15/200/200";
   const state={tileCache:new Map([[a,tileEntry(1)],[b,tileEntry(1)],[far,tileEntry(3)]]),
@@ -356,6 +443,10 @@ assert.ok(bounded.tileCache.has("visible")&&bounded.tileCache.has("resident"));
 bounded.tileCache.set("old-dense",tileEntry(403,1,50*1024*1024));
 residency.pruneHuayuModelTileCache(bounded,256,48*1024*1024);
 assert.equal(bounded.tileCache.has("old-dense"),false,"byte budget prevents a few huge regions retaining unbounded memory");
+const requiredDense={tileCache:new Map([["15/100/100",tileEntry(1,1,13*1024*1024)]]),
+  renderTileRevisions:new Map([["15/100/100",1]])};
+assert.equal(residency.huayuModelResidentTiles(requiredDense,["15/100/100"],12*1024*1024),null,
+  "previously rendered/visible status cannot bypass the source byte limit");
 let touches=[];
 residency.getHuayuModelTileWorker=()=>({request:job=>{touches.push(job);return Promise.resolve(true);}});
 vm.runInContext(declaration("touchHuayuModelTiles"),residency);

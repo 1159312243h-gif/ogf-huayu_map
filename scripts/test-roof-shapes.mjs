@@ -135,6 +135,13 @@ for(let i=0;i<data.features.length;i++) {
   assert.equal(shadow.eaves,f.properties.roofModel===1?9:15,`${f.properties.roofShape}: matching shadow eaves`);
   assert.equal(shadow.roof.length,roof.length,`${f.properties.roofShape}: exact rendered mesh drives the shadow`);
 }
+for (const element of roofShapeElements.filter(e=>e.tags["roof:shape"]!=="flat")) {
+  const canopy=runtime.huayuLiveBuildingFeatureCollection([{...element,tags:{...element.tags,
+    height:"4.5",min_height:"4","roof:height":"0.5"}}]).features[0];
+  const triangles=api.roofTriangles(canopy);
+  assert.equal(canopy.properties.roofOnly,1);
+  assert.ok(triangles.length>0 && triangles.every(t=>t.kind==="roof"),`${canopy.properties.roofShape}: 屋面保留完整且不补侧墙`);
+}
 const crowdedShadows=context.HuayuSunShadows.prepare(crowded);
 assert.ok(crowdedShadows.slice(0,selected.length).every(item=>item.roof.length>0));
 assert.ok(crowdedShadows.slice(selected.length).every(item=>item.roof.length===0 && item.eaves===15),

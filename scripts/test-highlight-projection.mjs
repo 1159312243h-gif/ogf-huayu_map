@@ -126,6 +126,25 @@ context.syncVectorHighlightOverlay();
 assert.equal(listeners.size, 4, "repeated perspective entry has only one listener set");
 context.vectorPerspectiveActive = false; context.removeVectorHighlightOverlay();
 
+// Brand point highlights share the native camera, literal tooltip text and click dispatch.
+const brandPoint = path({type:"Point",coordinates:[152.94,14.64]});
+brandPoint.feature.properties = {name:"品牌分店",huayuBrandLocation:true};
+let brandSelected = false;
+brandPoint.fire = event => {assert.equal(event,"click");brandSelected = true;};
+const brandGroup = group([brandPoint]);
+groups.push({id:"brands",group:brandGroup,order:440});present.add(brandGroup);
+context.vectorPerspectiveActive = true;context.syncVectorHighlightOverlay();
+assert.deepEqual(plain(sources.get("highlights").data.features.at(-1).geometry),brandPoint.feature.geometry);
+assert.ok(layers.has("highlights-brands-point"));
+listeners.get("click:highlights-brands-point")({features:[{id:brandPoint.id}],originalEvent:{}});
+assert.equal(brandSelected,true,"倾斜视角点选实际品牌地点");
+brandSelected = false;context.mapPickTarget = "origin";
+listeners.get("click:highlights-brands-point")({features:[{id:brandPoint.id}],originalEvent:{}});
+assert.equal(brandSelected,false,"导航选点期间品牌标记不能抢占操作");
+context.mapPickTarget = null;context.vectorPerspectiveActive = false;context.removeVectorHighlightOverlay();
+assert.equal(listeners.size,0,"品牌原生相机监听同样清理");
+groups.pop();present.delete(brandGroup);
+
 // Use the shipped Leaflet SVG renderer to verify retained paths at new zooms,
 // rather than checking just that a projection callback was called.
 const element = () => ({style: {}, className: "", attributes: {}, children: [],

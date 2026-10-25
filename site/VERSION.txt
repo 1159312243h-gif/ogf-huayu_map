@@ -1,6 +1,12 @@
 华域地图 v7.5
-Released: 2026-10-23
+Released: 2026-10-26
 Cloudflare Pages project: ogf-atlas
+
+Version-7.5 Roof only v1 (2026-10-26, 7.5-roof-only-v1): Respect valid raised roof-only heights without a minimum wall allowance. Keep the 4–4.5 m single-slope roof from the reported tags open underneath, omit side/gable walls and native flat caps only after successful mesh takeover, and cast shadows from actual roof faces. Preserve real remaining wall heights, ordinary buildings, pavilions, whole-model fallback and source timestamps. This release also includes the brand catalog and pitch-memory updates below.
+
+Version-7.5 Brands v1 (included in 7.5-roof-only-v1): Integrate the user-supplied OGF brand/operator snapshot with lazy catalog browsing, top-search matches, category filters, exact live location queries, viewport discovery, and existing favorites/navigation actions. Initialize after the map is ready so category filters work on cold starts. Check visible selected-brand locations every two minutes and catalog revisions every five minutes; add an independent three-hour complete-catalog refresh workflow with bounded queries and atomic failure retention. Preserve imported source timestamps.
+
+Version-7.5 Pitch memory v1 (included in 7.5-roof-only-v1): Bound nearby detailed building/structure requests to 32 tiles and three concurrent loads each. Keep complete detail sources within 64 tiles and 12/4 MiB geometry estimates; shrink dense windows atomically, cancel departed work and ignore late results. Preserve whole native buildings outside the completed window and along its edge, with matching pavilion/shelter replacement ownership. Keep the 90-degree camera, two-minute source refresh, existing disk cache and source-data timestamps.
 
 Version-7.5 Pitch 90 v1 (2026-10-23, 7.5-pitch-90-v1): Extend the vector camera tilt range from 0–70 to 0–90 degrees in both the slider and native camera. Above 85 degrees retain the reference camera's ground clearance; keep bounded nearby data coverage at the horizon instead of a degenerate line. Preserve tilt and bearing when switching supported vector basemaps, overhead reset and the simulated satellite's overhead-only behavior. Update the guide without changing models, source-data timestamps or refresh workflows.
 

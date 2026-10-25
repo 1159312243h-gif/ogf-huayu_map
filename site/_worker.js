@@ -248,7 +248,7 @@ async function fetchBuildingTile(request, context, z, x, y) {
 
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-building-v7-roof-shapes");
+  cacheUrl.searchParams.set("schema", "huayu-building-v8-roof-only");
   cacheUrl.searchParams.set("refresh", "live-2m");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
@@ -1559,9 +1559,87 @@ async function fetchFeatureData(request) {
   }
 }
 
+const brandRequests = new Map();
+const brandRetryAfter = new Map();
+function brandDataQuery(url) {
+  const p = url.searchParams, kind = p.get("kind"), mode = p.get("mode") || "locations";
+  if (!["brand", "operator"].includes(kind) || !["locations", "discover"].includes(mode)) throw Error("INVALID_BRAND_QUERY");
+  const name = p.get("name") || "";
+  if (mode === "locations" && (!name.trim() || name.length > 200 || /[\x00-\x1f\x7f]/u.test(name))) throw Error("INVALID_BRAND_NAME");
+  let scope = "";
+  if (p.get("scope") === "view") {
+    const keys = ["south", "west", "north", "east"], values = keys.map(key => Number(p.get(key)));
+    const [s, w, n, e] = values;
+    if (!keys.every((key, index) => p.has(key) && p.get(key).trim() && Number.isFinite(values[index]))
+      || s >= n || w >= e || s < -85 || n > 85 || w < -180 || e > 180
+      || n - s > 4 || e - w > 4 || (n - s) * (e - w) * 111.32 ** 2 * Math.cos((n + s) / 2 * Math.PI / 180) > 50000) throw Error("BRAND_AREA_TOO_LARGE");
+    scope = `(${values.map(value => value.toFixed(6)).join(",")})`;
+  } else if (p.get("scope") !== "world" || mode === "discover") throw Error("INVALID_BRAND_SCOPE");
+  const selector = mode === "locations" ? `[${JSON.stringify(kind)}=${JSON.stringify(name)}]` : `[${JSON.stringify(kind)}]`;
+  const limit = mode === "discover" ? 2000 : 500;
+  return {query: `[out:json][timeout:20][maxsize:8388608];nwr${selector}${scope}->.matches;.matches out count;.matches out ${mode === "discover" ? "tags" : "body center"} ${limit};`, limit, mode};
+}
+async function fetchBrandData(request) {
+  const json = (value, status = 200) => new Response(JSON.stringify(value), {status,
+    headers: {"Content-Type": "application/json; charset=UTF-8", "Cache-Control": "no-store"}});
+  if (request.method !== "GET") return json({error: "仅支持读取品牌数据"}, 405);
+  const url = new URL(request.url);
+  let definition;
+  try {definition = brandDataQuery(url);} catch (error) {
+    return json({error: error.message === "BRAND_AREA_TOO_LARGE" ? "当前范围过大，请放大地图后读取品牌" : "品牌名称或查询范围无效"}, 400);
+  }
+  // Canonical query identity excludes arbitrary cache-busting parameters and all personal data.
+  const key = new Request(`${url.origin}/__brand-cache-v1?query=${encodeURIComponent(definition.query)}`);
+  let previous;
+  try {previous = await caches.default.match(key);} catch { /* Network remains available without cache. */ }
+  const retained = previous ? await previous.json().catch(() => null) : null;
+  if (retained && Date.now() - Date.parse(retained.fetchedAt) < 120000) return json(retained);
+  const stale = () => retained ? json({...retained, stale: true, error: "实时服务暂不可用，保留上次完整结果"})
+    : json({error: "品牌服务繁忙，请稍后重试"}, 502);
+  if ((brandRetryAfter.get(key.url) || 0) > Date.now()) return stale();
+  if (!brandRequests.has(key.url)) {
+    if (brandRequests.size >= 16) return stale();
+    const pending = (async () => {
+      const response = await fetch(OGF_OVERPASS_URL, {method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+        body: new URLSearchParams({data: definition.query}), signal: AbortSignal.timeout(28000)});
+      if (!response.ok) throw Error("BRAND_UPSTREAM_FAILURE");
+      const reader = response.body.getReader(), chunks = [];
+      let size = 0;
+      try {
+        while (true) {
+          const {value, done} = await reader.read(); if (done) break;
+          size += value.length; if (size > 8 * 1024 * 1024) throw Error("BRAND_RESPONSE_TOO_LARGE");
+          chunks.push(value);
+        }
+      } finally {await reader.cancel().catch(() => {});}
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}
+      const payload = JSON.parse(new TextDecoder().decode(bytes)), count = Number(payload.elements?.[0]?.tags?.total);
+      if (payload.remark || payload.elements?.[0]?.type !== "count" || !Number.isSafeInteger(count) || count < 0
+        || payload.elements.length - 1 !== Math.min(count, definition.limit)
+        || payload.elements.slice(1).some(element => !["node", "way", "relation"].includes(element.type)
+          || !Number.isSafeInteger(element.id) || !element.tags)) throw Error("INCOMPLETE_BRAND_DATA");
+      const result = {elements: payload.elements.slice(1), total: count, truncated: count > definition.limit,
+        fetchedAt: new Date(Date.now()).toISOString(), dbTimestamp: payload.osm3s?.timestamp_osm_base || null,
+        source: "OpenGeofiction", stale: false};
+      try {await caches.default.put(key, new Response(JSON.stringify(result), {headers: {
+        "Content-Type": "application/json", "Cache-Control": "public, max-age=86400"}}));} catch { /* Use the validated live response. */ }
+      return result;
+    })().finally(() => brandRequests.delete(key.url));
+    brandRequests.set(key.url, pending);
+  }
+  try {return json(await brandRequests.get(key.url));} catch {
+    brandRetryAfter.delete(key.url); brandRetryAfter.set(key.url, Date.now() + 60000);
+    while (brandRetryAfter.size > 64) brandRetryAfter.delete(brandRetryAfter.keys().next().value);
+    return stale();
+  }
+}
+
 export {
   normalizedFavorites,
   featureDataQuery,
+  brandDataQuery,
   hashPassword,
   parseCookie,
   validateOverlayBounds,
@@ -1576,6 +1654,7 @@ export default {
     const personalResponse = await handlePersonalApi(request, environment);
     if (personalResponse) return personalResponse;
     if (url.pathname === "/api/features") return fetchFeatureData(request);
+    if (url.pathname === "/api/brands") return fetchBrandData(request);
     if (url.pathname === "/terrain-preload.json.gz"
       || (["/terrain-preload-chunks/", "/terrain-render-cache/"].some(prefix => url.pathname.startsWith(prefix))
         && url.pathname.endsWith(".json.gz"))) {

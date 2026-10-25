@@ -3,6 +3,7 @@ import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import * as THREE from "../site/three-0.160.1.module.min.js";
 import {pavilionTagRuntime as runtime} from "./test-pavilion-tags.mjs";
+import {raisedSkillionRoof} from "./fixtures/roof-only.mjs";
 
 const roofSource = await readFile(new URL("../site/building-roofs.js", import.meta.url), "utf8");
 const roofContext = vm.createContext({console, setTimeout, clearTimeout,
@@ -16,6 +17,23 @@ const rectangle = (tags = {}, coordinates = [[0,0],[0.0002,0],[0.0002,0.0001],[0
   geometry:coordinates.map(([lon,lat])=>({lon,lat})),
 });
 const model = (tags, coordinates) => runtime.huayuLiveBuildingFeatureCollection([rectangle(tags,coordinates)]).features[0];
+const roofOnly = runtime.huayuLiveBuildingFeatureCollection([raisedSkillionRoof]).features[0];
+assert.equal(roofOnly.properties.renderMinHeight, 4, "底高不能被最小墙高限制下压");
+assert.equal(roofOnly.properties.renderHeight, 4.5, "总高不能被最低墙高限制抬升");
+assert.equal(roofOnly.properties.roofHeight, .5);
+assert.equal(roofOnly.properties.roofBaseHeight, 4);
+assert.equal(roofOnly.properties.roofOnly, 1);
+const roofOnlyTriangles = roofs.roofTriangles(roofOnly);
+assert.equal(roofOnlyTriangles.length, 2);
+assert.ok(roofOnlyTriangles.every(t => t.kind === "roof"), "屋顶占满全部高度时不能补侧墙或山墙");
+assert.ok(roofOnlyTriangles.flatMap(t => t.points).every(p => p[2] >= 4 && p[2] <= 4.5));
+const stillHasWalls = model({...raisedSkillionRoof.tags, min_height: "3.8"});
+assert.equal(stillHasWalls.properties.roofOnly, undefined, "剩余 0.2 米墙体也必须如实保留");
+assert.equal(stillHasWalls.properties.roofBaseHeight, 4);
+assert.equal(stillHasWalls.properties.renderMinHeight, 3.8);
+assert.ok(roofs.roofTriangles(stillHasWalls).some(t => t.kind === "wall"));
+assert.equal(model({...raisedSkillionRoof.tags, "roof:height": "1"}).properties.roofModel, undefined,
+  "屋顶高超过底高到总高的有效空间时回退，不能改写尺寸或假造墙高");
 
 const wallMaterials = {
   brick:"#b77b61", bricks:"#b77b61", masonry:"#b77b61", stone_blocks:"#9d9990",
@@ -106,10 +124,12 @@ assert.equal(relationFeature.properties.buildingMaterialColor,"#9b7655");
 assert.equal(relationFeature.properties.roofMaterialColor,"#ae9460");
 assert.equal(relationFeature.properties.roofModel,1,"关系建筑应保留材质与简单坡屋顶");
 
-let wallHeight;
+let wallHeight, wallFilter = ["==", ["get", "structureKind"], "building"];
+const originalWallFilter = wallFilter;
 const map = {
   on(){},off(){},getStyle(){return {layers:[]};},getLayer(id){return id==="live-building";},
   getPaintProperty(){return wallHeight;},setPaintProperty(id,name,value){if(name==="fill-extrusion-height")wallHeight=value;},
+  getFilter(){return wallFilter;}, setFilter(id, filter){wallFilter = filter;},
   getPitch(){return 45;},getZoom(){return 16;},triggerRepaint(){},removeLayer(){},
 };
 const options={enabled:true,satellite:false,night:false,buildingLayer:"live-building",wallDefault:"#aaa",
@@ -127,6 +147,7 @@ function evaluate(expression,feature) {
   if(op==="case")return run(args[0])?run(args[1]):run(args[2]);
   if(op==="all")return args.every(run);if(op==="any")return args.some(run);
   if(op==="==")return run(args[0])===run(args[1]);
+  if(op==="!")return !run(args[0]);
   if(op==="in")return run(args[1]).includes(run(args[0]));
   if(op==="concat")return args.map(run).join("");
   if(op==="to-string")return String(run(args[0]));
@@ -144,6 +165,17 @@ controller.items=modeledItems;
 controller.setWallMode(false);
 assert.deepEqual(JSON.parse(JSON.stringify(wallHeight)),["get","renderHeight"],
   "坡屋顶关闭或失败时墙体必须恢复完整平屋顶高度");
+controller.update({type:"FeatureCollection",features:[roofOnly,materialOnly]}, options);
+controller.setWallMode(true);
+assert.equal(evaluate(wallFilter, roofOnly), false, "成功屋面接管后排除零厚度原生挤出的平顶盖板");
+assert.equal(evaluate(wallFilter, materialOnly), true, "普通建筑墙体不受屋面过滤影响");
+assert.equal(evaluate(wallFilter, {...roofOnly, properties:{...roofOnly.properties,osmType:"relation"}}), true,
+  "同号关系与道路不能混淆，只接管实际已建模的要素");
+controller.items=[]; controller.setWallMode(true);
+assert.deepEqual(wallFilter, originalWallFilter, "模型预算或准备失败时不能隐藏原建筑");
+controller.setWallMode(false);
+assert.deepEqual(wallFilter, originalWallFilter);
+controller.update({type:"FeatureCollection",features:[materialOnly]}, options);
 assert.equal(controller.wanted(),true);
 controller.update(controller.data,{...options,satellite:true});
 assert.equal(controller.wanted(),false,"模拟卫星不得启用三维坡屋顶");
@@ -205,11 +237,18 @@ nativeColor={r:0.08,g:0.1,b:0.12};
 renderController.update(renderController.data,{...options,night:true});renderController.build();
 assert.ok(Math.abs(renderController.geometry.attributes.color.getX(renderController.geometry.groups[1].start)-0.08)<1e-6,
   "日夜切换后须重新使用原生墙体颜色");
+renderController.update({type:"FeatureCollection",features:[roofOnly]},options); renderController.build();
+assert.equal(renderController.geometry.groups[0].count,6,"实际 GPU 几何只包含两块单坡屋面三角形");
+assert.equal(renderController.geometry.groups[1].count,0,"不能在实际渲染路径重新补出白色侧墙");
+const canopyPositions=renderController.geometry.attributes.position;
+for(let i=0;i<canopyPositions.count;i++) assert.ok(canopyPositions.getZ(i)>=4-1e-6 && canopyPositions.getZ(i)<=4.5+1e-6);
 let disposed=0;
 for(const resource of [renderController.geometry,renderController.material,renderController.wallMaterial])
   resource.addEventListener("dispose",()=>disposed++);
+renderMap.getStyle=()=>undefined;
+renderMap.getLayer=()=>{throw new Error("removed MapLibre style must not be queried");};
 roofs.dispose(renderMap);
-assert.equal(disposed,3,"清理时必须释放屋顶与山墙的几何和材质");
+assert.equal(disposed,3,"底图已销毁时同样释放屋顶与山墙几何和材质，不再访问旧图层");
 
 console.log(JSON.stringify({status:"passed",materials:Object.keys(wallMaterials).length,
   roofShapes:Object.keys(shapes),wallColorContinuity:true,

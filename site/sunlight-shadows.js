@@ -1,6 +1,6 @@
 (function (root) {
   "use strict";
-  const VERSION = "7.5-roof-shapes-v1", PREFIX = "ogf-atlas-sun-shadow";
+  const VERSION = "7.5-roof-only-v1", PREFIX = "ogf-atlas-sun-shadow";
   const scriptUrl = root.document?.currentScript?.src;
   const R = 6378137, rad = Math.PI / 180, MAX_VERTICES = 400000;
   const project = point => [R * point[0] * rad,
@@ -33,6 +33,7 @@
       const scale = 1 / Math.cos(lat * rad);
       const roof = modeled.get(feature.id) || [];
       items.push({rings: mercator, bounds, height, bottom, scale, vertices,
+        roofOnly: p.roofOnly === 1 && roof.length > 0,
         eaves: roof.length ? Number(p.roofBaseHeight) : height,
         roof: roof.map(triangle => triangle.points.map(pt => [...project(pt), pt[2]]))});
     }
@@ -51,7 +52,7 @@
     };
     const top = shaped && item.roof.length ? item.eaves : item.height;
     const result = [];
-    for (const poly of item.rings) {
+    if (!(shaped && item.roofOnly)) for (const poly of item.rings) {
       // Even-odd filling preserves courtyard voids. Swept inner walls then cast
       // their real shadows into the courtyard without erasing other buildings.
       result.push(poly.map(ring => ring.map(pt => shift(pt, top))));

@@ -13,6 +13,7 @@
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
     <link rel="stylesheet" href="./styles.css?v=7.5-pitch-90-v1" />
+    <link rel="stylesheet" href="./brand-browser.css?v=1" />
   </head>
   <body>
     <main class="app-shell" data-app-version="7.5">
@@ -23,6 +24,7 @@
         <div class="rail-actions">
           <button id="map-view-button" class="rail-button is-active" type="button" data-action="map-view" aria-expanded="false" aria-controls="map-view-menu"><i data-lucide="layers-3" aria-hidden="true"></i><span>视图</span></button>
           <button class="rail-button" type="button" data-action="search"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
+          <button class="rail-button" type="button" data-action="brands" aria-controls="brands-view"><i data-lucide="store" aria-hidden="true"></i><span>品牌</span></button>
           <button class="rail-button" type="button" data-action="directions"><i data-lucide="route" aria-hidden="true"></i><span>导航</span></button>
           <button class="rail-button" type="button" data-action="transit"><i data-lucide="train-front" aria-hidden="true"></i><span>线路</span></button>
           <button class="rail-button" type="button" data-action="measure"><i data-lucide="ruler" aria-hidden="true"></i><span>测量</span></button>
@@ -126,7 +128,7 @@
       <header class="topbar" aria-label="地图工具栏">
         <form id="search-form" class="search-form" role="search">
           <label class="sr-only" for="search-input">搜索 OGF 地名或坐标</label>
-          <input id="search-input" name="query" type="search" autocomplete="off" placeholder="搜索 OGF 地名或输入纬度,经度" />
+          <input id="search-input" name="query" type="search" autocomplete="off" placeholder="搜索地名、品牌或输入纬度,经度" />
           <button class="icon-button search-button" type="submit" aria-label="搜索地名" data-tooltip="搜索地名"><i data-lucide="search" aria-hidden="true"></i></button>
           <div id="search-history-menu" class="search-history-menu" role="listbox" aria-label="搜索历史" hidden>
             <div class="search-history-heading">
@@ -380,6 +382,7 @@
         <section id="search-view" class="panel-view" data-view="search" hidden>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>地名搜索 · OGF Nominatim</span></div>
           <p id="search-status" class="view-status" aria-live="polite">在上方输入地名，结果会直接显示在这里。</p>
+          <div id="brand-search-matches" class="brand-search-matches" aria-live="polite" hidden></div>
           <div id="search-results" class="result-list" aria-live="polite"></div>
         </section>
 
@@ -417,6 +420,40 @@
             <button id="measure-clear" class="secondary-button" type="button" disabled><i data-lucide="trash-2" aria-hidden="true"></i>清除</button>
           </div>
           <p class="measure-note">点击地图依次添加点；测距时移动鼠标可预览末段方位角和最近夹角，完成后仍可撤销并继续调整。</p>
+        </section>
+
+        <section id="brands-view" class="panel-view brand-view" data-view="brands" hidden>
+          <p class="source-note">品牌目录 · OpenGeofiction 原始标签</p>
+          <div id="brand-browse">
+          <form id="brand-form" class="brand-form" role="search">
+            <label for="brand-query">品牌、运营者、分店或城市</label>
+            <div class="brand-input-row"><input id="brand-query" type="search" maxlength="200" placeholder="输入名称，例如：中洲" /><button class="primary-button" type="submit">查找</button></div>
+          </form>
+          <div class="brand-filters">
+            <label>目录类型<select id="brand-kind"><option value="brand">品牌</option><option value="operator">运营者</option></select></label>
+            <label>分类<select id="brand-category" disabled><option value="">正在加载分类…</option></select></label>
+            <label>排序<select id="brand-sort"><option value="count">地图标注数量</option><option value="name">名称</option></select></label>
+          </div>
+          <div class="brand-toolbar"><button id="brand-discover" class="secondary-button" type="button">发现当前范围的品牌</button><button id="brand-catalog-refresh" class="text-button" type="button">检查新版目录</button></div>
+          <p id="brand-catalog-status" class="view-status" role="status"></p>
+          <div id="brand-catalog-list" class="brand-list"></div>
+          <button id="brand-more" class="secondary-button" type="button" hidden>显示更多</button>
+          </div>
+          <section id="brand-detail" class="brand-detail" aria-labelledby="brand-detail-name" hidden>
+            <div class="brand-detail-heading"><h2 id="brand-detail-name"></h2><button id="brand-detail-close" class="text-button" type="button">返回目录</button></div>
+            <p id="brand-detail-summary" class="view-status"></p>
+            <div class="brand-toolbar">
+              <label>门店范围<select id="brand-scope"><option value="world">全球</option><option value="view">当前地图范围</option></select></label>
+              <button id="brand-refresh" class="secondary-button" type="button">刷新门店</button>
+              <button id="brand-fit" class="text-button" type="button" disabled>查看分布</button>
+            </div>
+            <label class="brand-live-option"><input id="brand-live" type="checkbox" checked />打开此页时每两分钟检查门店更新</label>
+            <label class="brand-branch-filter">筛选门店<input id="brand-branch-query" type="search" placeholder="名称、分店、城市或地址" /></label>
+            <p id="brand-detail-status" class="view-status" role="status"></p>
+            <div id="brand-location-list" class="brand-list"></div>
+            <button id="brand-locations-more" class="secondary-button" type="button" hidden>显示更多门店</button>
+          </section>
+          <p class="brand-attribution">© OpenGeofiction contributors · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>。计数为已标注地图要素，可能包含设施、重复标注或非营业地点；目录中的城市与分店名称是样本。缺少 brand/operator 标签的地点可能未收录。</p>
         </section>
 
         <section id="directions-view" class="panel-view" data-view="directions" hidden>
@@ -748,7 +785,7 @@
               <h3>底图与叠加图层</h3>
               <p>打开工具栏中的“视图”（启用地形时显示“地形图”），选择华域标准、深夜、模拟卫星，或 OGF、地形、骑行等底图。华域模拟卫星由地图地物生成，并非实拍；可用“影像注记”控制地名。交通与地形可以分别开关，也可以同时显示；交通还可筛选地铁、电车、铁路和公交站。</p>
               <h3>倾斜与旋转</h3>
-              <p>在支持的矢量底图中，展开“矢量视角”，调整 0°–90° 倾斜角和旋转角，或使用倾斜预设；0° 为俯视，90° 为水平视角，“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。</p>
+              <p>在支持的矢量底图中，展开“矢量视角”，调整 0°–90° 倾斜角和旋转角，或使用倾斜预设；0° 为俯视，90° 为水平视角，“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。大倾角优先加载附近精细建筑，远处或超出容量的区域保留基础建筑；移近后再补充细节，避免一次加载整个远景。</p>
               <h3>点击地图上的物体</h3>
               <p>开启“点击选择要素”，点击点、道路或面，查看坐标、轮廓与原始属性；重叠时从候选列表选择目标。地点可收藏、设为导航终点、分享，原始物体可“加入下载”。框选、测量或导航选点期间，点击优先完成当前操作。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="map-view">打开视图与图层</button></div>
@@ -760,6 +797,11 @@
             <div class="help-topic-content">
               <h3>搜索地名或坐标</h3>
               <p>在顶部搜索框输入名称并搜索；同名地点按所在地区选择。坐标按“纬度,经度”输入，例如 <code>14.634,152.958</code>。最近搜索可再次使用或清空；登录后搜索记录跟随账号同步，收藏地点还可按个人名称、标签查找。</p>
+              <h3>查找品牌和门店</h3>
+              <p>顶部搜索同时提供品牌目录匹配，个人收藏仍优先。打开“品牌”，按品牌／运营者、名称、城市、分店样本及原始分类浏览，点击条目读取实时地点；目录未收录的名称也可按原始 brand 或 operator 完全匹配查询。“发现当前范围的品牌”可发现目录尚未收录的新名称，请先放大到城市范围。</p>
+              <p>门店可按全球或当前地图范围读取，点击“查看分布”显示位置；选择门店后可收藏或设为导航起终点。道路或关系的图钉可能是几何中心，不代表入口。超过单次 500 个地点或发现范围 2000 个要素时会明确提示，请缩小范围；不把部分结果当作全部门店。</p>
+              <p>品牌页可见且启用自动检查时，门店每两分钟检查一次；切换页面、收起面板或进入后台即暂停。目录由独立工作流每三小时重建，打开品牌页时每五分钟检查新版；实际更新受 OGF 同步、服务负载及部署影响。目录生成时间、上游数据时间与门店读取时间分别显示，失败保留上一份结果。品牌功能不改变原有地图三小时数据更新。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="brands">打开品牌目录</button></div>
               <h3>查看行政区和下级区划</h3>
               <p>搜索并选中实际行政区后，可查看边界、添加到行政区组合。点击“查看下级行政层级”，勾选需要的层级再加载；已加载的下级行政区可点击进入，并可查看面积。导出区域、边界和底图的操作见“范围、下载与贴图”。</p>
               <h3>距离、面积与角度</h3>
@@ -988,20 +1030,22 @@
     <script src="./lucide.min.js"></script>
     <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./model-assets.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./sunlight-shadows.js?v=7.5-roof-shapes-v1"></script>
+    <script src="./sunlight-shadows.js?v=7.5-roof-only-v1"></script>
     <script src="./sunlight.js?v=7.5-realtime-sunlight-v1"></script>
     <script src="./vegetation-models.js?v=7.5-sunlight-v1"></script>
     <script src="./facility-models.js?v=7.5-roadside-sunlight-v1"></script>
-    <script src="./structure-models.js?v=7.5-sunlight-v1"></script>
+    <script src="./structure-models.js?v=7.5-pitch-memory-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./building-roofs.js?v=7.5-roof-shapes-v1"></script>
+    <script src="./building-roofs.js?v=7.5-roof-only-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
     <script src="./map-export.js?v=7.5-download-list-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./app.js?v=7.5-pitch-90-v1"></script>
+    <script src="./brand-data.js?v=1"></script>
+    <script src="./app.js?v=7.5-roof-only-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
+    <script src="./brand-browser.js?v=2"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>
   </body>

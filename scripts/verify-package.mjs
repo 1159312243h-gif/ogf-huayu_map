@@ -49,6 +49,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
+  "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -468,6 +469,8 @@ const buildingLayerState = new Map([
   ...Object.values(ancientBuildingLayers).map((id) => [id, "none"]),
 ]);
 const buildingLayerFilters = new Map();
+const ownerPavilions={pavilionData:{features:[{properties:{osmType:"way",osmId:"p1",pavilionPart:"roof"},
+  geometry:{type:"Polygon",coordinates:[[[.1,.1],[.2,.1],[.2,.2],[.1,.1]]]}}]}};
 const buildingMap = {
   getStyle: () => ({layers: []}),
   getLayer: () => true,
@@ -476,10 +479,14 @@ const buildingMap = {
     buildingLayerState.set(id, value);
   },
   setFilter: (id, filter) => buildingLayerFilters.set(id, filter),
+  getFilter: id => buildingLayerFilters.get(id),
 };
 const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
-  "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window",
-  `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {});
+  "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window", "huayuLiveBuildingStates",
+  "huayuStructureStates","huayuModelFeatureInside",
+  `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {},
+  {get:()=>buildingOwnerState},{get:()=>ownerPavilions},
+  Function(`return (${app.match(/function huayuModelFeatureInside\([^]*?\n  \}/u)[0]});`)());
 const facilityOwnershipCalls = [];
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
   "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuBuildingRoofs", "syncHuayuStructureModels",
@@ -487,17 +494,22 @@ const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LI
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
   ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {}, {HuayuFacilityModels: {}},
   () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive));
-const buildingOwnerState = { primaryActive: false };
+const detailCoverage={type:"MultiPolygon",coordinates:[[[[0,0],[2,0],[2,2],[0,2],[0,0]]]]};
+const buildingOwnerState = { primaryActive: false,renderCoverage:detailCoverage };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
-assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "none")
+assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "visible"
+    && JSON.stringify(buildingLayerFilters.get(id))===JSON.stringify(["all",true,["!",["within",detailCoverage]]]))
   && ["live-building", ...Object.values(ancientBuildingLayers)]
     .every((id) => buildingLayerState.get(id) === "visible")
   && buildingOwnerState.primaryActive,
-"实时建筑接管时必须一次关闭全部发布建筑，并显示实时建筑与古建筑部件");
+"完整精细窗口仅接管范围内建筑，远处继续基础矢量，实时建筑与古建筑部件同步显示");
 assert.deepEqual(buildingLayerFilters.get("pavilion-roof"),
-  ["==", ["get", "pavilionPart"], "roof"], "实时建筑接管后应显示面状亭子模型");
-assert.deepEqual(buildingLayerFilters.get("bus-facility-model"), ["has", "busFacilityPart"],
-  "实时建筑接管后应显示面状候车亭模型");
+  ["all",["==", ["get", "pavilionPart"], "roof"],["any",["==",["get","osmType"],"node"],
+    ["in",["concat",["get","osmType"],":",["to-string",["get","osmId"]]],["literal",["way:p1"]]]]],
+  "面状亭子仅在建筑完整接管窗口内显示，节点亭子保留");
+assert.deepEqual(buildingLayerFilters.get("bus-facility-model"), ["all",["has", "busFacilityPart"],["any",
+  ["!=",["coalesce",["get","buildingReplacement"],0],1],["within",detailCoverage]]],
+  "面状候车亭遵守同一完整窗口，窗口外保留原建筑");
 syncBuildingOwners(buildingMap, buildingOwnerState, false);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "visible")
   && ["live-building", ...Object.values(ancientBuildingLayers)]
@@ -506,15 +518,16 @@ assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "vis
 "发布建筑兜底时必须先关闭全部实时建筑部件，再恢复发布建筑");
 assert.deepEqual(buildingLayerFilters.get("pavilion-roof"),
   ["all", ["==", ["get", "pavilionPart"], "roof"],
-    ["==", ["get", "osmType"], "node"]],
+    ["any",["==", ["get", "osmType"], "node"],false]],
 "发布建筑兜底时仅节点亭子可继续显示，面状亭子不得与建筑叠加");
 assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
   ["all", ["has", "busFacilityPart"],
-    ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1]],
+    ["any",["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1],false]],
 "发布建筑兜底时面状候车亭模型不得与建筑面重复");
+assert.ok(vectorBuildingLayers.every(id=>buildingLayerFilters.get(id)===null),"失败回退恢复原矢量过滤，不残留空白窗口");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=7.5-roof-shapes-v1')
+assert.ok(index.includes('building-roofs.js?v=7.5-roof-only-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -532,13 +545,20 @@ const buildingOwnershipCalls = [];
 const appliedBuildingStates = [];
 const modelCacheFunction = name => app.match(new RegExp(`function ${name}\\([^]*?\\n  \\}`, "u"))?.[0];
 const modelEntryBytes = Function(`"use strict"; return (${modelCacheFunction("huayuModelEntryBytes")});`)();
-const modelResidentTiles = Function("huayuModelEntryBytes",
-  `"use strict"; return (${modelCacheFunction("huayuModelResidentTiles")});`)(modelEntryBytes);
+const tileWindow=Function(`return (${modelCacheFunction("huayuModelTileWindow")});`)();
+const windowTiles=Function(`return (${modelCacheFunction("huayuModelWindowTiles")});`)();
+const tileBounds=Function(`return (${modelCacheFunction("huayuLiveBuildingTileBounds")});`)();
+const modelCoverage=Function("huayuModelTileWindow","huayuLiveBuildingTileBounds",
+  `return (${modelCacheFunction("huayuModelCoverage")});`)(tileWindow,tileBounds);
+const featureInside=Function(`return (${modelCacheFunction("huayuModelFeatureInside")});`)();
+const modelResidentTiles = Function("huayuModelEntryBytes","huayuModelTileWindow","huayuModelWindowTiles",
+  `"use strict"; return (${modelCacheFunction("huayuModelResidentTiles")});`)(modelEntryBytes,tileWindow,windowTiles);
 const pruneModelTiles = Function("huayuModelEntryBytes",
   `"use strict"; return (${modelCacheFunction("pruneHuayuModelTileCache")});`)(modelEntryBytes);
 const mergeBuildingTiles = Function("clearHuayuLiveBuildingPrimarySync",
   "syncHuayuLiveBuildingPrimaryLayers", "updateHuayuLiveBuildingDiagnostics",
   "applyHuayuLiveBuildings", "huayuModelResidentTiles", "pruneHuayuLiveBuildingTileCache",
+  "HUAYU_BUILDING_SOURCE_BYTES","huayuModelCoverage","huayuModelFeatureInside",
   `"use strict"; return (${mergeBuildingTilesSource});`)(
   () => {},
   (_map, state, enabled) => {
@@ -551,18 +571,22 @@ const mergeBuildingTiles = Function("clearHuayuLiveBuildingPrimarySync",
     featureCount: state.data.features.length,
   }),
   modelResidentTiles, state => pruneModelTiles(state, 256, 48 * 1024 * 1024),
+  12*1024*1024,modelCoverage,featureInside,
 );
-const buildingTileEntry = (key, revision) => ({
+const buildingTileEntry = (key, revision) => {
+  const [z,x,y]=key.split("/").map(Number), b=tileBounds({z,x,y});
+  const cx=(b.west+b.east)/2,cy=(b.north+b.south)/2;
+  return {
   revision,
   loadedAt: revision * 1000,
   data: { type: "FeatureCollection", features: [{
     type: "Feature", id: `live-building:${key}`,
-    properties: { osmId: key }, geometry: null,
+    properties: { osmId: key }, geometry: {type:"Polygon",coordinates:[[[cx,cy],[cx+.00001,cy],[cx,cy+.00001],[cx,cy]]]},
   }] },
-});
+};};
 const coldPartialBuildings = {
-  glMap: {}, visibleTileKeys: new Set(["a", "b"]),
-  tileCache: new Map([["a", buildingTileEntry("a", 1)]]),
+  glMap: {}, visibleTileKeys: new Set(["15/100/100", "15/101/100"]),
+  tileCache: new Map([["15/100/100", buildingTileEntry("15/100/100", 1)]]),
   pendingTiles: new Map(), queuedTileKeys: new Set(),
   data: { type: "FeatureCollection", features: [] },
   dataReady: false, coverageReady: false, snapshotReady: false,
@@ -589,8 +613,8 @@ assert.equal(buildingOwnershipCalls.at(-1), true,
 const completeBuildings = {
   ...coldPartialBuildings,
   tileCache: new Map([
-    ["a", buildingTileEntry("a", 2)],
-    ["b", buildingTileEntry("b", 3)],
+    ["15/100/100", buildingTileEntry("15/100/100", 2)],
+    ["15/101/100", buildingTileEntry("15/101/100", 3)],
   ]),
 };
 mergeBuildingTiles(completeBuildings);
@@ -611,7 +635,7 @@ assert.ok(app.includes('way["barrier"~"^(wall|fence|gate|entrance)$"](${bbox})->
   && app.includes("wallData:huayuWallFeatureCollection(payload.elements)")
   && app.includes("fetch(`/api/structures/${tile.z}/${tile.x}/${tile.y}.json?schema=huayu-structures-v5-wall-gates&refresh=live-2m`")
   && worker.includes('schema", "huayu-structures-v5-wall-gates"')
-  && worker.includes('schema", "huayu-building-v7-roof-shapes"')
+  && worker.includes('schema", "huayu-building-v8-roof-only"')
   && !app.includes("function refreshHuayuWalls")
   && !app.includes("glMap.getZoom() < 14.75"),
 "墙和栅栏必须使用独立轻量分片与两分钟刷新，不得被建筑查询超时连带清空");
@@ -1440,13 +1464,15 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["app.js", "facility-models.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "_worker.js", "terrain-perspective.js"]) {
+for (const script of ["app.js", "facility-models.js", "personal-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "brand-data.js", "brand-browser.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
 
 const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
+const brandsTest = await runCheck([path.join(root, "scripts", "test-brands.mjs")]);
+assert.equal(brandsTest.status, 0, `品牌目录与门店查询回归失败：${brandsTest.stderr}`);
 const personalDataTest = await runCheck([path.join(root, "scripts", "test-personal-data.mjs")]);
 const overlayBoundsTest = await runCheck([path.join(root, "scripts", "test-overlay-bounds.mjs")]);
 assert.equal(overlayBoundsTest.status, 0, overlayBoundsTest.stderr);

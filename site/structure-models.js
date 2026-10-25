@@ -75,8 +75,11 @@
       }
       if(pieces.length)result.push({key,category,pieces,feature});
     }
+    const owned=feature=>inputs.buildingPrimary && (!inputs.buildingCoverage || inputs.buildingCoverage.coordinates.some(([ring])=>
+      polygons(feature.geometry).every(polygon=>polygon.every(boundary=>boundary.every(([x,y])=>
+        x>ring[0][0] && x<ring[1][0] && y>ring[0][1] && y<ring[2][1])))));
     for(const feature of inputs.pavilions || EMPTY)if(feature.properties?.pavilionPart==="roof"
-      && (inputs.buildingPrimary || feature.properties.osmType==="node"))area(feature,"pavilion");
+      && (owned(feature) || feature.properties.osmType==="node"))area(feature,"pavilion");
     for(const feature of inputs.walls || EMPTY)if(feature.properties?.renderKind==="extrusion") {
       const category=feature.properties.barrierKind==="fence" ? "fence" : "wall";area(feature,category,true);
     }
@@ -84,7 +87,7 @@
       && feature.properties.structureKind!=="city-gate")area(feature,"cityWall",true);
     for(const feature of inputs.supplemental || EMPTY) {
       const p=feature.properties || {};
-      if(p.busFacilityPart==="shelter-roof" && (inputs.buildingPrimary || !p.buildingReplacement))area(feature,"busShelter");
+      if(p.busFacilityPart==="shelter-roof" && (owned(feature) || !p.buildingReplacement))area(feature,"busShelter");
       else if(p.fountainArea && p.fountainModelEligible)area(feature,"fountain");
     }
     for(const feature of inputs.supplemental || EMPTY) {

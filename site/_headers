@@ -37,6 +37,18 @@
 /map-help.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/brand-data.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/brand-browser.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/brand-browser.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/brand-catalog.json
+  Cache-Control: public, max-age=300, must-revalidate
+
 /model-options.js
   Cache-Control: public, max-age=0, must-revalidate
 

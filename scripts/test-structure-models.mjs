@@ -81,6 +81,9 @@ assert.equal(at(7).pieces[0].base,0,'Shelter supports must reach the mapped grou
 assert.ok(at(8)&&at(9));assert.equal(at(10),undefined,'Named attractions do not become 3D fountains.');
 assert.equal(api.describe({...inputs,buildingPrimary:false}).filter(item=>['pavilion','busShelter'].includes(item.category)).length,0,
   'Do not duplicate buildings while the published owner is still active.');
+const distantCoverage={type:'MultiPolygon',coordinates:[[[[1,1],[2,1],[2,2],[1,2],[1,1]]]]};
+assert.equal(api.describe({...inputs,buildingCoverage:distantCoverage}).filter(item=>['pavilion','busShelter'].includes(item.category)).length,0,
+  'A completed nearby window must not replace distant native buildings with pavilion/shelter meshes.');
 const assets=new Map([...api.CATEGORIES].map(category=>[category,{triangles:1000}]));
 const settings={zoom:19,pitch:50},planned=api.plan(items,assets,settings);
 assert.equal(planned.keys.size,6);assert.ok(planned.count<256 && planned.triangles<400000);

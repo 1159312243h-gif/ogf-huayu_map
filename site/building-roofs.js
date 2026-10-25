@@ -2,7 +2,7 @@
   "use strict";
 
   const LAYER_ID = "ogf-atlas-building-roofs";
-  const VERSION = "7.5-roof-shapes-v1";
+  const VERSION = "7.5-roof-only-v1";
   const SUPPORTED = new Set(["flat", "gabled", "gabled_height_moved", "skillion", "hipped",
     "half-hipped", "side_hipped", "side_half-hipped", "mansard", "gambrel", "hipped-and-gabled",
     "pyramidal", "crosspitched", "sawtooth", "butterfly", "cone", "dome", "onion", "round"]);
@@ -108,6 +108,7 @@
     const result = [];
     let footprint;
     const add = (kind, ...points) => {
+      if (kind === "wall" && properties.roofOnly === 1) return;
       const [a,b,c]=points,lat=a[1]*Math.PI/180;
       const ab=[(b[0]-a[0])*111320*Math.cos(lat),(b[1]-a[1])*111320,b[2]-a[2]];
       const ac=[(c[0]-a[0])*111320*Math.cos(lat),(c[1]-a[1])*111320,c[2]-a[2]];
@@ -186,7 +187,7 @@
         }
         for(let i=1;i<profile.length;i++) {
           const [v0,h0]=profile[i-1],[v1,h1]=profile[i];
-          face(v0===v1?"wall":"roof",[at(0,v0,h0),at(1,v0,h0),at(1,v1,h1),at(0,v1,h1)]);
+          face(v0===v1 && properties.roofOnly!==1?"wall":"roof",[at(0,v0,h0),at(1,v0,h0),at(1,v1,h1),at(0,v1,h1)]);
           if(shape!=="gabled")
             for(const u of [0,1])face("wall",[at(u,v0,0),at(u,v1,0),at(u,v1,h1),at(u,v0,h0)]);
         }
@@ -311,24 +312,32 @@
     }
 
     setWallMode(shaped) {
+      if (this.map.getStyle && !this.map.getStyle()) return;
       const layer = this.options.buildingLayer;
       if (!this.map.getLayer(layer)) return;
-      const expression = shaped
-        ? ["case", ["all", ["==", ["get", "roofModel"], 1],
+      const matches = items => ["any",
           // GeoJSON tiling coerces unpromoted string IDs to zero. The OSM
           // type/id properties survive tiling and distinguish ways/relations.
-          ["any", ["in", ["concat", ["coalesce", ["get", "osmType"], ""], ":",
+          ["in", ["concat", ["coalesce", ["get", "osmType"], ""], ":",
             ["to-string", ["coalesce", ["get", "osmId"], ""]]],
-            ["literal", this.items.filter(item=>item.feature.properties?.osmType
+            ["literal", items.filter(item=>item.feature.properties?.osmType
               && item.feature.properties.osmId!==undefined)
               .map(item=>`${item.feature.properties.osmType}:${item.feature.properties.osmId}`)]],
-            ["in", ["id"], ["literal", this.items.filter(item=>!item.feature.properties?.osmType
-              || item.feature.properties.osmId===undefined).map(item=>item.feature.id)]]]],
+          ["in", ["id"], ["literal", items.filter(item=>!item.feature.properties?.osmType
+            || item.feature.properties.osmId===undefined).map(item=>item.feature.id)]]];
+      const expression = shaped
+        ? ["case", ["all", ["==", ["get", "roofModel"], 1], matches(this.items)],
           ["get", "roofBaseHeight"], ["get", "renderHeight"]]
         : ["get", "renderHeight"];
       if (JSON.stringify(this.map.getPaintProperty(layer, "fill-extrusion-height")) !== JSON.stringify(expression)) {
         this.map.setPaintProperty(layer, "fill-extrusion-height", expression);
       }
+      // A zero-height native extrusion still draws a flat cap. Hide only roofs
+      // actually supplied by the mesh, and restore the exact filter on fallback.
+      if (this.wallFilter === undefined) this.wallFilter = this.map.getFilter(layer) ?? null;
+      const roofOnly = shaped ? this.items.filter(item => item.feature.properties?.roofOnly === 1) : [];
+      const filter = roofOnly.length ? ["all", this.wallFilter ?? true, ["!", matches(roofOnly)]] : this.wallFilter;
+      if (JSON.stringify(this.map.getFilter(layer) ?? null) !== JSON.stringify(filter)) this.map.setFilter(layer, filter);
     }
 
     async apply() {
