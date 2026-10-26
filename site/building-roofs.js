@@ -276,7 +276,7 @@
         }
       };
       this.onStyle = () => {
-        if (!this.alive || !map.getStyle?.()) return;
+        if (!this.alive || !(map.getLayersOrder ? map.style : map.getStyle?.())) return;
         if (this.layer && !map.getLayer(LAYER_ID)) {
           this.layer = null; this.renderer = null; this.scene = null; this.mesh = null; this.dirty = true;
         }
@@ -312,7 +312,7 @@
     }
 
     setWallMode(shaped) {
-      if (this.map.getStyle && !this.map.getStyle()) return;
+      if (this.map.getStyle && !(this.map.getLayersOrder ? this.map.style : this.map.getStyle())) return;
       const layer = this.options.buildingLayer;
       if (!this.map.getLayer(layer)) return;
       const matches = items => ["any",
@@ -341,7 +341,7 @@
     }
 
     async apply() {
-      if (!this.alive || !this.map.getStyle?.()?.layers?.length) return;
+      if (!this.alive || !(this.map.style && this.map.getLayersOrder ? this.map.getLayersOrder().length : this.map.getStyle?.()?.layers?.length)) return;
       if (!this.wanted()) {
         if (this.layer) this.layer.enabled = false;
         this.setWallMode(false); this.notify(); this.map.triggerRepaint(); return;
@@ -512,7 +512,7 @@
       for (const event of ["pitch", "zoom", "moveend"]) this.map.off(event, this.onCamera);
       this.map.off("sourcedata", this.onTerrain); this.map.off("terrain", this.onTerrain);
       this.map.off("styledata", this.onStyle); this.map.off("remove", this.onRemove);
-      if (this.map.getStyle?.() && this.map.getLayer(LAYER_ID)) this.map.removeLayer(LAYER_ID);
+      if ((this.map.getLayersOrder ? this.map.style : this.map.getStyle?.()) && this.map.getLayer(LAYER_ID)) this.map.removeLayer(LAYER_ID);
       this.releaseGraphics();
     }
   }

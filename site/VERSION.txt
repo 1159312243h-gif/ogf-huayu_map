@@ -1,6 +1,10 @@
-华域地图 v7.5
+华域地图 v8.0
 Released: 2026-10-26
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-view-performance-v1 (2026-10-26): Reuse route-name matches within each interchange-rule application and station names within each display preparation. Inspect current public layer order/category without serializing full live GeoJSON/style data. Classify source events before inspecting map state. Skip all GPU access when complete retained terrain has no visible draw ranges, keeping the same buffers, clipping, vertices, shading and fallback. Preserve all functions and refresh intervals. Include the repository's latest complete traffic/terrain refresh and the complete name-aware brand catalog, retaining each source's original timestamps. Deployment status is verified separately by GitHub Actions and production checks.
+
+Included brand-names-v1 (2026-10-26): Include named commercial facilities without brand tags. Match compatible canonical brands and explicit language aliases, preserve explicit tags, and list unknown names separately as unconfirmed candidates. Add source filters and per-location evidence. Use the same recognition in search, city/view discovery, locations and the complete nine-query three-hour directory; bound the world candidate index to repeated names while retaining single names locally. Preserve query literals, source timestamps, cancellation and failure retention.
 
 Version-7.5 Brand city v1 (2026-10-26, 7.5-brand-city-v1): Query brands and operators inside a selected real administrative area, keeping holes and separate parts. Distinguish unique names and map-element totals from catalog text matches, retain city scope while moving the map, and reuse it for location queries. Refresh the visible selected city every two minutes, preserve previous results on failures, label truncated counts as partial, and update the guide. Keep private data, rendering, complete snapshots and source timestamps.
 

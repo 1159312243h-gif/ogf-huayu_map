@@ -490,12 +490,12 @@ const visibility=new Map(sportsIds.map(id=>[id,"none"]));
 const sportsOrder=["building",...sportsIds];
 let sportsStyleWrites=0;
 const sportsMap={isStyleLoaded:()=>false,getStyle:()=>({layers:sportsOrder.map(id=>({id}))}),getLayersOrder:()=>sportsOrder,
-  getLayer:id=>sportsOrder.includes(id),getLayoutProperty:id=>visibility.get(id),
+  getLayer:id=>sportsOrder.includes(id) ? {id} : undefined,getLayoutProperty:id=>visibility.get(id),
   moveLayer:(id,before)=>{sportsOrder.splice(sportsOrder.indexOf(id),1);sportsOrder.splice(sportsOrder.indexOf(before),0,id);},
   setLayoutProperty:(id,_,value)=>{sportsStyleWrites++;visibility.set(id,value);}};
 const sportsContext=vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{sportsOverviewFill:"overview-fill",sportsOverviewOutline:"overview-outline"},
   HUAYU_SPORTS_LAYERS:sportsLayers,HUAYU_LIVE_BUILDING_LAYER:"building",HUAYU_VECTOR_BUILDING_LAYER_IDS:[],document:{getElementById:()=>null}});
-for(const name of ["huayuSportsBuildingInsertionLayer","positionHuayuSportsBelowBuildings","syncHuayuSportsSnapshotLayers"])
+for(const name of ["huayuStyleLayers","huayuSportsBuildingInsertionLayer","positionHuayuSportsBelowBuildings","syncHuayuSportsSnapshotLayers"])
   vm.runInContext(declaration(name),sportsContext);
 sportsContext.syncHuayuSportsSnapshotLayers(sportsMap,{sportsDataReady:true});
 assert.ok([...visibility.values()].every(value=>value==="visible"),"available sports must not wait for every source to become idle");

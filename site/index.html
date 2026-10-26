@@ -13,10 +13,10 @@
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
     <link rel="stylesheet" href="./styles.css?v=7.5-pitch-90-v1" />
-    <link rel="stylesheet" href="./brand-browser.css?v=1" />
+    <link rel="stylesheet" href="./brand-browser.css?v=2" />
   </head>
   <body>
-    <main class="app-shell" data-app-version="7.5">
+    <main class="app-shell" data-app-version="8.0">
       <div id="map" class="map" aria-label="华域地图交互地图"></div>
 
       <nav class="side-rail" aria-label="地图主导航">
@@ -423,14 +423,14 @@
         </section>
 
         <section id="brands-view" class="panel-view brand-view" data-view="brands" hidden>
-          <p class="source-note">品牌目录 · OpenGeofiction 原始标签</p>
+          <p class="source-note">品牌目录 · OpenGeofiction 标签与店名</p>
           <label class="brand-live-option"><input id="brand-live" type="checkbox" checked />打开品牌页时，每两分钟检查所选城市或门店更新</label>
           <div id="brand-browse">
           <form id="brand-city-form" class="brand-form" role="search">
             <label for="brand-city-query">按城市行政边界统计</label>
             <div class="brand-input-row"><input id="brand-city-query" type="search" maxlength="64" placeholder="输入城市，例如：津川" /><button class="primary-button" type="submit">查城市</button></div>
           </form>
-          <p id="brand-city-status" class="view-status" role="status">选择真实行政边界后，按范围内已标注的品牌去重统计。</p>
+          <p id="brand-city-status" class="view-status" role="status">选择真实行政边界后，按品牌标签和商业设施店名统计；待确认店名单列。</p>
           <div id="brand-city-results" class="brand-list" hidden></div>
           <form id="brand-form" class="brand-form" role="search">
             <label for="brand-query">筛选品牌、运营者或分店样本</label>
@@ -440,6 +440,7 @@
             <label>目录类型<select id="brand-kind"><option value="brand">品牌</option><option value="operator">运营者</option></select></label>
             <label>分类<select id="brand-category" disabled><option value="">正在加载分类…</option></select></label>
             <label>排序<select id="brand-sort"><option value="count">地图标注数量</option><option value="name">名称</option></select></label>
+            <label>识别来源<select id="brand-recognition"><option value="all">标签 + 店名识别</option><option value="tag">仅 brand 标签</option><option value="name">仅名称识别</option><option value="candidate">待确认店名</option></select></label>
           </div>
           <div class="brand-toolbar"><button id="brand-discover" class="secondary-button" type="button">发现当前范围的品牌</button><button id="brand-reset" class="text-button" type="button" hidden>返回全域目录</button><button id="brand-catalog-refresh" class="text-button" type="button">检查新版目录</button></div>
           <p id="brand-catalog-status" class="view-status" role="status"></p>
@@ -459,7 +460,7 @@
             <div id="brand-location-list" class="brand-list"></div>
             <button id="brand-locations-more" class="secondary-button" type="button" hidden>显示更多门店</button>
           </section>
-          <p class="brand-attribution">© OpenGeofiction contributors · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>。计数为已标注地图要素，可能包含设施、重复标注或非营业地点；目录中的城市与分店名称是样本。缺少 brand/operator 标签的地点可能未收录。</p>
+          <p class="brand-attribution">© OpenGeofiction contributors · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>。品牌支持标签及商业设施店名识别；未知店名单列为待确认候选，不算已确认品牌。运营者仍按 operator 标签读取。计数为地图要素，可能包含重复标注，非核实营业门店总数。</p>
         </section>
 
         <section id="directions-view" class="panel-view" data-view="directions" hidden>
@@ -804,7 +805,8 @@
               <h3>搜索地名或坐标</h3>
               <p>在顶部搜索框输入名称并搜索；同名地点按所在地区选择。坐标按“纬度,经度”输入，例如 <code>14.634,152.958</code>。最近搜索可再次使用或清空；登录后搜索记录跟随账号同步，收藏地点还可按个人名称、标签查找。</p>
               <h3>查找品牌和门店</h3>
-              <p>顶部搜索同时提供品牌目录匹配，个人收藏仍优先。打开“品牌”，在“按城市行政边界统计”输入城市并选择真实边界，读取边界内带 brand 或 operator 标签的要素，按原始名称去重；不要求店名含有城市名称。城市统计保留所选边界，不随地图缩放改变，点击品牌后可在该城市查询门店。“筛选品牌、运营者或分店样本”是文字筛选，目录匹配数不代表城市总数。“发现当前范围的品牌”仅查询当前矩形视野。缺少品牌标签的地点不计入，超过数量上限会明确标为部分结果。</p>
+              <p>顶部搜索同时提供品牌与店名候选，个人收藏仍优先。打开“品牌”，在“按城市行政边界统计”选择真实边界，默认纳入 brand 标签及未标 brand 的商业设施店名。店名、正式名、语言名称或别名与已有品牌相符，且设施分类兼容时，可识别全名或“品牌＋分店”名称；每个地点注明标签或名称依据。未知店名列为待确认候选，可搜索和定位，不混入品牌总数；不同名称或冲突不强行合并，也不把运营者自动当作品牌。识别来源可选全部、仅标签、仅名称识别或待确认店名。普通公交站、景点及无商业分类的名称不据此推断品牌。</p>
+              <p>城市范围不随地图缩放改变，不要求店名含城市名称，点击品牌或店名可查询该城市地点。“筛选品牌、运营者或分店样本”是文字筛选，匹配数不代表城市总数。“发现当前范围的品牌”仅查询矩形视野。全域目录仅索引至少两个地图要素同名的待确认店名；单独店名可在城市或视野发现。超过数量上限时仅表示已读部分；计数不代表营业状态或完整商业普查。名称识别只在地图查询中使用，不向源数据补写 brand。</p>
               <p>门店可按所选城市、全球或当前地图范围读取，点击“查看分布”显示位置；选择门店后可收藏或设为导航起终点。道路或关系的图钉可能是几何中心，不代表入口。超过单次 500 个地点或发现范围 2000 个要素时会明确提示，请缩小范围；不把部分结果当作全部门店。</p>
               <p>品牌页可见且启用自动检查时，当前所选城市统计或门店每两分钟检查一次；未选城市不轮询全图，切换页面、收起面板或进入后台即暂停。目录由独立工作流每三小时重建，打开品牌页时每五分钟检查新版；实际更新受 OGF 同步、服务负载及部署影响。目录生成时间、上游数据时间与门店读取时间分别显示，失败保留上一份结果。品牌功能不改变原有地图三小时数据更新。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="brands">打开品牌目录</button></div>
@@ -1039,19 +1041,19 @@
     <script src="./sunlight-shadows.js?v=7.5-roof-only-v1"></script>
     <script src="./sunlight.js?v=7.5-realtime-sunlight-v1"></script>
     <script src="./vegetation-models.js?v=7.5-sunlight-v1"></script>
-    <script src="./facility-models.js?v=7.5-roadside-sunlight-v1"></script>
-    <script src="./structure-models.js?v=7.5-pitch-memory-v1"></script>
+    <script src="./facility-models.js?v=8.0-view-performance-v1"></script>
+    <script src="./structure-models.js?v=8.0-view-performance-v1"></script>
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
-    <script src="./building-roofs.js?v=7.5-roof-only-v1"></script>
+    <script src="./building-roofs.js?v=8.0-view-performance-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
     <script src="./map-export.js?v=7.5-download-list-v1"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
-    <script src="./brand-data.js?v=1"></script>
-    <script src="./app.js?v=7.5-brand-city-v1"></script>
+    <script src="./brand-data.js?v=2"></script>
+    <script src="./app.js?v=8.0-view-performance-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
-    <script src="./brand-browser.js?v=3"></script>
+    <script src="./brand-browser.js?v=4"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>
   </body>

@@ -14,6 +14,7 @@ const collect = app.match(/  function huayuWoodlandMaterialOcclusions\([^]*?\n  
 const collectContext = vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{water:"water"},
   HUAYU_LIVE_BUILDING_LAYER:"building",HUAYU_PAVILION_LAYER:"pavilion",HUAYU_PAVILION_BASE_LAYER:"base",
   huayuMountainSurfaceFeatureIntersectsViewport:()=>true});
+vm.runInContext(app.match(/  function huayuStyleLayers\([^]*?\n  \}/u)[0],collectContext);
 vm.runInContext(collect,collectContext);
 const woods = {id:"woods",geometry:{type:"Polygon",coordinates:[[[0,0],[1,0],[1,1],[0,1],[0,0]]]},properties:{class:"wood"}};
 const mappedGarden = {...woods,id:"garden",properties:{class:"grass",subclass:"garden"}};

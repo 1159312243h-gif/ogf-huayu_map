@@ -9,7 +9,7 @@
   const el = id => document.getElementById(id);
   const ids = ["query", "kind", "category", "sort", "catalog-list", "catalog-status", "more", "detail",
     "detail-name", "detail-summary", "detail-status", "scope", "live", "branch-query", "location-list", "locations-more", "fit",
-    "city-query", "city-status", "city-results", "city-scope", "reset"];
+    "city-query", "city-status", "city-results", "city-scope", "reset", "recognition"];
   const fields = Object.fromEntries(ids.map(id => [id, el(`brand-${id}`)]));
   const searchBox = el("brand-search-matches");
   const markers = atlas.getBrandMarkerLayer();
@@ -47,7 +47,16 @@
     return catalogPromise;
   }
   function entries() {
-    return discovery?.kind === fields.kind.value ? discovery.entries : catalog?.[fields.kind.value === "brand" ? "brands" : "operators"] || [];
+    const all = discovery?.kind === fields.kind.value ? discovery.entries : catalog?.[fields.kind.value === "brand" ? "brands" : "operators"] || [];
+    return fields.kind.value === "brand" ? data.filterEntries(all, fields.recognition.value || "all") : all;
+  }
+  const countsLabel = entry => entry.candidate ? `待确认店名 · ${entry.count} 个地图要素`
+    : `标签 ${entry.taggedCount ?? entry.count} · 名称识别 ${entry.namedCount || 0}`;
+  function queryEntry(name, kind) {
+    if (kind !== "brand") return {name, categories: []};
+    const matching = (catalog?.brands || []).filter(entry => [entry.name, ...(entry.aliases || [])]
+      .some(value => data.normalize(value) === data.normalize(name)));
+    return matching.length === 1 ? matching[0] : {name, categories: [], candidate: true};
   }
   function updateCategories() {
     if (!catalog && !discovery) return;
@@ -60,7 +69,8 @@
   }
   function catalogCard(entry, kind) {
     const card = button("", () => openEntry(entry, kind), "brand-card");
-    card.append(text("strong", entry.name), text("small", `${kind === "brand" ? "品牌" : "运营者"} · ${entry.count.toLocaleString()} 个地图要素`),
+    card.append(text("strong", entry.name), text("small", `${kind === "brand" ? entry.candidate ? "店名候选" : "品牌" : "运营者"} · ${entry.count.toLocaleString()} 个地图要素`),
+      ...(kind === "brand" ? [text("small", countsLabel(entry))] : []),
       text("small", entry.categories.slice(0, 2).map(([key]) => categoryLabel(key)).join(" / ")));
     return card;
   }
@@ -71,13 +81,17 @@
     fields.more.hidden = Boolean(selected) || found.length <= catalogLimit;
     if (!catalog && !discovery) return;
     const kindLabel = fields.kind.value === "brand" ? "品牌" : "运营者";
+    fields.recognition.disabled = fields.kind.value !== "brand";
+    const all = entries(), known = all.filter(entry => !entry.candidate), candidates = all.filter(entry => entry.candidate),
+      sum = field => all.reduce((total, entry) => total + (entry[field] || 0), 0);
     fields.reset.hidden = !discovery;
     fields["catalog-status"].textContent = discovery
-      ? `${discovery.city ? `${discovery.city.name}行政边界内` : "当前矩形视野内"}：${discovery.truncated ? "已读取部分中至少" : "已标注"} ${discovery.entries.length} 个不同${kindLabel}，筛选后 ${found.length} 个；${discovery.total.toLocaleString()} 个地图要素。${discovery.truncated ? "仅读取前 2000 个要素，品牌数不是完整总数。" : ""}${discovery.stale ? "更新失败，保留旧结果。" : ""}读取 ${date(discovery.fetchedAt)}；上游 ${date(discovery.dbTimestamp)}。缺少品牌／运营者标签的地点不计入。`
-      : `全域目录文字匹配：${found.length} 项，不是城市范围统计。目录：${catalog.brands.length.toLocaleString()} 品牌 / ${catalog.operators.length.toLocaleString()} 运营者。生成 ${date(catalog.generatedAt)}；上游 ${date(catalog.dbTimestamp)}。${catalog.coverage || ""}`;
+      ? `${discovery.city ? `${discovery.city.name}行政边界内` : "当前矩形视野内"}：${discovery.truncated ? "已读取部分中至少" : "已识别"} ${known.length} 个不同${kindLabel}，筛选后 ${found.length} 项；${all.reduce((total, entry) => total + entry.count, 0).toLocaleString()} 个地图要素。${fields.kind.value === "brand" ? `另有 ${candidates.length} 个待确认店名；标签 ${sum("taggedCount")}、名称识别 ${sum("namedCount")}、候选 ${sum("candidateCount")} 个要素。候选不混入品牌总数。` : ""}${discovery.truncated ? "仅读取前 2000 个候选要素，品牌数不是完整总数。" : ""}${discovery.stale ? "更新失败，保留旧结果。" : ""}读取 ${date(discovery.fetchedAt)}；上游 ${date(discovery.dbTimestamp)}。${fields.kind.value === "brand" ? "名称识别仅限商业设施；不确定归属保留为候选。" : "运营者仍按 operator 标签统计。"}`
+      : `全域目录文字匹配：${found.length} 项，不是城市范围统计。目录：${catalog.brands.filter(entry => !entry.candidate).length.toLocaleString()} 品牌 / ${catalog.brands.filter(entry => entry.candidate).length.toLocaleString()} 待确认店名 / ${catalog.operators.length.toLocaleString()} 运营者。生成 ${date(catalog.generatedAt)}；上游 ${date(catalog.dbTimestamp)}。${catalog.coverage || ""}`;
+    if (discovery?.unassigned) fields["catalog-status"].textContent += `${discovery.unassigned} 个已读要素存在归属冲突或缺少有效店名，未计入。`;
     if (fields.query.value.trim()) {
-      fields["catalog-list"].append(button(`按 ${fields.kind.value} 标签查询“${fields.query.value.trim()}”`,
-        () => openEntry({name: fields.query.value.trim(), categories: []}, fields.kind.value)));
+      fields["catalog-list"].append(button(`按${fields.kind.value === "brand" && fields.recognition.value !== "tag" ? "品牌或店名" : ` ${fields.kind.value} 标签`}查询“${fields.query.value.trim()}”`,
+        () => openEntry(queryEntry(fields.query.value.trim(), fields.kind.value), fields.kind.value)));
     }
   }
   async function checkCatalog(force = false) {
@@ -86,7 +100,14 @@
       fields.category.replaceChildren(new Option("正在加载分类…", ""));
       fields["catalog-status"].textContent = "正在加载品牌目录与分类…";
     }
-    try {await loadCatalog(force); updateCategories(); if (!discovering) renderCatalog();}
+    try {
+      await loadCatalog(force);
+      if (discovery?.kind === "brand") {
+        const recognized = data.recognizeBrands(discovery.elements, catalog.brands, Boolean(discovery.includeNames));
+        discovery = {...discovery, entries: data.aggregate(recognized, "brand"), unassigned: discovery.elements.length - recognized.length};
+      }
+      updateCategories(); if (!discovering) renderCatalog();
+    }
     catch {
       if (discovery) {
         updateCategories(); renderCatalog();
@@ -132,6 +153,11 @@
       card.append(text("strong", place?.label || tags.name || selected.name),
         text("small", [tags["addr:city"], tags["addr:street"], tags["addr:housenumber"], tags.branch].filter(Boolean).join(" · ")),
         text("small", `${element.type}/${element.id}${place ? ` · ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}` : " · 未提供可定位坐标"}`));
+      if (selected.kind === "brand") {
+        const match = element.brandMatch;
+        card.append(text("small", match?.source === "tag" ? `标签标注：brand=${tags.brand}` : match?.source === "name"
+          ? `名称识别：${match.field}=${match.value} → ${match.name}` : `待确认店名：${match?.field || "name"}=${match?.value || tags.name || ""}`));
+      }
       const actions = text("div", "", "brand-card-actions");
       if (place) actions.append(button("定位 / 收藏", () => showPlace(element)), button("从这里出发", () => showPlace(element, "origin")), button("到这里", () => showPlace(element, "destination")));
       const source = text("a", "原始要素"); source.href = `https://opengeofiction.net/${element.type}/${element.id}`;
@@ -152,12 +178,18 @@
     }
     fields.fit.disabled = !points.length;
     fields["locations-more"].hidden = sorted.length <= locationLimit;
-    fields["detail-status"].textContent = `${locations.stale ? "更新失败，保留旧结果。" : ""}本次查询 ${locations.total} 个地图要素，筛选后 ${found.length} 个，${points.length} 个可定位。${locations.truncated ? "仅显示前 500 个，请缩小范围；并非全部地点。" : ""}读取 ${date(locations.fetchedAt)}；上游 ${date(locations.dbTimestamp)}。${fields.scope.value === "city" && city ? `${city.name}行政边界内查询。` : fields.scope.value === "world" ? "全球查询。" : "当前矩形视野查询。"}`;
+    fields["detail-status"].textContent = `${locations.stale ? "更新失败，保留旧结果。" : ""}本次查询 ${locations.scannedTotal ?? locations.total} 个地图要素，匹配 ${locations.elements.length} 个，筛选后 ${found.length} 个，${points.length} 个可定位。${selected.kind === "brand" ? `标签 ${locations.elements.filter(e => e.brandMatch?.source === "tag").length}、名称识别 ${locations.elements.filter(e => e.brandMatch?.source === "name").length}、待确认 ${locations.elements.filter(e => e.brandMatch?.source === "candidate").length}。` : ""}${locations.truncated ? "仅读取前 500 个候选，请缩小范围；并非全部地点。" : ""}读取 ${date(locations.fetchedAt)}；上游 ${date(locations.dbTimestamp)}。${fields.scope.value === "city" && city ? `${city.name}行政边界内查询。` : fields.scope.value === "world" ? "全球查询。" : "当前矩形视野查询。"}`;
   }
   async function loadLocations(force = false) {
     if (!active || document.hidden || !selected) return;
     const sequence = ++loadSequence;
     const params = new URLSearchParams({mode: "locations", kind: selected.kind, name: selected.name, ...scopeParams()});
+    const includeNames = selected.kind === "brand" && fields.recognition.value !== "tag";
+    if (includeNames) {
+      params.set("includeNames", "1");
+      if (selected.candidate) params.set("candidate", "1");
+      if (selected.aliases?.length) params.set("aliases", JSON.stringify(selected.aliases));
+    }
     const key = params.toString();
     if (key !== locationKey) {locations = null; fields["location-list"].replaceChildren(); clearMarkers();}
     locationKey = key; lastLocationCheck = Date.now();
@@ -165,7 +197,11 @@
     try {
       const result = await store.load(key, `/api/brands?${params}`, force);
       if (!result || sequence !== loadSequence || !active) return;
-      locations = result; renderLocations();
+      const elements = selected.kind === "brand" ? data.recognizeBrands(result.elements,
+        [...(catalog?.brands || []), ...(selected.candidate ? [] : [selected])], includeNames)
+        .filter(element => element.brandMatch.name === selected.name
+          && (!fields.recognition.value || fields.recognition.value === "all" || element.brandMatch.source === fields.recognition.value)) : result.elements;
+      locations = {...result, scannedTotal: result.total, elements}; renderLocations();
       if (fitOnLoad && fields.scope.value === "world") {fitOnLoad = false; fitLocations();}
     } catch (error) {
       if (sequence !== loadSequence || !active) return;
@@ -175,12 +211,13 @@
   function openEntry(entry, kind) {
     citySequence++; citySearching = false; fields["city-results"].hidden = true;
     selected = null; loadSequence++; store.cancel();
+    if (kind !== fields.kind.value) fields.recognition.value = "all";
     atlas.openView("brands");
     selected = {...entry, kind}; locations = null; locationKey = ""; locationLimit = 40;
     fitOnLoad = true; el("brand-browse").hidden = true;
     fields.detail.hidden = false; fields["catalog-list"].hidden = true; fields.more.hidden = true;
     fields["detail-name"].textContent = entry.name;
-    fields["detail-summary"].textContent = `${kind === "brand" ? "品牌" : "运营者"}${entry.count ? ` · 目录快照 ${entry.count} 个地图要素` : " · 原始标签完全匹配"}。点、线、面可能指向同一场所，数量不等于营业门店总数。`;
+    fields["detail-summary"].textContent = `${entry.candidate ? "待确认店名；尚未证明属于连锁品牌" : kind === "brand" ? "品牌；支持原始标签及商业设施名称识别" : "运营者；原始 operator 标签完全匹配"}${entry.count ? ` · 目录快照 ${entry.count} 个地图要素` : ""}。点、线、面可能指向同一场所，数量不等于营业门店总数。`;
     fields["branch-query"].value = "";
     if (discovery?.city) fields.scope.value = "city";
     loadLocations();
@@ -223,7 +260,7 @@
         .slice(0, 4).map(entry => ({entry, kind})));
       if (!found.length) return;
       found.sort((a, b) => Number(data.normalize(b.entry.name) === data.normalize(query)) - Number(data.normalize(a.entry.name) === data.normalize(query)));
-      searchBox.replaceChildren(text("h2", "品牌与运营者 · 选择后查看地点"));
+      searchBox.replaceChildren(text("h2", "品牌、店名与运营者 · 选择后查看地点"));
       found.slice(0, 6).forEach(({entry, kind}) => searchBox.append(catalogCard(entry, kind)));
       searchBox.hidden = false;
     } catch {
@@ -234,7 +271,7 @@
   }
   el("brand-form").addEventListener("submit", event => {
     event.preventDefault(); closeDetail(); catalogLimit = 30; renderCatalog();
-    if (!catalog) fields["catalog-list"].append(button("按完整标签查询", () => openEntry({name: fields.query.value.trim(), categories: []}, fields.kind.value)));
+    if (!catalog) fields["catalog-list"].append(button("按完整名称查询", () => openEntry(queryEntry(fields.query.value.trim(), fields.kind.value), fields.kind.value)));
   });
   fields.query.addEventListener("input", () => {
     if (selected || discovering) closeDetail();
@@ -251,6 +288,11 @@
     closeDetail(); catalogLimit = 30; renderCatalog();
     if (field === fields.kind && previousCity) loadDiscovery(previousCity);
   }));
+  fields.recognition.addEventListener("change", () => {
+    const previousCity = discovery?.city, previousView = discovery && !discovery.city;
+    closeDetail(); catalogLimit = 30; updateCategories(); renderCatalog();
+    if (previousCity || previousView) loadDiscovery(previousCity || null);
+  });
   fields.more.addEventListener("click", () => {catalogLimit += 30; renderCatalog();});
   el("brand-catalog-refresh").addEventListener("click", () => checkCatalog(true));
   fields.reset.addEventListener("click", () => {
@@ -275,6 +317,8 @@
     closeDetail(); const sequence = ++loadSequence, kind = fields.kind.value;
     discovering = true; discoveryScope = targetCity ? "city" : "view"; lastDiscoveryCheck = Date.now();
     const params = new URLSearchParams({kind, mode: "discover", scope: discoveryScope});
+    const includeNames = kind === "brand" && fields.recognition.value !== "tag";
+    if (includeNames) params.set("includeNames", "1");
     if (targetCity) params.set("relation", String(targetCity.id));
     else {
       const b = atlas.map.getBounds();
@@ -283,11 +327,14 @@
     fields["catalog-status"].textContent = targetCity ? `正在读取${targetCity.name}行政边界内的${kind === "brand" ? "品牌" : "运营者"}…` : "正在发现当前矩形视野内的品牌…";
     if (targetCity) fields["city-status"].textContent = `正在按${targetCity.name}真实行政边界读取数据…`;
     try {
+      if (includeNames && !catalog) await loadCatalog().catch(() => null);
+      if (sequence !== loadSequence || !active) return;
       const payload = await store.load(params.toString(), `/api/brands?${params}`, force);
       if (!payload || sequence !== loadSequence || !active || kind !== fields.kind.value) return;
       if (payload.stale) throw Error("实时发现暂不可用，未替换已有目录");
       if (targetCity && payload.cityRelation !== targetCity.id) throw Error("返回的行政区与所选城市不一致，请重试");
-      discovery = {...payload, kind, city: targetCity, entries: data.aggregate(payload.elements, kind)};
+      const recognized = kind === "brand" ? data.recognizeBrands(payload.elements, catalog?.brands || [], includeNames) : payload.elements;
+      discovery = {...payload, kind, city: targetCity, entries: data.aggregate(recognized, kind), unassigned: payload.elements.length - recognized.length};
       if (resetFilters) {fields.query.value = ""; fields.category.value = ""; catalogLimit = 30;}
       city = targetCity; fields["city-scope"].disabled = !city;
       if (city) {

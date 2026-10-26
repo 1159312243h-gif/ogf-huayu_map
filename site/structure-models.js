@@ -135,10 +135,11 @@
   class Controller {
     constructor(map,options) {
       this.map=map;this.options=options;this.alive=true;this.filters=new Map();this.inputs={};this.descriptors=[];
-      this.onTerrain=event=>{if(!this.alive || map.getStyle && !map.getStyle())return;
-        if(!event.sourceId || event.sourceId===map.getTerrain?.()?.source)this.refreshElevation();};
+      this.onTerrain=event=>{if(!this.alive || (event.sourceId && event.sourceId!==map.getTerrain?.()?.source))return;
+        if(map.getStyle && !(map.getLayersOrder ? map.style : map.getStyle()))return;
+        this.refreshElevation();};
       this.onMoveEnd=()=>this.schedule();this.onRemove=()=>this.destroy();
-      this.onStyle=()=>{if(this.alive && map.getStyle?.() && this.layer && !map.getLayer(LAYER_ID)){this.layer=null;this.signature=null;this.schedule();}};
+      this.onStyle=()=>{if(this.alive && (map.getLayersOrder ? map.style : map.getStyle?.()) && this.layer && !map.getLayer(LAYER_ID)){this.layer=null;this.signature=null;this.schedule();}};
       map.on("sourcedata",this.onTerrain);map.on("terrain",this.onTerrain);map.on("moveend",this.onMoveEnd);map.on("remove",this.onRemove);
       map.on("styledata",this.onStyle);
       this.unbind=options.observeGestures?.(()=>{this.interacting=true;},()=>{this.interacting=false;this.schedule();});
@@ -153,7 +154,7 @@
       this.timer=root.setTimeout(()=>{this.timer=null;if(this.alive && !this.interacting)void this.apply();},70);
     }
     async apply() {
-      if(!this.alive || this.interacting || !this.map.getStyle?.()?.layers?.length)return;
+      if(!this.alive || this.interacting || !(this.map.style && this.map.getLayersOrder ? this.map.getLayersOrder().length : this.map.getStyle?.()?.layers?.length))return;
       const assets=new Map();
       for(const [category,id] of Object.entries(root.HuayuModelOptions?.getSelections() || {}))if(CATEGORIES.has(category)
         && root.HuayuModelAssets?.state(id).status==="ready")assets.set(category,root.HuayuModelAssets.get(id));
@@ -252,7 +253,7 @@
       for(const {mesh} of this.meshes)this.scene.add(mesh);
     }
     position() {
-      if(!this.alive || !this.origin || this.map.getStyle && !this.map.getStyle())return;
+      if(!this.alive || !this.origin || this.map.getStyle && !(this.map.getLayersOrder ? this.map.style : this.map.getStyle()))return;
       const T=this.T,object=new T.Object3D();
       for(const {mesh,batch,asset} of this.meshes || []) {
         batch.forEach((item,index)=>{
@@ -280,7 +281,7 @@
     }
     refreshElevation() {if(!this.elevationTimer)this.elevationTimer=root.setTimeout(()=>{this.elevationTimer=null;if(this.alive)this.position();},120);}
     refreshFilters() {
-      if(this.map.getStyle && !this.map.getStyle())return;
+      if(this.map.getStyle && !(this.map.getLayersOrder ? this.map.style : this.map.getStyle()))return;
       const groups=this.options.layers || {};
       for(const [category,ids] of Object.entries(groups))for(const id of ids) {
         if(!this.map.getLayer(id))continue;

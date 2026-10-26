@@ -252,6 +252,19 @@ assert.ok(draws>0,"a missing zoom level must keep cached terrain visible");
 assert.ok(drawBounds.every(bounds=>bounds[2]-bounds[0]<=0.0625),
   "fallback draws must clip to individual target cells to prevent stacked levels");
 
+// An unchanged retained mesh outside the viewport must not synchronize the
+// GPU merely to discover that no triangles are visible. Keep it for return.
+const visibleViewport = viewport;
+viewport = {west:10,east:10.01,south:10,north:10.01};
+let glCalls = 0;
+const untouchedGL = new Proxy({}, {get:()=>()=>{glCalls++;throw new Error("empty frame touched GPU");}});
+const retainedBlocks = layer.blocks.size;
+layer.render(untouchedGL,Array(16).fill(0));
+assert.equal(glCalls,0,"offscreen cached terrain needs no GPU state reads or writes");
+assert.equal(layer.drawnVertices,0);
+assert.equal(layer.blocks.size,retainedBlocks,"culling never discards the complete GPU meshes");
+viewport = visibleViewport;
+
 // A runtime overview cell must not replace the finer prepared range mesh.
 const overviewLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
 const overviewDraws = [];
@@ -477,7 +490,7 @@ assert.equal(hydrationState.terrainTileCache.get(key)?.source,"browser-cache",
 
 // Water/roads/buildings must remain above the material, independent of a style's original water order.
 const orderContext = vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{mountainOverviewTexture:"mountain",water:"live-water",waterway:"live-river"}});
-install(["syncHuayuMountainFeatureOrder"],orderContext);
+install(["huayuStyleLayers", "syncHuayuMountainFeatureOrder"],orderContext);
 const layerOrder = ["water","river","forest","mountain","parks","building","road","labels"];
 const styleLayers = [{id:"water","source-layer":"water"},{id:"river","source-layer":"waterway"},
   {id:"forest",type:"fill","source-layer":"landcover"},{id:"parks",type:"fill","source-layer":"landuse"},
@@ -563,7 +576,7 @@ assert.deepEqual(probes.map(probe=>probe.alpha),[1,1,0,1],
 const overlayVm = vm.createContext({HUAYU_LIVE_BASEMAP_LAYERS:{water:"live-water"},
   HUAYU_LIVE_BUILDING_LAYER:"buildings",HUAYU_PAVILION_LAYER:"pavilions",HUAYU_PAVILION_BASE_LAYER:"pavilion-bases",
   huayuMountainSurfaceFeatureIntersectsViewport:() => true});
-install(["huayuWoodlandMaterialOcclusions"],overlayVm);
+install(["huayuStyleLayers", "huayuWoodlandMaterialOcclusions"],overlayVm);
 const mixedSource = [{...square(0,1),properties:{renderKind:"land"}},
   {...square(0.2,0.4),properties:{renderKind:"water"}},
   {...square(0,1),properties:{renderKind:"mountain-surface"}}];

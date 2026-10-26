@@ -1561,6 +1561,19 @@ async function fetchFeatureData(request) {
 
 const brandRequests = new Map();
 const brandRetryAfter = new Map();
+// Keep these bounded selectors identical to HuayuBrandData; test-brands checks parity.
+function brandNamedFacilityQuery(type = "nwr", scope = "", pattern = null) {
+  const facilities = {shop: null, craft: null, office: "^(company|insurance|estate_agent|travel_agent|financial|telecommunication|it|lawyer|accountant|educational_institution|employment_agency)$",
+    amenity: "^(bank|atm|bureau_de_change|cafe|restaurant|fast_food|ice_cream|bar|pub|food_court|pharmacy|fuel|charging_station|post_office|car_rental|car_sharing|bicycle_rental|veterinary|cinema|theatre|casino|internet_cafe)$",
+    tourism: "^(hotel|motel|hostel|guest_house|apartment)$", healthcare: "^(hospital|clinic|dentist|pharmacy|physiotherapist|optometrist)$",
+    leisure: "^(fitness_centre|sports_centre|bowling_alley|amusement_arcade)$"};
+  const names = `[~"^(name(:.*)?|official_name|short_name|alt_name)$"~${JSON.stringify(pattern || ".")}${pattern ? ",i" : ""}]`;
+  return `(${Object.entries(facilities).map(([key, values]) => `${type}[!"brand"]${values
+    ? `[${JSON.stringify(key)}~${JSON.stringify(values)}]` : `[${JSON.stringify(key)}][${JSON.stringify(key)}!~"^(no|vacant|disused|abandoned|construction|proposed)$"]`}${names}${scope};`).join("")})`;
+}
+function brandNameQueryPattern(names, exact = false) {
+  return `^(${names.map(value => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|")})${exact ? "$" : "($|[[:space:]（(·-]|.*(店|支行|分行|营业部|营业厅|分校|分院|branch|store)$)"}`;
+}
 function brandDataQuery(url) {
   const p = url.searchParams, kind = p.get("kind"), mode = p.get("mode") || "locations";
   if (!["brand", "operator"].includes(kind) || !["locations", "discover"].includes(mode)) throw Error("INVALID_BRAND_QUERY");
@@ -1585,7 +1598,19 @@ function brandDataQuery(url) {
   } else if (p.get("scope") !== "world" || mode === "discover") throw Error("INVALID_BRAND_SCOPE");
   const selector = mode === "locations" ? `[${JSON.stringify(kind)}=${JSON.stringify(name)}]` : `[${JSON.stringify(kind)}]`;
   const limit = mode === "discover" ? 2000 : 500;
-  return {query: `[out:json][timeout:20][maxsize:8388608];${cityPrefix}nwr${selector}${scope}->.matches;.matches out count;.matches out ${mode === "discover" ? "tags" : "body center"} ${limit};`, limit, mode, city};
+  const includeNames = kind === "brand" && p.get("includeNames") === "1";
+  let select = `nwr${selector}${scope}`;
+  if (includeNames) {
+    let aliases = [];
+    if (p.has("aliases")) {
+      try {aliases = JSON.parse(p.get("aliases"));} catch {throw Error("INVALID_BRAND_ALIAS");}
+      if (!Array.isArray(aliases) || aliases.length > 12 || aliases.some(value => typeof value !== "string"
+        || !value.trim() || value.length > 200 || /[\x00-\x1f\x7f]/u.test(value))) throw Error("INVALID_BRAND_ALIAS");
+    }
+    const pattern = mode === "locations" ? brandNameQueryPattern([name, ...aliases], p.get("candidate") === "1") : null;
+    select = `(${select};${brandNamedFacilityQuery("nwr", scope, pattern)};)`;
+  }
+  return {query: `[out:json][timeout:20][maxsize:8388608];${cityPrefix}${select}->.matches;.matches out count;.matches out ${mode === "discover" ? "tags" : "body center"} ${limit};`, limit, mode, city, includeNames};
 }
 async function fetchBrandData(request) {
   const json = (value, status = 200) => new Response(JSON.stringify(value), {status,
@@ -1635,7 +1660,7 @@ async function fetchBrandData(request) {
         || new Set(elements.map(element => `${element.type}/${element.id}`)).size !== elements.length
         || elements.some(element => !["node", "way", "relation"].includes(element.type)
           || !Number.isSafeInteger(element.id) || !element.tags)) throw Error("INCOMPLETE_BRAND_DATA");
-      const result = {elements, total: count, truncated: count > definition.limit,
+      const result = {elements, total: count, truncated: count > definition.limit, includeNames: definition.includeNames,
         ...(definition.city ? {cityRelation: definition.city} : {}),
         fetchedAt: new Date(Date.now()).toISOString(), dbTimestamp: payload.osm3s?.timestamp_osm_base || null,
         source: "OpenGeofiction", stale: false};
@@ -1657,6 +1682,8 @@ export {
   normalizedFavorites,
   featureDataQuery,
   brandDataQuery,
+  brandNamedFacilityQuery,
+  brandNameQueryPattern,
   hashPassword,
   parseCookie,
   validateOverlayBounds,

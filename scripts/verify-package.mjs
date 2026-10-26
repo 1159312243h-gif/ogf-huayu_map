@@ -527,7 +527,7 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 assert.ok(vectorBuildingLayers.every(id=>buildingLayerFilters.get(id)===null),"失败回退恢复原矢量过滤，不残留空白窗口");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=7.5-roof-only-v1')
+assert.ok(index.includes('building-roofs.js?v=8.0-view-performance-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -654,7 +654,7 @@ assert.ok(app.includes("const layersReady = ensureHuayuWallLayers(glMap) && ensu
 assert.ok(app.includes("function positionHuayuWallsAboveBuildings(glMap)")
   && app.includes("positionHuayuWallsAboveBuildings(glMap);")
   && app.includes("function syncHuayuWallPerspectiveLayers(glMap) {\n    // Source requests can keep isStyleLoaded() false")
-  && app.includes("if (!glMap?.getStyle?.()) return;")
+  && app.includes("if (!(glMap?.style || glMap?.getStyle?.())) return;")
   && app.includes('glMap.setLayoutProperty(layerId, "visibility", perspective ? "none" : "visible")')
   && app.includes("polygons.push([huayuNormalizedWallRing(ring, false)])")
   && app.includes("huayuWallSegmentPolygons(coordinates, width, fence ? 0.12 : 0.2)")
@@ -1485,6 +1485,8 @@ assert.equal(pavilionTagsTest.status, 0, `亭子明确标签与普通建筑分�
 const buildingColorsTest = await runCheck([path.join(root, "scripts", "test-building-colors.mjs")]);
 assert.equal(buildingColorsTest.status, 0, `建筑颜色标签与模型保留回归失败：${buildingColorsTest.stderr}`);
 const transitDisplayTest = await runCheck([path.join(root, "scripts", "test-transit-display.mjs")]);
+const viewPerformanceTest = await runCheck([path.join(root, "scripts", "test-view-performance.mjs")]);
+assert.equal(viewPerformanceTest.status,0,`交通／地形性能等价回归失败：${viewPerformanceTest.stderr}`);
 assert.equal(transitDisplayTest.status, 0, `铁路站显示去重与交通缓存回归失败：${transitDisplayTest.stderr || transitDisplayTest.stdout}`);
 const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);

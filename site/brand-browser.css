@@ -3,7 +3,7 @@
 .brand-input-row, .brand-toolbar, .brand-detail-heading {display:flex;align-items:center;gap:8px;}
 .brand-input-row input {flex:1;width:0;}
 .brand-view input:not([type="checkbox"]), .brand-view select {max-width:100%;min-width:0;padding:9px;border:1px solid var(--line);border-radius:5px;background:var(--surface-subtle);color:inherit;font:inherit;}
-.brand-filters {display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:8px;}
+.brand-filters {display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .brand-filters label, .brand-toolbar label {display:grid;gap:6px;font-size:11px;min-width:0;}
 .brand-toolbar {flex-wrap:wrap;margin:12px 0;}
 .brand-list {display:grid;gap:8px;margin:12px 0;}
@@ -21,5 +21,4 @@ button.brand-card {width:100%;cursor:pointer;}
 @media (max-width:680px) {
   .rail-actions {grid-template-columns:repeat(12,minmax(0,1fr));}
   .brand-filters {grid-template-columns:1fr 1fr;}
-  .brand-filters label:last-child {grid-column:1 / -1;}
 }

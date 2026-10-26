@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import "../site/brand-data.js";
-import worker, {brandDataQuery} from "../site/_worker.js";
+import worker, {brandDataQuery, brandNamedFacilityQuery, brandNameQueryPattern} from "../site/_worker.js";
 import {buildBrandCatalog, catalogQuery, completeElements, replaceBrandCatalog} from "./update-brand-catalog.mjs";
 
 const data = globalThis.HuayuBrandData;
@@ -28,6 +28,51 @@ assert.equal(data.place(node(5, {}, 0, 0)).lat, 0, "零坐标有效");
 const manyBranches = data.aggregate(Array.from({length: 80}, (_, i) => node(i + 10, {brand: "连锁", branch: `店${i}`})), "brand")[0];
 assert.equal(manyBranches.branchCount, 80, "精确不同 branch 数量不受样本上限影响");
 assert.equal(manyBranches.branches.length, 12);
+const nameFixtures = [node(8001, {brand: "华夏银行", amenity: "bank", "brand:en": "Huaxia Bank"}),
+  node(8002, {name: "华夏银行（北城支行）", amenity: "bank"}),
+  node(8003, {"name:en": "Huaxia Bank", amenity: "atm"}),
+  node(8004, {name: "华夏银行津川分行", amenity: "bank"}),
+  node(8005, {brand: "其他银行", name: "华夏银行", amenity: "bank"}),
+  node(8006, {name: "华夏银行", highway: "bus_stop", public_transport: "platform"}),
+  node(8007, {name: "华夏银行", tourism: "attraction"}),
+  node(8008, {name: "华夏银行", shop: "clothes"}),
+  node(8009, {name: "未知咖啡", amenity: "cafe"}), node(8010, {name: "未知咖啡", amenity: "cafe"}),
+  node(8011, {name: "未知咖啡北城店", amenity: "cafe"}),
+  node(8012, {name: "便利店", shop: "vacant"}), node(8013, {name: "全家火锅", amenity: "restaurant"}),
+  node(8014, {brand: "全家", shop: "convenience"}), node(8015, {name: "全家", shop: "convenience"})];
+const originalNames = JSON.stringify(nameFixtures);
+const recognizedNames = data.recognizeBrands([...nameFixtures, nameFixtures[1]]);
+const enriched = data.aggregate(recognizedNames, "brand"), bank = enriched.find(entry => entry.name === "华夏银行");
+assert.equal(bank.count, 4); assert.equal(bank.taggedCount, 1); assert.equal(bank.namedCount, 3);
+assert.equal(recognizedNames.find(e => e.id === 8005).brandMatch.name, "其他银行", "显式 brand 优先，不按店名改写归属");
+for (const id of [8006, 8007, 8008, 8012]) assert.ok(!recognizedNames.some(e => e.id === id), "站名、景点、分类冲突和空置商铺不能误认品牌");
+assert.equal(enriched.find(entry => entry.name === "未知咖啡").candidateCount, 2, "无品牌字典依据的同名店可计数，但明确标为候选");
+assert.equal(enriched.find(entry => entry.name === "未知咖啡北城店").candidate, true, "未知品牌不凭后缀擅自归并");
+assert.equal(enriched.find(entry => entry.name === "全家").count, 2);
+assert.equal(enriched.find(entry => entry.name === "全家火锅").candidate, true, "同前缀不等于同品牌");
+assert.equal(JSON.stringify(nameFixtures), originalNames, "识别不向原始标签补写 brand");
+assert.equal(data.filterEntries(enriched, "tag").find(e => e.name === "华夏银行").count, 1);
+assert.deepEqual(data.filterEntries(enriched, "name").find(e => e.name === "华夏银行").categories, [["amenity=bank", 2], ["amenity=atm", 1]]);
+assert.ok(data.filterEntries(enriched, "candidate").every(entry => entry.candidate));
+assert.ok(data.recognizeBrands(nameFixtures, [], false).every(element => element.tags.brand), "仅标签模式保留原始行为");
+const ambiguous = data.recognizeBrands([node(8020, {name: "共同别名", shop: "convenience"})], [
+  {name:"甲品牌", aliases:["共同别名"], categories:[["shop=convenience",1]]},
+  {name:"乙品牌", aliases:["共同别名"], categories:[["shop=convenience",1]]}]);
+assert.equal(ambiguous.length, 0, "别名冲突不强行归属或冒充新品牌");
+assert.deepEqual(data.aggregate([node(8022,{brand:"银行",amenity:"bank","brand:ref":"编号123","brand:en":"Bank"})],"brand")[0].aliases,["Bank"],"品牌编号不当作语言别名");
+assert.equal(data.recognizeBrands([node(8021, {name: "ＡＣＭＥ", shop: "convenience"})], [
+  {name:"Acme",categories:[["shop=convenience",1]]}])[0].brandMatch.name, "Acme", "名称识别归一化大小写和全角");
+for (const type of ["node", "way", "rel", "nwr"]) for (const scope of ["", "(area.cityArea)", "(14,152,15,153)"]) {
+  assert.equal(brandNamedFacilityQuery(type, scope), data.namedFacilityQuery(type, scope), "定时目录与实时范围使用同一商业设施范围");
+  assert.equal(brandNamedFacilityQuery(type, scope, "^literal$"), data.namedFacilityQuery(type, scope, "^literal$"));
+}
+for (const name of ['A "B";.*', "[x](a)|.*+?^${}\\", "华夏银行"]) for (const exact of [true,false]) {
+  assert.equal(brandNameQueryPattern([name], exact), data.nameQueryPattern([name], exact), "Worker 与名称识别查询字面量转义一致");
+  const pattern = brandNameQueryPattern([name], exact).replace("[[:space:]", "[\\s");
+  const regex = new RegExp(pattern, "i");
+  assert.ok(regex.test(name)); assert.ok(!regex.test("prefix" + name));
+  if (exact) assert.ok(!regex.test(name + "分店"));
+}
 const imported = data.validateCatalog(JSON.parse(await readFile(new URL("../site/brand-catalog.json", import.meta.url), "utf8")));
 assert.ok(imported.brands.length > 1000 && imported.operators.length > 1000);
 const q = new URL('https://map.test/api/brands?kind=brand&scope=world'); q.searchParams.set("name", 'A "B";.*');
@@ -52,6 +97,14 @@ for (const id of ["", "0", "-1", "1);nwr;", "1.5", "9007199254740992"]) {
 }
 const cityLocations = new URL(cityScope); cityLocations.searchParams.set("mode", "locations"); cityLocations.searchParams.set("name", 'A "B";.*');
 assert.ok(brandDataQuery(cityLocations).query.includes(`["brand"=${JSON.stringify('A "B";.*')}](area.cityArea)`));
+const withNames = new URL(cityScope); withNames.searchParams.set("includeNames","1");
+assert.ok(brandDataQuery(withNames).query.includes(data.namedFacilityQuery("nwr", "(area.cityArea)")));
+const nameLocations = new URL(cityLocations); nameLocations.searchParams.set("includeNames","1");
+assert.ok(brandDataQuery(nameLocations).query.includes(data.namedFacilityQuery("nwr", "(area.cityArea)", data.nameQueryPattern(['A "B";.*']))));
+nameLocations.searchParams.set("aliases", '["有效别名"]'); assert.equal(brandDataQuery(nameLocations).includeNames, true);
+for (const invalid of ["null", "{}", "[3]", JSON.stringify(Array(13).fill("x")), '["x\\n"]']) {
+  nameLocations.searchParams.set("aliases", invalid); assert.throws(() => brandDataQuery(nameLocations));
+}
 assert.throws(() => completeElements({...payload(raw), remark: "timeout"}, "brand"));
 assert.throws(() => completeElements({elements: [count(4), ...raw]}, "brand"));
 assert.throws(() => completeElements(payload([raw[0], raw[0]]), "brand"));
@@ -60,6 +113,18 @@ assert.ok(catalogQuery("operator","node").includes('node["operator"]["shop"]'));
 assert.ok(!catalogQuery("operator","node").includes('node["operator"]->'),"运营者整库不扫描未限定的电力与网络对象");
 assert.ok(catalogQuery("brand","rel").includes('rel["brand"]'));
 assert.equal(candidate.brands.length, 2);
+const untaggedFacilities = nameFixtures.filter(e => !e.tags.brand && data.namedFacility(e.tags));
+const nameCandidate = buildBrandCatalog(payload(nameFixtures.filter(e => e.tags.brand)), payload(raw.filter(e => e.tags.operator)), null,
+  "2026-10-26T05:00:00Z", payload(untaggedFacilities));
+assert.equal(nameCandidate.recognitionVersion, 1);
+assert.equal(nameCandidate.brands.find(entry => entry.name === "华夏银行").count, 4);
+assert.ok(nameCandidate.brands.some(entry => entry.candidate));
+assert.ok(!nameCandidate.brands.some(entry => entry.name === "未知咖啡北城店"), "全域索引省略单独店名，城市发现仍可列出");
+assert.ok(catalogQuery("name","node").includes(data.namedFacilityQuery("node")));
+assert.equal(completeElements(payload([]), "name").length, 0);
+assert.throws(() => completeElements({...payload(untaggedFacilities), remark:"timeout"}, "name"));
+assert.throws(() => completeElements(payload([node(999, {name:"银行站", highway:"bus_stop"})]), "name"));
+assert.throws(() => data.validateCatalog({...nameCandidate, brands:[{...nameCandidate.brands[0], namedCount:-1}]}));
 assert.throws(() => buildBrandCatalog(payload(raw), payload(raw.filter(e => e.tags.operator)), imported), /SHRINK/u);
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "huayu-brand-test-"));
 try {
@@ -71,6 +136,9 @@ try {
   await replaceBrandCatalog(file,candidate);
   await assert.rejects(replaceBrandCatalog(file, {...candidate, operators: []}));
   assert.equal(await readFile(file, "utf8"), before, "校验失败不能覆盖旧完整目录");
+  assert.throws(() => buildBrandCatalog(payload(raw), payload(raw.filter(e => e.tags.operator)), null,
+    undefined, {...payload(untaggedFacilities), remark:"timeout"}));
+  assert.equal(await readFile(file, "utf8"), before, "店名抓取失败不以标签半包覆盖旧目录");
 } finally {await rm(temporaryDirectory, {recursive: true, force: true});}
 
 let time = Date.parse("2026-10-25T10:00:00Z"), calls = 0, fail = false, deferred;
@@ -111,6 +179,7 @@ globalThis.fetch = async (_url, options) => {
   if (mode === "empty") return Response.json(payload([]));
   if (mode === "truncated") return Response.json({elements: [count(800), ...Array.from({length: 500}, (_, i) => node(i + 1, {brand: "大量"}))]});
   if (mode === "city") return Response.json({...payload(raw), elements: [count(1), ...payload(raw).elements]});
+  if (mode === "city-names") return Response.json({...payload(nameFixtures), elements:[count(1),...payload(nameFixtures).elements]});
   if (mode === "city-no-area") return Response.json({elements: [count(0), count(0)]});
   if (mode === "city-partial") return Response.json({elements: [count(1), count(2001), ...Array.from({length: 2000}, (_, i) => node(i + 1, {brand: `品牌${i}`}))]});
   if (mode === "city-duplicate") return Response.json({elements: [count(1), count(2), raw[0], raw[0]]});
@@ -156,6 +225,10 @@ try {
   assert.equal(partialCity.total, 2001); assert.equal(partialCity.truncated, true); assert.equal(partialCity.elements.length, 2000);
   mode = "city-duplicate";
   assert.equal((await cityApi(8880)).status, 502, "重复来源不能冒充完整行政区结果");
+  mode = "city-names";
+  const namedCity = await (await worker.fetch(new Request("https://map.test/api/brands?kind=brand&mode=discover&scope=city&relation=8881&includeNames=1"),{},{})).json();
+  assert.equal(namedCity.includeNames,true); assert.equal(namedCity.total,nameFixtures.length);
+  assert.equal(namedCity.elements.find(e=>e.id===8002).tags.brand,undefined, "Worker 保留未标品牌的原始要素，而非伪造 brand");
 } finally {globalThis.fetch = originalFetch; globalThis.caches = originalCaches; Date.now = originalNow;}
 const browserSource = await readFile(new URL("../site/brand-browser.js", import.meta.url), "utf8");
 function brandPage({ready, visible = true, panel = ""}) {
@@ -297,4 +370,38 @@ assert.match(cityPage.el("brand-catalog-status").textContent, /部分中至少.*
 cityPage.el("brand-reset").dispatchEvent(new Event("click"));
 assert.match(cityPage.el("brand-catalog-status").textContent, /全域目录文字匹配/u);
 assert.equal(cityPage.el("brand-city-scope").disabled, true);
-console.log("Brand catalog, literal queries, live cache age, failure retention, cancellation, delayed startup, category filtering and administrative city counts passed.");
+const namePage=brandPage({ready:true});
+namePage.el("brand-recognition").value="all";
+namePage.requests.shift().resolve(Response.json(nameCandidate)); await settle();
+namePage.el("brand-city-query").value="津川"; namePage.el("brand-city-form").dispatchEvent(new Event("submit"));
+namePage.cityRequests.shift().resolve([boundary(8801)]);await settle();
+const discoverNames=namePage.requests.shift();assert.equal(new URL(discoverNames.url,"https://map.test").searchParams.get("includeNames"),"1");
+// Coordinates omitted in this DOM harness; real location actions are browser-tested separately.
+const nameSnapshot={...snapshot,fetchedAt:new Date().toISOString(),cityRelation:8801,includeNames:true,total:nameFixtures.length,
+  elements:nameFixtures.map(({lat,lon,...element})=>element)};
+discoverNames.resolve(Response.json(nameSnapshot));await settle();
+assert.match(namePage.el("brand-catalog-status").textContent,/名称识别 4/);
+assert.ok(namePage.el("brand-catalog-list").children.some(card=>card.children[0]?.textContent==="未知咖啡北城店"),"城市包含仅出现一次的店名候选");
+namePage.el("brand-recognition").value="candidate";namePage.el("brand-recognition").dispatchEvent(new Event("change"));await settle();
+assert.equal(namePage.requests.length,0,"同一两分钟结果切换来源筛选可复用，不能重复请求");
+assert.match(namePage.el("brand-catalog-status").textContent,/0 个不同品牌/);
+assert.ok(namePage.el("brand-catalog-list").children.every(card=>card.children[1].textContent.includes("店名候选")));
+namePage.el("brand-catalog-list").children[0].dispatchEvent(new Event("click"));
+const candidateLocation=namePage.requests.shift(),candidateParams=new URL(candidateLocation.url,"https://map.test").searchParams;
+assert.equal(candidateParams.get("candidate"),"1");assert.equal(candidateParams.get("scope"),"city");
+const candidateName=candidateParams.get("name");
+candidateLocation.resolve(Response.json({...nameSnapshot,elements:nameSnapshot.elements.filter(e=>e.tags.name===candidateName)}));await settle();
+assert.ok(namePage.el("brand-location-list").children.length>0);assert.match(namePage.el("brand-detail-summary").textContent,/尚未证明/);
+assert.ok(namePage.el("brand-location-list").children[0].children.some(child=>child.textContent.includes("待确认店名")));
+namePage.el("brand-detail-close").dispatchEvent(new Event("click"));
+namePage.el("brand-recognition").value="tag";namePage.el("brand-recognition").dispatchEvent(new Event("change"));
+const strictRequest=namePage.requests.shift();assert.equal(new URL(strictRequest.url,"https://map.test").searchParams.has("includeNames"),false);
+strictRequest.resolve(Response.json({...nameSnapshot,includeNames:false,elements:nameSnapshot.elements.filter(e=>e.tags.brand)}));await settle();
+assert.match(namePage.el("brand-catalog-status").textContent,/名称识别 0/);
+assert.ok(!namePage.el("brand-catalog-list").children.some(card=>card.children[1].textContent.includes("店名候选")));
+namePage.el("brand-recognition").value="name";namePage.el("brand-recognition").dispatchEvent(new Event("change"));await settle();
+namePage.el("brand-catalog-list").children.find(card=>card.children[0].textContent==="华夏银行").dispatchEvent(new Event("click"));
+namePage.requests.shift().resolve(Response.json(nameSnapshot));await settle();
+assert.equal(namePage.el("brand-location-list").children.length,3,"仅名称识别筛选在详情同样生效，不混入显式标签地点");
+assert.match(namePage.el("brand-detail-status").textContent,/标签 0、名称识别 3/);
+console.log("Brand names, explicit-tag priority, aliases, category exclusions, candidate counts, source filters, literal queries, live cache age, failure retention, cancellation, complete directories, delayed startup and city scopes passed.");

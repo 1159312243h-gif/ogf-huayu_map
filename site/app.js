@@ -4122,6 +4122,13 @@
       .filter((rule) => rule.mergeNearbyUnnamedWithinMeters > 0);
     const merged = [];
     const groups = new Map();
+    const names = new Map();
+    const nameInfo = (name) => {
+      const text = String(name || "");
+      if (!names.has(text)) names.set(text, {key: transitStationComplexKey(text),
+        exact: text.normalize("NFKC").trim().toLocaleLowerCase("zh-CN")});
+      return names.get(text);
+    };
     const sourcePoint = (stop) => ({
       lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
       lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
@@ -4154,8 +4161,7 @@
       ]);
     };
     stops.flatMap(splitTransitStationDisplaySystems).forEach((stop) => {
-      const key = transitStationComplexKey(stop.name);
-      const exactName = String(stop.name || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
+      const {key, exact: exactName} = nameInfo(stop.name);
       const override = overrides.find((item) => item.stationNames.includes(key)
         && stop.displaySystem !== "bus" && (!item.anchorPoint || (stop.isRail
           && distanceMeters(sourcePoint(stop), item.anchorPoint) <= item.maxMeters)));
@@ -4202,10 +4208,10 @@
     // marker into the confirmed named complex so it cannot cover the correct
     // marker and open an incomplete "unnamed station" detail panel.
     unnamedMergeRules.forEach((rule) => {
-      const anchors = merged.filter((stop) => rule.stationNames.includes(transitStationComplexKey(stop.name)));
+      const anchors = merged.filter((stop) => rule.stationNames.includes(nameInfo(stop.name).key));
       if (!anchors.length) return;
       [...merged].forEach((stop) => {
-        if (transitStationComplexKey(stop.name)) return;
+        if (nameInfo(stop.name).key) return;
         const sourcePoint = {
           lat: Number.isFinite(stop.sourceLat) ? stop.sourceLat : stop.lat,
           lon: Number.isFinite(stop.sourceLon) ? stop.sourceLon : stop.lon,
@@ -10902,7 +10908,15 @@
       ...(network.lines || []).flatMap((line) => line.routes || []),
       ...network.stops.flatMap((stop) => stop.routes || []),
     ]);
-    const normalize = (value) => String(value || "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
+    const normalized = new Map();
+    const normalize = (value) => {
+      const text = String(value || "");
+      if (!normalized.has(text)) normalized.set(text, text.normalize("NFKC").trim().toLocaleLowerCase("zh-CN"));
+      return normalized.get(text);
+    };
+    // The route pool and rules are fixed for this application. Match each
+    // override once, rather than repeating it for every platform of a station.
+    const overrideRoutes = new Map();
     const matchesRoute = (route, override) => {
       const refs = [route.ref, route.sourceRef, route.shortLabel].filter(Boolean).map(normalize);
       const labels = [route.label, route.name, route.identity].filter(Boolean).map(normalize);
@@ -10915,7 +10929,9 @@
       const override = overrides.find((item) => item.stationNames.includes(key)
         && (item.mainline === null || item.mainline === Boolean(stop.isMainline)));
       if (!override) return;
-      const matchedRoutes = routePool.filter((route) => matchesRoute(route, override));
+      if (!overrideRoutes.has(override)) overrideRoutes.set(override,
+        routePool.filter((route) => matchesRoute(route, override)));
+      const matchedRoutes = overrideRoutes.get(override);
       const displayRoutes = override.displayRoutes || [];
       if (!override.displayOnly) {
         stop.routes = uniqueTransitRoutes([...(stop.routes || []), ...matchedRoutes]);
@@ -19414,7 +19430,7 @@
     }
     const state = vectorHighlightState;
     // A usable style need not wait for every remote tile or model to finish.
-    if (!glMap.getStyle()?.layers?.length) return;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return;
     const signature = `${mapHighlightRevision}:${mapHighlightGroups.map(({group}) => Number(map.hasLayer(group))).join("")}`;
     const source = glMap.getSource(VECTOR_HIGHLIGHT_SOURCE);
     if (source && state.signature === signature) return;
@@ -19477,7 +19493,7 @@
   }
 
   function syncPublishedTransitStationLayers(glMap = currentVectorBasemap()) {
-    if (!glMap?.getStyle?.()) return;
+    if (!(glMap?.style || glMap?.getStyle?.())) return;
     if (!publishedTransitStationLayerStates.has(glMap)) {
       publishedTransitStationLayerStates.set(glMap, {
         visibility: new Map(),
@@ -19506,7 +19522,7 @@
   }
 
   function huayuOverlayPalette(glMap) {
-    const theme = String(glMap?.getStyle?.()?.metadata?.["ogf-atlas:theme"] || "");
+    const theme = String((glMap?.style?.stylesheet || glMap?.getStyle?.())?.metadata?.["ogf-atlas:theme"] || "");
     const night = theme.startsWith("huayu-night");
     const palette = night ? {
       night: true,
@@ -19990,8 +20006,20 @@
     huayuAdminLabelStates.delete(glMap);
   }
 
+  function huayuStyleLayers(glMap) {
+    // These callers inspect order/category, never paint or source payloads.
+    // getStyle() serializes all live GeoJSON data and every paint expression.
+    // Read current public layer objects so add/remove/move/style changes are
+    // visible immediately, without retaining a stale style cache.
+    const order = glMap?.getLayersOrder?.();
+    if (!order || !glMap.getLayer) return glMap?.getStyle?.()?.layers || [];
+    return order.map(id => glMap.getLayer(id)).filter(layer => layer && layer.type !== "custom")
+      .map(layer => ({id: layer.id, type: layer.type, source: layer.source,
+        "source-layer": layer.sourceLayer ?? layer["source-layer"], metadata: layer.metadata}));
+  }
+
   function huayuCityWallInsertionLayer(glMap) {
-    const layers = glMap.getStyle()?.layers || [];
+    const layers = huayuStyleLayers(glMap);
     const buildingIndex = layers.findIndex((layer) => layer.id === "building-3d");
     return layers.slice(buildingIndex >= 0 ? buildingIndex + 1 : 0)
       .find((layer) => layer.type === "symbol")?.id;
@@ -20950,7 +20978,7 @@
     // Source requests can keep isStyleLoaded() false while the style and these
     // layers are already usable. Waiting for full idle left 3D walls hidden
     // whenever perspective was entered during building or basemap loading.
-    if (!glMap?.getStyle?.()) return;
+    if (!(glMap?.style || glMap?.getStyle?.())) return;
     const perspective = glMap.getPitch() > 0.5;
     [HUAYU_WALL_LAYERS.extrusion, HUAYU_WALL_LAYERS.fenceExtrusion].forEach((layerId) => {
       if (glMap.getLayer(layerId)
@@ -20994,7 +21022,7 @@
   }
 
   function ensureHuayuWallLayers(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return false;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_WALL_SOURCE)) {
       glMap.addSource(HUAYU_WALL_SOURCE, {
@@ -22381,13 +22409,13 @@
 
   function huayuLiveBasemapInsertionLayer(glMap) {
     const liveLayerIds = new Set(Object.values(HUAYU_LIVE_BASEMAP_LAYERS));
-    return (glMap.getStyle()?.layers || [])
+    return huayuStyleLayers(glMap)
       .find((layer) => layer.type === "symbol" && !liveLayerIds.has(layer.id))?.id;
   }
 
   function huayuLiveBasemapFirstExistingLayer(glMap, layerIds) {
     const candidates = new Set(layerIds);
-    return (glMap.getStyle()?.layers || []).find((layer) => candidates.has(layer.id))?.id;
+    return huayuStyleLayers(glMap).find((layer) => candidates.has(layer.id))?.id;
   }
 
   function huayuSatelliteMaterialPixels(kind, color, size = 256) {
@@ -23611,7 +23639,7 @@
       feature.properties?.materialOcclusion ? feature : {...feature,
         properties:{...feature.properties, materialOcclusion:"water"}});
     const sources = new Map();
-    (glMap?.getStyle?.()?.layers || []).forEach((layer) => {
+    huayuStyleLayers(glMap).forEach((layer) => {
       if (!["fill", "fill-extrusion", "line"].includes(layer.type)) return;
       if (layer.type !== "fill-extrusion" && !["water", "waterway", "building", "park"].includes(layer["source-layer"])
         && !/garden.*fill|garden.*area/u.test(layer.id)
@@ -24654,14 +24682,15 @@
         this.contextRevision = 0;
         this.onSourceContextChange = (event) => {
           if (event.sourceDataType !== "content") return;
-          const affectsCoverage = (mapInstance.getStyle()?.layers || []).some((layer) =>
+          // Ignore incomplete tile events before inspecting the layer list.
+          if (event.isSourceLoaded === false) return;
+          const affectsCoverage = huayuStyleLayers(mapInstance).some((layer) =>
             layer.source === event.sourceId && (["water", "building"].includes(layer["source-layer"])
               || [HUAYU_LIVE_BASEMAP_LAYERS.water, HUAYU_LIVE_BUILDING_LAYER,
                 HUAYU_PAVILION_LAYER, HUAYU_PAVILION_BASE_LAYER].includes(layer.id)));
           if (!affectsCoverage) return;
           // Vector sources emit many partial content events. Rebuilding for
           // every arriving tile repeatedly cancels the same expensive mesh.
-          if (event.isSourceLoaded === false) return;
           // Preserve the first complete terrain build while vector tiles arrive.
           // Once visible, coalesce the many source completion events into one
           // water/building mask refresh instead of repeatedly cancelling geometry.
@@ -25007,6 +25036,54 @@
         if (!matrix || matrix.length !== 16) return;
         const renderStartedAt = performance.now();
         const zoom = this.map?.getZoom?.() || HUAYU_TERRAIN_MIN_ZOOM;
+        const bounds = huayuAdministrativeQueryBounds(this.map);
+        const jobs = [];
+        const viewNW = bounds && window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.west,lat:bounds.north},0);
+        const viewSE = bounds && window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.east,lat:bounds.south},0);
+        const prepare = (block, clip) => {
+          if (!block.vertexCount || !block.coverageBounds) return;
+          const northwest = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.west, lat: clip.north}, 0);
+          const southeast = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.east, lat: clip.south}, 0);
+          const origin = huayuMountainMaterialOrigin(block.bounds);
+          const clipBounds = [northwest.x - origin[0], northwest.y - origin[1],
+            southeast.x - origin[0], southeast.y - origin[1]];
+          if (bounds) {
+            clipBounds[0] = Math.max(clipBounds[0], viewNW.x - origin[0]);
+            clipBounds[1] = Math.max(clipBounds[1], viewNW.y - origin[1]);
+            clipBounds[2] = Math.min(clipBounds[2], viewSE.x - origin[0]);
+            clipBounds[3] = Math.min(clipBounds[3], viewSE.y - origin[1]);
+          }
+          const ranges = huayuTerrainVisibleDrawRanges(block.drawBatches, clipBounds, block.vertexCount);
+          if (ranges.length) jobs.push({block, northwest, southeast, origin, ranges});
+        };
+        const retainedBlocks = [...this.blocks.values()];
+        for (const cell of huayuWoodlandMaterialCells(bounds, zoom)) {
+          if (!huayuWoodlandMaterialBoundsIntersect(cell.bounds, bounds)) continue;
+          if (zoom < 7) {
+            const prepared = retainedBlocks.filter(candidate => candidate.publishedUrl
+              && huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds));
+            if (prepared.length) {
+              prepared.forEach(candidate => prepare(candidate, cell.bounds));
+              continue;
+            }
+          }
+          const block = this.blocks.get(cell.key);
+          if (block) { prepare(block, cell.bounds); continue; }
+          const fallbacks = retainedBlocks.filter(candidate =>
+            huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds))
+            .sort((a, b) => Math.abs(Math.log(a.span / cell.span)) - Math.abs(Math.log(b.span / cell.span))
+              || b.usedAt - a.usedAt);
+          const fallback = fallbacks[0];
+          if (fallback) fallbacks.filter(candidate => candidate.span === fallback.span
+            && candidate.level === fallback.level).forEach(candidate => prepare(candidate, cell.bounds));
+        }
+        this.drawnVertices = 0;
+        // Retained offscreen/empty meshes need no GL calls. In particular,
+        // getParameter may wait for the previous GPU frame even with no draw.
+        if (!jobs.length) {
+          this.renderCpuMs = Math.round((performance.now() - renderStartedAt) * 10) / 10;
+          return;
+        }
         gl.useProgram(this.program);
         const stride = 9 * Float32Array.BYTES_PER_ELEMENT;
         gl.enableVertexAttribArray(this.positionLocation);
@@ -25032,13 +25109,7 @@
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.disable(gl.CULL_FACE);
-        const bounds = huayuAdministrativeQueryBounds(this.map);
-        this.drawnVertices = 0;
-        const draw = (block, clip) => {
-          if (!block.vertexCount || !block.coverageBounds) return;
-          const northwest = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.west, lat: clip.north}, 0);
-          const southeast = window.maplibregl.MercatorCoordinate.fromLngLat({lng: clip.east, lat: clip.south}, 0);
-          const origin = huayuMountainMaterialOrigin(block.bounds);
+        const draw = ({block, northwest, southeast, origin, ranges}) => {
           const localMatrix = Array.from(matrix);
           for (let row = 0; row < 4; row += 1) localMatrix[12 + row] += matrix[row] * origin[0] + matrix[4 + row] * origin[1];
           gl.uniformMatrix4fv(this.matrixLocation, false, localMatrix);
@@ -25055,45 +25126,12 @@
           gl.uniform4fv(this.coverageBoundsLocation, [block.coverageBounds[0] - origin[0],
             block.coverageBounds[1] - origin[1], block.coverageBounds[2], block.coverageBounds[3]]);
           gl.uniform1f(this.coverageResolutionLocation, block.coverageResolution || 512);
-          const clipBounds = [northwest.x - origin[0], northwest.y - origin[1],
-            southeast.x - origin[0], southeast.y - origin[1]];
-          // Cell clips can extend well beyond the screen, especially when an
-          // overview remains the fallback for a tiny new close-view cell.
-          if (bounds) {
-            const viewNW = window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.west,lat:bounds.north},0);
-            const viewSE = window.maplibregl.MercatorCoordinate.fromLngLat({lng:bounds.east,lat:bounds.south},0);
-            clipBounds[0] = Math.max(clipBounds[0], viewNW.x - origin[0]);
-            clipBounds[1] = Math.max(clipBounds[1], viewNW.y - origin[1]);
-            clipBounds[2] = Math.min(clipBounds[2], viewSE.x - origin[0]);
-            clipBounds[3] = Math.min(clipBounds[3], viewSE.y - origin[1]);
-          }
-          for (const range of huayuTerrainVisibleDrawRanges(block.drawBatches, clipBounds, block.vertexCount)) {
+          for (const range of ranges) {
             gl.drawArrays(gl.TRIANGLES, range.first, range.count);
             this.drawnVertices += range.count;
           }
         };
-        for (const cell of huayuWoodlandMaterialCells(bounds, zoom)) {
-          if (!huayuWoodlandMaterialBoundsIntersect(cell.bounds, bounds)) continue;
-          if (zoom < 7) {
-            const prepared = [...this.blocks.values()].filter(candidate => candidate.publishedUrl
-              && huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds));
-            if (prepared.length) {
-              prepared.forEach(candidate => draw(candidate, cell.bounds));
-              continue;
-            }
-          }
-          const block = this.blocks.get(cell.key);
-          if (block) { draw(block, cell.bounds); continue; }
-          // A cached coarser/finer level remains visible while the missing
-          // cells build. Clip it to this cell so levels never stack or darken.
-          const fallbacks = [...this.blocks.values()].filter(candidate =>
-            huayuWoodlandMaterialBoundsIntersect(candidate.bounds, cell.bounds))
-            .sort((a, b) => Math.abs(Math.log(a.span / cell.span)) - Math.abs(Math.log(b.span / cell.span))
-              || b.usedAt - a.usedAt);
-          const fallback = fallbacks[0];
-          if (fallback) fallbacks.filter(candidate => candidate.span === fallback.span
-            && candidate.level === fallback.level).forEach(candidate => draw(candidate, cell.bounds));
-        }
+        jobs.forEach(draw);
         gl.bindTexture(gl.TEXTURE_2D, previousTexture);
         gl.activeTexture(previousActiveTexture);
         gl.depthMask(depthWriteEnabled);
@@ -25133,7 +25171,7 @@
   }
 
   function syncHuayuTerrainOverlay(glMap = currentVectorBasemap()) {
-    if (!glMap?.getStyle?.()) return;
+    if (!(glMap?.style || glMap?.getStyle?.())) return;
     const visibility = terrainOverlayEnabled ? "visible" : "none";
     HUAYU_TERRAIN_LAYER_IDS.forEach((layerId) => {
       if (!glMap.getLayer(layerId)) return;
@@ -25159,7 +25197,7 @@
     const ordered = glMap.getLayersOrder?.() || (glMap.getStyle()?.layers || []).map((layer) => layer.id);
     const materialIndex = ordered.indexOf(materialId);
     if (materialIndex < 0) return;
-    const landIds = new Set((glMap.getStyle()?.layers || []).filter((layer) =>
+    const landIds = new Set(huayuStyleLayers(glMap).filter((layer) =>
       layer.type === "fill" && (["landcover", "landuse", "park"].includes(layer["source-layer"])
         || layer.id === HUAYU_LIVE_BASEMAP_LAYERS.land)).map((layer) => layer.id));
     const lastLandIndex = ordered.reduce((last, id, index) => landIds.has(id) ? index : last, -1);
@@ -25168,7 +25206,7 @@
     }
     const reordered = glMap.getLayersOrder?.() || (glMap.getStyle()?.layers || []).map((layer) => layer.id);
     const nextMaterialIndex = reordered.indexOf(materialId);
-    const protectedIds = new Set((glMap.getStyle()?.layers || []).filter((layer) =>
+    const protectedIds = new Set(huayuStyleLayers(glMap).filter((layer) =>
       ["water", "waterway", "building", "transportation"].includes(layer["source-layer"])
       || [HUAYU_LIVE_BASEMAP_LAYERS.water, HUAYU_LIVE_BASEMAP_LAYERS.waterway].includes(layer.id))
       .map((layer) => layer.id));
@@ -25180,7 +25218,7 @@
   }
 
   function ensureHuayuLiveBasemapLayers(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return false;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     const palette = huayuOverlayPalette(glMap);
     applyHuayuPublishedUrbanLandScale(glMap, palette);
     const empty = { type: "FeatureCollection", features: [] };
@@ -25792,7 +25830,7 @@
   }
 
   function updateHuayuLiveBasemapDiagnostics(state) {
-    if (!state?.active || !state.glMap?.getStyle?.()) return;
+    if (!state?.active || !(state.glMap?.style || state.glMap?.getStyle?.())) return;
     const mapElement = document.getElementById("map");
     if (!mapElement) return;
     const visibleKeys = [...(state.visibleTileKeys || [])];
@@ -25801,7 +25839,7 @@
     const snapshotKeys = [...(state.snapshotTileKeys || [])];
     const detailKeys = [...(state.detailTileKeys || [])];
     const terrainKeys = [...(state.terrainVisibleTileKeys || [])];
-    const styleLayers = state.glMap.getStyle()?.layers || [];
+    const styleLayers = huayuStyleLayers(state.glMap);
     // getStyle omits custom materials; the public layer order includes them.
     const orderedLayerIds = state.glMap.getLayersOrder?.() || styleLayers.map((layer) => layer.id);
     const terrainOverviewLayerIndex = orderedLayerIds.indexOf(
@@ -26518,7 +26556,7 @@
   }
 
   function syncHuayuBridgeModels(glMap, state = huayuLiveBasemapStates.get(glMap)) {
-    if (!state?.active || !glMap?.getStyle?.()?.layers?.length || !window.HuayuBridgeModels) return;
+    if (!state?.active || !(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length) || !window.HuayuBridgeModels) return;
     if (!bridgeModelsEnabled()) { window.HuayuBridgeModels.dispose(glMap); return; }
     const palette = huayuOverlayPalette(glMap);
     window.HuayuBridgeModels.sync(glMap, state.groundRenderFeatures || HUAYU_EMPTY_STRUCTURE_MODELS, {
@@ -26532,7 +26570,7 @@
   }
 
   function syncHuayuStructureModels(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length || !window.HuayuStructureModels) return;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length) || !window.HuayuStructureModels) return;
     const structures = huayuStructureStates.get(glMap), buildings = huayuLiveBuildingStates.get(glMap);
     const palette = huayuOverlayPalette(glMap);
     window.HuayuStructureModels.sync(glMap, {
@@ -28167,7 +28205,7 @@
   }
 
   function ensureHuayuPavilionLayer(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return false;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_PAVILION_SOURCE)) {
       glMap.addSource(HUAYU_PAVILION_SOURCE, {
@@ -28303,7 +28341,7 @@
     const nextEnabled = Boolean(enabled);
     // A completed tile can settle while a basemap switch is destroying the
     // old MapLibre style. Never query layers after that style has gone away.
-    if (!glMap.getStyle?.()?.layers) {
+    if (!(glMap.style || glMap.getStyle?.()?.layers)) {
       state.primaryActive = false;
       return;
     }
@@ -28385,7 +28423,7 @@
   }
 
   function ensureHuayuLiveBuildingLayer(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return false;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_LIVE_BUILDING_SOURCE)) {
       glMap.addSource(HUAYU_LIVE_BUILDING_SOURCE, {
@@ -30377,12 +30415,12 @@
       HUAYU_LIVE_BUILDING_LAYER,
       ...HUAYU_VECTOR_BUILDING_LAYER_IDS,
     ]);
-    return (glMap.getStyle()?.layers || [])
+    return huayuStyleLayers(glMap)
       .find((layer) => buildingLayerIds.has(layer.id))?.id;
   }
 
   function positionHuayuSportsBelowBuildings(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return;
     const beforeBuildings = huayuSportsBuildingInsertionLayer(glMap);
     if (!beforeBuildings) return;
     const order = glMap.getLayersOrder?.() || glMap.getStyle().layers.map(layer => layer.id);
@@ -30403,7 +30441,7 @@
   }
 
   function syncHuayuSportsSnapshotLayers(glMap, state = huayuLiveBasemapStates.get(glMap)) {
-    if (!glMap?.getStyle?.()?.layers?.length) return;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return;
     const liveVisible = Boolean(state?.sportsDataReady);
     [
       HUAYU_LIVE_BASEMAP_LAYERS.sportsOverviewFill,
@@ -30794,7 +30832,7 @@
   }
 
   function ensureHuayuSupplementalPoiLayer(glMap) {
-    if (!glMap?.getStyle?.()?.layers?.length) return false;
+    if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     ensureHuayuPoiImages(glMap);
     if (!glMap.getSource(HUAYU_SUPPLEMENTAL_POI_SOURCE)) {
       glMap.addSource(HUAYU_SUPPLEMENTAL_POI_SOURCE, {
@@ -31729,7 +31767,7 @@
   }
 
   function syncHuayuFacilityModels(glMap, features) {
-    if (!window.HuayuFacilityModels || !glMap.getStyle?.()?.layers?.length) return;
+    if (!window.HuayuFacilityModels || !(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return;
     const supplemental = huayuSupplementalPoiStates.get(glMap);
     features = glMap.getZoom() >= 15.25 ? features || supplemental?.facilities : [];
     if (!features) return;
@@ -32519,7 +32557,7 @@
       // Tile/model requests can keep isStyleLoaded() false long after the
       // usable style exists. Waiting for another one-time map load then left
       // all traffic symbols absent while unrelated features were loading.
-      if (!glMap.getStyle()?.layers?.length) {
+      if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) {
         if (vectorTransitStyleWaitMap !== glMap) {
           vectorTransitStyleWaitMap?.off("style.load", syncVectorTransitOverlay);
           vectorTransitStyleWaitMap = glMap;

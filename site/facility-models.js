@@ -364,7 +364,7 @@
       }
     }
     async apply() {
-      const map=this.map;if(!this.alive || !map.getStyle?.()?.layers?.length || this.interacting)return;
+      const map=this.map;if(!this.alive || !(map.style && map.getLayersOrder ? map.getLayersOrder().length : map.getStyle?.()?.layers?.length) || this.interacting)return;
       if(this.dirty && !this.preparing && this.failedRevision!==this.revision) {
         const revision=this.revision,features=this.features,context=this.options.context;this.preparing=true;
         try {const result=await this.prepare();if(!this.alive || revision!==this.revision)return;
@@ -534,7 +534,7 @@
     stopWorker(){this.worker?.terminate();this.worker=null;for(const task of this.pending?.values() || []){root.clearTimeout(task.timer);task.reject(new Error("facility worker stopped"));}this.pending?.clear();}
     destroy(){this.alive=false;root.clearTimeout(this.timer);this.unbind?.();this.stopWorker();this.map.off("terrain",this.onTerrain);
       this.map.off("sourcedata",this.onTerrain);this.map.off("moveend",this.onMove);
-      if(this.map.getStyle?.()){if(this.map.getLayer(LAYER))this.map.removeLayer(LAYER);
+      if(this.map.getLayersOrder ? this.map.style : this.map.getStyle?.()){if(this.map.getLayer(LAYER))this.map.removeLayer(LAYER);
         for(const suffix of ["surface","outline","spaces","labels"]){const id=`${SOURCE}-${suffix}`;if(this.map.getLayer(id))this.map.removeLayer(id);}
         if(this.map.getSource(SOURCE))this.map.removeSource(SOURCE);}
       this.release();}
