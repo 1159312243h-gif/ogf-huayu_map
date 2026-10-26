@@ -34895,6 +34895,7 @@
     placeKey,
     getSelectedPlace: () => ({...selectedPlace}),
     getBrandMarkerLayer: () => brandLocationLayer,
+    findAdministrativeCities: findTransitAtlasCities,
     selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),
     useSavedRoutePoint,
     openView: showView,

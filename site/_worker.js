@@ -1566,8 +1566,16 @@ function brandDataQuery(url) {
   if (!["brand", "operator"].includes(kind) || !["locations", "discover"].includes(mode)) throw Error("INVALID_BRAND_QUERY");
   const name = p.get("name") || "";
   if (mode === "locations" && (!name.trim() || name.length > 200 || /[\x00-\x1f\x7f]/u.test(name))) throw Error("INVALID_BRAND_NAME");
-  let scope = "";
-  if (p.get("scope") === "view") {
+  let scope = "", cityPrefix = "", city = null;
+  if (p.get("scope") === "city") {
+    const id = p.get("relation") || "";
+    if (!/^[1-9]\d{0,15}$/u.test(id) || !Number.isSafeInteger(Number(id))) throw Error("INVALID_BRAND_CITY");
+    city = Number(id);
+    // Overpass areas preserve the actual administrative polygon, including holes
+    // and separate parts. Never replace a missing area with its bounding box.
+    cityPrefix = `rel(${city})["boundary"="administrative"]->.boundary;.boundary map_to_area->.cityArea;.cityArea out count;`;
+    scope = "(area.cityArea)";
+  } else if (p.get("scope") === "view") {
     const keys = ["south", "west", "north", "east"], values = keys.map(key => Number(p.get(key)));
     const [s, w, n, e] = values;
     if (!keys.every((key, index) => p.has(key) && p.get(key).trim() && Number.isFinite(values[index]))
@@ -1577,7 +1585,7 @@ function brandDataQuery(url) {
   } else if (p.get("scope") !== "world" || mode === "discover") throw Error("INVALID_BRAND_SCOPE");
   const selector = mode === "locations" ? `[${JSON.stringify(kind)}=${JSON.stringify(name)}]` : `[${JSON.stringify(kind)}]`;
   const limit = mode === "discover" ? 2000 : 500;
-  return {query: `[out:json][timeout:20][maxsize:8388608];nwr${selector}${scope}->.matches;.matches out count;.matches out ${mode === "discover" ? "tags" : "body center"} ${limit};`, limit, mode};
+  return {query: `[out:json][timeout:20][maxsize:8388608];${cityPrefix}nwr${selector}${scope}->.matches;.matches out count;.matches out ${mode === "discover" ? "tags" : "body center"} ${limit};`, limit, mode, city};
 }
 async function fetchBrandData(request) {
   const json = (value, status = 200) => new Response(JSON.stringify(value), {status,
@@ -1594,8 +1602,8 @@ async function fetchBrandData(request) {
   try {previous = await caches.default.match(key);} catch { /* Network remains available without cache. */ }
   const retained = previous ? await previous.json().catch(() => null) : null;
   if (retained && Date.now() - Date.parse(retained.fetchedAt) < 120000) return json(retained);
-  const stale = () => retained ? json({...retained, stale: true, error: "实时服务暂不可用，保留上次完整结果"})
-    : json({error: "品牌服务繁忙，请稍后重试"}, 502);
+  const stale = (error = "品牌服务繁忙，请稍后重试") => retained
+    ? json({...retained, stale: true, error: `${error}；保留上次完整结果`}) : json({error}, 502);
   if ((brandRetryAfter.get(key.url) || 0) > Date.now()) return stale();
   if (!brandRequests.has(key.url)) {
     if (brandRequests.size >= 16) return stale();
@@ -1615,12 +1623,20 @@ async function fetchBrandData(request) {
       } finally {await reader.cancel().catch(() => {});}
       const bytes = new Uint8Array(size); let offset = 0;
       for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.length;}
-      const payload = JSON.parse(new TextDecoder().decode(bytes)), count = Number(payload.elements?.[0]?.tags?.total);
-      if (payload.remark || payload.elements?.[0]?.type !== "count" || !Number.isSafeInteger(count) || count < 0
-        || payload.elements.length - 1 !== Math.min(count, definition.limit)
-        || payload.elements.slice(1).some(element => !["node", "way", "relation"].includes(element.type)
+      const payload = JSON.parse(new TextDecoder().decode(bytes));
+      if (payload.remark || !Array.isArray(payload.elements)) throw Error("INCOMPLETE_BRAND_DATA");
+      if (definition.city && (payload.elements[0]?.type !== "count" || Number(payload.elements[0].tags?.total) !== 1)) {
+        throw Error("BRAND_CITY_BOUNDARY_UNAVAILABLE");
+      }
+      const countIndex = definition.city ? 1 : 0, count = Number(payload.elements[countIndex]?.tags?.total);
+      const elements = payload.elements.slice(countIndex + 1);
+      if (payload.elements[countIndex]?.type !== "count" || !Number.isSafeInteger(count) || count < 0
+        || elements.length !== Math.min(count, definition.limit)
+        || new Set(elements.map(element => `${element.type}/${element.id}`)).size !== elements.length
+        || elements.some(element => !["node", "way", "relation"].includes(element.type)
           || !Number.isSafeInteger(element.id) || !element.tags)) throw Error("INCOMPLETE_BRAND_DATA");
-      const result = {elements: payload.elements.slice(1), total: count, truncated: count > definition.limit,
+      const result = {elements, total: count, truncated: count > definition.limit,
+        ...(definition.city ? {cityRelation: definition.city} : {}),
         fetchedAt: new Date(Date.now()).toISOString(), dbTimestamp: payload.osm3s?.timestamp_osm_base || null,
         source: "OpenGeofiction", stale: false};
       try {await caches.default.put(key, new Response(JSON.stringify(result), {headers: {
@@ -1629,10 +1645,11 @@ async function fetchBrandData(request) {
     })().finally(() => brandRequests.delete(key.url));
     brandRequests.set(key.url, pending);
   }
-  try {return json(await brandRequests.get(key.url));} catch {
+  try {return json(await brandRequests.get(key.url));} catch (error) {
     brandRetryAfter.delete(key.url); brandRetryAfter.set(key.url, Date.now() + 60000);
     while (brandRetryAfter.size > 64) brandRetryAfter.delete(brandRetryAfter.keys().next().value);
-    return stale();
+    return stale(error.message === "BRAND_CITY_BOUNDARY_UNAVAILABLE"
+      ? "该行政边界暂时没有可查询的完整区域，请稍后重试；未按矩形范围替代统计" : undefined);
   }
 }
 

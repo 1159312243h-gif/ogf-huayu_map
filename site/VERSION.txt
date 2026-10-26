@@ -2,6 +2,8 @@
 Released: 2026-10-26
 Cloudflare Pages project: ogf-atlas
 
+Version-7.5 Brand city v1 (2026-10-26, 7.5-brand-city-v1): Query brands and operators inside a selected real administrative area, keeping holes and separate parts. Distinguish unique names and map-element totals from catalog text matches, retain city scope while moving the map, and reuse it for location queries. Refresh the visible selected city every two minutes, preserve previous results on failures, label truncated counts as partial, and update the guide. Keep private data, rendering, complete snapshots and source timestamps.
+
 Version-7.5 Roof only v1 (2026-10-26, 7.5-roof-only-v1): Respect valid raised roof-only heights without a minimum wall allowance. Keep the 4–4.5 m single-slope roof from the reported tags open underneath, omit side/gable walls and native flat caps only after successful mesh takeover, and cast shadows from actual roof faces. Preserve real remaining wall heights, ordinary buildings, pavilions, whole-model fallback and source timestamps. This release also includes the brand catalog and pitch-memory updates below.
 
 Version-7.5 Brands v1 (included in 7.5-roof-only-v1): Integrate the user-supplied OGF brand/operator snapshot with lazy catalog browsing, top-search matches, category filters, exact live location queries, viewport discovery, and existing favorites/navigation actions. Initialize after the map is ready so category filters work on cold starts. Check visible selected-brand locations every two minutes and catalog revisions every five minutes; add an independent three-hour complete-catalog refresh workflow with bounded queries and atomic failure retention. Preserve imported source timestamps.

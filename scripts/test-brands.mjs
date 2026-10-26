@@ -39,6 +39,19 @@ assert.throws(() => brandDataQuery(new URL("https://map.test/api/brands?kind=bra
 assert.throws(() => brandDataQuery(new URL("https://map.test/api/brands?kind=brand&scope=view&name=x&south=0&north=60&west=0&east=100")));
 const countryScope = new URL("https://map.test/api/brands?kind=operator&mode=discover&scope=view&south=14&north=15&west=152&east=153");
 assert.equal(brandDataQuery(countryScope).limit, 2000);
+const cityScope = new URL("https://map.test/api/brands?kind=brand&mode=discover&scope=city&relation=8877");
+const cityDefinition = brandDataQuery(cityScope);
+assert.equal(cityDefinition.city, 8877);
+assert.ok(cityDefinition.query.includes('rel(8877)["boundary"="administrative"]'));
+assert.ok(cityDefinition.query.includes("map_to_area->.cityArea;.cityArea out count;"));
+assert.ok(cityDefinition.query.includes('nwr["brand"](area.cityArea)'), "城市按真实区域查询，不用店名、城市文字或包围盒筛选");
+assert.ok(!cityDefinition.query.includes("津川"));
+for (const id of ["", "0", "-1", "1);nwr;", "1.5", "9007199254740992"]) {
+  const invalid = new URL(cityScope); invalid.searchParams.set("relation", id);
+  assert.throws(() => brandDataQuery(invalid));
+}
+const cityLocations = new URL(cityScope); cityLocations.searchParams.set("mode", "locations"); cityLocations.searchParams.set("name", 'A "B";.*');
+assert.ok(brandDataQuery(cityLocations).query.includes(`["brand"=${JSON.stringify('A "B";.*')}](area.cityArea)`));
 assert.throws(() => completeElements({...payload(raw), remark: "timeout"}, "brand"));
 assert.throws(() => completeElements({elements: [count(4), ...raw]}, "brand"));
 assert.throws(() => completeElements(payload([raw[0], raw[0]]), "brand"));
@@ -97,6 +110,10 @@ globalThis.fetch = async (_url, options) => {
   if (mode === "wait") await new Promise(resolve => {waitResolve = resolve;});
   if (mode === "empty") return Response.json(payload([]));
   if (mode === "truncated") return Response.json({elements: [count(800), ...Array.from({length: 500}, (_, i) => node(i + 1, {brand: "大量"}))]});
+  if (mode === "city") return Response.json({...payload(raw), elements: [count(1), ...payload(raw).elements]});
+  if (mode === "city-no-area") return Response.json({elements: [count(0), count(0)]});
+  if (mode === "city-partial") return Response.json({elements: [count(1), count(2001), ...Array.from({length: 2000}, (_, i) => node(i + 1, {brand: `品牌${i}`}))]});
+  if (mode === "city-duplicate") return Response.json({elements: [count(1), count(2), raw[0], raw[0]]});
   return Response.json(payload(raw));
 };
 const api = suffix => worker.fetch(new Request(`https://map.test/api/brands?kind=brand&scope=world&name=test${suffix}`), {}, {});
@@ -122,6 +139,23 @@ try {
   await new Promise(resolve => setImmediate(resolve));
   const prior = upstream; waitResolve();
   assert.equal((await a).status, 200); assert.equal((await b).status, 200); assert.equal(upstream, prior, "共享并发品牌请求");
+  const cityApi = id => worker.fetch(new Request(`https://map.test/api/brands?kind=brand&mode=discover&scope=city&relation=${id}`), {}, {});
+  mode = "city";
+  const cityResult = await (await cityApi(8877)).json();
+  assert.equal(cityResult.total, 3); assert.equal(cityResult.cityRelation, 8877);
+  assert.equal(data.aggregate(cityResult.elements, "brand").length, 2, "不同分店按品牌去重，含不带城市文字的标签");
+  mode = "city-no-area";
+  const missingArea = await cityApi(8878);
+  assert.equal(missingArea.status, 502, "区域尚未生成不得报告零品牌或退回矩形");
+  assert.match((await missingArea.json()).error, /行政边界/u);
+  time += 121000;
+  const retainedCity = await (await cityApi(8877)).json();
+  assert.equal(retainedCity.stale, true); assert.equal(retainedCity.fetchedAt, cityResult.fetchedAt);
+  mode = "city-partial";
+  const partialCity = await (await cityApi(8879)).json();
+  assert.equal(partialCity.total, 2001); assert.equal(partialCity.truncated, true); assert.equal(partialCity.elements.length, 2000);
+  mode = "city-duplicate";
+  assert.equal((await cityApi(8880)).status, 502, "重复来源不能冒充完整行政区结果");
 } finally {globalThis.fetch = originalFetch; globalThis.caches = originalCaches; Date.now = originalNow;}
 const browserSource = await readFile(new URL("../site/brand-browser.js", import.meta.url), "utf8");
 function brandPage({ready, visible = true, panel = ""}) {
@@ -131,31 +165,36 @@ function brandPage({ready, visible = true, panel = ""}) {
     replaceChildren(...children) {this.children = children;}
     append(...children) {this.children.push(...children);}
     add(option) {this.children.push(option);}
+    scrollIntoView() {}
   }
   const nodes = new Map(), requests = [], intervals = new Set();
   const el = id => {
     if (!nodes.has(id)) nodes.set(id, new Element());
     return nodes.get(id);
   };
-  el("brand-kind").value = "brand"; el("brand-sort").value = "count";
+  el("brand-kind").value = "brand"; el("brand-sort").value = "count"; el("brand-scope").value = "world";
   el("brand-category").disabled = true;
   const window = Object.assign(new EventTarget(), {HuayuBrandData: data, location: {search: panel ? `?panel=${panel}` : ""}});
   const document = Object.assign(new EventTarget(), {getElementById: el, createElement: () => new Element(), hidden: false});
   let view = visible ? "brands" : "place", mapListeners = 0;
+  const mapEvents = {}, cityRequests = [];
   const atlas = {
-    getBrandMarkerLayer: () => ({clearLayers() {}}),
-    map: {on() {mapListeners++;}, hasLayer: () => false},
+    getBrandMarkerLayer: () => ({clearLayers() {}, addTo() {}}),
+    map: {on(event, callback) {mapListeners++; mapEvents[event] = callback;}, hasLayer: () => false,
+      getBounds: () => ({getSouth: () => 14, getNorth: () => 15, getWest: () => 152, getEast: () => 153}),
+      getCenter: () => ({lat: 14.6, lng: 152.9}), distance: () => 0},
+    findAdministrativeCities: query => new Promise((resolve, reject) => cityRequests.push({query, resolve, reject})),
     getCurrentView: () => view,
     openView(next) {view = next; window.HuayuBrandBrowser?.setActive(next === "brands");},
   };
   if (ready) window.HuayuAtlas = atlas;
   const context = vm.createContext({window, document, URLSearchParams, AbortSignal,
     Option: function(label, value) {this.textContent = label; this.value = value;},
-    fetch: () => new Promise((resolve, reject) => requests.push({resolve, reject})),
-    setInterval(fn) {intervals.add(fn); return fn;}, clearInterval: id => intervals.delete(id), clearTimeout,
+    fetch: (url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
+    setInterval(fn) {intervals.add(fn); return fn;}, clearInterval: id => intervals.delete(id), clearTimeout, setTimeout,
   });
   vm.runInContext(browserSource, context);
-  return {window, el, requests, intervals, context, get mapListeners() {return mapListeners;},
+  return {window, document, atlas, el, requests, intervals, context, mapEvents, cityRequests, get mapListeners() {return mapListeners;},
     ready() {window.HuayuAtlas = atlas; window.dispatchEvent(new Event("huayu:map-ready"));}};
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -197,4 +236,65 @@ assert.equal(failedPage.el("brand-category").disabled, false, "首次失败后�
 const unopenedPage = brandPage({ready: true, visible: false});
 assert.equal(unopenedPage.requests.length, 0, "未打开品牌页不加载目录");
 assert.equal(unopenedPage.intervals.size, 0);
-console.log("Brand catalog, literal queries, live cache age, failure retention, cancellation, delayed startup and category filtering checks passed.");
+const cityPage = brandPage({ready: true});
+cityPage.requests.shift().resolve(Response.json(candidate)); await settle();
+cityPage.el("brand-query").value = "津川";
+cityPage.el("brand-query").dispatchEvent(new Event("input"));
+assert.match(cityPage.el("brand-catalog-status").textContent, /文字匹配.*不是城市范围统计/u);
+const boundary = (id, name = "津川市") => ({osm_type: "relation", osm_id: id, name, display_name: `${name}, 华域`, extratags: {admin_level: "5"}});
+const submitCity = name => {cityPage.el("brand-city-query").value = name; cityPage.el("brand-city-form").dispatchEvent(new Event("submit"));};
+submitCity("津川");
+assert.equal(cityPage.cityRequests[0].query, "津川");
+cityPage.cityRequests.shift().resolve([boundary(8877), boundary(9900, "津川区")]); await settle();
+assert.equal(cityPage.el("brand-city-results").children.length, 2, "同名行政区保留独立选择，不暗中选择一个");
+cityPage.el("brand-city-results").children[0].dispatchEvent(new Event("click"));
+const cityRequest = cityPage.requests.shift(), cityParams = new URL(cityRequest.url, "https://map.test").searchParams;
+assert.equal(cityParams.get("scope"), "city"); assert.equal(cityParams.get("relation"), "8877");
+assert.equal(cityParams.has("south"), false, "城市发现不使用当前高倍率视野");
+cityPage.mapEvents.moveend();
+assert.equal(cityRequest.options.signal.aborted, false, "城市请求不被无关地图缩放取消");
+const citySnapshot = {...snapshot, cityRelation: 8877, dbTimestamp: "2026-10-24T06:46:50Z"};
+cityRequest.resolve(Response.json(citySnapshot)); await settle();
+assert.equal(cityPage.el("brand-query").value, "", "城市名不残留为分店文字过滤，避免再次漏品牌");
+assert.equal(cityPage.el("brand-catalog-list").children.filter(card => card.className === "brand-card").length, 2);
+assert.match(cityPage.el("brand-catalog-status").textContent, /津川市行政边界内.*2 个不同品牌.*3 个地图要素/u);
+cityPage.mapEvents.moveend();
+assert.match(cityPage.el("brand-catalog-status").textContent, /津川市行政边界内/u);
+assert.equal(cityPage.requests.length, 0, "地图移动保留城市统计，不重复查询");
+cityPage.el("brand-catalog-list").children[0].dispatchEvent(new Event("click"));
+const detailRequest = cityPage.requests.shift(), detailParams = new URL(detailRequest.url, "https://map.test").searchParams;
+assert.equal(detailParams.get("scope"), "city"); assert.equal(detailParams.get("relation"), "8877");
+detailRequest.resolve(Response.json({...citySnapshot, elements: [], total: 0})); await settle();
+assert.match(cityPage.el("brand-detail-status").textContent, /津川市行政边界内查询/u);
+cityPage.el("brand-detail-close").dispatchEvent(new Event("click"));
+cityPage.el("brand-kind").value = "operator"; cityPage.el("brand-kind").dispatchEvent(new Event("change"));
+const operatorRequest = cityPage.requests.shift(), operatorParams = new URL(operatorRequest.url, "https://map.test").searchParams;
+assert.equal(operatorParams.get("kind"), "operator"); assert.equal(operatorParams.get("relation"), "8877");
+operatorRequest.resolve(Response.json({...citySnapshot, elements: raw.filter(element => element.tags.operator), total: 2})); await settle();
+assert.match(cityPage.el("brand-catalog-status").textContent, /1 个不同运营者/u);
+cityPage.el("brand-live").checked = true;
+vm.runInContext("Date.now = () => " + (Date.now() + 121000), cityPage.context);
+for (const tick of cityPage.intervals) tick();
+const refreshCity = cityPage.requests.shift();
+assert.equal(new URL(refreshCity.url, "https://map.test").searchParams.get("relation"), "8877", "两分钟只更新当前城市和类型");
+refreshCity.reject(Error("offline")); await settle();
+assert.match(cityPage.el("brand-catalog-status").textContent, /失败.*保留旧结果/u);
+assert.equal(cityPage.el("brand-catalog-list").children[0].children[0].textContent, "运营公司");
+submitCity("旧城市"); const oldCitySearch = cityPage.cityRequests.shift();
+submitCity("新城市"); const newCitySearch = cityPage.cityRequests.shift();
+oldCitySearch.resolve([boundary(1234, "旧城市")]); await settle();
+assert.equal(cityPage.requests.length, 0, "迟到的行政区搜索不能开始旧城市统计");
+newCitySearch.resolve([boundary(8890, "新城市")]); await settle();
+const lateCityRequest = cityPage.requests.shift();
+cityPage.atlas.openView("place");
+assert.equal(lateCityRequest.options.signal.aborted, true, "退出品牌页取消城市统计");
+lateCityRequest.resolve(Response.json({...citySnapshot, cityRelation: 8890})); await settle();
+assert.ok(!cityPage.el("brand-catalog-status").textContent.includes("新城市行政边界内："));
+cityPage.atlas.openView("brands"); await settle();
+submitCity("大城市"); cityPage.cityRequests.shift().resolve([boundary(8891, "大城市")]); await settle();
+cityPage.requests.shift().resolve(Response.json({...citySnapshot, cityRelation: 8891, total: 2001, truncated: true})); await settle();
+assert.match(cityPage.el("brand-catalog-status").textContent, /部分中至少.*不是完整总数/u);
+cityPage.el("brand-reset").dispatchEvent(new Event("click"));
+assert.match(cityPage.el("brand-catalog-status").textContent, /全域目录文字匹配/u);
+assert.equal(cityPage.el("brand-city-scope").disabled, true);
+console.log("Brand catalog, literal queries, live cache age, failure retention, cancellation, delayed startup, category filtering and administrative city counts passed.");
