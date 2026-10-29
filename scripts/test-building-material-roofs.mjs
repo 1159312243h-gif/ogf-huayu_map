@@ -126,13 +126,17 @@ assert.equal(relationFeature.properties.roofModel,1,"关系建筑应保留材质
 
 let wallHeight, wallFilter = ["==", ["get", "structureKind"], "building"];
 const originalWallFilter = wallFilter;
+const originalCapFilter = ["any", ["has", "ancientKind"], ["has", "roof:colour"],
+  ["has", "roof:color"], ["has", "roofMaterialColor"]];
+let capFilter = originalCapFilter;
 const map = {
-  on(){},off(){},getStyle(){return {layers:[]};},getLayer(id){return id==="live-building";},
+  on(){},off(){},getStyle(){return {layers:[]};},getLayer(id){return ["live-building","roof-cap"].includes(id);},
   getPaintProperty(){return wallHeight;},setPaintProperty(id,name,value){if(name==="fill-extrusion-height")wallHeight=value;},
-  getFilter(){return wallFilter;}, setFilter(id, filter){wallFilter = filter;},
+  getFilter(id){return id==="roof-cap"?capFilter:wallFilter;},
+  setFilter(id, filter){if(id==="roof-cap")capFilter=filter;else wallFilter=filter;},
   getPitch(){return 45;},getZoom(){return 16;},triggerRepaint(){},removeLayer(){},
 };
-const options={enabled:true,satellite:false,night:false,buildingLayer:"live-building",wallDefault:"#aaa",
+const options={enabled:true,satellite:false,night:false,buildingLayer:"live-building",roofCapLayer:"roof-cap",wallDefault:"#aaa",
   roofDefault:"#999",ancientWall:"#876",ancientRoof:"#765"};
 const controller=roofs.sync(map,{type:"FeatureCollection",features:[materialOnly]},options);
 controller.setWallMode(true);
@@ -143,6 +147,7 @@ function evaluate(expression,feature) {
   const [op,...args]=expression,run=value=>evaluate(value,feature);
   if(op==="literal")return args[0];
   if(op==="get")return feature.properties[args[0]] ?? null;
+  if(op==="has")return feature.properties[args[0]]!==undefined;
   if(op==="id")return feature.id;
   if(op==="case")return run(args[0])?run(args[1]):run(args[2]);
   if(op==="all")return args.every(run);if(op==="any")return args.some(run);
@@ -152,10 +157,20 @@ function evaluate(expression,feature) {
   if(op==="concat")return args.map(run).join("");
   if(op==="to-string")return String(run(args[0]));
   if(op==="coalesce")return args.map(run).find(v=>v!==null && v!==undefined);
+  if(op==="+")return args.map(run).reduce((a,b)=>a+b,0);
+  if(op==="to-color"){
+    for(const argument of args){const value=run(argument);if(typeof value==="string" && value.startsWith("#"))return value;}
+    return undefined;
+  }
   throw new Error(`Unexpected paint operator: ${op}`);
 }
 const tiled={...materialOnly,id:0};
 assert.equal(evaluate(wallHeight,tiled),8,"tiled string IDs must not leave a flat cap hiding the modeled roof");
+assert.equal(evaluate(capFilter,tiled),false,"成功坡顶不能被同源平顶颜色盖板遮挡");
+const coloredComplex=model({height:"8","building:colour":"#ffffff","roof:colour":"#575757",
+  "roof:shape":"gabled"},pentagon);
+coloredComplex.properties.osmId="3";
+assert.equal(evaluate(capFilter,coloredComplex),true,"复杂轮廓回退仍保留独立屋顶颜色");
 for(const properties of [{...tiled.properties,osmType:"relation"},{...tiled.properties,osmId:"2"},
   {...tiled.properties,roofModel:undefined}])assert.equal(evaluate(wallHeight,{...tiled,properties}),10,
     "unmodeled objects keep their complete native height, including way/relation ID collisions");
@@ -163,11 +178,13 @@ const modeledItems=controller.items;controller.items=[];controller.setWallMode(t
 assert.equal(evaluate(wallHeight,tiled),10,"valid roof tags alone cannot shorten walls after the mesh budget excludes a building");
 controller.items=modeledItems;
 controller.setWallMode(false);
+assert.deepEqual(capFilter,originalCapFilter,"俯视、卫星或模型失败恢复完整顶面过滤");
 assert.deepEqual(JSON.parse(JSON.stringify(wallHeight)),["get","renderHeight"],
   "坡屋顶关闭或失败时墙体必须恢复完整平屋顶高度");
 controller.update({type:"FeatureCollection",features:[roofOnly,materialOnly]}, options);
 controller.setWallMode(true);
 assert.equal(evaluate(wallFilter, roofOnly), false, "成功屋面接管后排除零厚度原生挤出的平顶盖板");
+assert.equal(evaluate(capFilter,roofOnly),false,"零墙高屋面接管后不能重新添加水平底板");
 assert.equal(evaluate(wallFilter, materialOnly), true, "普通建筑墙体不受屋面过滤影响");
 assert.equal(evaluate(wallFilter, {...roofOnly, properties:{...roofOnly.properties,osmType:"relation"}}), true,
   "同号关系与道路不能混淆，只接管实际已建模的要素");
@@ -183,6 +200,44 @@ map.getPitch=()=>0;
 controller.update(controller.data,{...options,satellite:false});
 assert.equal(controller.wanted(),false,"俯视不得启用三维坡屋顶");
 roofs.dispose(map);
+
+// Exercise the production layer definitions, so separate roof colours cannot
+// silently disappear when a valid footprint needs the native flat fallback.
+const appSource=await readFile(new URL("../site/app.js",import.meta.url),"utf8");
+const layerDefinitions=new Map(),sources=new Set();
+Object.assign(runtime,{
+  HUAYU_LIVE_BUILDING_SOURCE:"buildings",HUAYU_LIVE_BUILDING_LAYER:"live-building",HUAYU_LIVE_BUILDING_MIN_ZOOM:10,
+  HUAYU_CITY_WALL_LAYERS:{fill:"wall"},HUAYU_ANCIENT_BUILDING_LAYERS:{roof:"roof-cap",outline:"outline"},
+  huayuCityWallInsertionLayer:()=>undefined,positionHuayuSportsBelowBuildings:()=>{},
+  positionHuayuWallsAboveBuildings:()=>{},positionHuayuElevatedGreenAboveBuildings:()=>{},
+  huayuOverlayPalette:()=>({night:false,buildingColors:["#aaa","#bbb","#ccc","#ddd","#eee"],
+    ancientWall:"#fff",ancientRoof:"#555",ancientOutline:"#333",buildingOpacity:1}),
+});
+for(const name of ["huayuBuildingColorExpression","ensureHuayuLiveBuildingLayer"])
+  vm.runInContext(appSource.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`,"u"))[0],runtime);
+runtime.ensureHuayuLiveBuildingLayer({getStyle:()=>({layers:[{id:"ground"}]}),
+  getSource:id=>sources.has(id),addSource:id=>sources.add(id),getLayer:id=>layerDefinitions.get(id),
+  addLayer:layer=>layerDefinitions.set(layer.id,layer)});
+assert.equal(layerDefinitions.size,3,"颜色恢复复用既有顶面层，不增加模型图层");
+const capDefinition=layerDefinitions.get("roof-cap"),wallDefinition=layerDefinitions.get("live-building");
+const flat=model({height:"8","roof:shape":"flat","building:colour":"#ffffff","roof:colour":"#575757"});
+const holed=runtime.huayuLiveBuildingFeatureCollection([
+  {type:"relation",id:810,tags:{building:"yes",type:"multipolygon",height:"8","roof:shape":"gabled",
+    "roof:colour":"#575757","building:colour":"#ffffff"},members:[{type:"way",ref:811,role:"outer"},{type:"way",ref:812,role:"inner"}]},
+  {...rectangle({},[[0,0],[.0002,0],[.0002,.0002],[0,.0002],[0,0]]),id:811,tags:{}},
+  {...rectangle({},[[.00005,.00005],[.00015,.00005],[.00015,.00015],[.00005,.00015],[.00005,.00005]]),id:812,tags:{}},
+]).features[0];
+assert.equal(holed.geometry.coordinates.length,2,"庭院孔洞必须留在原始同源轮廓中");
+for(const feature of [flat,coloredComplex,holed]) {
+  assert.equal(evaluate(capDefinition.filter,feature),true);
+  assert.equal(evaluate(capDefinition.paint["fill-extrusion-color"],feature),"#575757");
+  assert.equal(evaluate(wallDefinition.paint["fill-extrusion-color"],feature),"#ffffff");
+  assert.equal(evaluate(capDefinition.paint["fill-extrusion-height"],feature),8);
+  assert.equal(evaluate(capDefinition.paint["fill-extrusion-base"],feature),8,"仅涂顶面，不添加厚度或改总高");
+}
+const ancient=model({building:"temple",height:"8"});
+assert.ok(evaluate(capDefinition.paint["fill-extrusion-height"],ancient)>8,"保留原先古建筑薄压檐");
+assert.equal(evaluate(capDefinition.filter,model({height:"8"})),false,"未标屋顶颜色的普通建筑不强制改色");
 
 // Exercise the actual mesh/material path: the upper walls must use the same
 // evaluated colour as native extrusions, including palette/material fallbacks.

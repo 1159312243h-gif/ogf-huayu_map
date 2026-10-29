@@ -2,7 +2,7 @@
   "use strict";
 
   const LAYER_ID = "ogf-atlas-building-roofs";
-  const VERSION = "7.5-roof-only-v1";
+  const VERSION = "8.0-roof-restore-v2";
   const SUPPORTED = new Set(["flat", "gabled", "gabled_height_moved", "skillion", "hipped",
     "half-hipped", "side_hipped", "side_half-hipped", "mansard", "gambrel", "hipped-and-gabled",
     "pyramidal", "crosspitched", "sawtooth", "butterfly", "cone", "dome", "onion", "round"]);
@@ -338,6 +338,13 @@
       const roofOnly = shaped ? this.items.filter(item => item.feature.properties?.roofOnly === 1) : [];
       const filter = roofOnly.length ? ["all", this.wallFilter ?? true, ["!", matches(roofOnly)]] : this.wallFilter;
       if (JSON.stringify(this.map.getFilter(layer) ?? null) !== JSON.stringify(filter)) this.map.setFilter(layer, filter);
+      const cap = this.options.roofCapLayer;
+      if (cap && this.map.getLayer(cap)) {
+        if (this.capFilter === undefined) this.capFilter = this.map.getFilter(cap) ?? null;
+        const capFilter = shaped && this.items.length
+          ? ["all", this.capFilter ?? true, ["!", matches(this.items)]] : this.capFilter;
+        if (JSON.stringify(this.map.getFilter(cap) ?? null) !== JSON.stringify(capFilter)) this.map.setFilter(cap, capFilter);
+      }
     }
 
     async apply() {

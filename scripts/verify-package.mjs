@@ -463,6 +463,7 @@ const vectorBuildingLayers = ["building", "building-top", "building-3d"];
 const ancientBuildingLayers = { roof: "ancient-roof", outline: "ancient-outline" };
 const pavilionLayers = ["pavilion-base", "pavilion-columns", "pavilion-roof"];
 const busFacilityLayers = { model: "bus-facility-model" };
+const modelInsideExpression = Function(`return (${app.match(/function huayuModelInsideExpression\([^]*?\n  \}/u)[0]});`)();
 const buildingLayerState = new Map([
   ...vectorBuildingLayers.map((id) => [id, "visible"]),
   ["live-building", "none"],
@@ -483,22 +484,22 @@ const buildingMap = {
 };
 const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
   "HUAYU_PAVILION_COLUMN_LAYER", "HUAYU_PAVILION_LAYER", "HUAYU_BUS_FACILITY_LAYERS", "window", "huayuLiveBuildingStates",
-  "huayuStructureStates","huayuModelFeatureInside",
+  "huayuStructureStates","huayuModelFeatureInside","huayuModelInsideExpression",
   `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {},
   {get:()=>buildingOwnerState},{get:()=>ownerPavilions},
-  Function(`return (${app.match(/function huayuModelFeatureInside\([^]*?\n  \}/u)[0]});`)());
+  Function(`return (${app.match(/function huayuModelFeatureInside\([^]*?\n  \}/u)[0]});`)(),modelInsideExpression);
 const facilityOwnershipCalls = [];
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
   "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuBuildingRoofs", "syncHuayuStructureModels",
-  "window", "syncHuayuFacilityModels",
+  "window", "syncHuayuFacilityModels","huayuModelInsideExpression",
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
   ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {}, {HuayuFacilityModels: {}},
-  () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive));
+  () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive),modelInsideExpression);
 const detailCoverage={type:"MultiPolygon",coordinates:[[[[0,0],[2,0],[2,2],[0,2],[0,0]]]]};
 const buildingOwnerState = { primaryActive: false,renderCoverage:detailCoverage };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "visible"
-    && JSON.stringify(buildingLayerFilters.get(id))===JSON.stringify(["all",true,["!",["within",detailCoverage]]]))
+    && JSON.stringify(buildingLayerFilters.get(id))===JSON.stringify(["all",true,["!",modelInsideExpression(detailCoverage)]]))
   && ["live-building", ...Object.values(ancientBuildingLayers)]
     .every((id) => buildingLayerState.get(id) === "visible")
   && buildingOwnerState.primaryActive,
@@ -508,7 +509,7 @@ assert.deepEqual(buildingLayerFilters.get("pavilion-roof"),
     ["in",["concat",["get","osmType"],":",["to-string",["get","osmId"]]],["literal",["way:p1"]]]]],
   "面状亭子仅在建筑完整接管窗口内显示，节点亭子保留");
 assert.deepEqual(buildingLayerFilters.get("bus-facility-model"), ["all",["has", "busFacilityPart"],["any",
-  ["!=",["coalesce",["get","buildingReplacement"],0],1],["within",detailCoverage]]],
+  ["!=",["coalesce",["get","buildingReplacement"],0],1],modelInsideExpression(detailCoverage)]],
   "面状候车亭遵守同一完整窗口，窗口外保留原建筑");
 syncBuildingOwners(buildingMap, buildingOwnerState, false);
 assert.ok(vectorBuildingLayers.every((id) => buildingLayerState.get(id) === "visible")
@@ -527,7 +528,7 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 assert.ok(vectorBuildingLayers.every(id=>buildingLayerFilters.get(id)===null),"失败回退恢复原矢量过滤，不残留空白窗口");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=8.0-view-performance-v1')
+assert.ok(index.includes('building-roofs.js?v=8.0-roof-restore-v2')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")
@@ -1525,6 +1526,8 @@ const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-mode
 assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
 const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-loading.mjs")]);
 assert.equal(modelLoadingTest.status, 0, `模型加载回归失败：${modelLoadingTest.stderr}`);
+const buildingOwnershipTest = await runCheck([path.join(root,"scripts","test-building-ownership.mjs")]);
+assert.equal(buildingOwnershipTest.status,0,`建筑接管与屋顶遮挡回归失败：${buildingOwnershipTest.stderr}`);
 const gardenModelsTest = await runCheck([path.join(root,"scripts","test-garden-models.mjs")]);
 assert.equal(gardenModelsTest.status, 0, `花园模型回归失败：${gardenModelsTest.stderr}`);
 const vegetationSettingsTest = await runCheck([path.join(root,"scripts","test-vegetation-settings.mjs")]);

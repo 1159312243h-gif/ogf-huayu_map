@@ -28311,7 +28311,7 @@
     if (glMap.getLayer(HUAYU_BUS_FACILITY_LAYERS.model)) {
       const partFilter = ["has", "busFacilityPart"];
       const filter = ["all", partFilter, ["any",
-        ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1], coverage ? ["within",coverage] : false]];
+        ["!=", ["coalesce", ["get", "buildingReplacement"], 0], 1], coverage ? huayuModelInsideExpression(coverage) : false]];
       if (JSON.stringify(glMap.getFilter?.(HUAYU_BUS_FACILITY_LAYERS.model)) !== JSON.stringify(filter)) {
         glMap.setFilter(HUAYU_BUS_FACILITY_LAYERS.model, filter);
       }
@@ -28329,6 +28329,7 @@
       satellite: Boolean(palette.satellite),
       night: Boolean(palette.night),
       buildingLayer: HUAYU_LIVE_BUILDING_LAYER,
+      roofCapLayer: HUAYU_ANCIENT_BUILDING_LAYERS.roof,
       wallDefault: palette.buildingColors[1],
       roofDefault: palette.buildingColors[2],
       ancientWall: palette.ancientWall,
@@ -28360,11 +28361,12 @@
     // buildings straddling its edge keep their original vector fallback.
     state.publishedBuildingFilters ||= new Map();
     const coverage = nextEnabled ? state.renderCoverage : null;
+    const inside = coverage && huayuModelInsideExpression(coverage);
     HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach(layerId => {
       if (!glMap.getLayer(layerId)) return;
       if (!state.publishedBuildingFilters.has(layerId)) state.publishedBuildingFilters.set(layerId,glMap.getFilter(layerId) ?? null);
       const original = state.publishedBuildingFilters.get(layerId);
-      const filter = coverage ? ["all", original ?? true, ["!",["within",coverage]]] : original;
+      const filter = coverage ? ["all", original ?? true, ["!",inside]] : original;
       if (JSON.stringify(glMap.getFilter(layerId) ?? null) !== JSON.stringify(filter)) glMap.setFilter(layerId,filter);
     });
     if (nextEnabled) {
@@ -28470,15 +28472,21 @@
         type: "fill-extrusion",
         source: HUAYU_LIVE_BUILDING_SOURCE,
         minzoom: 14,
-        filter: ["all", ["has", "ancientKind"], ["!", ["has", "roofModel"]]],
+        filter: ["any", ["has", "ancientKind"], ["has", "roof:colour"],
+          ["has", "roof:color"], ["has", "roofMaterialColor"]],
         layout: { visibility: "none" },
         metadata: {
           "huayu:component": "ancient-building-roof-cap",
           "huayu:geometry-source": "ogf-overpass-building-tiles",
         },
         paint: {
-          "fill-extrusion-color": huayuBuildingColorExpression(palette.ancientRoof, true, palette.night),
-          "fill-extrusion-height": ["+", ["get", "renderHeight"], ["get", "roofCapHeight"]],
+          "fill-extrusion-color": huayuBuildingColorExpression(
+            ["case", ["has", "ancientKind"], ["to-color", palette.ancientRoof],
+              ["to-color", palette.buildingColors[2]]], true, palette.night),
+          // Reuse the existing cap for tagged flat/complex roofs. Equal top
+          // and base paint only the top, preserving walls, holes and height.
+          "fill-extrusion-height": ["case", ["all", ["has", "ancientKind"], ["!", ["has", "roofModel"]]],
+            ["+", ["get", "renderHeight"], ["get", "roofCapHeight"]], ["get", "renderHeight"]],
           "fill-extrusion-base": ["get", "renderHeight"],
           "fill-extrusion-opacity": 1,
           "fill-extrusion-vertical-gradient": false,
@@ -28809,6 +28817,32 @@
     visit(feature.geometry?.coordinates);
     return positions.length > 0 && coverage.coordinates.some(([ring]) => positions.every(([x,y]) =>
       x > ring[0][0] && x < ring[1][0] && y > ring[0][1] && y < ring[2][1]));
+  }
+
+  function huayuModelInsideExpression(coverage) {
+    // MapLibre's within supports points/lines, not building polygons. A
+    // polygon has positive distance to the OUTSIDE only if every part is
+    // strictly inside the completed window; boundary-crossing features keep
+    // their whole native fallback. No per-frame geometry query or clipping.
+    if (!coverage?.coordinates?.length) return false;
+    const ranges = coverage.coordinates.map(([ring]) => [ring[0][0],ring[1][0]])
+      .sort((a,b) => a[0]-b[0]);
+    const south = coverage.coordinates[0][0][0][1], north = coverage.coordinates[0][0][2][1];
+    const features = [];
+    const rectangle = (west,bottom,east,top) => {
+      if (!(west < east && bottom < top)) return;
+      features.push({type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[
+        [[west,bottom],[east,bottom],[east,top],[west,top],[west,bottom]],
+      ]}});
+    };
+    // Separate valid rectangles also cover windows touching the date line;
+    // do not construct polygon holes that touch the outer world boundary.
+    rectangle(-180,-85.051129,180,south);
+    rectangle(-180,north,180,85.051129);
+    let west = -180;
+    ranges.forEach(([start,end]) => {rectangle(west,south,start,north);west=Math.max(west,end);});
+    rectangle(west,south,180,north);
+    return [">",["distance",{type:"FeatureCollection",features}],0];
   }
 
   function huayuModelResidentTiles(state, readyKeys, byteLimit) {
