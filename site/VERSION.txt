@@ -1,6 +1,8 @@
 华域地图 v8.0
-Released: 2026-10-29
+Released: 2026-10-30
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-railway-refresh-v1 (2026-10-30): Verify baseline-only railway IDs against current OGF data instead of unconditionally restoring old tracks. Confirm missing objects and unresolved geometry through the primary API; preserve live sidings, current node geometry, complete-count checks and failed-update retention. Keep confirmed removals out of supplements and inferred connection graphs. Revalidate already-loaded national railway packages on the existing five-minute generation check, atomically replace matching topology and supplement, and retry failed or stale refreshes without clearing the displayed data. Preserve the restored roof shapes, colors, sunlight, station rules and all update intervals. Deployment status is verified separately.
 
 Release build 8.0-roof-restore-v2 (2026-10-29): Restore the previously designed roof shapes, directions, wall colors, roof colors and materials by removing native building occlusion inside completed live-model windows. Use the bundled engine's polygon-capable distance expression instead of unsupported polygon within filters; keep complete boundary-crossing and distant fallback buildings. Apply the same ownership predicate to building-replacing bus shelters. Reuse the existing cap layer to preserve tagged roof colors/materials on flat, concave and courtyard fallbacks without raising ordinary roofs or filling holes. Exclude only successful sloped meshes from the cap, including roof-only canopies; restore exact filters on failure and overhead fallback. Preserve all geometry, model caches, source timestamps, sunlight settings, performance work and refresh intervals. Deployment status is verified separately by GitHub Actions and production checks.
 

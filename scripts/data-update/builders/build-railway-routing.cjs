@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const {gzipSync} = require("node:zlib");
 const {createHash} = require("node:crypto");
+const {refreshRailwayWays, assertBaselineRetention} = require("./refresh-railway-ways.cjs");
 
 (async () => {
   const elements = new Map();
@@ -32,16 +33,6 @@ const {createHash} = require("node:crypto");
   const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
   const baselineIds = new Set((baseline.ways || []).map((way) => way[0]));
   if (baselineIds.size < 8000) throw new Error(`Published railway baseline is unexpectedly small: ${baselineIds.size}`);
-  for (const way of baseline.ways || []) {
-    if (elements.has(way[0])) continue;
-    elements.set(way[0], {
-      type: "way",
-      id: way[0],
-      nodes: way[1],
-      geometry: (way[2] || []).map((point) => ({ lat: point[0], lon: point[1] })),
-      tags: { name: way[3] || "", maxspeed: way[4] || "", highspeed: way[5] ? "yes" : "" },
-    });
-  }
   const batchDirectory = "work/railway-routing-way-batches";
   if (fs.existsSync(batchDirectory)) for (const filename of fs.readdirSync(batchDirectory)) {
     const payload = JSON.parse(fs.readFileSync(`${batchDirectory}/${filename}`, "utf8"));
@@ -84,12 +75,21 @@ const {createHash} = require("node:crypto");
   }
   await worker();
   if(failed.length)throw new Error(`Incomplete railway batches: ${JSON.stringify(failed)}`);
-  const allowedWayIds = new Set([...sourceIds, ...baselineIds, ...additionalRegionWayIds]);
-  const ways = [...elements.values()].filter(way=>allowedWayIds.has(way.id)
-    && way.type==="way" && way.nodes?.length===way.geometry?.length
-    && way.geometry.length>1 && way.geometry.every(point=>Number.isFinite(point?.lat)&&Number.isFinite(point?.lon)));
+  const isCurrentRailway = way => way?.type === "way"
+    && ["rail", "narrow_gauge", "subway", "light_rail", "tram", "monorail"].includes(way.tags?.railway)
+    && way.nodes?.length === way.geometry?.length && way.geometry?.length > 1
+    && way.geometry.every(point => Number.isFinite(point?.lat) && Number.isFinite(point?.lon));
+  const absentBaselineIds = [...baselineIds].filter(id => !isCurrentRailway(elements.get(id)));
+  const refreshed = await refreshRailwayWays(absentBaselineIds, {
+    onBatch: ({offset, total, returned}) => console.log(`Verify published railways ${Math.min(offset + 350, total)}/${total}: ${returned} current ways`),
+  });
+  refreshed.ways.forEach(way => elements.set(way.id, way));
+  const removedWayIds = new Set(refreshed.verification.removed.map(item => item.id));
+  const allowedWayIds = new Set([...sourceIds, ...baselineIds, ...additionalRegionWayIds].filter(id => !removedWayIds.has(id)));
+  const ways = [...elements.values()].filter(way=>allowedWayIds.has(way.id) && isCurrentRailway(way));
   if(ways.length<8000)throw new Error(`Insufficient cached railway data: ${ways.length} ways`);
   const validIds = new Set(ways.map(way => way.id));
+  assertBaselineRetention(baselineIds, validIds, refreshed.verification);
   // These two current OGF ways each contain only one node. They are valid
   // tagged objects but cannot form a drawable or routable line segment.
   const invalidSourceWayIds = [592659, 2473820].filter(id => sourceIds.includes(id));
@@ -154,7 +154,8 @@ const {createHash} = require("node:crypto");
   const data = {format:1,generatedAt:new Date().toISOString(),source:"OpenGeofiction",
     coverage:{sourceWays:sourceIds.length,drawableSourceWays:sourceIds.length-invalidSourceWayIds.length,
       missingWays:missingSourceIds.length,invalidSourceWayIds,complete:!missingSourceIds.length,
-      sourceRule:'railway=rail|narrow_gauge and no service tag',baseline:'published-snapshot-compatible-current-ids',
+      sourceRule:'railway=rail|narrow_gauge and no service tag',baseline:'current-source-verified',
+      baselineVerification:refreshed.verification,
       additionalCountries:["Kadah (卡达赫)"],additionalRegions:["AR925 Loongchuan (龙川市)"]},
     stations:[...stations.values()],places:[...places.values()],
     ways:ways.map(way=>[
@@ -164,5 +165,8 @@ const {createHash} = require("node:crypto");
   const json = JSON.stringify(data);
   fs.writeFileSync("outputs/ogf-atlas/railway-routing.json",json);
   console.log(JSON.stringify({ways:ways.length,stations:stations.size,places:places.size,points:ways.reduce((sum,way)=>sum+way.nodes.length,0),
-    bytes:Buffer.byteLength(json),gzipBytes:gzipSync(json).length,coverage:data.coverage,sharedNodeTopologyPreserved:true},null,2));
+    bytes:Buffer.byteLength(json),gzipBytes:gzipSync(json).length,coverage:{...data.coverage,
+      baselineVerification:{checkedWays:refreshed.verification.checkedWayIds.length,
+        retainedWays:refreshed.ways.length,removedWays:refreshed.verification.removed.length,
+        sourceTimestamps:refreshed.verification.sourceTimestamps}},sharedNodeTopologyPreserved:true},null,2));
 })().catch(error=>{console.error(error);process.exitCode=1;});

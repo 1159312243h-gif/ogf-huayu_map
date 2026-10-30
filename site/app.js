@@ -1195,7 +1195,7 @@
   let railwayRoutingPromise = null;
   let railwayRoutingLoadFailed = false;
   let railwayConnectionsData = null;
-  let railwayConnectionsPromise = null;
+  let railwayRoutingPreloadGeneration = 0;
   const railwayRoutingWayBoundsCache = new Map();
   let allowInferredRailConnections = true;
   let airportDataPromise = null;
@@ -5756,16 +5756,33 @@
     return byLine;
   }
 
-  async function ensureRailwayRoutingLoaded() {
-    if (railwayRoutingData) return true;
+  async function ensureRailwayRoutingLoaded(options = {}) {
+    const revalidate = Boolean(options.revalidate);
+    const generation = options.preloadGeneration || transitPreloadGeneratedAt;
+    if (railwayRoutingData && (!revalidate || generation <= railwayRoutingPreloadGeneration)) return true;
     if (!railwayRoutingPromise) railwayRoutingPromise = (async () => {
       railwayRoutingLoadFailed = false;
       try {
-        const payload = await fetchJson(RAILWAY_ROUTING_URL, 45000);
-        if (payload.format !== 1 || !payload.ways?.length) throw new Error("INVALID_RAILWAY_TOPOLOGY");
-        railwayRoutingData = payload;
-        await ensureRailwayConnectionsLoaded();
-        mergeRailwayConnectionWays();
+        const requestOptions = revalidate ? {cache: "no-cache"} : {};
+        const [routing, connections] = await Promise.all([
+          fetchJson(RAILWAY_ROUTING_URL, 45000, requestOptions),
+          fetchJson(RAILWAY_CONNECTIONS_URL, 45000, requestOptions),
+        ]);
+        const prepared = prepareRailwayPackages(routing, connections, revalidate);
+        if (revalidate && Date.parse(routing.generatedAt) <= Date.parse(railwayRoutingData?.generatedAt)) {
+          throw new Error("STALE_RAILWAY_GENERATION");
+        }
+        // Commit both complete packages together. A failed refresh keeps the
+        // displayed topology, including its matching supplement and caches.
+        railwayRoutingData = prepared.routing;
+        railwayConnectionsData = prepared.connections;
+        railwayRoutingPreloadGeneration = generation;
+        railInfrastructureGraphCache = null;
+        transitAtlasRailGraphCache = null;
+        railwayRoutingWayBoundsCache.clear();
+        invalidateTransitRoutingCaches();
+        if (mapViewMode === "transit") scheduleTransitNetworkRender();
+        if (transitAtlasCity && !transitAtlasSourceLoad) rebuildTransitAtlasModel();
         return true;
       } catch {
         railwayRoutingLoadFailed = true;
@@ -5812,37 +5829,29 @@
       && links.filter((link) => link.kind !== "planned-extension").reduce((sum, link) => sum + link.distance, 0) <= 3000;
   }
 
-  function mergeRailwayConnectionWays() {
-    if (!railwayRoutingData || !railwayConnectionsData || railwayRoutingData.connections) return;
-    const byId = new Map(railwayRoutingData.ways.map((way) => [way[0], way]));
-    railwayConnectionsData.ways.forEach((way) => { byId.set(way[0], way); });
-    railwayRoutingData = { ...railwayRoutingData, ways: [...byId.values()], connections: railwayConnectionsData.links };
-    railInfrastructureGraphCache = null;
-  }
-
-  async function ensureRailwayConnectionsLoaded() {
-    if (railwayConnectionsData) return true;
-    if (!railwayConnectionsPromise) railwayConnectionsPromise = (async () => {
-      try {
-        const payload = await fetchJson(RAILWAY_CONNECTIONS_URL, 15000);
-        if (payload.format !== 1 || !Array.isArray(payload.ways) || !Array.isArray(payload.links)
-          || payload.links.some((link) => !validInferredRailLink(link))
-          || payload.ways.some((way) => !Array.isArray(way) || !Array.isArray(way[1]) || !Array.isArray(way[2])
-            || way[1].length !== way[2].length || way[2].length < 2
-            || way[2].some((point) => point.length !== 2 || !point.every(Number.isFinite)))) throw new Error("INVALID_RAIL_SUPPLEMENT");
-        railwayConnectionsData = payload;
-        railwayConnectionsData.displayLines = payload.ways.map((way) => ({id: way[0],
-          geometry: way[2].map(([lat, lon]) => ({lat, lon})), label: way[3] || "铁路"}));
-        railwayConnectionsData.displayLinks = payload.links.map((link) => ({...link,
-          geometry: link.geometry.map(([lat, lon]) => ({lat, lon}))}));
-        mergeRailwayConnectionWays();
-        if (transitNetworkData && mapViewMode === "transit") scheduleTransitNetworkRender();
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-    return railwayConnectionsPromise;
+  function prepareRailwayPackages(routing, supplement, requireGeneration = false) {
+    const validWay = way => Array.isArray(way) && Array.isArray(way[1]) && Array.isArray(way[2])
+      && way[1].length === way[2].length && way[2].length >= 2
+      && way[2].every(point => Array.isArray(point) && point.length === 2 && point.every(Number.isFinite));
+    if (routing?.format !== 1 || !Number.isFinite(Date.parse(routing.generatedAt))
+      || !routing.ways?.length || routing.coverage?.complete === false
+      || routing.ways.some(way => !validWay(way))) throw new Error("INVALID_RAILWAY_TOPOLOGY");
+    if (supplement?.format !== 1 || !Array.isArray(supplement.ways) || !Array.isArray(supplement.links)
+      || supplement.links.some(link => !validInferredRailLink(link))
+      || supplement.ways.some(way => !validWay(way))) throw new Error("INVALID_RAIL_SUPPLEMENT");
+    if ((requireGeneration || supplement.routingGeneratedAt)
+      && supplement.routingGeneratedAt !== routing.generatedAt) throw new Error("MIXED_RAILWAY_GENERATIONS");
+    const removed = new Set((routing.coverage?.baselineVerification?.removed || []).map(item => item.id));
+    if ([...routing.ways, ...supplement.ways].some(way => removed.has(way[0]))) {
+      throw new Error("REMOVED_RAILWAY_REINTRODUCED");
+    }
+    const byId = new Map(routing.ways.map(way => [way[0], way]));
+    supplement.ways.forEach(way => byId.set(way[0], way));
+    return {routing: {...routing, ways: [...byId.values()], connections: supplement.links},
+      connections: {...supplement, displayLines: supplement.ways.map(way => ({id: way[0],
+        geometry: way[2].map(([lat, lon]) => ({lat, lon})), label: way[3] || "铁路"})),
+      displayLinks: supplement.links.map(link => ({...link,
+        geometry: link.geometry.map(([lat, lon]) => ({lat, lon}))}))}};
   }
 
   function railLineCandidatesForStop(stop, graph) {
@@ -9821,6 +9830,9 @@
       ]);
       transitPreloadLastCheckedAt = Date.now();
       const generatedAt = Date.parse(String(payload?.generatedAt || ""));
+      if (revalidate && railwayRoutingData && Number.isFinite(generatedAt)) {
+        await ensureRailwayRoutingLoaded({revalidate: true, preloadGeneration: generatedAt});
+      }
       if (revalidate && Number.isFinite(generatedAt) && generatedAt <= transitPreloadGeneratedAt
         && transitPreloadSnapshots.length) return true;
       const nextSnapshots = hydrateTransitPreloadSnapshots(payload);

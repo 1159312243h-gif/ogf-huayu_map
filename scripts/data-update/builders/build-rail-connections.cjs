@@ -1,9 +1,10 @@
 const fs=require("node:fs");
-const {createHash}=require("node:crypto");
+const {refreshRailwayWays}=require("./refresh-railway-ways.cjs");
 const d=require("./rail-gap-diagnosis.cjs");
 const {graph}=d;
 const original=require("../outputs/ogf-atlas/railway-routing.json");
 const originalById=new Map(original.ways.map(w=>[w[0],w]));
+const removedWayIds=new Set((original.coverage?.baselineVerification?.removed||[]).map(item=>item.id));
 const nodeRefs=new Map(),nodeLines=new Map();
 graph.lines.forEach(l=>l.nodeIds.forEach((id,i)=>{
   nodeRefs.set(id,l.nodeRefs[i]);
@@ -91,41 +92,21 @@ const compact=w=>[w.id,w.nodes,w.geometry.map(p=>[p.lat,p.lon]),w.tags?.name||""
   if(fs.existsSync(baselinePath)) {
     const baseline=JSON.parse(fs.readFileSync(baselinePath,"utf8"));
     const missingIds=[...new Set((baseline.ways||[]).map(w=>w[0])
-      .filter(id=>!originalById.has(id)&&!wayMap.has(String(id))))];
+      .filter(id=>!removedWayIds.has(id)&&!originalById.has(id)&&!wayMap.has(String(id))))];
     if(missingIds.length) {
-      const hash=createHash("sha256").update(JSON.stringify(missingIds)).digest("hex").slice(0,16);
-      const cachePath=`work/railway-connections-baseline-refresh-${hash}.json`;
-      let current=fs.existsSync(cachePath)?JSON.parse(fs.readFileSync(cachePath,"utf8")):null;
-      let lastError;
-      for(let attempt=1;!current&&attempt<=3;attempt+=1) {
-        try {
-          const query=`[out:json][timeout:90];way(id:${missingIds.join(",")});out body geom;`;
-          const response=await fetch("https://overpass.opengeofiction.net/api/interpreter",{
-            method:"POST",headers:{"content-type":"application/x-www-form-urlencoded;charset=UTF-8"},
-            body:`data=${encodeURIComponent(query)}`,signal:AbortSignal.timeout(120000),
-          });
-          const body=await response.text();
-          if(!response.ok)throw new Error(`Overpass ${response.status}: ${body.slice(0,500)}`);
-          current=JSON.parse(body);
-          if(current.remark||!Array.isArray(current.elements))throw new Error(current.remark||"malformed baseline railway response");
-          fs.writeFileSync(cachePath,JSON.stringify(current));
-        } catch(error) {
-          lastError=error;
-          if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*2000));
-        }
-      }
-      if(!current)throw lastError;
-      for(const way of current.elements||[]) {
-        if(way.type!=="way"||!["rail","narrow_gauge"].includes(way.tags?.railway)
-          ||!Array.isArray(way.nodes)||!Array.isArray(way.geometry)
-          ||way.nodes.length!==way.geometry.length||way.geometry.length<2)continue;
+      const current=await refreshRailwayWays(missingIds, {
+        cachePrefix:"work/railway-connections-baseline-refresh-v2",
+      });
+      for(const way of current.ways) {
+        if(!["rail","narrow_gauge"].includes(way.tags?.railway))continue;
         wayMap.set(String(way.id),compact(way));
         refreshedBaselineWays+=1;
       }
     }
   }
   const ways=[...wayMap.values()];
-  const payload={format:1,generatedAt:new Date().toISOString(),source:"OpenGeofiction cached geometry; inferred links are NOT OGF data or confirmed services",
+  const payload={format:1,generatedAt:new Date().toISOString(),routingGeneratedAt:original.generatedAt,
+    source:"OpenGeofiction cached geometry; inferred links are NOT OGF data or confirmed services",
     limits:{shortGapMeters:800,junctionMeters:150,minFacingCosine:0.85},ways,links};
   fs.writeFileSync("outputs/ogf-atlas/railway-connections.json",JSON.stringify(payload));
   console.log(JSON.stringify({ways:ways.length,links:links.length,refreshedBaselineWays,

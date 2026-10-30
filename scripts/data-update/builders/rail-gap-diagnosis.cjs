@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const {api,network} = require("./js03-routing-diagnosis.cjs");
 const original = require("../outputs/ogf-atlas/railway-routing.json");
+const removedWayIds = new Set((original.coverage?.baselineVerification?.removed || []).map(item => item.id));
 const sources = new Map();
 const files = ["outputs/ogf-atlas/transit-relations.json", ...fs.readdirSync("work").filter(n=>n.endsWith("-raw.json")).map(n=>`work/${n}`)];
 for (const folder of ["work/railway-routing-regions", "work/railway-routing-country-regions", "work/railway-routing-way-batches"]) {
@@ -9,7 +10,7 @@ for (const folder of ["work/railway-routing-regions", "work/railway-routing-coun
 for (const file of files) {
   const payload = JSON.parse(fs.readFileSync(file,"utf8"));
   const items = payload.elements || payload.snapshots?.flatMap(s=>s.elements||[]) || [];
-  for (const w of items) if(w.type==="way" && ["rail","narrow_gauge"].includes(w.tags?.railway)
+  for (const w of items) if(w.type==="way" && !removedWayIds.has(w.id) && ["rail","narrow_gauge"].includes(w.tags?.railway)
     && w.geometry?.length>1 && w.nodes?.length===w.geometry.length) sources.set(w.id,w);
 }
 const combined = structuredClone(original);
@@ -19,7 +20,7 @@ combined.ways.push(...extras.map(w=>[w.id,w.nodes,w.geometry.map(p=>[p.lat,p.lon
 const fresh = ["work/rail-gap-focused-raw.json","work/jinchuan-interchange-raw.json"].filter(file=>fs.existsSync(file))
   .flatMap(file=>JSON.parse(fs.readFileSync(file,"utf8")).elements);
 const compact = w=>[w.id,w.nodes,w.geometry.map(p=>[p.lat,p.lon]),w.tags.name||"",w.tags.maxspeed||"",w.tags.highspeed==="yes"?1:0];
-const freshById = new Map(fresh.map(w=>[w.id,w]));
+const freshById = new Map(fresh.filter(w=>!removedWayIds.has(w.id)).map(w=>[w.id,w]));
 combined.ways = combined.ways.map(w=>freshById.has(w[0]) ? compact(freshById.get(w[0])) : w);
 api.setRailwayData(process.argv.includes("--original") ? original : combined);
 const graph = api.getRailInfrastructureGraph(network);

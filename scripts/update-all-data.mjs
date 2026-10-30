@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import railwayRefresh from "./data-update/builders/refresh-railway-ways.cjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -260,10 +261,20 @@ export function compareCounts(candidate, baseline, minimumRatio, label) {
   }
 }
 
-function validateAll(candidateDatasets, baselineDatasets = null) {
+export function validateAll(candidateDatasets, baselineDatasets = null) {
   const counts = {};
   for (const name of datasetNames) counts[name] = validateDataset(name, candidateDatasets[name]);
+  const routing = candidateDatasets["railway-routing.json"];
+  const supplement = candidateDatasets["railway-connections.json"];
+  if (supplement.routingGeneratedAt) assert.equal(supplement.routingGeneratedAt, routing.generatedAt,
+    "铁路基础设施与补充几何必须来自同代构建");
+  const removedRailIds = new Set((routing.coverage?.baselineVerification?.removed || []).map(item => item.id));
+  assert.ok(![...routing.ways, ...supplement.ways].some(way => removedRailIds.has(way[0])),
+    "已由当前源确认移除的铁路不能被补充包重新加入");
   if (baselineDatasets) {
+    railwayRefresh.assertBaselineRetention(
+      new Set(baselineDatasets["railway-routing.json"].ways.map(way => way[0])),
+      new Set(routing.ways.map(way => way[0])), routing.coverage?.baselineVerification);
     const baselineCounts = {};
     for (const name of datasetNames) baselineCounts[name] = validateDataset(name, baselineDatasets[name]);
     const thresholds = {

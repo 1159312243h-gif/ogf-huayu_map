@@ -3,7 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./test-refresh-route-indexes.mjs";
-import { compareCounts, semanticHash, validateDataset, readDatasetFile } from "./update-all-data.mjs";
+import "./test-railway-refresh.mjs";
+import { compareCounts, semanticHash, validateDataset, validateAll, readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const names = [
@@ -17,10 +18,21 @@ const names = [
 ];
 
 const counts = {};
+const datasets = {};
 for (const name of names) {
   const payload = await readDatasetFile(path.join(root, "site", name));
+  datasets[name] = payload;
   counts[name] = validateDataset(name, payload);
 }
+assert.doesNotThrow(() => validateAll(datasets, datasets));
+const mismatched = {...datasets, "railway-connections.json": {...datasets["railway-connections.json"],
+  routingGeneratedAt: "1900-01-01T00:00:00Z"}};
+assert.throws(() => validateAll(mismatched), /同代构建/u);
+const resurrected = {...datasets, "railway-routing.json": {...datasets["railway-routing.json"],
+  coverage: {...datasets["railway-routing.json"].coverage, baselineVerification: {
+    removed: [{id: datasets["railway-connections.json"].ways[0][0], reason: "deleted"}],
+  }}}};
+assert.throws(() => validateAll(resurrected), /补充包重新加入/u);
 
 assert.equal(
   semanticHash({ generatedAt: "2026-01-01T00:00:00Z", value: [1, 2, 3] }),

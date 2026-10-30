@@ -2,7 +2,7 @@
   "releaseVersion": "8.0",
   "projectName": "ogf-atlas",
   "productionUrl": "https://ogf-atlas.pages.dev",
-  "entryScript": "app.js?v=8.0-roof-restore-v2",
+  "entryScript": "app.js?v=8.0-railway-refresh-v1",
   "buildingProbe": "/api/buildings/11/1893/939.json",
   "structureProbe": "/api/structures/15/30304/15036.json",
   "liveBasemapProbe": "/api/live-basemap/13/7576/3759.json",

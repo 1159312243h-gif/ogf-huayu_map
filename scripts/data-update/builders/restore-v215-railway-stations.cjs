@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const {remapCompactRouteIndexes} = require("./remap-compact-route-indexes.cjs");
+const {assertBaselineRetention} = require("./refresh-railway-ways.cjs");
 
 const baselinePath = "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19/transit-preload.json";
 const baselineRailPath = "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19/railway-routing.json";
@@ -38,8 +39,8 @@ assert.ok(target.snapshots.some((snapshot) => snapshot.id === "longchuan-ar925"
 
 const baselineWayIds = new Set(baselineRail.ways.map((way) => String(way[0])));
 const targetWayIds = new Set(targetRail.ways.map((way) => String(way[0])));
-const missingBaselineWays = [...baselineWayIds].filter((id) => !targetWayIds.has(id));
-assert.deepEqual(missingBaselineWays, [], "current railway topology must contain every v2.1.5 railway way");
+assertBaselineRetention(new Set([...baselineWayIds].map(Number)), new Set([...targetWayIds].map(Number)),
+  targetRail.coverage?.baselineVerification);
 
 const baselineNetwork = baselineSnapshot.network;
 const targetNetwork = targetSnapshot.network;
