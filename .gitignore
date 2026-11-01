@@ -1,4 +1,6 @@
 node_modules/
+# New full release copies stay local; existing tracked archives are preserved.
+/releases/
 data-freshness-report.json
 .data-update/
 work/terrain-refresh-cache/

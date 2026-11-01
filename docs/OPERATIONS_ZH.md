@@ -53,6 +53,8 @@ npm run archive:project
 
 `create-release.ps1` 只保存可部署的 `site/`；`archive:project` 保存整个维护项目，并默认写到项目外的 `work/` 目录。两种存档都拒绝覆盖同名版本。整项目包排除 Git 内部数据库、密钥、依赖缓存和临时报告，并在根目录生成 `SHA256.txt`。
 
+从 2026-11-01 起，新的 `releases/` 完整副本由 `.gitignore` 忽略，继续作为本地发布存档；已被 Git 跟踪的历史包保持原样。源码和当前 `site/` 仍正常提交。需提供版本整包下载时，将存档打包并核对 SHA-256 后上传 GitHub Releases；该上传是独立步骤，不能把本地生成称为已上传，也不能仅因添加忽略规则就声称历史仓库已经缩小。体积依据、回滚及迁移顺序见 [仓库组织与存储说明](REPOSITORY_LAYOUT_ZH.md)。
+
 确认新的发布存档存在后再提交 Git：
 
 ```powershell
