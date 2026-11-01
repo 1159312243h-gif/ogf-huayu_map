@@ -1,6 +1,8 @@
 华域地图 v8.0
-Released: 2026-10-30
+Released: 2026-11-01
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-smooth-render-v1 (2026-11-01): Refine intersecting terrain draw runs with compact triangle bounds prepared alongside the unchanged complete mesh. Preserve original vertex order, crossing triangles, masks, all materials, fallback and cached geometry. Use the bundled engine's custom-layer state invalidation/restoration boundary instead of synchronous per-frame GPU state reads. Reuse roof GPU geometry when repeated terrain events yield identical sampled elevations; rebuild on actual height, terrain-state, model or appearance changes. Do not request extra render frames for unchanged roofs. Inspect live facility layer order without copying GeoJSON sources. Preserve all functionality, roof colors and shapes, sunlight, shadows, account data, preferences, source timestamps and two-minute/five-minute/three-hour update intervals. Local validation and deployment status are reported separately.
 
 Release build 8.0-railway-refresh-v1 (2026-10-30): Verify baseline-only railway IDs against current OGF data instead of unconditionally restoring old tracks. Confirm missing objects and unresolved geometry through the primary API; preserve live sidings, current node geometry, complete-count checks and failed-update retention. Keep confirmed removals out of supplements and inferred connection graphs. Revalidate already-loaded national railway packages on the existing five-minute generation check, atomically replace matching topology and supplement, and retry failed or stale refreshes without clearing the displayed data. Preserve the restored roof shapes, colors, sunlight, station rules and all update intervals. Deployment status is verified separately.
 

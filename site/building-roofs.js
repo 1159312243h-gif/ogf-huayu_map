@@ -350,8 +350,11 @@
     async apply() {
       if (!this.alive || !(this.map.style && this.map.getLayersOrder ? this.map.getLayersOrder().length : this.map.getStyle?.()?.layers?.length)) return;
       if (!this.wanted()) {
+        const changed = Boolean(this.layer?.enabled);
         if (this.layer) this.layer.enabled = false;
-        this.setWallMode(false); this.notify(); this.map.triggerRepaint(); return;
+        this.setWallMode(false); this.notify();
+        if (changed) this.map.triggerRepaint();
+        return;
       }
       if (!this.layer && !this.starting) {
         this.starting = true;
@@ -390,15 +393,34 @@
         return;
       }
       if (!this.renderer || this.failed) return;
+      if (this.elevationDirty && !this.dirty && this.mesh
+        && this.terrainActive === Boolean(this.map.getTerrain?.())
+        && this.items.every((item, index) => this.elevation(item) === this.elevations?.[index])) {
+        this.elevationDirty = false;
+      }
+      let changed = false;
       if (this.dirty || this.elevationDirty) {
-        try { this.build(); this.dirty = false; this.elevationDirty = false; }
+        try { this.build(); this.dirty = false; this.elevationDirty = false; changed = true; }
         catch (error) {
           this.clearMesh(); this.layer.enabled = false; this.setWallMode(false);
           console.warn("Sloped building roof geometry failed; retaining flat roofs.", error); return;
         }
       }
+      changed ||= this.layer.enabled !== Boolean(this.mesh);
       this.layer.enabled = Boolean(this.mesh); this.setWallMode(Boolean(this.mesh));
-      this.notify(); this.map.triggerRepaint();
+      this.notify();
+      if (changed) this.map.triggerRepaint();
+    }
+
+    elevation(item) {
+      // A terrain tile event may belong to another part of the viewport.
+      // Reuse the exact footprint centre used to place the existing roof.
+      if (!item.center) {
+        const points = polygons(item.feature).flat();
+        item.center = points.reduce((sum, point) => [sum[0] + point[0] / points.length,
+          sum[1] + point[1] / points.length], [0, 0]);
+      }
+      return this.map.getTerrain?.() ? Number(this.map.queryTerrainElevation(item.center)) || 0 : 0;
     }
 
     build() {
@@ -411,13 +433,12 @@
       this.transform = new T.Matrix4().makeTranslation(this.origin.x, this.origin.y, 0)
         .scale(new T.Vector3(this.scale, -this.scale, this.scale));
       const batches = {roof:[], wall:[]}, color = new T.Color();
+      const elevations = [];
       const nativePaint = this.map.style?.getLayer?.(this.options.buildingLayer)?.paint;
       for (const item of this.items) {
         const feature = item.feature, properties = feature.properties || {};
-        const rings = polygons(feature), all = rings.flat();
-        const center = all.reduce((sum, point) => [sum[0] + point[0] / all.length,
-          sum[1] + point[1] / all.length], [0, 0]);
-        const elevation = this.map.getTerrain?.() ? Number(this.map.queryTerrainElevation(center)) || 0 : 0;
+        const elevation = this.elevation(item);
+        elevations.push(elevation);
         const nativeColor = nativePaint?.get("fill-extrusion-color")?.evaluate(feature, {});
         for (const triangle of item.triangles) {
           color.set(taggedColor(properties, triangle.kind === "roof", this.options.night, this.options));
@@ -471,6 +492,7 @@
         blending:T.CustomBlending,blendSrc:T.OneFactor,blendDst:T.OneMinusSrcAlphaFactor,depthTest:true,depthWrite:true});
       this.mesh = new T.Mesh(geometry, [material,this.wallMaterial]); this.mesh.frustumCulled = false;
       this.geometry = geometry; this.material = material; this.scene.add(this.mesh);
+      this.elevations = elevations; this.terrainActive = Boolean(this.map.getTerrain?.());
       this.updateWallLighting();
     }
 

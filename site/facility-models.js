@@ -332,7 +332,8 @@
     }
     ensureLayers() {
       const map=this.map;if(!map.getSource(SOURCE))map.addSource(SOURCE,{type:"geojson",data:{type:"FeatureCollection",features:[]}});
-      const before=map.getStyle().layers.find(l=>["fill-extrusion","symbol","circle"].includes(l.type))?.id;
+      const layers=map.getLayersOrder?.().map(id=>map.getLayer(id)) || map.getStyle().layers;
+      const before=layers.find(l=>["fill-extrusion","symbol","circle"].includes(l?.type))?.id;
       const fill=`${SOURCE}-surface`;
       const fillColor=this.options.night ? "#303a3d" : ["match",["get","surface"],
         ["grass","grass_paver"],"#bcc9ae",["gravel","unpaved","ground","dirt"],"#d5cdbb",

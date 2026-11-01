@@ -297,10 +297,44 @@ assert.equal(renderController.geometry.groups[0].count,6,"实际 GPU 几何只�
 assert.equal(renderController.geometry.groups[1].count,0,"不能在实际渲染路径重新补出白色侧墙");
 const canopyPositions=renderController.geometry.attributes.position;
 for(let i=0;i<canopyPositions.count;i++) assert.ok(canopyPositions.getZ(i)>=4-1e-6 && canopyPositions.getZ(i)<=4.5+1e-6);
+// Repeated terrain/source notifications must preserve GPU resources when the
+// exact elevation used by the roof has not changed. Real changes still rebuild.
+let repaints=0,elevation=0;
+renderMap.getLayersOrder=()=>["live-building","roof-cap"];
+renderMap.triggerRepaint=()=>{repaints++;};
+renderMap.getTerrain=()=>({source:"terrain"});
+renderMap.queryTerrainElevation=()=>elevation;
+renderController.renderer={dispose(){}};
+renderController.layer={enabled:true};
+renderController.dirty=true;
+await renderController.apply();
+const stableGeometry=renderController.geometry,stableRepaints=repaints;
+for(let repeat=0;repeat<10;repeat++) {
+  renderController.elevationDirty=true;
+  await renderController.apply();
+  assert.equal(renderController.geometry,stableGeometry,"unchanged terrain cannot repeatedly rebuild all roof meshes");
+}
+assert.equal(repaints,stableRepaints,"an unchanged roof cannot keep scheduling extra rendered frames");
+elevation=8;
+renderController.elevationDirty=true;
+await renderController.apply();
+assert.notEqual(renderController.geometry,stableGeometry,"real terrain height updates still replace roof geometry");
+assert.ok(renderController.geometry.attributes.position.getZ(0)>=12-1e-6);
+renderMap.getTerrain=()=>null;
+renderController.elevationDirty=true;
+await renderController.apply();
+assert.ok(renderController.geometry.attributes.position.getZ(0)<=4.5+1e-6,"terrain removal restores original roof elevation");
+renderMap.getPitch=()=>0;
+await renderController.apply();
+assert.equal(renderController.layer.enabled,false,"returning overhead immediately restores native full-height walls and flat caps");
+const hiddenRepaints=repaints;
+await renderController.apply();
+assert.equal(repaints,hiddenRepaints,"already hidden roofs cannot repaint on every style event");
 let disposed=0;
 for(const resource of [renderController.geometry,renderController.material,renderController.wallMaterial])
   resource.addEventListener("dispose",()=>disposed++);
 renderMap.getStyle=()=>undefined;
+renderMap.style=null;
 renderMap.getLayer=()=>{throw new Error("removed MapLibre style must not be queried");};
 roofs.dispose(renderMap);
 assert.equal(disposed,3,"底图已销毁时同样释放屋顶与山墙几何和材质，不再访问旧图层");

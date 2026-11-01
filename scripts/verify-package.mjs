@@ -528,7 +528,7 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 assert.ok(vectorBuildingLayers.every(id=>buildingLayerFilters.get(id)===null),"失败回退恢复原矢量过滤，不残留空白窗口");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
-assert.ok(index.includes('building-roofs.js?v=8.0-roof-restore-v2')
+assert.ok(index.includes('building-roofs.js?v=8.0-smooth-render-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")

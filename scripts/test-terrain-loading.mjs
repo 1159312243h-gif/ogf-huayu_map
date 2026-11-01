@@ -247,10 +247,32 @@ layer.program = {};
 layer.drawBoundsLocation = "clip";
 for (const block of layer.blocks.values()) block.coverageBounds = [0,0,1,1];
 renderZoom = 13;
+layer.gl.getParameter=()=>{throw new Error("render must not synchronously read GPU state");};
+layer.gl.isEnabled=()=>{throw new Error("render must not synchronously read GPU state");};
 layer.render(layer.gl,Array(16).fill(0));
 assert.ok(draws>0,"a missing zoom level must keep cached terrain visible");
 assert.ok(drawBounds.every(bounds=>bounds[2]-bounds[0]<=0.0625),
   "fallback draws must clip to individual target cells to prevent stacked levels");
+
+// Exercise the shipped engine's custom-layer boundary: it invalidates GL
+// tracking and restores its base state before drawing the next native layer.
+// The material must use that boundary, without synchronous state readbacks.
+const engineSource=await readFile(new URL("../site/maplibre-gl.js",import.meta.url),"utf8");
+const customDraw=engineSource.match(/custom:(function\([^]*?),debug:function/u)?.[1];
+assert.ok(customDraw,"the shipped engine must expose its custom-layer render boundary");
+const engineEvents=[];
+const drawCustom=vm.runInNewContext(`(${customDraw})`,{ri:{disabled:{}},oi:{ReadOnly:0}});
+const painter={context:{gl:layer.gl,setColorMode(){},setStencilMode(){},setDepthMode(){},
+  setDirty(){engineEvents.push("invalidate");},bindFramebuffer:{set(){engineEvents.push("framebuffer");}}},
+  style:{projection:{shaderVariantName:"mercator",shaderPreludeCode:{vertexSource:""},shaderDefine:""}},
+  transform:{getProjectionDataForCustomLayer:()=>({mainMatrix:Array(16).fill(0)})},
+  renderPass:"translucent",setCustomLayerDefaults(){engineEvents.push("defaults");},
+  colorModeForRenderPass(){},getDepthModeForSublayer(){},
+  setBaseState(){engineEvents.push("restore");}};
+drawCustom(painter,null,{implementation:{render(gl,args){engineEvents.push("material");layer.render(gl,args);}}},
+  {isRenderingGlobe:false});
+assert.deepEqual(engineEvents,["defaults","material","invalidate","restore","framebuffer"],
+  "native layers resume with engine-restored state after the complete material draw");
 
 // An unchanged retained mesh outside the viewport must not synchronize the
 // GPU merely to discover that no triangles are visible. Keep it for return.
@@ -264,6 +286,49 @@ assert.equal(glCalls,0,"offscreen cached terrain needs no GPU state reads or wri
 assert.equal(layer.drawnVertices,0);
 assert.equal(layer.blocks.size,retainedBlocks,"culling never discards the complete GPU meshes");
 viewport = visibleViewport;
+
+// A batch can surround the viewport while every constituent triangle misses
+// it. Refine only its draw index, leaving the original cached vertices intact.
+const emptyRun = new Float32Array([
+  [-2,-2],[-1,-2],[-2,-1],[1,1],[2,1],[1,2],
+].flatMap(([x,y])=>[x,y,0,0,0,1,0,100,20]));
+const runBefore = Array.from(emptyRun);
+const indexed = renderContext.huayuTerrainDrawBatches(emptyRun);
+assert.equal(renderContext.huayuTerrainVisibleDrawRanges(indexed,[-.1,-.1,.1,.1],6).length,0,
+  "an empty gap inside a broad run must not synchronize the GPU");
+assert.deepEqual(Array.from(emptyRun),runBefore,"index preparation cannot change geometry, elevations or material values");
+const gapLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});
+gapLayer.map = layer.map; gapLayer.program = {};
+const gapCell = renderContext.huayuWoodlandMaterialCells(viewport,renderZoom)[0];
+gapLayer.blocks.set(gapCell.key,{...gapCell,vertexCount:6,coverageBounds:[0,0,1,1],drawBatches:indexed});
+gapLayer.render(untouchedGL,Array(16).fill(0));
+assert.equal(glCalls,0,"an intersecting coarse batch with no visible triangles needs no GL calls");
+
+const crossing = new Float32Array([[-2,-2],[2,-2],[0,2]].flatMap(([x,y])=>[x,y,0,0,0,1,0,100,20]));
+assert.deepEqual(JSON.parse(JSON.stringify(renderContext.huayuTerrainVisibleDrawRanges(
+  renderContext.huayuTerrainDrawBatches(crossing),[-.1,-.1,.1,.1],3))),[{first:0,count:3}],
+  "triangles crossing the viewport survive even when all three vertices are outside");
+// Compare to a direct triangle-bound scan across multiple runs and zooms.
+const mesh = new Float32Array(Array.from({length:1800},(_,vertex)=>{
+  const triangle=Math.floor(vertex/3),x=triangle%30,y=Math.floor(triangle/30),corner=vertex%3;
+  return [x+(corner===1 ? 1 : 0),y+(corner===2 ? 1 : 0),0,0,0,1,0,triangle,20];
+}).flat());
+const drawIndex = renderContext.huayuTerrainDrawBatches(mesh);
+for(const bounds of [[-.1,-.1,35,35],[3.2,4.1,6.8,9.2],[29,19,30,20],[50,50,51,51]]) {
+  const expected=[];
+  for(let first=0;first<mesh.length/9;first+=3) {
+    const xs=[mesh[first*9],mesh[(first+1)*9],mesh[(first+2)*9]];
+    const ys=[mesh[first*9+1],mesh[(first+1)*9+1],mesh[(first+2)*9+1]];
+    if(Math.max(...xs)<bounds[0] || Math.min(...xs)>bounds[2]
+      || Math.max(...ys)<bounds[1] || Math.min(...ys)>bounds[3])continue;
+    expected.push(first,first+1,first+2);
+  }
+  const actual=Array.from(renderContext.huayuTerrainVisibleDrawRanges(drawIndex,bounds,mesh.length/9))
+    .flatMap(range=>Array.from({length:range.count},(_,index)=>range.first+index));
+  assert.deepEqual(actual,expected,"all potentially visible triangles retain their exact source order");
+}
+assert.equal(drawIndex.reduce((sum,batch)=>sum+batch.triangles.byteLength,0),mesh.length/9/3*16,
+  "derived bounds use only 16 bytes per triangle, within the existing bounded mesh cache");
 
 // A runtime overview cell must not replace the finer prepared range mesh.
 const overviewLayer = renderContext.createHuayuWoodlandMaterialLayer({mountainRelief:["","","","",""],mountainContour:""});

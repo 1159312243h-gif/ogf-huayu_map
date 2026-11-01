@@ -206,6 +206,15 @@ assert.equal(pending.prepared,undefined,"late geometry cannot take ownership of 
 const dragging=pending.apply();pending.interacting=true;resolve(geometry.build([lot]));await dragging;
 assert.equal(commits,0,"worker completion during a drag keeps the current displayed source");
 pending.interacting=false;await pending.apply();assert.equal(commits,1);
+fakeMap.getLayersOrder=()=>[...fakeLayers.keys()];
+fakeMap.style={};
+fakeMap.getStyle=()=>{throw new Error("facility layer placement must not copy live GeoJSON");};
+pending.ensureLayers();
+// A layer added after initial preparation must immediately participate in
+// placement; no cached style copy may hide it or force a source serialization.
+fakeLayers.set("native-building",{id:"native-building",type:"fill-extrusion"});
+pending.ensureLayers();
+fakeLayers.delete("native-building");
 const previous=pending.prepared;let attempts=0;
 pending.update([ferris],{});clearTimeout(pending.timer);pending.timer=null;
 pending.prepare=async()=>{attempts++;throw new Error("fixture worker failure");};

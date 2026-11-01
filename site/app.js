@@ -23967,12 +23967,22 @@
     for (let first = 0; first < vertices; first += 768) {
       const count = Math.min(768, vertices - first);
       const bounds = [Infinity, Infinity, -Infinity, -Infinity];
-      for (let vertex = first; vertex < first + count; vertex++) {
-        const x = values[vertex * 9], y = values[vertex * 9 + 1];
-        bounds[0] = Math.min(bounds[0], x); bounds[1] = Math.min(bounds[1], y);
-        bounds[2] = Math.max(bounds[2], x); bounds[3] = Math.max(bounds[3], y);
+      const triangles = new Float32Array(count / 3 * 4);
+      for (let vertex = first; vertex < first + count; vertex += 3) {
+        let west = Infinity, north = Infinity, east = -Infinity, south = -Infinity;
+        for (let corner = 0; corner < 3; corner++) {
+          const offset = (vertex + corner) * 9;
+          const x = values[offset], y = values[offset + 1];
+          west = Math.min(west, x); north = Math.min(north, y);
+          east = Math.max(east, x); south = Math.max(south, y);
+        }
+        triangles.set([west, north, east, south], (vertex - first) / 3 * 4);
+        bounds[0] = Math.min(bounds[0], west); bounds[1] = Math.min(bounds[1], north);
+        bounds[2] = Math.max(bounds[2], east); bounds[3] = Math.max(bounds[3], south);
       }
-      batches.push({first, count, bounds});
+      // Derived draw metadata only: retain the full original GPU geometry.
+      // A regional run can surround a city despite every triangle missing it.
+      batches.push({first, count, bounds, triangles});
     }
     return batches;
   }
@@ -23980,12 +23990,27 @@
   function huayuTerrainVisibleDrawRanges(batches, bounds, vertexCount) {
     if (!batches?.length) return vertexCount ? [{first:0, count:vertexCount}] : [];
     const ranges = [];
+    const append = (first, count) => {
+      const previous = ranges.at(-1);
+      if (previous && previous.first + previous.count === first) previous.count += count;
+      else ranges.push({first, count});
+    };
     for (const batch of batches) {
       if (batch.bounds[2] < bounds[0] || batch.bounds[0] > bounds[2]
         || batch.bounds[3] < bounds[1] || batch.bounds[1] > bounds[3]) continue;
-      const previous = ranges.at(-1);
-      if (previous && previous.first + previous.count === batch.first) previous.count += batch.count;
-      else ranges.push({first:batch.first, count:batch.count});
+      if (!batch.triangles || batch.bounds[0] >= bounds[0] && batch.bounds[1] >= bounds[1]
+        && batch.bounds[2] <= bounds[2] && batch.bounds[3] <= bounds[3]) {
+        append(batch.first, batch.count);
+        continue;
+      }
+      // Only inspect intersecting runs. Keep triangles crossing the viewport
+      // even when all three vertices are outside; preserve source draw order.
+      for (let offset = 0; offset < batch.triangles.length; offset += 4) {
+        const triangle = batch.triangles;
+        if (triangle[offset + 2] < bounds[0] || triangle[offset] > bounds[2]
+          || triangle[offset + 3] < bounds[1] || triangle[offset + 1] > bounds[3]) continue;
+        append(batch.first + offset / 4 * 3, 3);
+      }
     }
     return ranges;
   }
@@ -25107,14 +25132,11 @@
         gl.uniform3fv(this.highColorLocation, highColor);
         gl.uniform3fv(this.contourColorLocation, contourColor);
         gl.uniform1f(this.zoomLocation, zoom);
-        const previousActiveTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
+        // MapLibre invalidates its tracked GL state and restores its base state
+        // immediately after every custom-layer render. Establish our own state
+        // here; synchronous GPU state reads/restores only stall the next frame.
         gl.activeTexture(gl.TEXTURE0);
-        const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
         gl.uniform1i(this.coverageMaskLocation, 0);
-        const depthTestEnabled = gl.isEnabled(gl.DEPTH_TEST);
-        const depthWriteEnabled = gl.getParameter(gl.DEPTH_WRITEMASK);
-        const blendEnabled = gl.isEnabled(gl.BLEND);
-        const cullEnabled = gl.isEnabled(gl.CULL_FACE);
         // Flat map material: never displace geometry or modify the depth buffer.
         gl.disable(gl.DEPTH_TEST);
         gl.depthMask(false);
@@ -25144,15 +25166,6 @@
           }
         };
         jobs.forEach(draw);
-        gl.bindTexture(gl.TEXTURE_2D, previousTexture);
-        gl.activeTexture(previousActiveTexture);
-        gl.depthMask(depthWriteEnabled);
-        if (depthTestEnabled) gl.enable(gl.DEPTH_TEST);
-        else gl.disable(gl.DEPTH_TEST);
-        if (blendEnabled) gl.enable(gl.BLEND);
-        else gl.disable(gl.BLEND);
-        if (cullEnabled) gl.enable(gl.CULL_FACE);
-        else gl.disable(gl.CULL_FACE);
         this.renderCpuMs = Math.round((performance.now() - renderStartedAt) * 10) / 10;
       },
       onRemove(mapInstance, gl) {

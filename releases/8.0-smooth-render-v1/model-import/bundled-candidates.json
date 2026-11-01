@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "models": [
+    {
+      "id": "pine-branches",
+      "uid": "97c2929b18364d51bf201b225643bca9",
+      "category": "pine",
+      "name": "SM_ Pine_b_04",
+      "url": "./model-import/assets/pine-branches-91d731cf5f76.glb",
+      "bytes": 3446832,
+      "sha256": "91d731cf5f76ed7f4508617feabdf44ec9a44c1ac2c46660517ad114da8cebf8",
+      "triangles": 770,
+      "primitives": 1,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/sm--pine-b-04-97c2929b18364d51bf201b225643bca9",
+      "author": "Bigbubble",
+      "authorUrl": "https://sketchfab.com/Bigbubble",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:33.273Z"
+    },
+    {
+      "id": "bush-lods",
+      "uid": "f2d9ffd3e6a94cf0b9464ccd66a4c2f8",
+      "category": "shrubs",
+      "name": "Bush models pack (gameready, LODs)",
+      "url": "./model-import/assets/bush-lods-30d53435a011.glb",
+      "bytes": 3531632,
+      "sha256": "30d53435a011b0d26359d0239c664a19b450a5deccdcd212c03e697a7d7a0b70",
+      "triangles": 222,
+      "primitives": 2,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/bush-models-pack-gameready-lods-f2d9ffd3e6a94cf0b9464ccd66a4c2f8",
+      "author": "LOLIPOP",
+      "authorUrl": "https://sketchfab.com/lolipop_1707",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:34.369Z",
+      "changes": "Extracted complete Bush_medium_001_LOD0 (bark and foliage), retaining ancestor transforms, geometry and six referenced textures. Removed other plants, LODs, billboards, ground and human reference. Foliage uses 0.3 alpha cutout for shared map depth.",
+      "sourceSha256": "fc18d1d08489713e5b519a529f42e00641f274978e4b1312db64684a2fa507d2"
+    },
+    {
+      "id": "daisy-flowers",
+      "uid": "857802babfd542e094e8ef2c396be360",
+      "category": "flowers",
+      "name": "Low Poly Flowers",
+      "url": "./model-import/assets/daisy-flowers-db0938cbb142.glb",
+      "bytes": 16688,
+      "sha256": "db0938cbb142214e38ff84ca8eb95ec401c55ee0188919d60a8d66f82197ca12",
+      "triangles": 176,
+      "primitives": 2,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/low-poly-flowers-857802babfd542e094e8ef2c396be360",
+      "author": "Anskar",
+      "authorUrl": "https://sketchfab.com/Anskar",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:34.884Z"
+    },
+    {
+      "id": "gazebo",
+      "uid": "f2e0bd56e9604b0f845d4ef3e60ec9d6",
+      "category": "pavilion",
+      "name": "Gazebo",
+      "url": "./model-import/assets/gazebo-a78915c7791f.glb",
+      "bytes": 152952,
+      "sha256": "a78915c7791f3f4989ea50a57f37124362d051ed50b051c80c0695f8cf214b30",
+      "triangles": 1992,
+      "primitives": 1,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/gazebo-f2e0bd56e9604b0f845d4ef3e60ec9d6",
+      "author": "anadaren",
+      "authorUrl": "https://sketchfab.com/anadaren",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:35.437Z"
+    },
+    {
+      "id": "nz-bus-shelter",
+      "uid": "7c8c11d481bd4defab590809d38e1119",
+      "category": "busShelter",
+      "name": "NZ Bus Shelter",
+      "url": "./model-import/assets/nz-bus-shelter-573132bb9b36.glb",
+      "bytes": 77412,
+      "sha256": "573132bb9b36025e928bbeb6b6d4e067ef46ef83d2b5e7b90109b2230d5d186c",
+      "triangles": 1124,
+      "primitives": 6,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/nz-bus-shelter-7c8c11d481bd4defab590809d38e1119",
+      "author": "Darren Price",
+      "authorUrl": "https://sketchfab.com/horusdigital",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:36.101Z",
+      "changes": "Removed four auxiliary line-only drawing meshes. Retained all six triangle surface meshes, transforms, colors and glass transparency; no shelter surfaces or supports removed.",
+      "sourceSha256": "3c9ce6e22b7d68f488be65d8836dda117568b2d6f107d29d545c8b6437ab9051"
+    },
+    {
+      "id": "stone-fountain",
+      "uid": "8580500134194ba5be3f6df7593049f2",
+      "category": "fountain",
+      "name": "Fountain",
+      "url": "./model-import/assets/stone-fountain-61d267352852.glb",
+      "bytes": 4443784,
+      "sha256": "61d267352852a9aa1729f13e5836a80379f2a4d9579e07aba343c01362ccd23c",
+      "triangles": 2984,
+      "primitives": 24,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/fountain-8580500134194ba5be3f6df7593049f2",
+      "author": "yorre.detavernier",
+      "authorUrl": "https://sketchfab.com/yorre.detavernier",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:36.949Z",
+      "changes": "Converted five legacy specular/glossiness materials with zero specular reflectance to metallic/roughness plus KHR_materials_specular (specularFactor=0). Kept diffuse factors/textures, transparency, geometry, water and original transforms; roughness=1-glossiness. No texture or geometry simplification.",
+      "sourceSha256": "5f9bafb1157f35658fbf29458d8f4b74402106f6761c01eb78b7cbaa87c8c1c9"
+    },
+    {
+      "id": "chain-link-fence",
+      "uid": "bd85a8005ff0403cab2f1e9845016b8f",
+      "category": "fence",
+      "name": "Modular Chain Link Fence Set",
+      "url": "./model-import/assets/chain-link-fence-4b29d53d5eb7.glb",
+      "bytes": 2655680,
+      "sha256": "4b29d53d5eb7d184e6e325a690297b93722626cd3159bb092a05a35e897f8b02",
+      "triangles": 300,
+      "primitives": 1,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "0/0/0/2"
+      },
+      "source": "https://sketchfab.com/3d-models/modular-chain-link-fence-set-bd85a8005ff0403cab2f1e9845016b8f",
+      "author": "FrodoUndead",
+      "authorUrl": "https://sketchfab.com/FrodoUndead",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:37.585Z"
+    },
+    {
+      "id": "column-wall",
+      "uid": "3fd512b610cb4b2c9f1727524f669dff",
+      "category": "wall",
+      "name": "Wall with column",
+      "url": "./model-import/assets/column-wall-6b86ed6a07b9.glb",
+      "bytes": 575876,
+      "sha256": "6b86ed6a07b932b86ebf3559c835f83b7bfd6f65f8f5bd708d3b2abfd7fc9d0f",
+      "triangles": 870,
+      "primitives": 3,
+      "config": {
+        "up": "y",
+        "yaw": 0,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/wall-with-column-3fd512b610cb4b2c9f1727524f669dff",
+      "author": "lowpolybrain",
+      "authorUrl": "https://sketchfab.com/lowpolybrain",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:38.127Z"
+    },
+    {
+      "id": "pingyao-reference",
+      "uid": "8e09151d99a148159599fbb37589d05b",
+      "category": "cityWall",
+      "name": "Pingyao City walls - China",
+      "url": "./model-import/assets/pingyao-reference-3b14a33b1fab.glb",
+      "bytes": 909868,
+      "sha256": "3b14a33b1fab773d83aea2abaf6c1c77da21a6e18df9eee5a3de33e85260346d",
+      "triangles": 4836,
+      "primitives": 1,
+      "config": {
+        "up": "y",
+        "yaw": 90,
+        "part": "all"
+      },
+      "source": "https://sketchfab.com/3d-models/pingyao-city-walls-china-8e09151d99a148159599fbb37589d05b",
+      "author": "Lionel",
+      "authorUrl": "https://sketchfab.com/Lionel",
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "checkedAt": "2026-10-13T09:39:39.449Z",
+      "changes": "Cropped a single crenellated wall segment, simplified with normal/UV constraints, corrected reflected winding, and capped cut ends from its boundary cross-section. Retained the embedded scan texture and original source; removed surrounding streets, vehicles, lawns and buildings.",
+      "sourceSha256": "9c702bd1bf54dcbd59f88dbd44b05979f91485157388d2349dacfc2fd3dbcced"
+    }
+  ]
+}
