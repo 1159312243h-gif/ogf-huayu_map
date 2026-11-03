@@ -515,6 +515,12 @@
     boundaryIncludePoints: document.getElementById("boundary-include-points"),
     boundaryIncludeBasemap: document.getElementById("boundary-include-basemap"),
     boundaryIncludeHighlight: document.getElementById("boundary-include-highlight"),
+    boundaryClipCoastline: document.getElementById("boundary-clip-coastline"),
+    boundaryCoastlineOptions: document.getElementById("boundary-coastline-options"),
+    boundaryCoastlinePart: document.getElementById("boundary-coastline-part"),
+    boundaryCoastAreaButton: document.getElementById("boundary-coast-area-button"),
+    boundaryCoastAreaStatus: document.getElementById("boundary-coast-area-status"),
+    boundaryCoastAreaResults: document.getElementById("boundary-coast-area-results"),
     boundaryIncludeBuildings: document.getElementById("boundary-include-buildings"),
     boundaryBasemapStyle: document.getElementById("boundary-basemap-style"),
     boundaryBasemapOptions: document.getElementById("boundary-basemap-options"),
@@ -712,6 +718,9 @@
   let administrativeBoxPickStart = null;
   let administrativeBoxPickMarker = null;
   let administrativeExportBusy = false;
+  let administrativeCoastAreaResult = null;
+  let administrativeCoastAreaController = null;
+  let administrativeCoastAreaSignature = "";
   let toastTimer;
   let searchRequestId = 0;
   let measurementMode = "distance";
@@ -2007,6 +2016,9 @@
   elements.boundaryIncludeCoordinates.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryIncludePoints.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryIncludeHighlight.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryClipCoastline.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryCoastlinePart.addEventListener("change", updateAdministrativeExportOptions);
+  elements.boundaryCoastAreaButton.addEventListener("click", calculateAdministrativeCoastArea);
   elements.boundaryIncludeBuildings.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryBasemapStyle.addEventListener("change", updateAdministrativeExportOptions);
   elements.boundaryClipShape.addEventListener("change", () => {
@@ -15058,6 +15070,9 @@
   }
 
   function showView(view, options = {}) {
+    if (!["place", "download"].includes(view) && administrativeCoastAreaController) {
+      administrativeCoastAreaController.abort();administrativeCoastAreaController = null;
+    }
     if (!options.preservePerspective) exitVectorPerspectiveMode({ silent: true });
     if (currentView === "measure" && view !== "measure") setMeasurementActive(false);
     if (view !== "place") {
@@ -15726,7 +15741,8 @@
       for(const [index,entry]of maps.entries()) {
         setStatus(elements.featureExportStatus,`正在生成底图／行政区 ${index+1} / ${maps.length}：${entry.mapExport.title}…`);
         const result=await buildAdministrativeDownload(entry.mapExport);add(result);
-        report.push({file:result.name,kind:"map",addedAt:entry.addedAt,message:result.message,warning:result.warning,settings:entry.mapExport});
+        report.push({file:result.name,kind:"map",addedAt:entry.addedAt,message:result.message,warning:result.warning,settings:entry.mapExport,
+          ...(result.coastline ? {coastline:result.coastline} : {})});
       }
       if(objects.length) {
         setStatus(elements.featureExportStatus,`正在生成 ${objects.length} 个地物的 ${format.toUpperCase()} 文件…`);
@@ -17189,6 +17205,7 @@
   }
 
   function renderAdministrativeExportSelections() {
+    updateAdministrativeCoastControls();
     elements.boundarySelectionList.replaceChildren();
     const boundaries = administrativeExportBoundaries();
     boundaries.forEach((boundary) => {
@@ -17259,6 +17276,7 @@
   }
 
   function updateAdministrativeExportOptions() {
+    updateAdministrativeCoastControls();
     const raster = ["png", "jpg", "tif"].includes(elements.boundaryFormat.value);
     const points = elements.boundaryIncludePoints.checked;
     if (!raster) {
@@ -17283,6 +17301,11 @@
       : elements.boundaryBasemapStyle.value === "huayu-satellite" ? "模拟卫星保持平面屋顶，不加载立体建筑" : "OGF 栅格瓦片中的建筑已画在底图里，不能单独开关";
     elements.boundaryResolution.disabled = !raster && !basemap;
     elements.boundaryFormat.querySelector('option[value="osm"]').textContent = basemap ? "OSM + 底图（ZIP）" : "OSM XML";
+    if (elements.boundaryClipCoastline?.checked && !elements.boundaryClipCoastline.disabled) {
+      const part = elements.boundaryCoastlinePart.value === "sea" ? "海域" : "陆地";
+      elements.boundaryFormat.querySelector('option[value="osm"]').textContent = basemap ? `OSM + 底图／${part}范围（ZIP）` : `OSM + ${part}范围（ZIP）`;
+      elements.boundaryFormatNote.textContent += ` 沿海岸线截取时原始行政边界保留，矢量包另附${part}范围与面积表。`;
+    }
     elements.boundaryFormat.querySelector('option[value="tif"]').textContent = elements.boundaryIncludeCoordinates.checked
       ? (basemap ? "TIF（EPSG:3857）" : "TIF（WGS84）") : "TIF 图片";
     const hasBoundaries = administrativeExportBoundaries().length > 0;
@@ -17313,6 +17336,110 @@
       || west < -180 || east > 180 || south < -90 || north > 90
       || west >= east || south >= north) return null;
     return { minLon: west, minLat: south, maxLon: east, maxLat: north };
+  }
+
+  function administrativeCoastSignature(features = administrativeExportFeatures()) {
+    return JSON.stringify(features.map(feature => [administrativeBoundaryFeatureKey(feature), feature.geometry]));
+  }
+
+  function administrativeCoastAreaText(row) {
+    const format = value => value === 0 ? "0 平方米" : formatAdministrativeArea(value);
+    return `总面积约 ${format(row.totalSquareMeters)}；陆地（含河湖）约 ${format(row.landSquareMeters)}；海域约 ${format(row.seaSquareMeters)}`;
+  }
+
+  function updateAdministrativeCoastControls() {
+    if (!elements.boundaryClipCoastline) return;
+    const signature = administrativeCoastSignature();
+    const hasBoundaries = administrativeExportBoundaries().length > 0;
+    if (administrativeCoastAreaController && signature !== administrativeCoastAreaSignature) {
+      administrativeCoastAreaController.abort();administrativeCoastAreaController = null;
+    }
+    elements.boundaryClipCoastline.disabled = !hasBoundaries;
+    elements.boundaryCoastlineOptions.hidden = !hasBoundaries || !elements.boundaryClipCoastline.checked;
+    elements.boundaryCoastlinePart.disabled = elements.boundaryCoastlineOptions.hidden;
+    elements.boundaryCoastAreaButton.disabled = !hasBoundaries || Boolean(administrativeCoastAreaController);
+    const valid = administrativeCoastAreaResult?.signature === signature;
+    elements.boundaryCoastAreaResults.replaceChildren();
+    elements.boundaryCoastAreaResults.hidden = !valid;
+    if (!valid) {
+      if (!administrativeCoastAreaController) setStatus(elements.boundaryCoastAreaStatus, hasBoundaries
+        ? "可按需计算陆地／海域面积；陆地包含河流、湖泊。" : "先搜索并选中行政区，即可计算陆地／海域面积或沿海岸线下载。");
+      return;
+    }
+    const parentKeys = new Set(administrativeExportBoundaries().map(b => administrativeBoundaryFeatureKey(b.feature)));
+    for (const row of administrativeCoastAreaResult.rows) {
+      if (!parentKeys.has(administrativeBoundaryFeatureKey(row.feature))) continue;
+      const p = document.createElement("p");
+      p.textContent = `${row.feature.properties.name || "行政区"}：${administrativeCoastAreaText(row)}`;
+      elements.boundaryCoastAreaResults.appendChild(p);
+    }
+    const metadata=administrativeCoastAreaResult.metadata;
+    setStatus(elements.boundaryCoastAreaStatus, `按海岸线估算；读取时间 ${new Date(metadata.fetchedAt).toLocaleString()}${metadata.sourceTimestamp
+      ? `，源数据时间 ${new Date(metadata.sourceTimestamp).toLocaleString()}` : "，上游未提供源时间"}。${metadata.classification
+      ? `无海岸线穿过的范围采用 OGF 海陆底图核对归属（源构建：${metadata.classification.sourceBuildTime || "未提供"}）。` : ""}非官方法定面积；嵌套区划不相加。`);
+  }
+
+  async function sampleAdministrativeCoastLand(bounds, signal) {
+    await ensureVectorBasemapLibrary();
+    if (signal.aborted) throw new DOMException("已取消", "AbortError");
+    const url = "https://ogf-tileserver-t5qifc5o4q-uc.a.run.app/data/openmaptiles.json";
+    const response = await fetch(url, {signal});
+    if (!response.ok) throw Error("无海岸线区域的陆海归属服务不可用，请重试");
+    const metadata = await response.json();
+    if (!metadata.vector_layers?.some(layer => layer.id === "water") || !metadata.tiles?.length) throw Error("海陆底图数据不完整");
+    const host = document.createElement("div");host.className = "map-export-renderer";
+    host.style.width = "64px";host.style.height = "64px";host.setAttribute("aria-hidden", "true");document.body.appendChild(host);
+    let glMap;
+    const abort = () => { glMap?.remove();glMap = null;host.remove(); };
+    try {
+      const center = [(bounds.west+bounds.east)/2, (bounds.south+bounds.north)/2];
+      glMap = new window.maplibregl.Map({container:host,center,zoom:Math.min(10,metadata.maxzoom || 10),interactive:false,
+        attributionControl:false,renderWorldCopies:false,fadeDuration:0,style:{version:8,sources:{coast:{type:"vector",tiles:metadata.tiles,
+          minzoom:metadata.minzoom || 0,maxzoom:metadata.maxzoom || 14}},layers:[{id:"ocean",type:"fill",source:"coast","source-layer":"water",
+          filter:["==","class","ocean"],paint:{"fill-color":"#000000"}}]}});
+      await new Promise((resolve,reject) => {
+        const cleanup = () => {clearTimeout(timer);glMap.off("idle",ready);glMap.off("error",failed);signal.removeEventListener("abort",cancelled);};
+        const ready = () => {if (glMap.loaded() && glMap.areTilesLoaded()) {cleanup();resolve();}};
+        const failed = () => {cleanup();reject(Error("海陆底图未完整加载，请重试"));};
+        const cancelled = () => {cleanup();reject(new DOMException("已取消","AbortError"));};
+        const timer = setTimeout(() => {cleanup();reject(Error("海陆归属读取超时，请重试"));},18000);
+        glMap.on("idle",ready);glMap.on("error",failed);signal.addEventListener("abort",cancelled,{once:true});glMap.triggerRepaint();
+      });
+      if (signal.aborted) throw new DOMException("已取消", "AbortError");
+      const land = glMap.queryRenderedFeatures(glMap.project(center),{layers:["ocean"]}).length === 0;
+      return {land, metadata:{source:"OGF OpenMapTiles water/ocean",sourceBuildTime:metadata["planetiler:buildtime"] || null}};
+    } finally {signal.removeEventListener("abort",abort);abort();}
+  }
+
+  async function analyzeAdministrativeCoast(features, signal, part="land") {
+    return window.HuayuCoastlineClient.analyze(features, {signal,part,seed:sampleAdministrativeCoastLand,
+      onProgress:message => setStatus(elements.boundaryCoastAreaStatus,message)});
+  }
+
+  async function calculateAdministrativeCoastArea() {
+    const features = administrativeExportFeatures();
+    if (!features.length) return;
+    administrativeCoastAreaController?.abort();
+    const controller = new AbortController();administrativeCoastAreaController = controller;
+    const signature = administrativeCoastSignature(features);administrativeCoastAreaSignature = signature;
+    elements.boundaryCoastAreaButton.disabled = true;
+    setStatus(elements.boundaryCoastAreaStatus,"正在读取海岸线并计算陆地／海域面积…");
+    try {
+      const result = await analyzeAdministrativeCoast(features,controller.signal);
+      if (controller.signal.aborted || signature !== administrativeCoastSignature()) return;
+      administrativeCoastAreaResult = {...result,signature};
+      administrativeCoastAreaController = null;updateAdministrativeCoastControls();
+      renderAdministrativeDivisionAreaTable(selectedAdministrativeBoundary?.divisions);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      administrativeCoastAreaController = null;updateAdministrativeCoastControls();
+      const retained = administrativeCoastAreaResult?.signature === signature
+        ? `上次成功结果仍保留（读取 ${new Date(administrativeCoastAreaResult.metadata.fetchedAt).toLocaleString()}）。` : "";
+      setStatus(elements.boundaryCoastAreaStatus,`${error.message}；${retained}可再次点击计算。`,true);
+    } finally {
+      if (administrativeCoastAreaController === controller) administrativeCoastAreaController = null;
+      elements.boundaryCoastAreaButton.disabled = !administrativeExportBoundaries().length || Boolean(administrativeCoastAreaController);
+    }
   }
 
   function updateAdministrativeExtentStatus() {
@@ -17389,6 +17516,7 @@
       if (!resolution) { elements.boundaryResolutionNote.textContent = "自定义长边需为 512–8192 之间的整数像素。"; return; }
       const size = basemap ? administrativeTilePlan(bounds, resolution) : administrativeBoundaryImageLayout(bounds, resolution);
       elements.boundaryResolutionNote.textContent = `导出尺寸：${size.width} × ${size.height} 像素。${basemap ? "较高分辨率会下载更多底图瓦片。" : elements.boundaryIncludePoints.checked ? "包含标题、图例与页脚。" : "包含标题与页脚，不绘制地名注记。"}`;
+      if (elements.boundaryClipCoastline?.checked && !elements.boundaryClipCoastline.disabled) elements.boundaryResolutionNote.textContent += ` 沿海岸线截取后按实际${elements.boundaryCoastlinePart.value === "sea" ? "海域" : "陆地"}范围重新适配，最终宽高以导出为准。`;
     } catch {
       elements.boundaryResolutionNote.textContent = "选择有效范围后显示图片尺寸；保持范围比例。";
     }
@@ -17629,6 +17757,7 @@
   }
 
   function resetAdministrativeBoundaryControls() {
+    updateAdministrativeCoastControls();
     elements.boundaryExportSection.hidden = currentView !== "download" || elements.downloadContentMode.value === "objects";
     elements.boundaryLevelFieldset.hidden = true;
     elements.boundaryLevelOptions.replaceChildren();
@@ -17662,6 +17791,8 @@
   }
 
   function renderAdministrativeDivisionAreaTable(features) {
+    const coastRows = new Map((administrativeCoastAreaResult?.signature === administrativeCoastSignature()
+      ? administrativeCoastAreaResult.rows : []).map(row => [administrativeBoundaryFeatureKey(row.feature),row]));
     const rows = (Array.isArray(features) ? features : []).map((feature) => {
       const parsedLevel = Number(feature?.properties?.admin_level);
       const area = administrativeFeatureAreaSquareMeters(feature);
@@ -17759,6 +17890,8 @@
       name.appendChild(jumpButton);
       level.textContent = administrativeLevelLabel(row.level);
       area.textContent = formatAdministrativeArea(row.area);
+      const coastRow = coastRows.get(administrativeBoundaryFeatureKey(row.feature));
+      if (coastRow) area.textContent = administrativeCoastAreaText(coastRow);
       tableRow.append(name, level, area);
       elements.boundaryAreaTableBody.appendChild(tableRow);
     });
@@ -18037,8 +18170,11 @@
       : boundaries.length === 1 ? boundaries[0].label : `${boundaries[0].label}等${boundaries.length}个行政区`;
     const basemapStyle = elements.boundaryBasemapStyle.value;
     const basemapLabel = BASEMAP_STYLES[basemapStyle]?.label || "OGF-Carto US";
-    const baseName = safeDownloadName(`${title}-${features.length ? "行政区划边界" : basemapLabel}`);
+    const clipCoastline = Boolean(elements.boundaryClipCoastline?.checked && boundaries.length);
+    const coastPart = clipCoastline && elements.boundaryCoastlinePart.value === "sea" ? "sea" : "land";
+    const baseName = safeDownloadName(`${title}-${features.length ? "行政区划边界" : basemapLabel}${clipCoastline ? `-仅${coastPart === "sea" ? "海域" : "陆地"}` : ""}`);
     const options = { includeCoordinates, includePoints, resolution, basemapStyle,
+      clipCoastline, coastPart,
       includeHighlight: elements.boundaryIncludeHighlight.checked,
       includeBuildings: elements.boundaryIncludeBuildings.checked && !elements.boundaryIncludeBuildings.disabled,
       maskFeatures: administrativeExportMask(), format,
@@ -18067,7 +18203,7 @@
       const result=await buildAdministrativeDownload(captureAdministrativeDownload());
       downloadBlob(result.blob,result.name);
       setStatus(elements.boundaryLevelStatus,result.message,result.warning);
-    } catch(error) {setStatus(elements.boundaryLevelStatus,humanizeError(error,"边界文件生成失败，请减少加载层级后重试。"),true);}
+    } catch(error) {setStatus(elements.boundaryLevelStatus,humanizeError(error,error.message || "边界文件生成失败，请减少加载层级后重试。"),true);}
     finally {administrativeExportBusy=false;updateAdministrativeExportAvailability();updateAdministrativeResolutionNote();}
   }
 
@@ -18076,10 +18212,31 @@
       const {features,options,title,baseName,basemapLabel,format,includeBasemap,coordinateExtent,boundaryCount}=JSON.parse(JSON.stringify(job));
       const {includePoints,includeCoordinates,resolution,basemapStyle}=options;
       let blob,name,missingTiles=0;
+      let extent = coordinateExtent;
+      let coastResult = null;
+      if (options.clipCoastline) {
+        const part = options.coastPart === "sea" ? "sea" : "land", partLabel = part === "sea" ? "海域" : "陆地";
+        options.coastPart = part;
+        (options.onProgress || (message => setStatus(elements.boundaryLevelStatus,message)))(`正在沿海岸线准备${partLabel}范围…`);
+        coastResult = await analyzeAdministrativeCoast(features,undefined,part);
+        const clippedFeatures = coastResult.rows.map(row => row.feature).filter(feature => feature.geometry.coordinates.length);
+        const parents = clippedFeatures.filter(feature => options.parentKeys.includes(administrativeBoundaryFeatureKey(feature)));
+        if (!parents.length) throw Error(`所选行政区在已确认海岸线内没有可下载的${partLabel}；陆地／海域面积可通过计算按钮查看`);
+        options.coastClipFeatures = parents;
+        options.coastRenderFeatures = clippedFeatures;
+        options.coastline = {...coastResult.metadata,part,areas:coastResult.rows.map(({feature,...row}) => ({...row,
+          name:feature.properties.name,osm_id:feature.properties.osm_id,admin_level:feature.properties.admin_level}))};
+        options.coastBounds = activeAdministrativeFeatureBounds(parents);
+        if (includeBasemap) {
+          const clipped = options.coastBounds;
+          extent = {minLon:Math.max(extent.minLon,clipped.minLon),maxLon:Math.min(extent.maxLon,clipped.maxLon),
+            minLat:Math.max(extent.minLat,clipped.minLat),maxLat:Math.min(extent.maxLat,clipped.maxLat)};
+          if (extent.minLon >= extent.maxLon || extent.minLat >= extent.maxLat) throw Error(`图片范围内没有所选行政区的${partLabel}`);
+        }
+      }
       const centerWarning = includePoints ? await ensureAdministrativeExportCenters(features) : "";
       const centers = includePoints ? administrativeExportCenters(features) : [];
       const missing = includePoints ? features.filter((feature) => !feature.properties.admin_center).length : 0;
-      const extent = coordinateExtent;
       let imageSize = "";
       if (format === "png" || format === "jpg" || format === "tif") {
         const rendered = includeBasemap
@@ -18098,12 +18255,22 @@
       } else {
         const encoder = new TextEncoder();
         const xml = format === "osm" ? buildAdministrativeOsmXml(features, centers, centerWarning, options) : "";
-        if (format === "osm" && !includeBasemap) {
+        if (format === "osm" && !includeBasemap && !options.clipCoastline) {
           blob=new Blob([xml], { type: "application/xml;charset=utf-8" });name=`${baseName}.osm`;
         } else {
           const entries = format === "shp" ? buildAdministrativeShapefileEntries(features, centers, title, options)
             : [{ name: "administrative-boundaries.osm", data: encoder.encode(xml) }];
           const report = administrativeExportManifest(features, centers, title, centerWarning, options);
+          if (coastResult) {
+            const clippedFeatures = coastResult.rows.map(row => row.feature).filter(feature => feature.geometry.coordinates.length);
+            const stem = `coastline-${options.coastPart}`;
+            entries.push({name:`${stem}.geojson`,data:encoder.encode(JSON.stringify({type:"FeatureCollection",metadata:options.coastline,features:clippedFeatures}))});
+            const csv = value => `"${String(value ?? "").replaceAll('"','""')}"`;
+            const rows = options.coastline.areas.map(row => [row.name,row.osm_id,row.admin_level,row.totalSquareMeters,row.landSquareMeters,row.seaSquareMeters,
+              options.coastline.fetchedAt,options.coastline.sourceTimestamp].map(csv).join(","));
+            entries.push({name:"coastline-areas.csv",data:encoder.encode("\uFEFFname,osm_id,admin_level,total_m2,land_including_inland_water_m2,sea_m2,fetched_at,source_timestamp\r\n"+rows.join("\r\n"))});
+            if (format === "shp" && clippedFeatures.length) entries.push(...encodeAdministrativeShapefileLayer(clippedFeatures,stem,5));
+          }
           if (includeBasemap) {
             const rendered = await renderAdministrativeBasemapCanvas(features, title, extent, {...options, includeCoordinates: false, includePoints: false});
             const filename = basemapStyle.startsWith("huayu") ? `${basemapStyle}-basemap.tif` : "ogf-basemap.tif";
@@ -18122,9 +18289,12 @@
         }
       }
       const tileWarning=missingTiles?` ${missingTiles} 张底图瓦片未加载，图片中保留空白。`:"";
-      return {blob,name,warning:Boolean(missing||centerWarning||missingTiles),message: (features.length
+      const coastMessage=options.clipCoastline ? (options.coastPart === "sea"
+        ? " 已沿海岸线仅截取海域，排除陆地、河流和湖泊；面积为制图估算。"
+        : " 已沿海岸线仅截取陆地，包含河流和湖泊；面积为制图估算。") : "";
+      return {blob,name,coastline:options.coastline || null,warning:Boolean(missing||centerWarning||missingTiles),message: (features.length
         ? `已生成 ${boundaryCount} 个已选行政区、共 ${features.length} 个边界${includePoints ? `和 ${centers.length} 个行政中心` : "（不含行政中心点）"}的 ${format.toUpperCase()} 下载。${imageSize}${missing ? `${missing} 个行政区未找到可确认的中心，未补造坐标。` : ""}${centerWarning ? ` ${centerWarning}。` : ""}`
-        : `已生成 ${basemapLabel} 底图 ${format.toUpperCase()} 下载。${imageSize}`)+tileWarning};
+        : `已生成 ${basemapLabel} 底图 ${format.toUpperCase()} 下载。${imageSize}`)+tileWarning+coastMessage};
   }
 
   function activeAdministrativeFeatureBounds(features) {
@@ -18167,13 +18337,13 @@
   function renderAdministrativeBoundaryCanvas(features, title, options = {}) {
     const allCenters = administrativeExportCenters(features);
     const centers = options.includePoints === false ? [] : allCenters;
-    const bounds = activeAdministrativeFeatureBounds([...features, ...allCenters]);
+    const bounds = options.coastBounds || activeAdministrativeFeatureBounds([...features, ...allCenters]);
     const { longitudeFactor, longitudeSpan, latitudeSpan, mapWidth, mapHeight, margin, titleHeight,
       logicalWidth, logicalHeight, width, height, scaleX, scaleY } = administrativeBoundaryImageLayout(bounds, options.resolution);
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: false });
+    const context = canvas.getContext("2d", { alpha: Boolean(options.clipCoastline) });
     context.scale(scaleX, scaleY);
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, logicalWidth, logicalHeight);
@@ -18195,7 +18365,7 @@
       left: offsetX, top: offsetY, right: offsetX + longitudeSpan * scale, bottom: offsetY + latitudeSpan * scale,
     });
     const parentKeys = new Set(options.parentKeys || administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
-    if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
+    if (options.includeHighlight !== false) administrativeExportRenderOrder(options.coastRenderFeatures || features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
     if (options.includePoints !== false && features.length <= 80) {
@@ -18204,6 +18374,19 @@
     }
     if (options.includePoints !== false) drawAdministrativeCanvasCenters(context, centers, project,
       { left: margin, top: titleHeight, right: margin + mapWidth, bottom: titleHeight + mapHeight });
+    if (options.coastClipFeatures?.length) {
+      // Keep the page title, legend and footer; mask only the geographic frame.
+      const masked = document.createElement("canvas");masked.width=width;masked.height=height;
+      try {
+        masked.getContext("2d").drawImage(canvas,0,0);
+        window.HuayuMapExport.mask(masked,options.coastClipFeatures,coordinate=>{
+          const point=project(coordinate);return [point[0]*scaleX,point[1]*scaleY];
+        });
+        const w=longitudeSpan*scale,h=latitudeSpan*scale;
+        context.clearRect(offsetX,offsetY,w,h);
+        context.drawImage(masked,offsetX*scaleX,offsetY*scaleY,w*scaleX,h*scaleY,offsetX,offsetY,w,h);
+      } finally {masked.width=masked.height=0;}
+    }
     context.fillStyle = "#687176";
     context.font = "18px system-ui, sans-serif";
     context.fillText("数据：OpenGeofiction · 导出：华域地图", margin, logicalHeight - 22);
@@ -18212,6 +18395,7 @@
     return {
       canvas,
       bounds,
+      transparent: Boolean(options.coastClipFeatures?.length),
       geoReference: {
         epsg: 4326,
         pixelScaleX: 1 / (longitudeFactor * scale * scaleX),
@@ -18232,6 +18416,38 @@
       if ((last.x-first.x+1)*(last.y-first.y+1) <= 64) return huayuLiveBuildingVisibleTiles(viewport,z);
     }
     throw new Error("华域详细底图范围过大，请缩小范围或降低分辨率");
+  }
+
+  async function loadAdministrativeBuildingTile(tile, signal, onProgress) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (signal.aborted) throw new DOMException("已取消", "AbortError");
+      try {
+        const cached = huayuLiveBuildingSharedTileCache.get(tile.key);
+        return huayuLiveBuildingEntryFresh(cached) ? cached
+          : await loadHuayuModelTile("building", tile, fetchHuayuLiveBuildingTile, signal);
+      } catch (error) {
+        if (signal.aborted) throw new DOMException("已取消", "AbortError");
+        const status = Number(String(error.message || "").match(/^BUILDING_TILE_HTTP_(\d{3})$/u)?.[1]) || 0;
+        const timeout = error.name === "AbortError" || status === 408 || status === 504;
+        const network = error.name === "TypeError" && /fetch|network|load failed/iu.test(error.message || "");
+        const transient = timeout || network || [425, 429, 500, 502, 503].includes(status);
+        const reason = timeout ? "响应超时" : "暂时不可用";
+        if (!transient || attempt === 2) {
+          if (status || timeout || network) throw new Error(`建筑模型数据服务${reason}${status ? `（HTTP ${status}）` : ""}${attempt ? `，已自动重试 ${attempt} 次` : ""}。请稍后再次下载；也可关闭“建筑模型”后重新加入清单`, {cause:error});
+          throw error;
+        }
+        onProgress?.(`建筑模型数据服务${reason}，正在自动重试（${attempt + 1}/2）…`);
+        await new Promise((resolve, reject) => {
+          if (signal.aborted) {reject(new DOMException("已取消", "AbortError"));return;}
+          const abort = () => {
+            window.clearTimeout(timer);signal.removeEventListener("abort", abort);
+            reject(new DOMException("已取消", "AbortError"));
+          };
+          const timer = window.setTimeout(() => {signal.removeEventListener("abort", abort);resolve();}, [1000, 3000][attempt]);
+          signal.addEventListener("abort", abort, {once:true});
+        });
+      }
+    }
   }
 
   async function renderAdministrativeHuayuBasemap(canvas, bounds, options) {
@@ -18316,10 +18532,8 @@
             const tiles=administrativeExportTiles(bounds,clamp(Math.floor(zoom),11,15),11),merged=new Map();
             for(let index=0;index<tiles.length;index+=3) {
               (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在准备建筑模型：${Math.min(index+3,tiles.length)}/${tiles.length}…`);
-              const batch=await Promise.all(tiles.slice(index,index+3).map(async tile=>{
-                const cached=huayuLiveBuildingSharedTileCache.get(tile.key);
-                return huayuLiveBuildingEntryFresh(cached)?cached:loadHuayuModelTile("building",tile,fetchHuayuLiveBuildingTile,controller.signal);
-              }));
+              const batch=await Promise.all(tiles.slice(index,index+3).map(tile=>loadAdministrativeBuildingTile(tile,controller.signal,
+                options.onProgress || (message => setStatus(elements.boundaryLevelStatus,message)))));
               batch.forEach(entry=>entry.data.features.forEach(feature=>merged.set(String(feature.id),feature)));
             }
             ensureHuayuLiveBuildingLayer(glMap);
@@ -18386,7 +18600,7 @@
       left: 0, top: 0, right: frameWidth, bottom: frameHeight,
     });
     const parentKeys = new Set(options.parentKeys || administrativeExportBoundaries().map((boundary) => administrativeBoundaryFeatureKey(boundary.feature)));
-    if (options.includeHighlight !== false) administrativeExportRenderOrder(features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
+    if (options.includeHighlight !== false) administrativeExportRenderOrder(options.coastRenderFeatures || features, parentKeys).forEach((feature) => drawAdministrativeCanvasFeature(
       context, feature, project, parentKeys.has(administrativeBoundaryFeatureKey(feature)),
     ));
     if (options.includePoints !== false && features.length <= 80) features.filter((feature) => !feature.properties.admin_center)
@@ -18397,14 +18611,17 @@
     if (options.maskFeatures?.length) window.HuayuMapExport.mask(canvas,options.maskFeatures,coordinate=>{
       const point=project(coordinate);return [point[0]*styleScale,point[1]*styleScale];
     });
-    if(!options.skipAttribution)window.HuayuMapExport.attribution(canvas,`${title} · OpenGeofiction contributors · 华域地图`,styleScale,Boolean(options.maskFeatures?.length));
+    if (options.coastClipFeatures?.length) window.HuayuMapExport.mask(canvas,options.coastClipFeatures,coordinate=>{
+      const point=project(coordinate);return [point[0]*styleScale,point[1]*styleScale];
+    });
+    if(!options.skipAttribution)window.HuayuMapExport.attribution(canvas,`${title} · OpenGeofiction contributors · 华域地图`,styleScale,Boolean(options.maskFeatures?.length || options.coastClipFeatures?.length));
     if (failed) showToast(`${failed} 张底图瓦片不可用，已保留空白位置`);
     const earthHalf = Math.PI * 6378137;
     return {
       canvas,
       bounds,
       missingTiles: failed,
-      transparent: Boolean(options.maskFeatures?.length),
+      transparent: Boolean(options.maskFeatures?.length || options.coastClipFeatures?.length),
       geoReference: {
         epsg: 3857,
         pixelScaleX: earthHalf * 2 / plan.worldSize / plan.scaleX,
@@ -18858,6 +19075,11 @@
       + "See export-info.json for the Huayu/OGF style, clipping geometry, building models and highlight choices.\r\n"
       + "Clipped PNG/TIFF pixels outside the selected shape are transparent; JPEG uses white.\r\n"
       + "Labels baked into the OGF basemap are independent of the point-feature option.\r\n"
+      + (options.clipCoastline ? (options.coastPart === "sea"
+          ? "Coastline clipping keeps sea only, excluding land, islands and inland rivers/lakes.\r\n"
+          : "Coastline clipping keeps land, including inland rivers/lakes and islands, excluding sea.\r\n")
+        + `Original administrative boundaries remain intact. coastline-${options.coastPart === "sea" ? "sea" : "land"} is derived geometry; coastline-areas.csv reports total, land (including inland water), and sea in square metres.\r\n`
+        + "Source/fetch times and any no-coastline classification source are in export-info.json. Areas are cartographic estimates, not official legal measurements.\r\n" : "")
       + "GIS software must reproject the vector and raster layers to a common display CRS.\r\n"
       + "OSM exports are derived geometry with temporary IDs, not an original database download; do not upload.\r\n";
   }
@@ -18867,6 +19089,7 @@
     if (!includePoints) centers = [];
     const covered = new Set(centers.map((center) => center.properties.area_key));
     return { generator: "Huayu Map 2.2.4", title, source: "OpenGeofiction", vectorEpsg: 4326,
+      ...(options.clipCoastline ? {clipCoastline:true,coastPart:options.coastPart === "sea" ? "sea" : "land",coastline:options.coastline} : {}),
       boundaryCount: features.length, centerCount: centers.length, includePoints, warning: warning || null,
       centers: centers.map((center) => ({ ...center.properties, coordinates: center.geometry.coordinates })),
       unresolvedCenterMembers: (includePoints ? features : []).filter((feature) => feature.properties.unresolved_center_members?.length)
@@ -18997,6 +19220,7 @@
   }
 
   function encodeAdministrativeDbf(features) {
+    const coast = features.some(feature => ["coastline-land-v1","coastline-sea-v1"].includes(feature.properties?.derived));
     const fields = [
       { name: "NAME", length: 96 },
       { name: "LEVEL", length: 12 },
@@ -19007,6 +19231,8 @@
       { name: "OSM_TYPE", length: 12 },
       { name: "CTR_NAME", length: 96 },
       { name: "METHOD", length: 32 },
+      ...(coast ? [{name:"DERIVED",length:24},{name:"TOTAL_M2",length:24,type:"N"},
+        {name:"LAND_M2",length:24,type:"N"},{name:"SEA_M2",length:24,type:"N"}] : []),
     ];
     const headerLength = 32 + fields.length * 32 + 1;
     const recordLength = 1 + fields.reduce((sum, field) => sum + field.length, 0);
@@ -19025,8 +19251,9 @@
     fields.forEach((field, index) => {
       const offset = 32 + index * 32;
       bytes.set(encoder.encode(field.name).slice(0, 11), offset);
-      bytes[offset + 11] = 0x43;
+      bytes[offset + 11] = field.type === "N" ? 0x4e : 0x43;
       bytes[offset + 16] = field.length;
+      if (field.type === "N") bytes[offset + 17] = 3;
     });
     bytes[headerLength - 1] = 0x0d;
     features.forEach((feature, recordIndex) => {
@@ -19043,10 +19270,13 @@
         feature.properties?.osm_type || "relation",
         feature.properties?.center_name || feature.properties?.admin_center?.name || "",
         feature.properties?.match_method || feature.properties?.admin_center?.match_method || "",
+        ...(coast ? [feature.properties?.derived || "",...["total_m2","land_m2","sea_m2"].map(key =>
+          Number.isFinite(feature.properties?.[key]) ? feature.properties[key].toFixed(3) : "")] : []),
       ];
       fields.forEach((field, fieldIndex) => {
         bytes.fill(0x20, offset, offset + field.length);
-        bytes.set(encodeDbfText(values[fieldIndex], field.length), offset);
+        const encoded = encodeDbfText(values[fieldIndex], field.length);
+        bytes.set(encoded, field.type === "N" ? offset + field.length - encoded.length : offset);
         offset += field.length;
       });
     });

@@ -49,6 +49,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
+  "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
   "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
@@ -1420,7 +1421,7 @@ assert.ok(app.includes('const panelVisible = !elements.panel.classList.contains(
 "行政区覆盖层必须只在打开的行政区搜索或地图下载面板显示，下载清单与范围框不得影响其他功能");
 assert.ok(app.includes("function administrativeExportRenderOrder(features, parentKeys)")
   && app.includes("return Number(parentA) - Number(parentB);")
-  && (app.match(/administrativeExportRenderOrder\(features, parentKeys\)\.forEach/g) || []).length === 2,
+  && (app.match(/administrativeExportRenderOrder\(options\.coastRenderFeatures \|\| features, parentKeys\)\.forEach/g) || []).length === 2,
 "行政区栅格导出必须按层级绘制，并将所选上级边界置于最上层");
 const administrativeOrderSource = app.match(/function administrativeDivisionRenderOrder\(features\) \{[\s\S]*?\n  \}/)?.[0];
 const administrativeInteractionOrderSource = app.match(/function administrativeDivisionInteractionOrder\(features\) \{[\s\S]*?\n  \}/)?.[0];
@@ -1513,6 +1514,8 @@ assert.equal(adminLabelsTest.status, 0, `行政区标签回归失败：${adminLa
 const highlightProjectionTest = await runCheck([path.join(root, "scripts", "test-highlight-projection.mjs")]);
 assert.equal(highlightProjectionTest.status, 0, `高亮相机同步回归失败：${highlightProjectionTest.stderr}`);
 const adminExportTest = await runCheck([path.join(root, "scripts", "test-administrative-export.mjs")]);
+const coastExportTest = await runCheck([path.join(root, "scripts", "test-coastline-export.mjs")]);
+assert.equal(coastExportTest.status, 0, coastExportTest.stderr || "Coastline export regression failed");
 assert.equal(adminExportTest.status, 0, `行政区下载回归失败：${adminExportTest.stderr}`);
 const featureDownloadTest = await runCheck([path.join(root, "scripts", "test-feature-download.mjs")]);
 assert.equal(featureDownloadTest.status, 0, `物体选择与下载回归失败：${featureDownloadTest.stderr}`);

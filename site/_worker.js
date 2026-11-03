@@ -1559,6 +1559,43 @@ async function fetchFeatureData(request) {
   }
 }
 
+function coastlineQuery(url) {
+  const value=url.searchParams.get("bbox")||"";
+  const parts=value.split(",");
+  const [west,south,east,north]=parts.map(Number);
+  if(parts.length!==4||parts.some(p=>!p.trim())||![west,south,east,north].every(Number.isFinite)
+    ||west< -180||east>180||south< -85||north>85||east<=west||north<=south||east-west>60.0001||north-south>60.0001)throw Error("INVALID_COASTLINE_BOUNDS");
+  // Overpass selects ways by their nodes. Read a surrounding strip too, so
+  // ordinary long shoreline segments crossing a small boundary are included.
+  const padding=.1;
+  return `[out:json][timeout:30][maxsize:33554432];way["natural"="coastline"](${Math.max(-85,south-padding)},${Math.max(-180,west-padding)},${Math.min(85,north+padding)},${Math.min(180,east+padding)})->.coast;`
+    + `.coast out count;.coast out body geom 12001;`;
+}
+
+async function fetchCoastline(request) {
+  const json=(value,status)=>buildingJsonResponse(JSON.stringify(value),status,{"Cache-Control":"no-store"});
+  if(request.method!=="GET")return json({error:"仅支持读取海岸线"},405);
+  let query;
+  try {query=coastlineQuery(new URL(request.url));}catch{return json({error:"海岸线范围无效或过大，请按行政区分批处理"},400);}
+  try {
+    const response=await fetch(OGF_OVERPASS_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({data:query}).toString(),signal:AbortSignal.timeout(37000)});
+    if(!response.ok)throw Error("COASTLINE_UNAVAILABLE");
+    const reader=response.body.getReader(),chunks=[];let bytes=0;
+    try {while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>32*1024*1024)throw Error("COASTLINE_LIMIT");chunks.push(value);}}
+    finally {await reader.cancel().catch(()=>{});}
+    const buffer=new Uint8Array(bytes);let offset=0;for(const chunk of chunks){buffer.set(chunk,offset);offset+=chunk.length;}
+    const payload=JSON.parse(new TextDecoder().decode(buffer)),count=Number(payload.elements?.[0]?.tags?.total);
+    if(payload.remark||payload.elements?.[0]?.type!=="count"||!Number.isSafeInteger(count)||count<0)throw Error("COASTLINE_INCOMPLETE");
+    if(count>12000)throw Error("COASTLINE_LIMIT");
+    const elements=payload.elements.slice(1);
+    if(elements.length!==count||elements.some(e=>e.type!=="way"||e.tags?.natural!=="coastline"||!e.nodes?.length
+      ||e.nodes.length!==e.geometry?.length||e.geometry.some(p=>!Number.isFinite(p?.lon)||!Number.isFinite(p?.lat))))throw Error("COASTLINE_INCOMPLETE");
+    if(elements.reduce((s,e)=>s+e.nodes.length,0)>300000)throw Error("COASTLINE_LIMIT");
+    return json({elements,fetchedAt:new Date().toISOString(),sourceTimestamp:payload.osm3s?.timestamp_osm_base||null},200);
+  }catch(error){return json({error:error.message==="COASTLINE_LIMIT"?"海岸线数据过大，请缩小范围后分批处理":"海岸线读取不完整或暂时不可用，请稍后重试；未采用部分结果"},error.message==="COASTLINE_LIMIT"?413:502);}
+}
+
 const brandRequests = new Map();
 const brandRetryAfter = new Map();
 // Keep these bounded selectors identical to HuayuBrandData; test-brands checks parity.
@@ -1679,6 +1716,7 @@ async function fetchBrandData(request) {
 }
 
 export {
+  coastlineQuery,
   normalizedFavorites,
   featureDataQuery,
   brandDataQuery,
@@ -1698,6 +1736,7 @@ export default {
     const personalResponse = await handlePersonalApi(request, environment);
     if (personalResponse) return personalResponse;
     if (url.pathname === "/api/features") return fetchFeatureData(request);
+    if (url.pathname === "/api/coastline") return fetchCoastline(request);
     if (url.pathname === "/api/brands") return fetchBrandData(request);
     if (url.pathname === "/terrain-preload.json.gz"
       || (["/terrain-preload-chunks/", "/terrain-render-cache/"].some(prefix => url.pathname.startsWith(prefix))

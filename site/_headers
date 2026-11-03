@@ -22,6 +22,9 @@
 /map-export.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/coastline*.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /feature-data.js
   Cache-Control: public, max-age=0, must-revalidate
 

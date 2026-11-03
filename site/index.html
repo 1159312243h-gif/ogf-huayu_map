@@ -193,6 +193,9 @@
               <button id="boundary-clear-selections" class="text-button" type="button" hidden>清空多选</button>
             </div>
             <div id="boundary-selection-list" class="boundary-selection-list" aria-live="polite"></div>
+            <button id="boundary-coast-area-button" class="secondary-button boundary-full-button" type="button">计算陆地／海域面积</button>
+            <p id="boundary-coast-area-status" class="boundary-resolution-note" aria-live="polite">按需沿海岸线计算；陆地口径包含河流、湖泊，海域单列。</p>
+            <div id="boundary-coast-area-results" class="boundary-resolution-note" aria-live="polite" hidden></div>
             <p id="boundary-level-status" class="boundary-level-status" aria-live="polite">可按需读取并加载该行政区内实际存在的下级区划。</p>
             <button id="boundary-levels-button" class="secondary-button boundary-full-button" type="button"><i data-lucide="list-tree" aria-hidden="true"></i>查看下级行政层级</button>
             <fieldset id="boundary-level-fieldset" class="boundary-level-fieldset" hidden>
@@ -211,6 +214,14 @@
             </div>
             <fieldset class="boundary-content-options">
               <legend>导出内容</legend>
+              <label class="boundary-toggle-option"><input id="boundary-clip-coastline" type="checkbox" /><span><strong>沿海岸线截取</strong><small>可选择仅陆地或仅海域；矢量包另附所选范围及面积表，原始行政边界保留</small></span></label>
+              <div id="boundary-coastline-options" class="boundary-resolution-row" hidden>
+                <label for="boundary-coastline-part">截取范围</label>
+                <select id="boundary-coastline-part" disabled>
+                  <option value="land">仅陆地（含河流、湖泊与离岛）</option>
+                  <option value="sea">仅海域（排除陆地、河流与湖泊）</option>
+                </select>
+              </div>
               <label class="boundary-toggle-option"><input id="boundary-include-coordinates" type="checkbox" checked /><span><strong>地理坐标信息</strong><small>图片显示经纬网；TIF 写入空间参考</small></span></label>
               <label class="boundary-toggle-option"><input id="boundary-include-points" type="checkbox" checked /><span><strong>下载点要素</strong><small>点符号、地名注记与点图层；底图自带标注不受影响</small></span></label>
               <label class="boundary-toggle-option"><input id="boundary-include-basemap" type="checkbox" /><span><strong>同步下载底图</strong><small>可选华域或 OGF；矢量 ZIP 附栅格底图</small></span></label>
@@ -840,9 +851,11 @@
             <div class="help-topic-content">
               <p class="help-callout">“底图与行政区”和“地图物体”共用页面下方的下载清单，两类内容都可加入。下载整个清单时，多个文件自动合并为 ZIP。把自己的图片放到地图上则选“贴图”；上传范围需在贴图面板中设置。</p>
               <h3>① 确定范围</h3>
-              <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
+              <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。勾选“沿海岸线截取”后，可选“仅陆地”（含河流、湖泊及离岛）或“仅海域”（排除陆地、离岛与内陆河湖），与原有图片裁切叠加；PNG／TIF 未选部分透明、JPG 白底。原始行政边界仍保留，矢量包另外提供所选陆地或海域范围 GeoJSON、SHP（所选格式为 SHP 时）及面积表，属于派生结果，不应上传回 OGF。下载清单保存加入时的陆地／海域选择。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
+              <p>“计算陆地／海域面积”按需读取 OGF 海岸线，分别显示行政区总面积、陆地面积（含内陆水体）与海域面积；已加载下级区划也按同一口径显示，嵌套行政区不相加。数值为制图估算，非官方法定面积。海岸线方向或连接不完整、读取失败时不交付部分结果，可重试。没有海岸线穿过范围时另用 OGF 海陆底图核对归属，并保留其源日期；计算及导出均不改变主地图。</p>
               <h3>② 下载底图与行政区</h3>
               <p>进入“下载 → 底图与行政区”，按需勾选“同步下载底图”，选择华域标准、深夜、模拟卫星或 OGF-Carto US／GB。可独立控制地理坐标信息、行政中心点、高亮边界和建筑模型；OGF 栅格图中已有的建筑或地名无法单独去掉，模拟卫星始终为平面表达。</p>
+              <p>华域建筑模型数据遇到临时超时或网络故障时，会对失败分块最多自动重试两次。持续失败仍保留下载清单，不自动关闭建筑或交付缺块图片；可稍后直接再次下载。若主动关闭建筑或修改范围，需要移除旧任务、按新设置重新加入清单。</p>
               <p>图片长边可选 800–8192 像素，或自定义 512–8192 整数像素；界面会显示实际尺寸。格式包含 PNG、JPG、带地理参考的 TIF，以及行政边界 SHP ZIP、OSM XML。按轮廓裁切时，PNG／TIF 外部透明、JPG 外部为白色；更高输出分辨率仍受源数据细节限制。</p>
               <h3>③ 下载范围内物体或任意选中物体</h3>
               <p>多选行政区时先“添加到行政区组合”；设置好范围、格式和样式后，点击“加入下载清单”。每项保存加入时的范围与选项，之后移动地图不改变该任务；可继续加入其他范围，最后在下方“下载整个清单”。</p>
@@ -1047,11 +1060,12 @@
     <script src="./building-roofs.js?v=8.0-smooth-render-v1"></script>
     <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
     <script src="./map-export.js?v=7.5-download-list-v1"></script>
+    <script src="./coastline-client.js?v=2"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=2"></script>
-    <script src="./app.js?v=8.0-smooth-render-v1"></script>
+    <script src="./app.js?v=8.0-coastline-export-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./brand-browser.js?v=4"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>

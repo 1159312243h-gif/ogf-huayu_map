@@ -1,6 +1,8 @@
 华域地图 v8.0
-Released: 2026-11-01
+Released: 2026-11-03
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-coastline-export-v1 (2026-11-03): Add optional administrative coastline clipping for land only or sea only, using complete directed OGF coastlines in a dedicated Worker. Keep inland rivers/lakes in the land definition, preserve offshore islands and administrative holes, and report total, land and sea areas with truthful source/fetch times. Retain original administrative vectors alongside separately identified derived GeoJSON/Shapefile layers and area CSV files; apply matching raster masks, transparency, bounds and georeferencing. Save the selected part and original options in each download-list task. Retry transient building-model export failures twice with bounded concurrency, Chinese error messages, complete-source handoff and cleanup, retaining the queue on failure. Keep source snapshots, rendering, model defaults, account data and existing update intervals. Deployment status is verified separately.
 
 Release build 8.0-smooth-render-v1 (2026-11-01): Refine intersecting terrain draw runs with compact triangle bounds prepared alongside the unchanged complete mesh. Preserve original vertex order, crossing triangles, masks, all materials, fallback and cached geometry. Use the bundled engine's custom-layer state invalidation/restoration boundary instead of synchronous per-frame GPU state reads. Reuse roof GPU geometry when repeated terrain events yield identical sampled elevations; rebuild on actual height, terrain-state, model or appearance changes. Do not request extra render frames for unchanged roofs. Inspect live facility layer order without copying GeoJSON sources. Preserve all functionality, roof colors and shapes, sunlight, shadows, account data, preferences, source timestamps and two-minute/five-minute/three-hour update intervals. Local validation and deployment status are reported separately.
 

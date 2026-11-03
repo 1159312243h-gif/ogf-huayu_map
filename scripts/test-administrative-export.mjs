@@ -24,6 +24,7 @@ const elements = {
   boundaryExtentFieldset: control(), boundaryCoordinateFields: control(),
   boundaryExtentModes: [control("administrative", true), control("coordinates")],
   boundaryIncludeHighlight: control("",true), boundaryIncludeBuildings: control("",true),
+  boundaryClipCoastline: control(), boundaryCoastlinePart: control("land"),
   boundaryBasemapStyle: control("carto"), boundaryBasemapOptions: control(), boundaryBuildingsNote: control(),
   boundaryClipShape: control("rectangle"), boundaryPolygonControls: control(),
   boundaryCustomResolution: control("3600"), boundaryCustomResolutionLabel: control(),
@@ -62,6 +63,7 @@ const context = vm.createContext({ Blob, TextEncoder, elements, administrativeEx
   downloadBlob: (blob, name) => downloads.push({ blob, name }),
   setStatus: (_, text, error) => statuses.push({ text, error }), showToast: () => {},
   syncMapLayers: () => {}, cancelAdministrativeBoxPick: () => {},
+  updateAdministrativeCoastControls: () => {},
   humanizeError: error => { throw error; },
 });
 context.window=context;
@@ -306,4 +308,157 @@ assert.match(elements.boundaryFormatNote.textContent, /不绘制点符号与地�
 assert.match(elements.boundaryResolutionNote.textContent, /不绘制地名注记/u);
 assert.equal(elements.boundaryResolutionNote.textContent.includes("图例"), false);
 assert.equal(JSON.stringify(features), original, "export options do not mutate source features or centres");
+
+// Use the actual coast intersection algorithm while exercising every download
+// branch. Original administrative vectors and derived land must coexist.
+for (const file of ["vendor/polygon-clipping-0.15.7.js","coastline.js"]) {
+  vm.runInContext(await readFile(new URL(`../site/${file}`,import.meta.url),"utf8"),context);
+}
+const coastLand=[[[[152.9,14.6],[152.95,14.6],[152.95,14.7],[152.9,14.7],[152.9,14.6]]]];
+const coastMetadata={fetchedAt:"2026-11-03T01:00:00Z",sourceTimestamp:"2026-11-03T00:55:00Z",includesInlandWater:true};
+context.analyzeAdministrativeCoast=async (input,_signal,part)=>({rows:context.HuayuCoastline.analyze(input,coastLand,undefined,part),metadata:coastMetadata});
+elements.boundaryClipCoastline.checked=true;
+elements.boundaryIncludePoints.checked=false;
+elements.boundaryIncludeBasemap.checked=false;
+for (const part of ["land","sea"]) {
+elements.boundaryCoastlinePart.value=part;
+for (const format of ["png","jpg","tif","shp","osm"]) {
+  elements.boundaryFormat.value=format;
+  const job=context.captureAdministrativeDownload();
+  assert.equal(job.options.clipCoastline,true);
+  assert.equal(job.options.coastPart,part);
+  elements.boundaryClipCoastline.checked=false;
+  elements.boundaryCoastlinePart.value=part==="sea"?"land":"sea";
+  const result=await context.buildAdministrativeDownload(job);
+  assert.equal(result.coastline.part,part,"export uses queued land/sea choice, independent of current controls");
+  assert.match(result.name,new RegExp(part==="sea"?"仅海域":"仅陆地"));
+  assert.equal(result.coastline.sourceTimestamp,coastMetadata.sourceTimestamp);
+  const area=result.coastline.areas[0];
+  assert.ok(area.landSquareMeters>0&&area.seaSquareMeters>0);
+  assert.equal(area.totalSquareMeters,area.landSquareMeters+area.seaSquareMeters);
+  if(format==="tif"){
+    const tags=await tiffTags(result.blob);assert.equal(tags.get(277),4);assert.equal(tags.get(338),2);
+  }
+  if(format==="shp"||format==="osm") {
+    const entries=await zipEntries(result.blob);
+    const clipped=JSON.parse(new TextDecoder().decode(entries.get(`coastline-${part}.geojson`))).features[0];
+    assert.equal(clipped.properties.area_square_meters,part==="sea"?area.seaSquareMeters:area.landSquareMeters);
+    if(part==="land") {
+      assert.equal(context.activeAdministrativeFeatureBounds([clipped]).maxLon,152.95);
+      assert.equal(clipped.geometry.coordinates[0].length,2,"land clipping retains the inland administrative hole");
+    } else {
+      assert.equal(context.activeAdministrativeFeatureBounds([clipped]).minLon,152.95,"marine geometry excludes all land");
+      assert.equal(entries.has("coastline-land.geojson"),false);
+    }
+    assert.ok(entries.has("coastline-areas.csv"));
+    const info=JSON.parse(new TextDecoder().decode(entries.get("export-info.json")));
+    assert.equal(info.coastline.areas[0].seaSquareMeters,area.seaSquareMeters);
+    assert.equal(info.coastline.includesInlandWater,true);
+    assert.equal(info.coastPart,part);
+    if(format==="shp") {
+      assert.ok(entries.has(`coastline-${part}.shp`));
+      const dbf=entries.get(`coastline-${part}.dbf`),view=new DataView(dbf.buffer,dbf.byteOffset),decoder=new TextDecoder();
+      const header=view.getUint16(8,true);let record=header+1;
+      const attributes={};
+      for(let descriptor=32;descriptor<header-1;descriptor+=32) {
+        const field=decoder.decode(dbf.slice(descriptor,descriptor+11)).replaceAll("\0",""),length=dbf[descriptor+16];
+        attributes[field]=decoder.decode(dbf.slice(record,record+length)).trim();record+=length;
+        if(field.endsWith("_M2")){assert.equal(dbf[descriptor+11],0x4e);assert.equal(dbf[descriptor+17],3);}
+      }
+      assert.equal(attributes.DERIVED,`coastline-${part}-v1`);
+      assert.ok(Math.abs(Number(attributes.LAND_M2)-area.landSquareMeters)<.001);
+      assert.ok(Math.abs(Number(attributes.SEA_M2)-area.seaSquareMeters)<.001);
+      const originalShape=entries.get("administrative-boundaries.shp");
+      assert.equal(new DataView(originalShape.buffer,originalShape.byteOffset).getFloat64(52,true),153,
+        "original administrative boundary retains its sea extent");
+    } else assert.ok(entries.has("administrative-boundaries.osm"));
+  }
+  assert.equal(JSON.stringify(features),original);
+  elements.boundaryClipCoastline.checked=true;
+  elements.boundaryCoastlinePart.value=part;
+}
+}
+elements.boundaryCoastlinePart.value="land";
+const originalAnalysis=context.analyzeAdministrativeCoast,coastJob=context.captureAdministrativeDownload();
+context.analyzeAdministrativeCoast=async()=>{throw Error("coast-source-failed");};
+await assert.rejects(context.buildAdministrativeDownload(coastJob),/coast-source-failed/);
+context.analyzeAdministrativeCoast=async input=>({rows:context.HuayuCoastline.analyze(input,[]),metadata:coastMetadata});
+await assert.rejects(context.buildAdministrativeDownload(coastJob),/没有可下载的陆地/);
+const seaJob=JSON.parse(JSON.stringify(coastJob));seaJob.options.coastPart="sea";
+context.analyzeAdministrativeCoast=async input=>({rows:context.HuayuCoastline.analyze(input,[feature.geometry.coordinates],undefined,"sea"),metadata:coastMetadata});
+await assert.rejects(context.buildAdministrativeDownload(seaJob),/没有可下载的海域/);
+assert.equal(JSON.stringify(features),original,"coastline failures preserve source boundaries and queued snapshots");
+context.analyzeAdministrativeCoast=originalAnalysis;
+// Exercise the actual Huayu export preparation, not just the retry helper:
+// recover individual failed tiles without committing a partial building source.
+const retryRequests=[],retryDelays=[],buildingWrites=[],retryProgress=[],signals=[];
+const retryAttempts=new Map(),buildingCache=new Map();
+let failure="recover",active=0,maximumActive=0,cleanups=0;
+const exportTiles=[{key:"a"},{key:"b"},{key:"c"}];
+const exportMap={on:()=>{},off:()=>{},getLayer:()=>true,getStyle:()=>({layers:[]}),
+  getSource:()=>({setData:data=>buildingWrites.push(plain(data))}),setLayoutProperty:()=>{}};
+const retryContext=vm.createContext({AbortController,DOMException,Date,Map,
+  clamp:(value,min,max)=>Math.max(min,Math.min(max,value)),
+  ensureVectorBasemapLibrary:async()=>{},prepareVectorBasemap:async()=>{},fetchJson:async()=>({version:8}),
+  BASEMAP_STYLES:{huayu:{label:"华域标准",url:"/fixture-style.json"}},
+  setStatus:()=>{},elements:{boundaryLevelStatus:{}},
+  ensureHuayuPoiImages:()=>{},applyHuayuSatelliteTextures:()=>{},ensureHuayuLiveBasemapLayers:()=>{},
+  ensureHuayuLiveBuildingLayer:()=>{},addHuayuPoiImage:()=>{},activateHuayuModelOcclusion:()=>{},
+  deactivateHuayuModelOcclusion:()=>{cleanups++;},
+  huayuWoodlandMaterialLayers:new Map(),terrainOverlayEnabled:false,
+  HUAYU_LIVE_BASEMAP_MIN_ZOOM:99,HUAYU_LIVE_BUILDING_MIN_ZOOM:10,
+  HUAYU_LIVE_BUILDING_SOURCE:"buildings",HUAYU_LIVE_BUILDING_LAYER:"building-layer",
+  HUAYU_ANCIENT_BUILDING_LAYERS:{ancient:"ancient"},HUAYU_VECTOR_BUILDING_LAYER_IDS:["base-buildings"],
+  administrativeExportTiles:()=>exportTiles,huayuLiveBuildingSharedTileCache:buildingCache,
+  huayuLiveBuildingEntryFresh:entry=>Boolean(entry?.fresh),fetchHuayuLiveBuildingTile:()=>{},
+  loadHuayuModelTile:async(kind,tile,_fetch,signal)=>{
+    assert.equal(kind,"building");signals.push(signal);retryRequests.push(tile.key);
+    const attempt=(retryAttempts.get(tile.key)||0)+1;retryAttempts.set(tile.key,attempt);
+    active++;maximumActive=Math.max(maximumActive,active);
+    try {
+      await Promise.resolve();
+      if(failure==="recover"&&tile.key==="a"&&attempt<3)throw Error("BUILDING_TILE_HTTP_504");
+      if(failure==="persistent")throw Error("BUILDING_TILE_HTTP_504");
+      if(failure==="denied")throw Error("BUILDING_TILE_HTTP_403");
+      if(failure==="incomplete")throw Error("INCOMPLETE_MODEL_TILE");
+      return {data:{features:[{id:tile.key}]},loadedAt:123};
+    } finally {active--;}
+  },
+});
+retryContext.window={setTimeout:(callback,delay)=>{retryDelays.push(delay);return setTimeout(callback,0);},clearTimeout,
+  HuayuMapExport:{vectorCanvas:async({prepare})=>{let cleanup;try{cleanup=await prepare(exportMap,12);}finally{cleanup?.();}}}};
+for(const name of ["loadAdministrativeBuildingTile","renderAdministrativeHuayuBasemap"])
+  vm.runInContext(app.match(new RegExp(`  async function ${name}\\([^]*?\\n  \\}`,"u"))[0],retryContext);
+const retryOptions={basemapStyle:"huayu",includeBuildings:true,onProgress:message=>retryProgress.push(message)};
+const retryOptionsBefore={...retryOptions};
+await retryContext.renderAdministrativeHuayuBasemap({},bounds,retryOptions);
+assert.equal(retryAttempts.get("a"),3);assert.equal(retryAttempts.get("b"),1);assert.equal(retryAttempts.get("c"),1);
+assert.deepEqual(retryDelays,[1000,3000]);
+assert.equal(buildingWrites.length,1);assert.equal(buildingWrites[0].features.length,3);
+assert.ok(retryProgress.some(message=>message.includes("重试（2/2）")));
+assert.ok(maximumActive<=3,"tile retries retain the three-request concurrency budget");
+assert.equal(cleanups,1);assert.ok(signals.every(signal=>signal.aborted));
+assert.deepEqual(retryOptions,retryOptionsBefore,"recovery does not disable user-selected models or modify download options");
+retryRequests.length=retryDelays.length=buildingWrites.length=0;retryAttempts.clear();failure="persistent";
+await assert.rejects(retryContext.renderAdministrativeHuayuBasemap({},bounds,retryOptions),error=>
+  /建筑模型.*HTTP 504.*自动重试 2 次/u.test(error.message)&&!error.message.includes("BUILDING_TILE_HTTP"));
+assert.equal(retryAttempts.get("a"),3);assert.equal(buildingWrites.length,0);
+assert.equal(cleanups,2);assert.ok(signals.every(signal=>signal.aborted),"persistent failure cleans up every outstanding request");
+for(const [mode,expected] of [["denied",/HTTP 403/u],["incomplete",/INCOMPLETE_MODEL_TILE/u]]) {
+  failure=mode;retryRequests.length=retryDelays.length=0;
+  await assert.rejects(retryContext.loadAdministrativeBuildingTile(exportTiles[0],new AbortController().signal),expected);
+  assert.equal(retryRequests.length,1);assert.equal(retryDelays.length,0,"non-transient errors are not retried");
+}
+const cancelled=new AbortController();cancelled.abort();retryRequests.length=0;
+await assert.rejects(retryContext.loadAdministrativeBuildingTile(exportTiles[0],cancelled.signal),{name:"AbortError"});
+assert.equal(retryRequests.length,0);
+failure="persistent";retryRequests.length=retryDelays.length=0;
+const cancelDuringProgress=new AbortController();
+await assert.rejects(retryContext.loadAdministrativeBuildingTile(exportTiles[0],cancelDuringProgress.signal,()=>cancelDuringProgress.abort()),{name:"AbortError"});
+assert.equal(retryRequests.length,1);assert.equal(retryDelays.length,0);
+failure="recover";retryRequests.length=0;
+buildingCache.set("a",{fresh:true,data:{features:[{id:"cached"}]},loadedAt:100});
+const cached=await retryContext.loadAdministrativeBuildingTile(exportTiles[0],new AbortController().signal);
+assert.equal(cached.loadedAt,100);assert.equal(retryRequests.length,0,"valid cached model source times are preserved");
+console.log("Huayu download recovery passed: bounded tile retries, complete model source, unchanged options, readable errors, cache reuse and cancellation cleanup.");
 console.log("Administrative export passed: all formats, independent points/highlights, 800–8192 and custom image sizes, valid polygon selection, native tile detail, bounded requests, preserved holes, TIFF alpha and georeferencing.");
