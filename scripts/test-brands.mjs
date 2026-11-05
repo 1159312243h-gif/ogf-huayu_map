@@ -298,6 +298,13 @@ for (const ready of [false, true]) {
   page.ready(); vm.runInContext(browserSource, page.context);
   assert.equal(page.mapListeners, 1, "重复就绪或脚本执行不重复挂载模块");
   assert.equal(page.intervals.size, 1);
+  page.el("tool-panel").classList.contains = name => name === "is-minimized";
+  page.window.HuayuBrandBrowser.setActive(false);
+  page.window.dispatchEvent(new Event("pageshow"));
+  assert.equal(page.intervals.size, 0, "页面恢复时不能重启已收起品牌面板的自动检查");
+  page.el("tool-panel").classList.contains = () => false;
+  page.window.dispatchEvent(new Event("pageshow"));
+  assert.equal(page.intervals.size, 1, "展开后的品牌面板继续沿用原自动检查");
 }
 const failedPage = brandPage({ready: true});
 failedPage.requests.shift().reject(Error("offline")); await settle();

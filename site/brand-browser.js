@@ -413,8 +413,10 @@
   });
   window.addEventListener("pagehide", () => {setActive(false); clearSearch();});
   window.addEventListener("pageshow", () => setActive(atlas.getCurrentView() === "brands"
-    && !el("tool-panel").classList.contains("is-hidden")));
+    && !el("tool-panel").classList.contains("is-hidden")
+    && !el("tool-panel").classList.contains("is-minimized")));
   window.HuayuBrandBrowser = Object.freeze({setActive, search, clearSearch});
   if (new URLSearchParams(window.location.search).get("panel") === "brands") atlas.openView("brands");
-  setActive(atlas.getCurrentView() === "brands" && !el("tool-panel").classList.contains("is-hidden"));
+  setActive(atlas.getCurrentView() === "brands" && !el("tool-panel").classList.contains("is-hidden")
+    && !el("tool-panel").classList.contains("is-minimized"));
 })();

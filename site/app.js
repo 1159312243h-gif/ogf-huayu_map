@@ -694,6 +694,7 @@
   let accountDefaultPending = !initialSharedView;
   let selectedPlace = initialSharedView || DEFAULT_VIEW;
   let currentView = "place";
+  const expandedPanelScroll = new WeakMap();
   let placeMarker;
   let selectedAdministrativeBoundary = null;
   let hoveredAdministrativeDivisionLayer = null;
@@ -2084,13 +2085,27 @@
   elements.featureImageCustom.addEventListener("input",renderFeatureDownloadQueue);
 
   elements.closePanel.addEventListener("click", hidePanel);
+  document.querySelectorAll("[data-minimize-panel]").forEach(button => {
+    button.addEventListener("click", () => {
+      const panel = document.getElementById(button.dataset.minimizePanel);
+      setPanelMinimized(panel, !panel.classList.contains("is-minimized"));
+    });
+  });
   elements.openOgfEditor.addEventListener("click", () => {
     exitVectorPerspectiveMode({ silent: true });
     updateOgfEditorLink();
   });
   updateOgfEditorLink();
   elements.togglePanel.addEventListener("click", () => {
-    if (elements.panel.classList.contains("is-hidden")) showPanel();
+    if (!elements.transitMapPanel.hidden && elements.transitMapPanel.classList.contains("is-minimized")) {
+      setPanelMinimized(elements.transitMapPanel, false);
+      return;
+    }
+    if (elements.panel.classList.contains("is-hidden")) {
+      setPanelMinimized(elements.panel, false);
+      showPanel();
+    }
+    else if (elements.panel.classList.contains("is-minimized")) setPanelMinimized(elements.panel, false);
     else hidePanel();
   });
   elements.actionButtons.forEach((button) => {
@@ -2138,7 +2153,7 @@
   elements.closeMapView.addEventListener("click", hideMapViewMenu);
   elements.closeTransitMap.addEventListener("click", () => setTransitOverlayEnabled(false));
   document.addEventListener("pointerdown", (event) => {
-    if (elements.mapViewMenu.hidden) return;
+    if (elements.mapViewMenu.hidden || elements.mapViewMenu.classList.contains("is-minimized")) return;
     if (elements.mapViewMenu.contains(event.target) || elements.mapViewButton.contains(event.target)) return;
     hideMapViewMenu();
   });
@@ -11710,6 +11725,7 @@
       });
     }
     elements.transitStationDetail.hidden = false;
+    setPanelMinimized(elements.transitMapPanel, false);
     showTransitMapPanel();
     refreshIcons();
     syncVectorTransitOverlay();
@@ -15143,6 +15159,11 @@
   }
 
   function runAction(action) {
+    if (action === currentView && !elements.panel.classList.contains("is-hidden")
+      && elements.panel.classList.contains("is-minimized")) {
+      setPanelMinimized(elements.panel, false);
+      return;
+    }
     if (action === "help") {
       cancelMapPick();
       hideMapViewMenu();
@@ -15150,7 +15171,13 @@
       return;
     }
     if (action === "map-view") {
+      if (elements.mapViewMenu.hidden && !elements.transitMapPanel.hidden
+        && elements.transitMapPanel.classList.contains("is-minimized")) {
+        setPanelMinimized(elements.transitMapPanel, false);
+        return;
+      }
       if (elements.mapViewMenu.hidden) showMapViewMenu();
+      else if (elements.mapViewMenu.classList.contains("is-minimized")) setPanelMinimized(elements.mapViewMenu, false);
       else hideMapViewMenu();
       return;
     }
@@ -15233,6 +15260,7 @@
     }
     if (view !== "place" && view !== "download") cancelAdministrativeBoxPick();
     currentView = view;
+    setPanelMinimized(elements.panel, false);
     const headers = {
       search: ["OGF NOMINATIM", "地名搜索", "结果直接显示在当前地图"],
       brands: ["OPEN GEOFICTION", "品牌与门店", "目录浏览、门店定位与更新"],
@@ -15284,7 +15312,8 @@
   function syncMapLayers(view) {
     window.HuayuPersonalData?.setOverlayViewActive?.(view === "overlays");
     const panelVisible = !elements.panel.classList.contains("is-hidden");
-    window.HuayuBrandBrowser?.setActive(view === "brands" && panelVisible);
+    window.HuayuBrandBrowser?.setActive(view === "brands" && panelVisible
+      && !elements.panel.classList.contains("is-minimized"));
     const administrativeSearchView = panelVisible
       && view === "place"
       && Boolean(selectedAdministrativeBoundary);
@@ -19683,6 +19712,20 @@
     return item;
   }
 
+  function setPanelMinimized(panel, minimized) {
+    if (panel.classList.contains("is-minimized") === minimized) return;
+    if (minimized) expandedPanelScroll.set(panel, panel.scrollTop);
+    panel.classList.toggle("is-minimized", minimized);
+    const button = panel.querySelector("[data-minimize-panel]");
+    button.setAttribute("aria-expanded", String(!minimized));
+    if (panel === elements.mapViewMenu) elements.mapViewButton.setAttribute("aria-expanded", String(!minimized));
+    // Only hide the UI; menu restoration must retain the active operation.
+    panel.scrollTop = minimized ? 0 : (expandedPanelScroll.get(panel) || 0);
+    if (panel === elements.panel && currentView === "brands") {
+      window.HuayuBrandBrowser?.setActive(!minimized && !panel.classList.contains("is-hidden"));
+    }
+  }
+
   function showPanel() {
     hideTransitMapPanel();
     elements.panel.classList.remove("is-hidden");
@@ -19707,6 +19750,7 @@
   }
 
   function showMapViewMenu() {
+    setPanelMinimized(elements.mapViewMenu, false);
     cancelMapPick();
     showView("place", { preservePerspective: true });
     elements.panel.classList.add("is-hidden");

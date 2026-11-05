@@ -978,8 +978,39 @@ select:focus-visible {
 
 .panel-close {
   flex: 0 0 auto;
-  margin: -9px -12px 0 0;
   border-radius: 50%;
+}
+
+.panel-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.place-heading .panel-heading-actions {
+  margin: -9px -12px 0 0;
+}
+
+.panel-heading-actions .panel-minimize {
+  display: inline-flex;
+  width: auto;
+  height: 36px;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.panel-minimize svg {
+  width: 16px;
+  height: 16px;
+}
+
+:is(.place-panel, .map-view-menu, .transit-map-panel).is-minimized {
+  display: none !important;
 }
 
 .place-actions {
