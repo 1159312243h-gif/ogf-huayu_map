@@ -87,7 +87,7 @@
       map.triggerRepaint();
     });
   }
-  async function vectorCanvas({canvas,bounds,style,prepare,beforeCapture,onProgress}) {
+  async function vectorCanvas({canvas,bounds,style,prepare,beforeCapture,onProgress,transformRequest}) {
     const host=root.document.createElement("div");host.className="map-export-renderer";host.setAttribute("aria-hidden","true");
     root.document.body.appendChild(host);
     let map,dispose;
@@ -100,7 +100,7 @@
       const ctx=canvas.getContext("2d");
       host.style.width=`${Math.min(block,canvas.width)+gutter*2}px`;
       host.style.height=`${Math.min(block,canvas.height)+gutter*2}px`;
-      map=new root.maplibregl.Map({container:host,style,preserveDrawingBuffer:true,pixelRatio:1,interactive:false,
+      map=new root.maplibregl.Map({container:host,style,transformRequest,preserveDrawingBuffer:true,pixelRatio:1,interactive:false,
         attributionControl:false,fadeDuration:0,renderWorldCopies:false,center:[(bounds.minLon+bounds.maxLon)/2,(bounds.minLat+bounds.maxLat)/2],zoom,
         pitch:0,bearing:0,maxZoom:24});
       await waitForMap(map);

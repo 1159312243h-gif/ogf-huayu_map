@@ -1286,6 +1286,7 @@
         interactive: false,
         maxPitch: VECTOR_MAX_PITCH,
         transformCameraUpdate: keepVectorCameraAboveGround,
+        transformRequest: isHuayuBasemapId(id) ? window.HuayuBuildingTiles?.request : undefined,
         pane: "tilePane",
         padding: 0.1,
         attributionControl: { customAttribution: attribution },
@@ -1366,7 +1367,10 @@
   }
 
   function ensureVectorBasemapLibrary() {
-    if (typeof window.L.maplibreGL === "function") return Promise.resolve();
+    if (typeof window.L.maplibreGL === "function") {
+      window.HuayuBuildingTiles?.install(window.maplibregl);
+      return Promise.resolve();
+    }
     if (vectorBasemapLibraryPromise) return vectorBasemapLibraryPromise;
     const loadStylesheet = () => new Promise((resolve, reject) => {
       const existing = document.getElementById("maplibre-stylesheet");
@@ -1409,7 +1413,10 @@
     vectorBasemapLibraryPromise = Promise.all([
       loadStylesheet(),
       loadScript("./maplibre-gl.js?v=5.24.0", () => Boolean(window.maplibregl)),
-    ]).then(() => loadScript("./leaflet-maplibre-gl.js?v=0.1.4", () => typeof window.L.maplibreGL === "function"));
+    ]).then(() => {
+      window.HuayuBuildingTiles?.install(window.maplibregl);
+      return loadScript("./leaflet-maplibre-gl.js?v=0.1.4", () => typeof window.L.maplibreGL === "function");
+    });
     vectorBasemapLibraryPromise.catch(() => { vectorBasemapLibraryPromise = null; });
     return vectorBasemapLibraryPromise;
   }
@@ -18459,6 +18466,7 @@
     const controller = new AbortController();
     let exportTerrain, terrainManifest;
     await window.HuayuMapExport.vectorCanvas({canvas, bounds, style,
+      transformRequest: window.HuayuBuildingTiles?.request,
       onProgress: (done,total) => (options.onProgress || (message => setStatus(elements.boundaryLevelStatus, message)))(`正在绘制 ${BASEMAP_STYLES[id].label}：${done}/${total} 块…`),
       beforeCapture: async glMap => {
         if (!exportTerrain?.enabled) return;
@@ -28616,7 +28624,17 @@
     // buildings straddling its edge keep their original vector fallback.
     state.publishedBuildingFilters ||= new Map();
     const coverage = nextEnabled ? state.renderCoverage : null;
-    const inside = coverage && huayuModelInsideExpression(coverage);
+    if (state.nativeOwnershipCoverage !== coverage || state.nativeOwnershipData !== state.contextData) {
+      state.nativeOwnershipCoverage = coverage;
+      state.nativeOwnershipData = state.contextData;
+      // Native tiles batch unrelated footprints. After splitting that batch,
+      // keep every part of a genuine source building that crosses the window,
+      // including parts clipped at a vector tile edge or multipolygon members.
+      const crossing = coverage ? (state.contextData?.features || [])
+        .filter(feature => !huayuModelFeatureInside(feature, coverage)) : [];
+      state.nativeOwnershipInside = coverage && huayuModelInsideExpression(coverage, crossing);
+    }
+    const inside = state.nativeOwnershipInside;
     HUAYU_VECTOR_BUILDING_LAYER_IDS.forEach(layerId => {
       if (!glMap.getLayer(layerId)) return;
       if (!state.publishedBuildingFilters.has(layerId)) state.publishedBuildingFilters.set(layerId,glMap.getFilter(layerId) ?? null);
@@ -29074,7 +29092,7 @@
       x > ring[0][0] && x < ring[1][0] && y > ring[0][1] && y < ring[2][1]));
   }
 
-  function huayuModelInsideExpression(coverage) {
+  function huayuModelInsideExpression(coverage, crossing = []) {
     // MapLibre's within supports points/lines, not building polygons. A
     // polygon has positive distance to the OUTSIDE only if every part is
     // strictly inside the completed window; boundary-crossing features keep
@@ -29097,6 +29115,11 @@
     let west = -180;
     ranges.forEach(([start,end]) => {rectangle(west,south,start,north);west=Math.max(west,end);});
     rectangle(west,south,180,north);
+    crossing.forEach(feature => {
+      if (["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) features.push({
+        type:"Feature",properties:{},geometry:feature.geometry,
+      });
+    });
     return [">",["distance",{type:"FeatureCollection",features}],0];
   }
 

@@ -47,7 +47,7 @@ for (const file of files) {
 
 for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
-  "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js",
+  "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js", "building-tiles.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
   "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
@@ -465,6 +465,7 @@ const ancientBuildingLayers = { roof: "ancient-roof", outline: "ancient-outline"
 const pavilionLayers = ["pavilion-base", "pavilion-columns", "pavilion-roof"];
 const busFacilityLayers = { model: "bus-facility-model" };
 const modelInsideExpression = Function(`return (${app.match(/function huayuModelInsideExpression\([^]*?\n  \}/u)[0]});`)();
+const modelFeatureInside = Function(`return (${app.match(/function huayuModelFeatureInside\([^]*?\n  \}/u)[0]});`)();
 const buildingLayerState = new Map([
   ...vectorBuildingLayers.map((id) => [id, "visible"]),
   ["live-building", "none"],
@@ -488,14 +489,14 @@ const syncBuildingReplacements = Function("HUAYU_PAVILION_BASE_LAYER",
   "huayuStructureStates","huayuModelFeatureInside","huayuModelInsideExpression",
   `"use strict"; return (${buildingReplacementSyncSource});`)(...pavilionLayers, busFacilityLayers, {},
   {get:()=>buildingOwnerState},{get:()=>ownerPavilions},
-  Function(`return (${app.match(/function huayuModelFeatureInside\([^]*?\n  \}/u)[0]});`)(),modelInsideExpression);
+  modelFeatureInside,modelInsideExpression);
 const facilityOwnershipCalls = [];
 const syncBuildingOwners = Function("HUAYU_VECTOR_BUILDING_LAYER_IDS", "HUAYU_LIVE_BUILDING_LAYER",
   "HUAYU_ANCIENT_BUILDING_LAYERS", "syncHuayuBuildingReplacementLayers", "syncHuayuBuildingRoofs", "syncHuayuStructureModels",
-  "window", "syncHuayuFacilityModels","huayuModelInsideExpression",
+  "window", "syncHuayuFacilityModels","huayuModelInsideExpression","huayuModelFeatureInside",
   `"use strict"; return (${buildingPrimarySyncSource});`)(vectorBuildingLayers, "live-building",
   ancientBuildingLayers, syncBuildingReplacements, () => {}, () => {}, {HuayuFacilityModels: {}},
-  () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive),modelInsideExpression);
+  () => facilityOwnershipCalls.push(buildingOwnerState.primaryActive),modelInsideExpression,modelFeatureInside);
 const detailCoverage={type:"MultiPolygon",coordinates:[[[[0,0],[2,0],[2,2],[0,2],[0,0]]]]};
 const buildingOwnerState = { primaryActive: false,renderCoverage:detailCoverage };
 syncBuildingOwners(buildingMap, buildingOwnerState, true);
@@ -529,6 +530,21 @@ assert.deepEqual(buildingLayerFilters.get("bus-facility-model"),
 assert.ok(vectorBuildingLayers.every(id=>buildingLayerFilters.get(id)===null),"失败回退恢复原矢量过滤，不残留空白窗口");
 assert.deepEqual(facilityOwnershipCalls, [true, false],
   "建筑接管和回退必须同步重新判断独立公厕及店铺覆盖，避免重复造房");
+const crossingBuilding={type:"Feature",properties:{},geometry:{type:"MultiPolygon",coordinates:[
+  [[[.4,.4],[.6,.4],[.6,.6],[.4,.4]]],[[[1.9,.4],[2.1,.4],[2.1,.6],[1.9,.4]]],
+]}};
+buildingOwnerState.contextData={type:"FeatureCollection",features:[crossingBuilding]};
+syncBuildingOwners(buildingMap,buildingOwnerState,true);
+assert.deepEqual(buildingLayerFilters.get("building-3d"),
+  ["all",true,["!",modelInsideExpression(detailCoverage,[crossingBuilding])]],
+  "真实跨窗多面建筑的全部成员保留原生表达，不能与瓦片合并批次混淆");
+const cachedOwnership=buildingOwnerState.nativeOwnershipInside;
+syncBuildingOwners(buildingMap,buildingOwnerState,true);
+assert.equal(buildingOwnerState.nativeOwnershipInside,cachedOwnership,"相同覆盖和源数据复用建筑所有权表达式");
+buildingOwnerState.contextData={type:"FeatureCollection",features:[]};
+syncBuildingOwners(buildingMap,buildingOwnerState,true);
+assert.deepEqual(buildingLayerFilters.get("building-3d"),["all",true,["!",modelInsideExpression(detailCoverage)]],
+  "源数据刷新移除的跨窗建筑不能被所有权缓存永久保留");
 assert.ok(index.includes('building-roofs.js?v=8.0-smooth-render-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")

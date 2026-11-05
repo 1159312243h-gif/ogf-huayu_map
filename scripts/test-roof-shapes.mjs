@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {pavilionTagRuntime as runtime} from "./test-pavilion-tags.mjs";
-import {roofShapeCases,roofShapeElements} from "./fixtures/roof-shapes.mjs";
+import {roofShapeCases,roofShapeElements,halfHippedDirectionCases} from "./fixtures/roof-shapes.mjs";
 const copy=value=>JSON.parse(JSON.stringify(value));
 const context=vm.createContext({setTimeout,clearTimeout});
 vm.runInContext(await readFile(new URL("../site/building-roofs.js",import.meta.url),"utf8"),context);
@@ -102,7 +102,7 @@ const source=roofShapeElements[1],make=tags=>runtime.huayuLiveBuildingFeatureCol
 const ridgeAxis=f=>{
   const top=api.roofTriangles(f).flatMap(t=>t.points).filter(p=>p[2]===f.properties.roofTopHeight);
   const [a,b]=[...new Map(top.map(p=>[p.join(","),p])).values()];
-  assert.ok(a && b,"gabled roofs have two distinct ridge endpoints");
+  assert.ok(a && b,"pitched roofs have two distinct ridge endpoints");
   return Math.abs(a[0]-b[0])>Math.abs(a[1]-b[1])?"long":"short";
 };
 assert.equal(ridgeAxis(make({"roof:orientation":"along"})),"long");
@@ -129,6 +129,32 @@ const crowded={features:Array.from({length:180},(_,i)=>{
 const selected=api.describe(crowded),total=selected.reduce((sum,item)=>sum+item.triangles.length,0);
 assert.ok(total<=120000 && selected.length<crowded.features.length,"dense curved roofs respect a whole-building mesh budget");
 vm.runInContext(await readFile(new URL("../site/sunlight-shadows.js",import.meta.url),"utf8"),context);
+const halfSource=roofShapeElements.find(element=>element.tags["roof:shape"]==="half-hipped");
+const halfController=api.sync({on(){}},null,{});
+clearTimeout(halfController.timer);halfController.timer=null;
+halfController.schedule=()=>{};
+const halfResults=new Map();
+for(const {name,tags,axis,direction} of halfHippedDirectionCases) {
+  const updated=runtime.huayuLiveBuildingFeatureCollection([{...halfSource,tags:{...halfSource.tags,...tags}}]);
+  const f=updated.features[0],triangles=api.roofTriangles(f);
+  assert.equal(ridgeAxis(f),axis,`half-hipped ${name}: actual ridge follows the chosen axis`);
+  assert.equal(f.properties.roofDirection,direction,`${name}: removed/invalid directions leave no old value`);
+  assert.equal(f.id,byShape("half-hipped").id,"direction edits retain the original building identity");
+  assert.deepEqual(copy(f.geometry),copy(byShape("half-hipped").geometry),"direction edits preserve the footprint");
+  for(const key of ["roofShape","roofBaseHeight","roofTopHeight","renderHeight","renderMinHeight","building:colour","roof:colour"])
+    assert.equal(f.properties[key],byShape("half-hipped").properties[key],`${name}: ${key} is unchanged`);
+  halfController.dirty=false;
+  halfController.update(updated,{});
+  assert.equal(halfController.dirty,true,"the same building ID with new tags invalidates the roof controller mesh");
+  assert.deepEqual(copy(halfController.items[0].triangles),copy(triangles));
+  const shadow=context.HuayuSunShadows.prepare(updated)[0];
+  assert.deepEqual(copy(shadow.roof),copy(triangles.map(t=>t.points.map(p=>[...context.HuayuSunShadows.project(p),p[2]]))),
+    `${name}: shadows use the newly oriented roof, including its gables`);
+  halfResults.set(name,copy(triangles));
+}
+assert.notDeepEqual(halfResults.get("along"),halfResults.get("across"),"half-hipped along/across produce different geometry");
+assert.deepEqual(halfResults.get("numeric-0"),halfResults.get("numeric-180"),"a symmetric half hip looks identical after 180 degrees");
+assert.deepEqual(halfResults.get("numeric-90"),halfResults.get("numeric-270"),"opposite downhill bearings select the same symmetric ridge axis");
 const shadows=context.HuayuSunShadows.prepare(data);
 for(let i=0;i<data.features.length;i++) {
   const f=data.features[i],roof=api.roofTriangles(f),shadow=shadows[i];
@@ -146,4 +172,4 @@ const crowdedShadows=context.HuayuSunShadows.prepare(crowded);
 assert.ok(crowdedShadows.slice(0,selected.length).every(item=>item.roof.length>0));
 assert.ok(crowdedShadows.slice(selected.length).every(item=>item.roof.length===0 && item.eaves===15),
   "buildings excluded by the whole-mesh budget cast their intact native flat silhouette");
-console.log(JSON.stringify({status:"passed",shapes:roofShapeCases.length,stats,directions:"four signed compass directions",denseTriangles:total}));
+console.log(JSON.stringify({status:"passed",shapes:roofShapeCases.length,stats,directions:"four signed compass directions",halfHippedDirectionEdits:halfHippedDirectionCases.length,denseTriangles:total}));

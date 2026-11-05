@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {courtyardGateWays} from "./fixtures/wall-gates.mjs";
-import {roofShapeElements} from "./fixtures/roof-shapes.mjs";
+import {roofShapeElements,halfHippedDirectionCases} from "./fixtures/roof-shapes.mjs";
 import {raisedSkillionRoof} from "./fixtures/roof-only.mjs";
 
 const source = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
@@ -111,6 +111,20 @@ assert.deepEqual(JSON.parse(JSON.stringify(canopyDecoded.data)),
 assert.equal(canopyDecoded.data.features[0].properties.roofOnly, 1);
 assert.equal(canopyDecoded.data.features[0].properties.renderMinHeight, 4);
 assert.equal(canopyDecoded.data.features[0].properties.renderHeight, 4.5);
+const halfSource=roofShapeElements.find(element=>element.tags["roof:shape"]==="half-hipped");
+for(const {name,tags,direction} of halfHippedDirectionCases) {
+  const edited=[{...halfSource,tags:{...halfSource.tags,...tags}}];
+  const decoded=await request({action:"decode",kind:"building",text:JSON.stringify({elements:edited})});
+  const expected=factory.huayuLiveBuildingFeatureCollection(edited);
+  assert.deepEqual(JSON.parse(JSON.stringify(decoded.data)),JSON.parse(JSON.stringify(expected)),
+    `half-hipped ${name}: background decoding retains the latest orientation and direction`);
+  const entry={...decoded,loadedAt:Date.now(),cachedAt:Date.now()};
+  await request({action:"write",kind:"building",key:"half-hipped-direction",entry});
+  const restored=await request({action:"read",kind:"building",key:"half-hipped-direction"});
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.data)),JSON.parse(JSON.stringify(expected)),
+    `${name}: overwriting the same tile and building ID cannot retain previous direction tags`);
+  assert.equal(restored.data.features[0].properties.roofDirection,direction);
+}
 const readWrites = modelBlobWrites;
 const readAge = [...records.values()][0].cachedAt;
 await request({action:"read", kind:"building", key:"15/123/456"});

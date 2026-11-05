@@ -15,3 +15,19 @@ export const roofShapeElements = roofShapeCases.map(([shape,name],index)=>{
   return {type:"way",id:10000+index,tags:{building:"yes",height:"15","roof:height":"6","roof:shape":shape,
     "building:colour":"#f5f5f0","roof:colour":"#687782",name},geometry:[...points,points[0]].map(([lon,lat])=>({lon,lat}))};
 });
+
+// Each edit applies to the same half-hipped building, including removing a
+// previously valid direction. Axis expectations refer to this fixture's outline.
+export const halfHippedDirectionCases = [
+  {name:"default",tags:{},axis:"long"},
+  {name:"along",tags:{"roof:orientation":"along"},axis:"long"},
+  {name:"across",tags:{"roof:orientation":"across"},axis:"short"},
+  ...[[0,"N","long"],[90,"E","short"],[180,"S","long"],[270,"W","short"]]
+    .flatMap(([direction,compass,axis])=>[
+      {name:`numeric-${direction}`,tags:{"roof:direction":String(direction)},axis,direction},
+      {name:`compass-${compass}`,tags:{"roof:direction":compass},axis,direction},
+    ]),
+  {name:"direction-priority",tags:{"roof:orientation":"across","roof:direction":"N"},axis:"long",direction:0},
+  {name:"invalid-direction",tags:{"roof:orientation":"across","roof:direction":"eastish"},axis:"short"},
+  {name:"direction-removed",tags:{"roof:orientation":"across"},axis:"short"},
+];
