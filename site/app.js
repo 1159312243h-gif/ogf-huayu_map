@@ -250,6 +250,7 @@
   const TRANSIT_MAX_DISPLAY_PLANS = 10;
   const TRANSIT_STATION_GROUP_RADIUS_METERS = 180;
   const RAIL_STATION_DISPLAY_RADIUS_METERS = 350;
+  const URBAN_RAIL_STATION_DISPLAY_RADIUS_METERS = 350;
   const CONFIRMED_TRANSIT_STATION_MAX_TRACK_OFFSET_METERS = 400;
   const TRANSIT_MAX_ADJACENT_STOP_DISTANCE_METERS = 50000;
   const TRAIN_SERVICE_MAX_ADJACENT_STOP_DISTANCE_METERS = 250000;
@@ -4135,7 +4136,7 @@
     return override?.maxMeters || TRANSIT_STATION_GROUP_RADIUS_METERS;
   }
 
-  function mergeTransitStopsForDisplay(stops) {
+  function mergeTransitStopsForDisplay(stops, context = null) {
     const overrides = transitServiceRules.stationDisplayMergeOverrides || [];
     const unnamedMergeRules = (transitServiceRules.stationInterchangeOverrides || [])
       .filter((rule) => rule.mergeNearbyUnnamedWithinMeters > 0);
@@ -4179,7 +4180,15 @@
         ...(stop.displayRoutes || []),
       ]);
     };
-    stops.flatMap(splitTransitStationDisplaySystems).forEach((stop) => {
+    // A formally related stop anchors its nearby unassociated station POIs,
+    // even when a live packet lists those POIs before the actual route member.
+    const sources = stops.flatMap(splitTransitStationDisplaySystems);
+    if (context) {
+      const priorities = new Map(sources.map((stop) => [stop,
+        stop.displaySystem === "metro" && context.routesForStop(stop).length ? 1 : 0]));
+      sources.sort((a, b) => priorities.get(b) - priorities.get(a));
+    }
+    sources.forEach((stop) => {
       const {key, exact: exactName} = nameInfo(stop.name);
       const override = overrides.find((item) => item.stationNames.includes(key)
         && stop.displaySystem !== "bus" && (!item.anchorPoint || (stop.isRail
@@ -4191,16 +4200,20 @@
       // Even a manual display override may only group the same name and
       // transport system. Nearby railway and metro facilities remain distinct.
       const groupKey = `${stop.displaySystem}:${exactName}:${override?.id || "ordinary"}`;
-      const candidates = groupKey && key ? groups.get(groupKey) || [] : [];
+      // Literal names such as “火车站” are still names, even when stripping
+      // station suffixes for manual rules produces an empty complex key.
+      const candidates = exactName ? groups.get(groupKey) || [] : [];
+      const scopedName = overrides.some((item) => item.anchorPoint && item.stationNames.includes(key));
       const radius = override?.maxMeters || (stop.displaySystem === "railway"
-        ? RAIL_STATION_DISPLAY_RADIUS_METERS : 180);
+        ? RAIL_STATION_DISPLAY_RADIUS_METERS : !scopedName && ["metro", "tram"].includes(stop.displaySystem)
+          ? URBAN_RAIL_STATION_DISPLAY_RADIUS_METERS : TRANSIT_STATION_GROUP_RADIUS_METERS);
       const existing = candidates.find((item) => distanceMeters(sourcePoint(item), sourcePoint(stop)) <= radius);
       if (!existing) {
         const displayStop = { ...stop,
           displaySourceIds: [...new Set([...(stop.displaySourceIds || []), stop.id, stop.sourceId]
             .filter((id) => id !== null && id !== undefined).map(String))] };
         merged.push(displayStop);
-        if (groupKey && key) {
+        if (exactName) {
           if (!groups.has(groupKey)) groups.set(groupKey, []);
           groups.get(groupKey).push(displayStop);
         }
@@ -4364,6 +4377,7 @@
       if (existing) displayStops.set(id, fromSource(existing, node));
     });
     network.displayStops = [...displayStops.values()];
+    network.displayRelations = items.filter((item) => item.type === "relation");
     invalidateTransitDisplayNetwork(network);
     return network;
   }
@@ -4384,11 +4398,122 @@
       || !authoritativeTypes.has(route.type));
   }
 
+  function transitDisplayRelationContext(network) {
+    // Resolve presentation ownership independently of navigation identities.
+    // Live relations override the published generation; collections are not lines.
+    const relations = new Map([
+      ...(typeof transitPreloadSnapshots === "undefined" ? [] : transitPreloadSnapshots)
+        .flatMap((snapshot) => snapshot.elements || []),
+      ...(network.displayRelations || []),
+    ].filter((item) => item.type === "relation").map((item) => [String(item.id), item]));
+    const parents = new Map();
+    relations.forEach((relation) => {
+      if (!isTransitRouteMaster(relation)) return;
+      (relation.members || []).filter((member) => member.type === "relation").forEach((member) => {
+        const id = String(member.ref);
+        if (!parents.has(id)) parents.set(id, []);
+        parents.get(id).push(relation);
+      });
+    });
+    const pool = new Map([
+      ...network.lines, ...(network.displayTracks || []),
+      ...network.stops, ...(network.displayStops || []),
+    ].flatMap((item) => [...(item.routes || []), ...(item.displayRoutes || [])])
+      .map((route) => [String(route.id), route]));
+    const resolved = new Map();
+    const canonical = (route) => {
+      if (!METRO_ROUTE_TYPES.has(route.type)) return route;
+      const key = `${route.type}:${route.id}:${route.identity}`;
+      if (resolved.has(key)) return resolved.get(key);
+      const relation = relations.get(String(route.id));
+      const roots = new Map();
+      const visit = (id, seen = new Set()) => {
+        if (seen.has(id)) return;
+        const nextSeen = new Set([...seen, id]);
+        const candidates = (parents.get(id) || []).filter((parent) =>
+          transitRelationRouteType(parent) === route.type && !nextSeen.has(String(parent.id)));
+        if (candidates.length) candidates.forEach((parent) => visit(String(parent.id), nextSeen));
+        else if (isTransitRouteMaster(relations.get(id))) roots.set(id, relations.get(id));
+      };
+      visit(String(route.id));
+      // Ambiguous independent masters must not be merged by name or colour.
+      const master = roots.size === 1 ? [...roots.values()][0] : null;
+      const masterId = master?.id ?? (roots.size ? null : route.routeMasterId);
+      const masterRoute = master ? transitRouteInfo(master) : masterId != null ? pool.get(String(masterId)) : null;
+      const source = masterRoute || (relation ? transitRouteInfo(relation) : route);
+      const result = { ...route, ...source,
+        identity: masterId != null ? `${route.type}:display-master:${masterId}`
+          : roots.size > 1 ? `${route.type}:display-relation:${route.id}` : route.identity,
+        routeMasterId: masterId ?? route.routeMasterId,
+      };
+      resolved.set(key, result);
+      return result;
+    };
+    const memberships = new Map();
+    relations.forEach((relation) => {
+      if (!METRO_ROUTE_TYPES.has(transitRelationRouteType(relation))
+        || !["route", "route_master"].includes(relation.tags?.type)
+        || isNonOperationalRailFacilityRelation(relation)) return;
+      const route = canonical(transitRouteInfo(relation));
+      (relation.members || []).filter((member) => ["node", "way", "relation"].includes(member.type))
+        .forEach((member) => {
+          const key = `${member.type}:${member.ref}`;
+          if (!memberships.has(key)) memberships.set(key, []);
+          memberships.get(key).push(route);
+        });
+    });
+    const routesForStop = (stop) => uniqueTransitRoutes((stop.displaySourceIds || [stop.id, stop.sourceId])
+      .filter((id) => id !== undefined && id !== null).flatMap((id) =>
+        memberships.get(/^\w+:/u.test(String(id)) ? String(id) : `node:${id}`) || []));
+    return { canonical, routesForStop };
+  }
+
+  function alignMetroDisplayStops(stops, lines, context) {
+    const linesByRoute = new Map();
+    lines.forEach((line) => line.routes.forEach((route) => {
+      if (!METRO_ROUTE_TYPES.has(route.type)) return;
+      if (!linesByRoute.has(route.identity)) linesByRoute.set(route.identity, []);
+      linesByRoute.get(route.identity).push(line);
+    }));
+    stops.forEach((stop) => {
+      if (stop.displaySystem !== "metro") return;
+      const direct = context.routesForStop(stop);
+      if (direct.length) {
+        // Nearby shared track is not evidence of another service. Explicit
+        // interchange rules remain authoritative over relation membership.
+        const manual = [...stop.routes, ...stop.displayRoutes]
+          .filter((route) => (stop.interchangeRouteRefs || []).includes(route.ref));
+        stop.routes = uniqueTransitRoutes([...direct, ...manual]);
+        stop.displayRoutes = [];
+        const identities = new Set(stop.routes.map((route) => context.canonical(route).identity));
+        stop.displayServiceRoutes = (stop.displayServiceRoutes || []).filter((route) =>
+          identities.has(context.canonical(route).identity));
+      }
+      stop.routes = uniqueTransitRoutes(stop.routes.map(context.canonical));
+      stop.displayRoutes = uniqueTransitRoutes(stop.displayRoutes.map(context.canonical));
+      stop.isInterchange = uniqueTransitRoutes([...stop.routes, ...stop.displayRoutes]).length > 1;
+      const fixedAnchor = (transitServiceRules.stationDisplayMergeOverrides || []).some((rule) =>
+        (rule.anchorPoint || rule.anchorStationId) && rule.stationNames.includes(transitStationComplexKey(stop.name))
+        && (!rule.anchorPoint || distanceMeters(stop, rule.anchorPoint) <= rule.maxMeters));
+      if (fixedAnchor) return;
+      const candidates = [...new Set([...stop.routes, ...stop.displayRoutes]
+        .flatMap((route) => linesByRoute.get(route.identity) || []))];
+      const nearest = nearestPointOnTransitLines(stop, candidates);
+      if (nearest && nearest.distance <= 300) {
+        stop.lat = nearest.lat;
+        stop.lon = nearest.lon;
+      }
+    });
+  }
+
   function getTransitDisplayNetwork(network) {
     let cached = transitDisplayNetworkCache.get(network);
     if (cached && cached.sourceStops === network.stops && cached.sourceDisplayStops === network.displayStops
       && cached.sourceLines === network.lines && cached.sourceTracks === network.displayTracks
+      && cached.sourceRelations === network.displayRelations
+      && cached.relationSnapshots === transitPreloadSnapshots
       && cached.rules === transitServiceRules) return cached;
+    const context = transitDisplayRelationContext(network);
     const routingStops = new Map(network.stops.map((stop) => [String(stop.id), stop]));
     const displayStops = (network.displayStops || network.stops).map((stop) => {
       const current = routingStops.get(String(stop.id));
@@ -4402,8 +4527,31 @@
     network.stops.forEach((stop) => {
       if (!displayIds.has(String(stop.id))) displayStops.push({ ...stop });
     });
-    applyStationInterchangeOverrides({ ...network, stops: displayStops });
-    const stops = mergeTransitStopsForDisplay(displayStops);
+    const eligibleStops = displayStops.filter((stop) => {
+      // public_transport=station alone describes no transport mode. A local
+      // refresh must not turn such a POI into a metro stop just by proximity.
+      // Missing provenance in legacy packets retains the established fallback.
+      return !(Array.isArray(stop.displaySystems) && !stop.displaySystems.length && !stop.displaySystem
+        && stop.routes.length && stop.routes.every((route) => METRO_ROUTE_TYPES.has(route.type))
+        && !(stop.interchangeRouteRefs || []).length
+        && !context.routesForStop(stop).length);
+    });
+    applyStationInterchangeOverrides({ ...network, stops: eligibleStops });
+    const stops = mergeTransitStopsForDisplay(eligibleStops, context);
+    // Keep physical double tracks for ordinary/regional railway. Metro uses
+    // the existing centerline, including old snapshots containing raw tracks.
+    const displayTracks = joinConnectedTransitLines((network.displayTracks || [])
+      .filter((line) => line.routes.every((route) => !METRO_ROUTE_TYPES.has(route.type))), 1);
+    displayTracks.forEach((line) => transitLineBbox(line));
+    const trackRoutes = new Set(displayTracks.flatMap((line) => line.routes.map((route) => route.identity)));
+    const sourceLines = network.lines.filter((line) => !line.routes.some((route) => trackRoutes.has(route.identity)));
+    const metroLines = sourceLines.filter((line) => line.routes.some((route) => METRO_ROUTE_TYPES.has(route.type)))
+      .map((line) => ({ ...line, routes: uniqueTransitRoutes(line.routes.map(context.canonical)),
+        joinGroup: undefined, bbox: undefined }));
+    const lines = [...sourceLines.filter((line) => !line.routes.some((route) => METRO_ROUTE_TYPES.has(route.type))),
+      ...collapseJoinedParallelTransitLines(joinConnectedTransitLines(metroLines, 1)), ...displayTracks];
+    lines.forEach((line) => transitLineBbox(line));
+    alignMetroDisplayStops(stops, lines, context);
     const stopsById = new Map();
     const cells = new Map();
     stops.forEach((stop) => {
@@ -4419,16 +4567,10 @@
         if (/^-?\d+$/u.test(id)) representedWayIds.add(id);
       });
     });
-    // Join coincident ends on each real track without pairing or averaging
-    // opposite tracks. Cache the joined paths with this data generation.
-    const displayTracks = joinConnectedTransitLines(network.displayTracks || [], 1);
-    displayTracks.forEach((line) => transitLineBbox(line));
-    const trackRoutes = new Set(displayTracks.flatMap((line) => line.routes.map((route) => route.identity)));
-    const lines = displayTracks.length ? [...network.lines.filter((line) =>
-      !line.routes.some((route) => trackRoutes.has(route.identity))), ...displayTracks] : network.lines;
     cached = { stops, stopsById, cells, representedWayIds, lines, stopAppearances: new WeakMap(),
       sourceStops: network.stops, sourceDisplayStops: network.displayStops,
-      sourceLines: network.lines, sourceTracks: network.displayTracks, rules: transitServiceRules };
+      sourceLines: network.lines, sourceTracks: network.displayTracks,
+      sourceRelations: network.displayRelations, relationSnapshots: transitPreloadSnapshots, rules: transitServiceRules };
     transitDisplayNetworkCache.set(network, cached);
     return cached;
   }
@@ -10778,6 +10920,7 @@
     return applyStationInterchangeOverrides({
       lines,
       displayTracks,
+      displayRelations: relations,
       stops: mergeTransitStops(stops),
       displayStops: stops.map((stop) => ({ ...stop,
         lat: stop.sourceLat, lon: stop.sourceLon })),
@@ -10921,6 +11064,8 @@
       ...base,
       lines: [...lines.values()],
       displayTracks: [...displayTracks.values()],
+      displayRelations: [...new Map([...(base.displayRelations || []), ...(update.displayRelations || [])]
+        .map((relation) => [String(relation.id), relation])).values()],
       stops: mergeTransitStops([...base.stops, ...update.stops]),
       displayStops: mergeTransitDisplaySources(base, update),
       routeCount: Math.max(base.routeCount || 0, update.routeCount || 0),
@@ -19764,7 +19909,8 @@
       if (!glMap.getLayer(layerId)) return;
       if (!state.filters.has(layerId)) state.filters.set(layerId, glMap.getFilter(layerId) || null);
       const originalFilter = state.filters.get(layerId);
-      const stationExclusion = ["any", ["!=", "class", "railway"], ["!=", "subclass", "station"]];
+      const stationExclusion = ["any", ["!=", "class", "railway"],
+        ["!in", "subclass", "station", "halt", "subway", "light_rail", "monorail", "tram_stop", "tram"]];
       glMap.setFilter(layerId, transitActive
         ? ["all", originalFilter || ["all"], stationExclusion]
         : originalFilter);

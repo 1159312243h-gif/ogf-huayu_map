@@ -1206,8 +1206,9 @@ makePublishedTransitStationSync("transit")(publishedLayerMap);
 assert.equal(publishedVisibility.get("poi-railway"), "none",
   "交通视图未隐藏底图原有铁路站图标");
 for (const filter of publishedFilters.values()) {
-  assert.deepEqual(filter.at(-1), ["any", ["!=", "class", "railway"], ["!=", "subclass", "station"]],
-    "交通视图未从通用 POI 图层排除铁路站点");
+  assert.deepEqual(filter.at(-1), ["any", ["!=", "class", "railway"],
+    ["!in", "subclass", "station", "halt", "subway", "light_rail", "monorail", "tram_stop", "tram"]],
+    "交通视图未从通用 POI 图层排除铁路及地铁站的重复标注");
 }
 makePublishedTransitStationSync("normal")(publishedLayerMap);
 assert.equal(publishedVisibility.get("poi-railway"), "visible",

@@ -161,6 +161,7 @@ vm.runInContext(`${app.slice(0,app.indexOf("  const elements ="))}
     collectTransitNetwork, mergeTransitNetworks, transitCollectionWorkerSource, transitCollectionBounds, distanceMeters,
     trainRouteSetsConflict, uniqueTransitRoutes, transitStationDisplayMergeRadius, createTransitStopIcon,
     joinConnectedTransitLines, transitPathDirectionSimilarity,
+    transitRouteInfo, nearestPointOnTransitLines,
     getVisibleTransitRoutes, getTransitLineBounds, transitStopMatchesFilters, transitLayerCategory,
     shouldShowTransitStopLabel, collapseParallelPublicTransitRailLinesForDisplay, usesJinchuanDoubleTracks,
     vectorTransitOverlayData, setNetwork(n) {transitNetworkData=n;},
@@ -210,6 +211,26 @@ assert.equal(api.mergeTransitStopsForDisplay([pair[0],stop(6,"测试铁路站",1
   "equally named bus stops do not merge into railway stations");
 const chain = Array.from({length:4},(_,i)=>stop(i+10,"沿线同名站",12+i*0.0016,150,[firstRoute]));
 assert.equal(api.mergeTransitStopsForDisplay(chain).length,2,"station radius uses a fixed anchor, never transitive distance chaining");
+for (const type of ["subway","light_rail","monorail","tram"]) {
+  const urbanRoutes = [{id:101,type,identity:`${type}:test`,color:"#123456"}];
+  const urbanPair = [stop(101,"同名城轨站",12,150,urbanRoutes),
+    stop(102,"同名城轨站",12.0025,150,urbanRoutes,{lat:12.01,lon:150.01})];
+  const before = plain(urbanPair);
+  const urbanDisplay = api.mergeTransitStopsForDisplay(urbanPair);
+  assert.equal(urbanDisplay.length,1,`${type}: original station points within 350 m form one marker`);
+  assert.deepEqual(plain(urbanDisplay[0].displaySourceIds),["101","102"]);
+  assert.deepEqual(plain(urbanPair),before,"display merging cannot change source/routing coordinates");
+  assert.equal(api.mergeTransitStopsForDisplay([...urbanPair,stop(103,"同名城轨站",12.006,150,urbanRoutes)]).length,2,
+    "the fixed original anchor never expands through an already merged neighbour");
+  assert.equal(api.mergeTransitStopsForDisplay([urbanPair[0],{...urbanPair[1],name:"同名城轨站北"}]).length,2);
+  assert.equal(api.mergeTransitStopsForDisplay(urbanPair.map(s=>({...s,name:"火车站"}))).length,1,
+    "literal station-only names still deduplicate without stripping their suffix");
+  assert.equal(api.mergeTransitStopsForDisplay(urbanPair.map(s=>({...s,name:""}))).length,2,
+    "unnamed stops do not merge just because they share a system");
+}
+assert.equal(api.mergeTransitStopsForDisplay([stop(201,"公交站",12,150,[{type:"bus",identity:"bus:1"}]),
+  stop(202,"公交站",12.0025,150,[{type:"bus",identity:"bus:1"}])]).length,2,
+  "urban rail display grouping does not expand bus stop grouping");
 api.setRules(rules);
 const network = api.hydrateTransitNetwork(payload.snapshots.find(s=>s.id === "huaxia").network);
 const routingBeforeDisplay = plain(network.stops);
@@ -278,6 +299,36 @@ assert.equal(api.mergeTransitStopsForDisplay([pair[0],{...pair[1],name:"测试�
 api.setRules(rules);
 data = api.getTransitDisplayNetwork(network);
 const relationPayload = JSON.parse(await readFile(new URL("../site/transit-relations.json",import.meta.url),"utf8"));
+for (const [snapshotId,names] of [["huaxia",["白旸","灿菊","君竹","环光中心","光阳","建兴门"]],
+  ["longchuan-ar925",["端宁","灿西火车站","鹤涛路","文化广场","天通苑","高铁龙川北站"]]]) {
+  const restored = api.hydrateTransitNetwork(payload.snapshots.find(s=>s.id===snapshotId).network);
+  const rawBefore = plain(restored);
+  const elements = relationPayload.snapshots.find(s=>s.id===snapshotId).elements;
+  restored.displayRelations = elements.filter(e=>e.type==="relation");
+  // The POI supplements can arrive before their formal route-member points.
+  restored.displayStops = [...restored.displayStops].reverse();
+  const display = api.getTransitDisplayNetwork(restored);
+  for (const name of names) {
+    const sources = rawBefore.displayStops.filter(s=>s.name===name && s.displaySystem==="metro");
+    const station = display.stops.filter(s=>s.name===name && s.displaySystem==="metro");
+    assert.ok(sources.length>1,`${snapshotId}/${name}: real multi-source fixture`);
+    assert.equal(station.length,1,`${snapshotId}/${name}: one marker across station POIs, stops and directions`);
+    assert.ok(sources.every(s=>station[0].displaySourceIds.includes(String(s.sourceId??s.id))),
+      `${name}: preserve all source IDs for details/click handling`);
+    const directIds = new Set(elements.filter(e=>e.type==="relation"&&["route","route_master"].includes(e.tags?.type))
+      .flatMap(e=>(e.members||[]).filter(m=>m.type==="node").map(m=>String(m.ref))));
+    const hasDirect = sources.some(s=>directIds.has(String(s.sourceId??s.id)));
+    if (hasDirect) assert.ok(directIds.has(String(station[0].sourceId??station[0].id)),
+      `${name}: an unrelated POI never becomes the anchor just because it arrived first`);
+    const details = api.transitStationDetailRoutes(station[0]);
+    const formal = sources.flatMap(s=>s.routes).filter(r=>!r.isFallback);
+    assert.ok(formal.every(r=>details.some(t=>t.id===r.id || t.routeMasterId===r.id || r.routeMasterId===t.id)),
+      `${name}: merged details retain every formal line and service`);
+    const ownLines = display.lines.filter(l=>l.routes.some(r=>station[0].routes.some(t=>t.identity===r.identity)));
+    assert.ok(api.nearestPointOnTransitLines(station[0],ownLines)?.distance<0.01,`${name}: marker remains on its own line`);
+  }
+  assert.deepEqual(plain(restored.stops),rawBefore.stops,`${snapshotId}: navigation remains byte-for-byte unchanged`);
+}
 const originalWays = new Map(relationPayload.snapshots.find(s=>s.id==="huaxia").elements
   .filter(e=>e.type==="way").map(e=>[e.id,e]));
 assert.ok(network.displayTracks.length>100,"published Jinchuan tracks are ready on the first frame");
@@ -288,11 +339,12 @@ for (const track of network.displayTracks) {
 }
 const displayedTracks = api.getTransitDisplayNetwork(network).lines;
 const displayedTrackIds = new Set(displayedTracks.flatMap(track=>String(track.id).split("+")));
-assert.ok(network.displayTracks.every(track=>displayedTrackIds.has(String(track.id))),
-  "all original track segments survive coincident-end joins without averaging the directions");
+assert.ok(network.displayTracks.filter(track=>track.routes.every(r=>r.type==="train"))
+  .every(track=>displayedTrackIds.has(String(track.id))),
+  "regional railway retains every original track while metro uses a single presentation line");
 const replacedRoutes = new Set(network.displayTracks.flatMap(t=>t.routes.map(r=>r.identity)));
-assert.ok(network.lines.filter(l=>!l.routes.some(r=>replacedRoutes.has(r.identity)))
-  .every(line=>displayedTracks.includes(line)),"other regions keep their existing display line objects");
+assert.ok(network.lines.filter(l=>l.routes.every(r=>r.type==="train")&&!l.routes.some(r=>replacedRoutes.has(r.identity)))
+  .every(line=>displayedTracks.includes(line)),"other railway keeps its existing display line objects");
 for (const snapshot of payload.snapshots) {
   const restored = api.hydrateTransitNetwork(snapshot.network);
   const before = plain({stops:restored.stops,lines:restored.lines});
@@ -365,6 +417,64 @@ const binhaiIcon = api.createTransitStopIcon(binhai[0],binhai[0].routes,true);
 assert.ok(binhaiIcon.html.includes("conic-gradient(") && binhaiIcon.html.includes("#7651a3")
   && binhaiIcon.html.includes("#d97818"),"Binhai has one ring partitioned with both line colours");
 api.setNetwork(network);
+
+// Direction/service labels and their colours must not override an enclosing
+// metro route_master. A nearby track is not station membership evidence.
+const relation = (id,tags,members=[]) => ({type:"relation",id,tags:{route:"subway",...tags},members});
+const masterTags = {type:"route_master",ref:"M1",name:"测试地铁",operator:"测试运营",colour:"#123456"};
+const ownerRelations = [
+  relation(9000,masterTags,[{type:"relation",ref:9003},{type:"relation",ref:9002}]),
+  relation(9003,{...masterTags,ref:"M1一期",colour:"#00ff00"},[{type:"relation",ref:9001}]),
+  relation(9001,{type:"route",ref:"上行",colour:"#ff0000"},[{type:"node",ref:9100}]),
+  relation(9002,{type:"route",ref:"下行",colour:"#0000ff"},[{type:"node",ref:9101}]),
+  relation(9010,masterTags,[{type:"node",ref:9110}]),
+];
+const directionRoutes = [9001,9002,9010].map(id=>api.transitRouteInfo(ownerRelations.find(r=>r.id===id)));
+const ownerTrack = (id,lon,route)=>({id,geometry:[{lat:12,lon},{lat:12.01,lon}],routes:[route]});
+const ownerFixture = {displayRelations:ownerRelations,
+  lines:[ownerTrack("up",150,directionRoutes[0]),ownerTrack("down",150.0002,directionRoutes[1]),
+    ownerTrack("unrelated",150.0004,directionRoutes[2])],
+  stops:[stop(9100,"归属站",12.005,150.00039,[directionRoutes[0],directionRoutes[2]],{displaySystem:"metro"}),
+    stop(9101,"归属站",12.005,150.00038,[directionRoutes[1]],{displaySystem:"metro"}),
+    stop(9110,"另一站",12.007,150.00039,[directionRoutes[2]],{displaySystem:"metro"})]};
+const ownerOriginal=plain(ownerFixture);
+const ownerDisplay=api.getTransitDisplayNetwork(ownerFixture);
+assert.equal(ownerDisplay.lines.length,2,"opposite directions of one master collapse; another same-name master remains separate");
+assert.equal(ownerDisplay.stops.length,2,"directional platforms of one station share one symbol");
+const ownedStop=ownerDisplay.stops.find(s=>s.name==="归属站");
+assert.deepEqual(plain(ownedStop.routes).map(r=>[r.id,r.color]),[[9000,"#123456"]],
+  "outer master owns the station and colour despite nested master, child colours, and nearer unrelated line");
+assert.ok(Math.abs(ownedStop.lon-150.0001)<1e-8,"station projects onto its own merged centerline");
+assert.equal(ownedStop.sourceLon,150.00039,"original facility coordinates remain available");
+assert.ok(api.nearestPointOnTransitLines(ownedStop,ownerDisplay.lines).distance<0.01);
+assert.deepEqual(plain(api.transitStationDetailRoutes(ownedStop)).map(r=>r.id).sort(),[9000,9001,9002],
+  "details retain real direction relations and exclude the falsely inferred unrelated service");
+assert.deepEqual(plain(ownerFixture),ownerOriginal,"display resolution never mutates source routing routes or coordinates");
+assert.equal(api.getTransitDisplayNetwork(ownerFixture),ownerDisplay,"same generation reuses presentation and projection");
+ownerFixture.displayRelations=ownerRelations.map(r=>r.id===9000?{...r,tags:{...r.tags,colour:"#654321"}}:r);
+const changedOwner=api.getTransitDisplayNetwork(ownerFixture);
+assert.notEqual(changedOwner,ownerDisplay,"late/updated relation metadata invalidates cached colours and ownership");
+assert.equal(changedOwner.stops.find(s=>s.name==="归属站").routes[0].color,"#654321");
+const untypedStops={...ownerFixture,stops:[...ownerFixture.stops,
+  stop(425396241,"玄默门",12.008,150.00038,[directionRoutes[2]],{displaySystem:"",displaySystems:[]}),
+  stop(9100,"关系明确的无制式站",12.002,150.00038,[directionRoutes[0]],{displaySystem:"",displaySystems:[]})]};
+const untypedDisplay=api.getTransitDisplayNetwork(untypedStops);
+assert.ok(!untypedDisplay.stops.some(s=>s.id===425396241),
+  "a mode-less public_transport=station near metro cannot invent another metro station during live refresh");
+assert.ok(untypedDisplay.stops.some(s=>s.name==="关系明确的无制式站"),
+  "explicit metro relation membership is sufficient even when the node omits mode tags");
+const jinchuanRestored=api.hydrateTransitNetwork(payload.snapshots.find(s=>s.id==="huaxia").network);
+api.reconcileTransitDisplayStations(jinchuanRestored,relationPayload.snapshots.find(s=>s.id==="huaxia").elements);
+const jinchuanDisplay=api.getTransitDisplayNetwork(jinchuanRestored);
+for(const [name,ref,color] of [["临川","JS01","#ed4a28"],["光华门","JS05","#a85491"]]) {
+  const candidates=jinchuanDisplay.stops.filter(s=>s.name===name&&s.lat>14&&s.lat<15);
+  assert.equal(candidates.length,1,`${name}: one station symbol`);
+  const s=candidates[0];
+  assert.deepEqual(plain(s.routes).map(r=>[r.ref,r.color]),[[ref,color]],`${name}: actual route-master palette`);
+  assert.ok(api.nearestPointOnTransitLines(s,jinchuanDisplay.lines.filter(l=>l.routes.some(r=>r.ref===ref))).distance<0.01,
+    `${name}: marker sits on its actual presentation line`);
+}
+assert.equal(jinchuanDisplay.stops.filter(s=>s.name==="玄默门").length,1,"Jinchuan interchange has one merged marker");
 const jinchuanVectorData = api.vectorTransitOverlayData({getBounds:()=>makeBounds(14.654,152.896,14.655,152.898),
   getZoom:()=>19,hasImage:()=>true});
 assert.deepEqual(plain(jinchuanVectorData.stopFeatures.map(f=>f.properties.name).sort()),["津川","津川火车站"],
@@ -478,23 +588,28 @@ const twinFixture = {lines:[track("jc-center",155.775),
   displayTracks:[track("jc-up",155.7749),track("jc-down",155.7751)],stops:[]};
 const routingBefore = plain(twinFixture.lines);
 flatContext.renderTransitNetwork(twinFixture,16);
-const doubleLayers = flatLayers.getLayers();
-assert.ok(["jc-up","jc-down","other"].every(id=>flatContext.transitRenderedLayerCache.has(`line:${id}`)));
-assert.ok(!flatContext.transitRenderedLayerCache.has("line:jc-center"),"centerline cannot remain under the physical tracks");
+const singleLayers = flatLayers.getLayers();
+assert.ok(["jc-center","other"].every(id=>flatContext.transitRenderedLayerCache.has(`line:${id}`)));
+assert.ok(!flatContext.transitRenderedLayerCache.has("line:jc-up")
+  && !flatContext.transitRenderedLayerCache.has("line:jc-down"),"physical metro tracks do not remain under the centerline");
 assert.deepEqual(plain(twinFixture.lines),routingBefore,"routing and atlas geometries remain unchanged");
 flatContext.renderTransitNetwork(twinFixture,16);
-assert.deepEqual(flatLayers.getLayers(),doubleLayers,"panning/refresh reuses the double-line paths");
+assert.deepEqual(flatLayers.getLayers(),singleLayers,"panning/refresh reuses the single-line paths");
 api.setNetwork(twinFixture);
 const twinVector = api.vectorTransitOverlayData({getBounds:()=>makeBounds(9.49,155.765,9.52,155.79),
   getZoom:()=>15,hasImage:()=>true});
-assert.equal(twinVector.lineFeatures.length,3,"perspective uses both physical tracks and the unchanged other city");
-assert.ok(twinVector.lineFeatures.some(f=>f.geometry.coordinates[0][0]===155.7749)
-  && twinVector.lineFeatures.some(f=>f.geometry.coordinates[0][0]===155.7751));
+assert.equal(twinVector.lineFeatures.length,2,"perspective uses one metro centerline and the unchanged other city");
+assert.ok(twinVector.lineFeatures.some(f=>f.geometry.coordinates[0][0]===155.775));
 const refreshedTracks = {...twinFixture,displayTracks:[track("jc-up",155.7748),track("jc-down",155.7752)]};
 assert.notEqual(api.getTransitDisplayNetwork(refreshedTracks),api.getTransitDisplayNetwork(twinFixture));
 const mergedTracks = api.mergeTransitNetworks(twinFixture,refreshedTracks);
 assert.equal(mergedTracks.displayTracks.length,2,"live refresh replaces tracks by original way ID without duplicates");
 assert.equal(mergedTracks.displayTracks[0].geometry[0].lon,155.7748);
+const railwayTwin={...twinFixture,lines:[track("rail-center",155.775,{...localRoute,type:"train"})],
+  displayTracks:[track("rail-up",155.7749,{...localRoute,type:"train"}),
+    track("rail-down",155.7751,{...localRoute,type:"train"})]};
+assert.deepEqual(plain(api.getTransitDisplayNetwork(railwayTwin).lines).map(l=>l.id).sort(),["rail-down","rail-up"],
+  "Jinchuan regional railway keeps physical double tracks");
 api.setNetwork(network);
 
 const collisionFrames = [];
@@ -536,6 +651,7 @@ const items = [
     members:[{type:"way",ref:12},{type:"node",ref:22},{type:"node",ref:24}]},
   {type:"relation",id:33,tags:{type:"route",route:"bus",name:"测试公交"},members:[{type:"node",ref:25}]},
   {type:"way",id:34,tags:{railway:"subway"},geometry:[{lat:12,lon:150.00018},{lat:12.01,lon:150.00018}]},
+  {type:"node",id:38,lat:12.0062,lon:150.00018,tags:{railway:"station",station:"subway",subway:"yes",name:"共同铁路站"}},
   {type:"node",id:28,lat:12.004,lon:150.00018,tags:{railway:"stop",subway:"yes",name:"共同铁路站"}},
   {type:"node",id:29,lat:12.003,lon:150.00018,tags:{railway:"station",name:"一般标签地铁站"}},
   {type:"relation",id:35,tags:{type:"route",route:"subway",name:"测试地铁"},
@@ -581,6 +697,10 @@ try {
     assert.ok(sharedName.some(s=>s.displaySystem==="railway") && sharedName.some(s=>s.displaySystem==="metro"));
     assert.ok(sharedName.find(s=>s.displaySystem==="metro").displaySourceIds.includes("28"),
       "a source station lost in the existing navigation merge still has its own metro display");
+    assert.ok(sharedName.find(s=>s.displaySystem==="metro").displaySourceIds.includes("38"),
+      "live/scheduled collectors also merge the extra same-system POI over 180 m away");
+    assert.equal(sharedName.find(s=>s.displaySystem==="metro").sourceId,28,
+      "the formal route member anchors the station even when its duplicate POI arrives first");
     assert.ok(displayResult.stops.some(s=>s.name==="一般标签地铁站" && s.displaySystem==="metro"),
       "generic railway=station tags cannot hide an authoritative metro station");
     assert.ok(result.network.stops.some(s=>s.id==="way:26" && s.name==="2"),
@@ -629,6 +749,9 @@ try {
   assert.deepEqual(twinCollected.network,plain(api.collectTransitNetwork(twinItems,fixtureBounds,false)),
     "live worker and three-hour collector retain the exact same physical tracks");
   assert.deepEqual(twinCollected.network.displayTracks.map(l=>l.id).sort(),[34,36]);
+  const collectedDisplay=api.getTransitDisplayNetwork(twinCollected.network);
+  assert.equal(collectedDisplay.lines.filter(l=>l.routes.some(r=>r.type==="subway")).length,1,
+    "live worker output follows the same single-centerline rule as published snapshots");
 } finally {
   await worker.terminate();
 }
