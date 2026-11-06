@@ -14,7 +14,7 @@ const declaration = name => {
 const factory = vm.createContext({});
 const names = declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1]
   .split(",").map(name => name.trim());
-for (const name of [...names, "createHuayuGardenModels", "huayuModelEntryBytes", "huayuModelTileWorkerMain", "huayuModelTileWorkerSource"]) {
+for (const name of [...names, "createHuayuGardenModels", "huayuTrafficBuildingTags", "huayuModelEntryBytes", "huayuModelTileWorkerMain", "huayuModelTileWorkerSource"]) {
   vm.runInContext(declaration(name), factory);
 }
 const workerSource = factory.huayuModelTileWorkerSource();
@@ -79,7 +79,7 @@ const elements = [closedWay(1, {building:"yes", name:"兰亭大厦", color:"FFAA
 const text = JSON.stringify({elements});
 for (const kind of ["building", "structure"]) {
   const prepared = await request({action:"decode", kind, text});
-  const expected = kind === "building" ? {data:factory.huayuLiveBuildingFeatureCollection(elements)}
+  const expected = kind === "building" ? {data:factory.huayuLiveBuildingFeatureCollection(elements),trafficTags:factory.huayuTrafficBuildingTags(elements)}
     : {pavilionData:factory.huayuPavilionFeatureCollection(elements), wallData:factory.huayuWallFeatureCollection(elements)};
   const {cacheBytes, ...geometry} = prepared;
   assert.ok(cacheBytes > 0);
@@ -111,6 +111,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(canopyDecoded.data)),
 assert.equal(canopyDecoded.data.features[0].properties.roofOnly, 1);
 assert.equal(canopyDecoded.data.features[0].properties.renderMinHeight, 4);
 assert.equal(canopyDecoded.data.features[0].properties.renderHeight, 4.5);
+const residential=closedWay(90,{building:"apartments",height:"18",population:"240","building:levels":"6"});
+const residentialDecoded=await request({action:"decode",kind:"building",text:JSON.stringify({elements:[residential]})});
+assert.deepEqual(JSON.parse(JSON.stringify(residentialDecoded.trafficTags)),[["way:90",{population:"240","building:levels":"6"}]],
+  "simulation population and levels survive background decoding as separate original tags");
+assert.deepEqual(JSON.parse(JSON.stringify(residentialDecoded.data)),JSON.parse(JSON.stringify(factory.huayuLiveBuildingFeatureCollection([residential]))),
+  "simulation metadata cannot change the rendered residential geometry or colors");
 const halfSource=roofShapeElements.find(element=>element.tags["roof:shape"]==="half-hipped");
 for(const {name,tags,direction} of halfHippedDirectionCases) {
   const edited=[{...halfSource,tags:{...halfSource.tags,...tags}}];

@@ -513,11 +513,12 @@
         group.position.set((p.x-this.origin.x)/this.scale,-(p.y-this.origin.y)/this.scale,(elevation+wheel.base)*ratio);group.scale.setScalar(ratio);
       }
       const T=this.T,placements=new Map(),object=new T.Object3D();
-      for(const item of this.prepared.small || []) {
+      const displayedItems=new Set((this.facilityBatches||[]).flatMap(batch=>batch.items.map(part=>part.item)));
+      for(const item of displayedItems) {
         const p=root.maplibregl.MercatorCoordinate.fromLngLat(item.center),ratio=p.meterInMercatorCoordinateUnits()/this.scale;
         const elevation=this.map.getTerrain?.() ? this.map.queryTerrainElevation(item.center) : 0;
         placements.set(item,{x:(p.x-this.origin.x)/this.scale,y:-(p.y-this.origin.y)/this.scale,z:(elevation+item.base)*ratio,
-          ratio,visible:Number.isFinite(elevation) && this.map.getZoom()>=17 && this.preparedContext===this.options.context});
+          ratio,visible:Number.isFinite(elevation) && this.map.getZoom()>=17 && !this.meshDirty && this.preparedContext===this.options.context});
       }
       for(const {mesh,items} of this.facilityBatches || []) {
         items.forEach((part,i)=>{

@@ -1,6 +1,8 @@
 华域地图 v8.0
-Released: 2026-11-05
+Released: 2026-11-06
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-traffic-distribution-v1 (2026-11-06): Add an opt-in traffic simulation menu for local, city and cross-region scenarios based on tagged population, facilities and reachable roads. Include nearby-first loading, hub demand, parking entry/stay/exit, follow, compact frames and incremental road colors. Preserve facility access points within the 1800-group budget; group overflow gradually without moving demand between assigned parking lots. Spread district/community population over real residential nodes without changing totals. Keep all loaded drivable roads in the simulation overlay and label zero assigned demand/current volume gray. Scenarios remain uncalibrated estimates; preserve all original map features, source timestamps and update schedules. Deployment status is verified separately.
 
 Release build 8.0-panel-minimize-v2 (2026-11-05): Hide minimized panels completely, with no floating title or expand button. Restore from the existing menu or panel control while preserving active operations, filters, inputs and reading position. Keep the transit overlay enabled while its panel is minimized, and restore its status panel through the map-view menu. Deployment status is verified separately.
 

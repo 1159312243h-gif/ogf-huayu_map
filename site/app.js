@@ -1734,6 +1734,7 @@
       showToast("请使用起点或终点旁的准星按钮选点");
       return;
     }
+    if (currentView !== "download" && window.HuayuTraffic?.pick(event.latlng)) return;
     if (!mapFeatureSelectionEnabled) return;
 
     setSelectedPlace({ ...point, zoom: map.getZoom(), label: "地图选点" }, {
@@ -15187,6 +15188,12 @@
       showView("settings", {preservePerspective: true});
       return;
     }
+    if (action === "simulation") {
+      cancelMapPick();
+      hideMapViewMenu();
+      showView("simulation", {preservePerspective: true});
+      return;
+    }
     exitVectorPerspectiveMode({ silent: true });
     cancelMapPick();
     hideMapViewMenu();
@@ -15275,6 +15282,7 @@
       about: ["华域地图", "关于地图", "实时 OGF 数据 · 站内交互"],
       download: ["华域地图 · OPEN GEOFICTION", "地图下载", ""],
       settings: ["华域地图", "地图设置", ""],
+      simulation: ["出行需求情景 · 实验", "交通模拟", "人口、设施、区域车流与车辆跟随"],
     };
 
     if (view === "place" || view === "download") {
@@ -20447,11 +20455,14 @@
   }
 
   function huayuStyleLayers(glMap) {
+    if (glMap?._removed || glMap && "style" in glMap && !glMap.style) return [];
     // These callers inspect order/category, never paint or source payloads.
     // getStyle() serializes all live GeoJSON data and every paint expression.
     // Read current public layer objects so add/remove/move/style changes are
     // visible immediately, without retaining a stale style cache.
-    const order = glMap?.getLayersOrder?.();
+    let order;
+    try {order = glMap?.getLayersOrder?.();}
+    catch(error) {if (!glMap?.style) return []; throw error;}
     if (!order || !glMap.getLayer) return glMap?.getStyle?.()?.layers || [];
     return order.map(id => glMap.getLayer(id)).filter(layer => layer && layer.type !== "custom")
       .map(layer => ({id: layer.id, type: layer.type, source: layer.source,
@@ -24926,6 +24937,7 @@
         return this.rebuildPromise;
       },
       async rebuildBlocks() {
+        if (!this.gl || !this.enabled || !this.map || this.map._removed || ("style" in this.map && !this.map.style)) return;
         const revision = this.rebuildRevision || 0;
         const startedAt = performance.now();
         const zoom = this.map?.getZoom?.() || HUAYU_TERRAIN_MIN_ZOOM;
@@ -26834,6 +26846,7 @@
     syncHuayuSportsSnapshotLayers(glMap, state);
     if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
     if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
+    window.HuayuTraffic?.syncContext();
   }
 
   function clearHuayuLiveBasemapPrimarySync(state) {
@@ -27004,6 +27017,7 @@
       if (layer && layer.minzoom !== minimum) glMap.setLayerZoomRange(id, minimum, layer.maxzoom ?? 24);
     }
     syncHuayuBridgeModels(glMap, state);
+    window.HuayuTraffic?.syncContext();
     initializeHuayuBridgePreview(glMap, state);
     scheduleHuayuLiveBasemap(glMap, 0);
   }
@@ -27097,6 +27111,7 @@
     if (window.HuayuVegetation) syncHuayuVegetationSettings(glMap);
     if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
     if (window.HuayuFacilityModels) syncHuayuFacilityModels(glMap);
+    window.HuayuTraffic?.syncContext();
     applyHuayuSportsSnapshot(glMap, state);
     scheduleHuayuLiveBasemapPrimarySync(glMap, state);
     updateHuayuLiveBasemapDiagnostics(state);
@@ -27714,6 +27729,42 @@
     }
   }
 
+  // A compact simulation sidecar. It never changes render features, model caches or timestamps.
+  function huayuTrafficDemandElements(elements) {
+    const keys = ["name","population","population:hx","capacity","capacity:persons","place","landuse","building","building:part",
+      "building:levels","amenity","shop","office","healthcare","leisure","disused","abandoned","level"];
+    const ways = new Map((elements || []).filter(e => e.type === "way").map(e => [String(e.id),e]));
+    const features = [];let vertices = 0;
+    for (const e of elements || []) {
+      const tags=e.tags || {};
+      if (!["population","landuse","building","amenity","shop","office","healthcare","leisure"].some(k => tags[k])) continue;
+      let geometry;
+      if (e.type === "node" && Number.isFinite(e.lon) && Number.isFinite(e.lat)) geometry={type:"Point",coordinates:[e.lon,e.lat]};
+      else if (e.type === "way") {
+        const coordinates=huayuWallCoordinates(e);
+        if (coordinates.length>=4 && coordinates[0][0]===coordinates.at(-1)[0] && coordinates[0][1]===coordinates.at(-1)[1]) {
+          vertices+=coordinates.length;geometry={type:"Polygon",coordinates:[coordinates]};
+        }
+      } else if (e.type === "relation" && e.tags?.type === "multipolygon") {
+        geometry=huayuCityWallRelationGeometry(e,ways);
+        if (geometry) vertices+=geometry.coordinates.flat(geometry.type==="MultiPolygon"?2:1).length;
+      }
+      if (vertices>60000 || features.length>=3000) {features.limited=true;break;}
+      if (!geometry) continue;
+      features.push({type:"Feature",id:`traffic-source:${e.type}:${e.id}`,geometry,
+        properties:{...Object.fromEntries(keys.filter(k => tags[k]!==undefined).map(k => [k,String(tags[k])])),
+          osmId:String(e.id),osmType:e.type,trafficRaw:true,
+          trafficMembers:e.type==="relation"?(e.members||[]).filter(m=>m.type==="way").map(m=>`way:${m.ref}`):[]}});
+    }
+    return features;
+  }
+
+  function huayuTrafficBuildingTags(elements) {
+    const keys=["population","population:hx","building:levels","amenity","shop","office","healthcare","leisure","disused","abandoned","level"];
+    return (elements||[]).filter(e=>e.tags && (e.tags.building || e.tags["building:part"]) && keys.some(k=>e.tags[k]!==undefined))
+      .slice(0,6000).map(e=>[`${e.type}:${e.id}`,Object.fromEntries(keys.filter(k=>e.tags[k]!==undefined).map(k=>[k,String(e.tags[k])]))]);
+  }
+
   function pumpHuayuLiveBasemapTiles(state) {
     if (!state.active) return;
     while (state.pendingTiles.size < HUAYU_LIVE_BASEMAP_TILE_CONCURRENCY && state.queue.length) {
@@ -27729,6 +27780,13 @@
           state.failedTiles.delete(tile.key);
           const entry = {
             data: huayuLiveBasemapFeatureCollection(result.payload.elements),
+            trafficDemand: huayuTrafficDemandElements(result.payload.elements),
+            // Simulation-only permissions. Keep the existing render factory,
+            // model cache versions and source timestamps unchanged.
+            trafficTags: new Map(result.payload.elements.filter(e => e.type === "way" && e.tags?.highway
+                && ["access","vehicle","motor_vehicle","motorcar","maxspeed","junction"].some(key => e.tags[key]))
+              .map(e => [String(e.id), Object.fromEntries(["access","vehicle","motor_vehicle","motorcar","maxspeed","junction"]
+                .filter(key => e.tags[key]).map(key => [key, String(e.tags[key])]))])),
             loadedAt: result.loadedAt,
             cachedAt: Date.now(),
             refreshAt: result.refreshAt,
@@ -27929,10 +27987,14 @@
     window.HuayuVegetation?.dispose(glMap);
     window.HuayuStructureModels?.dispose(glMap);
     window.HuayuBridgeModels?.dispose(glMap);
+    window.HuayuTraffic?.disposeMap(glMap);
     // MapLibre map.remove can discard the style without calling each custom
     // layer's onRemove. Stop the old terrain worker and timers explicitly.
     const material = huayuWoodlandMaterialLayers.get(glMap);
-    if (material?.gl) material.onRemove(glMap, material.gl);
+    if (material?.gl) {
+      material.presentationDetached = false;
+      material.onRemove(glMap, material.gl);
+    }
     huayuWoodlandMaterialLayers.delete(glMap);
     window.clearTimeout(state.timer);
     state.timer = null;
@@ -29161,12 +29223,12 @@
       huayuPavilionMoveTowardMeters, huayuPavilionColumnRing, huayuPavilionFeatureCollection,
       huayuWallFeatureCollection, huayuFenceColor, huayuWallColor, huayuFenceNightColor,
       huayuWallNightColor, huayuWallSegmentPolygons];
-    return `const huayuGardenModels = (${createHuayuGardenModels.toString()})();\n${functions.map(fn => fn.toString()).join("\n")}\n${huayuModelEntryBytes.toString()}\nconst huayuModelAlgorithms = [${functions.map(fn => fn.name).join(",")}];\n(${huayuModelTileWorkerMain.toString()})();`;
+    return `const huayuGardenModels = (${createHuayuGardenModels.toString()})();\n${functions.map(fn => fn.toString()).join("\n")}\n${huayuTrafficBuildingTags.toString()}\n${huayuModelEntryBytes.toString()}\nconst huayuModelAlgorithms = [${functions.map(fn => fn.name).join(",")}];\n(${huayuModelTileWorkerMain.toString()})();`;
   }
 
   function huayuModelEntryBytes(entry) {
     // Conservative serialized geometry estimate, computed once in the worker.
-    return entry.cacheBytes || JSON.stringify({data:entry.data,
+    return entry.cacheBytes || JSON.stringify({data:entry.data,trafficTags:entry.trafficTags,
       pavilionData:entry.pavilionData, wallData:entry.wallData}).length * 2 + 512;
   }
 
@@ -29501,6 +29563,7 @@
           result = job.kind === "garden" ? {data:huayuGardenModels.build(payload.elements,job.options)}
             : job.kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
             : {pavilionData:huayuPavilionFeatureCollection(payload.elements), wallData:huayuWallFeatureCollection(payload.elements)};
+          if(job.kind==="building")result.trafficTags=huayuTrafficBuildingTags(payload.elements);
           result.cacheBytes = huayuModelEntryBytes(result);
         }
         self.postMessage({id:job.id, result, cacheRead:job.action === "read"
@@ -29568,7 +29631,7 @@
     }
     const payload = JSON.parse(text);
     if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_MODEL_TILE");
-    return kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements)}
+    return kind === "building" ? {data:huayuLiveBuildingFeatureCollection(payload.elements),trafficTags:huayuTrafficBuildingTags(payload.elements)}
       : {pavilionData:huayuPavilionFeatureCollection(payload.elements), wallData:huayuWallFeatureCollection(payload.elements)};
   }
 
@@ -29610,7 +29673,7 @@
     } finally {signal.removeEventListener?.("abort", abortNetwork);}
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const prepared = result.data || result.pavilionData ? result
-      : {...result, ...(kind === "building" ? {data:huayuLiveBuildingFeatureCollection(result.payload.elements)}
+      : {...result, ...(kind === "building" ? {data:huayuLiveBuildingFeatureCollection(result.payload.elements),trafficTags:huayuTrafficBuildingTags(result.payload.elements)}
         : {pavilionData:huayuPavilionFeatureCollection(result.payload.elements), wallData:huayuWallFeatureCollection(result.payload.elements)})};
     const entry = {...prepared, payload:undefined,
       cachedAt:Math.min(Date.now(), Number(prepared.loadedAt) || Date.now()), cacheBytes:huayuModelEntryBytes(prepared)};
@@ -29738,6 +29801,7 @@
     state.renderRevision += 1;
     state.status = idle ? "ready" : "refreshing";
     applyHuayuLiveBuildings(state.glMap, state);
+    globalThis.HuayuTraffic?.syncContext();
     pruneHuayuLiveBuildingTileCache(state);
   }
 
@@ -29787,6 +29851,7 @@
           rememberHuayuModelTileCost(state,tile.key,result);
           if (huayuModelEntryBytes(result) <= HUAYU_BUILDING_SOURCE_BYTES) state.tileCache.set(tile.key, {
             data: result.data,
+            trafficTags:result.trafficTags,
             loadedAt: result.loadedAt,
             cachedAt: result.cachedAt || Date.now(),
             refreshAt: result.refreshAt,
@@ -32504,6 +32569,7 @@
       } else {
         state.data = huayuSupplementalPoiFeatureCollection(glMap,
           [...(payload?.elements || []), ...(sportsPayload.elements || [])]);
+        state.trafficDemand = huayuTrafficDemandElements([...(payload?.elements || []), ...(sportsPayload.elements || [])]);
         state.shelterBuildingIds = state.data.shelterBuildingIds || [];
         state.facilities = huayuFacilityFeatures(payload?.elements || []);
         state.loadedAt = Date.now();
@@ -32511,6 +32577,7 @@
       state.failureBbox = null;
       state.failureRetries = 0;
       applyHuayuSupplementalPois(glMap, state);
+      globalThis.HuayuTraffic?.syncContext();
       scheduleHuayuSupplementalPois(glMap, 3 * 60 * 60 * 1000);
     } catch {
       if (requestId === state.requestId) {
@@ -33305,6 +33372,7 @@
         silent: true,
       });
     }
+    window.HuayuTraffic?.syncContext();
     updateMapViewControls();
   }
 
@@ -35427,6 +35495,64 @@
   map.getContainer().addEventListener("pointerdown", () => {accountDefaultPending = false;}, {passive:true});
   map.getContainer().addEventListener("wheel", () => {accountDefaultPending = false;}, {passive:true});
   window.HuayuAtlas = Object.freeze({
+    canPickTraffic: () => !window.HuayuPersonalData?.isPickingBounds() && !administrativeBoxPicking && !mapPickTarget
+      && !["measure","directions","download"].includes(currentView),
+    getTrafficContext: (anchor,metadataOnly=false) => {
+      const glMap = currentVectorBasemap(), state = glMap && huayuLiveBasemapStates.get(glMap);
+      const c = glMap?.getCenter();
+      if (!c) return null;
+      const center = anchor || [c.lng,c.lat];
+      const roads = [], demand = [], tags = new Map(), revisions = [], sourceTimes = [];
+      let trafficInputLimited=false;
+      if (state?.active) {
+        const keys = new Set([...state.visibleTileKeys,...state.detailTileKeys,...state.snapshotTileKeys]);
+        for (const key of keys) {
+          const entry = state.tileCache.get(key);
+          if (!entry) continue;
+          revisions.push(`${key}@${entry.loadedAt}`);
+          sourceTimes.push(entry.loadedAt);
+          trafficInputLimited ||= Boolean(entry.trafficDemand?.limited);
+          if(!metadataOnly) {
+            demand.push(...(entry.trafficDemand || []));
+            for (const [id,value] of entry.trafficTags || []) tags.set(id,value);
+          }
+        }
+        for (const feature of metadataOnly?[]:state.groundRenderFeatures || []) {
+          if (feature.properties?.renderKind !== "road") continue;
+          roads.push({id:feature.id,geometry:feature.geometry,
+            properties:{...feature.properties,...tags.get(feature.properties.osmId)}});
+        }
+      }
+      const buildings = huayuLiveBuildingStates.get(glMap), pois = huayuSupplementalPoiStates.get(glMap);
+      if (buildings?.primaryActive) {
+        if(!metadataOnly) {
+          const buildingTags=new Map();
+          for(const key of buildings.renderTileRevisions?.keys() || [])for(const [id,value] of buildings.tileCache.get(key)?.trafficTags||[])buildingTags.set(id,value);
+          for(const feature of buildings.contextData?.features || buildings.data?.features || []) {
+            const p=feature.properties,extra=buildingTags.get(`${p.osmType}:${p.osmId}`);
+            demand.push(extra?{...feature,properties:{...p,...extra}}:feature);
+          }
+        }
+        revisions.push(`buildings@${buildings.renderRevision}`);sourceTimes.push(buildings.loadedAt);
+      }
+      if (pois?.trafficDemand) {
+        trafficInputLimited ||= Boolean(pois.trafficDemand.limited);
+        if(!metadataOnly)demand.push(...pois.trafficDemand);
+        revisions.push(`pois@${pois.loadedAt}`);sourceTimes.push(pois.loadedAt);
+      }
+      return {map:glMap,center,roads,demand,trafficInputLimited,sourceTimes:sourceTimes.filter(Number.isFinite),ready:Boolean(state?.primaryActive),
+        nonPassengerStationIds:(transitServiceRules.railOperatingRules||[]).flatMap(r=>r.nonPassengerStationIds),
+        satellite:!["huayu","huayu-night"].includes(selectedBasemapId),signature:revisions.sort().join("|")};
+    },
+    prepareTrafficCamera: coordinate => {
+      if (window.HuayuPersonalData?.isPickingBounds() || administrativeBoxPicking || mapPickTarget || currentView === "measure") {
+        showToast("请先完成当前选点或范围操作，再启用车辆镜头"); return false;
+      }
+      const glMap=currentVectorBasemap();
+      if(!glMap || !["huayu","huayu-night"].includes(selectedBasemapId))return false;
+      const c=glMap.getCenter();
+      return enterVectorPerspectiveMode(55,glMap.getBearing(),{silent:true,center:coordinate || [c.lng,c.lat],zoom:Math.max(coordinate ? 18 : 17,glMap.getZoom())});
+    },
     applyPersonalDataSnapshot,
     prepareOverlayEditing: () => exitVectorPerspectiveMode({silent:true}),
     getCurrentView: () => currentView,

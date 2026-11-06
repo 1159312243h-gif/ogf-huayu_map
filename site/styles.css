@@ -4121,7 +4121,11 @@ button.popup-route:focus-visible .popup-route-arrow {
 
   .rail-actions {
     width: min(100%, 484px);
-    grid-template-columns: repeat(11, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(44px, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+    overflow-y: hidden;
     gap: 2px;
     margin: 0;
   }
@@ -4864,3 +4868,16 @@ button.popup-route:focus-visible .popup-route-arrow {
 @media (max-width: 680px) {
   .bridge-map-preview { left: 12px; bottom: 120px; width: calc(100% - 24px); }
 }
+/* Visible even when the settings panel is minimized. */
+.traffic-stop-follow { position: absolute; z-index: 1100; right: 18px; bottom: 100px; box-shadow: 0 2px 12px #0003; }
+.traffic-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.traffic-legend span::before { content: ""; display: inline-block; width: 12px; height: 4px; margin-right: 4px; vertical-align: middle; background: #369c79; }
+.traffic-legend span:nth-child(2)::before { background: #d69a28; }
+.traffic-legend span:nth-child(3)::before { background: #d75343; }
+.traffic-legend span:nth-child(4)::before { background: #8793a3; }
+.traffic-basis summary { cursor: pointer; font-size: 13px; }
+#traffic-summary, #traffic-vehicle { padding: 8px; background: var(--surface-muted, #eef2f0); border-radius: 6px; overflow-wrap: anywhere; }
+#traffic-time { min-width: 0; max-width: 100%; }
+.traffic-region-list { display: grid; gap: 6px; margin: 8px 0; }
+.traffic-region-list button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+#traffic-basis { max-height: 380px; overflow-y: auto; }

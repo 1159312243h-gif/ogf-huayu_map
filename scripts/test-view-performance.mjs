@@ -37,6 +37,11 @@ definitions.delete("forest");
 assert.equal(summary().length,3,"removed layers are excluded immediately");
 assert.equal(serialized,0);
 assert.deepEqual(plain(styleContext.huayuStyleLayers({getStyle:()=>undefined})),[]);
+assert.deepEqual(plain(styleContext.huayuStyleLayers({style:undefined,
+  getLayersOrder(){throw new Error("removed map style accessed");},getLayer(){throw new Error("removed map layer accessed");}})),[]);
+const deletedStyleMap={getLayersOrder(){return this.style.getLayersOrder();},getLayer(){}};
+assert.deepEqual(plain(styleContext.huayuStyleLayers(deletedStyleMap)),[]);
+assert.deepEqual(plain(styleContext.huayuStyleLayers({...deletedStyleMap,_removed:true})),[]);
 assert.deepEqual(plain(styleContext.huayuStyleLayers({getStyle:()=>({layers:[{id:"legacy"}]})})),[{id:"legacy"}]);
 
 // Repeated platforms must retain the exact manual interchange results while

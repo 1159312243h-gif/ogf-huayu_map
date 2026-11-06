@@ -170,7 +170,7 @@ assert.deepEqual([groundSource.writes,gardenSource.writes,material.writes],[1,2,
 
 const factory=vm.createContext({});
 const names=declaration("huayuModelTileWorkerSource").match(/const functions = \[([^]*?)\];/u)[1].split(",").map(s => s.trim());
-for(const name of [...names,"createHuayuGardenModels","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
+for(const name of [...names,"createHuayuGardenModels","huayuTrafficBuildingTags","huayuModelEntryBytes","huayuModelTileWorkerMain","huayuModelTileWorkerSource"])
   vm.runInContext(declaration(name),factory);
 // Reviewed roof-only height parsing invalidates shared building/structure
 // geometry as intended. Freeze the unchanged garden factory independently,

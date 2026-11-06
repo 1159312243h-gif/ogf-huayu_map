@@ -187,6 +187,14 @@ const savedBatches=c.facilityBatches;map.queryTerrainElevation=()=>null;c.positi
 const instance=new THREE.Matrix4();savedBatches[0].mesh.getMatrixAt(0,instance);
 assert.equal(new THREE.Vector3().setFromMatrixScale(instance).length(),0,"missing elevation hides a model rather than placing it at zero");
 assert.equal(c.facilityBatches,savedBatches,"terrain readiness reuses geometry");
+// A new prepared result can arrive at city scale before the old meshes rebuild.
+// Positions must refer to the displayed batch's own items, not the newer objects.
+map.queryTerrainElevation=()=>13;c.prepared={...outdoor,small:[]};c.meshDirty=true;
+assert.doesNotThrow(()=>c.position());
+savedBatches[0].mesh.getMatrixAt(0,instance);
+assert.equal(new THREE.Vector3().setFromMatrixScale(instance).length(),0,"pending replacement hides unmatched old instances safely");
+c.prepared=outdoor;c.meshDirty=false;c.position();
+assert.equal(c.facilityBatches,savedBatches,"replacement safety does not discard the previous complete meshes");
 api.dispose(map);assert.equal(listeners.size,0);assert.equal(c.groups.length,0);assert.equal(c.resources.length,0);
 assert.ok(source.includes('renderingMode:"3d"') && source.includes("autoClear=false") && source.includes("owner.options.satellite"));
 
@@ -246,6 +254,7 @@ const retryRuntime=vm.createContext({
   huayuSupplementalPoiFeatureCollection:()=>({features:[]}),huayuFacilityFeatures:()=>[],applyHuayuSupplementalPois(){},
 });
 retained.requestId=0;
+vm.runInContext(app.match(/  function huayuTrafficDemandElements\([^]*?\n  \}/u)[0],retryRuntime);
 vm.runInContext(app.match(/  async function refreshHuayuSupplementalPois\([^]*?\n  \}/u)[0],retryRuntime);
 for(let i=0;i<3;i++)await retryRuntime.refreshHuayuSupplementalPois(retryMap);
 assert.deepEqual(retryDelays,[2000,10000,10800000],"two bounded retries precede the normal three-hour refresh");
