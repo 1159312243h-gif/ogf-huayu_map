@@ -123,6 +123,8 @@
 
 ## 7. 交互、标签与既有结构物
 
+- 用户指出搜索高阳府时金沙省也被显示为高阳府。普通搜索的展示名、排序及线路图／品牌／模拟行政区匹配只使用对象自身 name、多语言名和明确 official_name／short_name／alt_name 等名称标签；不得将地名服务附带的 `_place_name` 行政中心名或 `ref` 等非名称元数据作为本级名称、别名或精确匹配依据。金沙省与其省会高阳府保留不同的关系 ID、真实几何和名称；普通搜索可返回相关上级但不误命名，精确行政搜索不因关联中心而接受上级。真实多语言名、简称、分号分隔别名、国外城市及原有同名候选继续有效；同类城市统一应用，不按此处名称硬编码。不改变原始 OGF、行政范围、人口、导航、模型和更新周期。
+
 - 用户于 2026-11-05 要求菜单功能面板增加缩小入口，随后明确收起后不需要“展开”标题条，再点击菜单恢复即可。功能面板、地图图层及交通视图标题提供“收起”，桌面与手机均整体隐藏，不留浮动标题或展开按钮；从原菜单或右侧面板入口恢复内容和阅读位置，交通视图状态面板从视图入口恢复。收起及原菜单恢复不切换功能、不清空输入、筛选或下载清单，不取消测量、导航选点与范围框选，不改变相机、路线、边界高亮或交通图层；后台刷新不自行恢复。显式选择其他功能沿用原切换行为，原有关闭行为保留。品牌页继续按既有规则在收起时暂停自动检查、取消旧请求，恢复后继续；帮助同步说明。此交互不改变模型、原始数据、缓存年龄及两分钟／三小时更新。
 
 - 用户于 2026-10-16 要求在主工具栏新增独立“帮助”入口，桌面与手机均可直接打开。帮助按场景分组，覆盖地图浏览、搜索与行政区、测量、导航与线路、收藏与账号、渲染设置及常见问题；框选范围、底图／物体下载和个人贴图上传归入同一组，分别解释各工具真实的范围设置及保存方式，不宣称自动共用范围或具备尚未实现的操作。提供本页说明搜索、可展开目录和前往既有功能的入口；搜索和阅读不请求地图数据、不改变地图位置或渲染偏好，进入帮助保留当前视角。新增入口不能造成手机底栏换行、遮挡或挤掉既有功能；原功能、账号隔离、导航和三小时更新规则继续保留。
@@ -250,6 +252,8 @@
 - 用户随后指出南滨主城区仍无需求。行政区源查询可能同时返回上级省级关系，上级不得提前将所选城市人口点标为已消费；仅在所选真实行政树内建立人口归属，嵌套所选范围仍只计一次。实际 admin_centre 的人口在具有明确 capital／admin_level 层级时须与关系层级相符；独立人口点优先读取该层级，其次明确 place:hx，再用已有 place 类型，不将所有 city 点都当作同一级。上级关系未标人口不得借用明确较低层城市人口作为省级总量；人口键和原始 ID 如实列出，未知与上下级冲突处理规则保留。跨城市使用同一逻辑，回归覆盖上级共享中心、非 city 层级及完整主城区分配。
 - 用户明确一栋建筑可容纳多人。区域人口按实际占地乘有效 building:levels 的楼面权重分配，明确有效层数（最多 300）不再截到 60 层；缺层数时按有效总高扣除 min_height 和 roof:height 后的墙高每 3 米推算，支持米／英尺，再缺失才按两层。仅点建筑缺占地时沿用明确标出的 80 m² 假设；用途未标的半权重仍保留。面积和高度只分配已有标注总人口，不生成新的官方人口或将一栋等同于一人。“建筑与人口核算（分区）”展示全域独立建筑数、参与建筑的占地／楼面面积、楼层标签／高度推算／缺标数量，以及所选行政区及直接下级的建筑、居民分配与未接路份额；根区剩余部分单独标明，各区人口是位置估算。统计随完整模拟原子接管，在原 Worker 准备且随需求元数据一次发送，不逐帧扫描全城；地图、导航、停车和更新周期继续保留。
 
+- 用户随后反馈高阳府区域模拟失败。完整源响应中的下级行政关系可能仅有中心点，或已有全部成员坐标但源环不闭合；这类下级缺项不得使完整城市整体失败。所选根行政区仍须有完整真实边界，下级有有效中心点时在真实完整上级范围内估算位置，保留原始关系 ID、层级、人口键及父子扣除，不补线、不编造本级多边形，不作为正式分区边界。无中心点时仅凭明确 subarea 层级保留已知人口为未定位／未分配，不能借上级中心猜测所属区、吸附建筑或抢占细级人口；无关关系排除，循环成员不得导致递归失控。真正缺少成员坐标、请求截断及所选根边界错误仍拒绝接管，保留旧模拟。面板与指南列出下级缺项及估算依据；后台启动、内存及结果传输失败显示阶段和恢复办法，不再笼统提示“区域后台任务失败”。所有城市使用同一规则，原建筑权重、人口守恒、路网、停车、绘制预算与更新周期不变。
+
 ## 8. 账号、个人数据与地图贴图
 
 - 注册表单在每个输入框旁持续显示填写说明，并通过无障碍描述关联输入框：用户名用于登录，3–32 位，可用中文、字母、数字、下划线或短横线；显示名称是可选昵称，最多 40 位，留空使用用户名；密码 10–128 位。示例不代填真实账号或密码，说明不能仅依靠输入后消失的占位文字。管理员继续通过部署环境明确指定，不能把用户名硬编码在公开前端或自动提升普通注册用户。
@@ -277,11 +281,11 @@
 | 整包、北沪换乘、市域铁路、铁路导航、交互与结构物不变量 | [scripts/verify-package.mjs](../scripts/verify-package.mjs) |
 | 局部及区域汽车路网、分层人口守恒／冲突、跨区连通、短途优先／长途减量、附近预览与两路并发、内部路首末接入与禁止穿行、客运枢纽与货运排除、停车面孔洞及进出场、聚合车量与停车容量守恒、绘制预算独立、紧凑帧元数据及 Worker 暂停 | [scripts/test-traffic-simulation.mjs](../scripts/test-traffic-simulation.mjs)、[scripts/test-traffic-regions.mjs](../scripts/test-traffic-regions.mjs) |
 | 明确／缺标车道及左右通行、反向单行和方向数量、米制标线与弯道连续性、分道跟车／下游安全接入、车道减少及区域连续转弯、视窗裁切与桥隧回退、紧凑帧与暂停时后台准备 | [scripts/test-traffic-lanes.mjs](../scripts/test-traffic-lanes.mjs)、[scripts/test-traffic-regions.mjs](../scripts/test-traffic-regions.mjs) |
-| 全域立即启动、预览动态请求槽、完整接管及迟到／取消保护、国际城市点定位与完整行政面区分、慢速完整接收、独立超时及失败项重试 | [scripts/test-traffic-loading.mjs](../scripts/test-traffic-loading.mjs)、[scripts/test-traffic-regions.mjs](../scripts/test-traffic-regions.mjs)、[scripts/test-traffic-requests.mjs](../scripts/test-traffic-requests.mjs)、[scripts/test-transit-atlas-search.mjs](../scripts/test-transit-atlas-search.mjs) |
+| 全域立即启动、预览动态请求槽、完整接管及迟到／取消保护、国际城市点定位与完整行政面区分、下级边界缺项／未定位人口保留、慢速完整接收、独立超时及分阶段失败恢复 | [scripts/test-traffic-loading.mjs](../scripts/test-traffic-loading.mjs)、[scripts/test-traffic-regions.mjs](../scripts/test-traffic-regions.mjs)、[scripts/test-traffic-requests.mjs](../scripts/test-traffic-requests.mjs)、[scripts/test-transit-atlas-search.mjs](../scripts/test-transit-atlas-search.mjs) |
 | 同名铁路站显示去重、完整线路详情、北沪站名分离、视窗缓存及后台收集一致性 | [scripts/test-transit-display.mjs](../scripts/test-transit-display.mjs) |
 | 线路图真实建设状态、现有与未来段分离、底图投影对齐、派生清单及限界查询 | [scripts/test-transit-atlas-options.mjs](../scripts/test-transit-atlas-options.mjs) |
 | 线路图货运站与客运导航分离、制式筛选几何复用、被关闭线路排除及数据更新失效 | [scripts/test-transit-atlas-options.mjs](../scripts/test-transit-atlas-options.mjs)、[scripts/test-transit-atlas-filtering.mjs](../scripts/test-transit-atlas-filtering.mjs) |
-| 线路图城市名称、独立行政边界兜底、完整多面与孔洞、超时重试及失败提示、会话缓存和过期响应 | [scripts/test-transit-atlas-search.mjs](../scripts/test-transit-atlas-search.mjs) |
+| 线路图城市名称、对象自身名称／明确别名与关联中心区分、普通搜索排序、独立行政边界兜底、完整多面与孔洞、超时重试及失败提示、会话缓存和过期响应 | [scripts/test-transit-atlas-search.mjs](../scripts/test-transit-atlas-search.mjs) |
 | 亭子明确标签、名称误判排除、点面几何及普通建筑保留 | [scripts/test-pavilion-tags.mjs](../scripts/test-pavilion-tags.mjs) |
 | 建筑及屋顶颜色标签、关系颜色与既有模型保留 | [scripts/test-building-colors.mjs](../scripts/test-building-colors.mjs) |
 | 建筑材质优先级、昼夜配色、真实坡屋顶、高度方向、复杂轮廓及俯视/卫星/失败回退 | [scripts/test-building-material-roofs.mjs](../scripts/test-building-material-roofs.mjs) |

@@ -56,7 +56,8 @@
         ui.summary.textContent=`${latest.regionNames.join("、")} · 采用 ${d.totalResidents.toLocaleString()} 人 · 模拟 ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}。路段计算约 ${latest.moving.toLocaleString()} 辆在途、${latest.waiting.toLocaleString()} 辆排队，${latest.pending.toLocaleString()} 车次等待进入路网；累计到达 ${latest.arrived}、返家 ${latest.returned}。预计去程 ${Math.round(d.hourly).toLocaleString()}、返程 ${Math.round(d.returnHourly).toLocaleString()} 车次／小时，25 公里内约 ${(d.nearbyShare*100).toFixed(1)}%，100 公里以上约 ${(d.remoteShare*100).toFixed(1)}%。近景从 ${latest.sampleCount} 个行程样本中最多绘制 ${count()} 辆，样本不等于总车数。${latest.parking?`停车占用约 ${latest.parking.occupied}／${latest.parking.capacity} 位，入场排队约 ${latest.parking.waiting} 辆。`:""}`;
         if(updateBasis){const rows=d.populationRows||[];
         ui.basis.textContent=`分层人口合计 ${d.totalResidents.toLocaleString()} 人；父子人口只分配一次。接入道路过远未分配 ${Math.round(d.unconnectedResidents).toLocaleString()} 人，无往返设施未分配 ${Math.round(d.unservedResidents).toLocaleString()} 人；${d.crossPairs} 组跨区域可达起终点。${d.missingPopulation} 个行政区无直接人口，采用已知下级，未知部分不填零；${d.populationConflicts.length} 处上下级人口冲突（保留下级）：${d.populationConflicts.map(c=>`${c.name}上级 ${c.parent.toLocaleString()}、下级合计 ${c.children.toLocaleString()}`).join("；")}。${rows.map(r=>`${r.name}：${r.population===null?"未标":r.population.toLocaleString()}，${r.source}${r.residual?`，上级剩余分配 ${r.residual.toLocaleString()} 人`:""}`).join("；")}。最早上游时间：${stamp}。人口及设施接入点为估算，不是实测出入口。区域／小区人口表示整片范围，优先按全域建筑的用途、占地及楼层分配位置，分区过多时空间合并并保留全部人口；缺少建筑时使用住宅用地或范围内道路回退。${d.parkingNote||""}`;
-        ui.basis.textContent+=(d.allocationNote||"")+(d.distanceNote||"")+(d.transportNote||"");}
+        ui.basis.textContent+=(d.allocationNote||"")+(d.distanceNote||"")+(d.transportNote||"");
+        if(d.boundaryWarnings?.length)ui.basis.textContent+=` 下级边界限制 ${d.boundaryWarnings.length} 处：${d.boundaryWarnings.map(w=>`${w.name}（${w.id}）：${w.pointFallback?"缺少有效闭合边界，按中心点在真实上级范围内估算位置":w.populationUnlocated?"缺少有效边界和中心点，已知人口保留为未定位、未分配":"缺少有效边界和中心点，不推定其范围或人口"}`).join("；")}。所选行政区边界完整，下级估算范围不是正式边界。`;}
       }
       if(latest.preview)ui.summary.textContent=`视野附近约 1.5 公里局部预览；${regionProgress||"全域尚未就绪，可重试加载"}。${ui.summary.textContent}`;
     }else {ui.summary.textContent=regionProgress||"等待路网和出行需求…";ui.basis.textContent="尚未形成需求结果。";if(ui.buildingAudit)ui.buildingAudit.hidden=true;}
@@ -378,7 +379,7 @@
     selected=null;latest=previous=null;network=[];roadStates.clear();trip=null;generation++;
     worker?.terminate(); worker=null;
     try {
-      worker=new Worker("./traffic-worker.js?v=8.0-traffic-population-v2");
+      worker=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");
       const currentWorker=worker;
       worker.onmessage=receive;
       worker.onerror=()=>{if(worker!==currentWorker)return;disposeMap();setStatus("车流后台线程未能启动，可点击重新模拟。原地图继续使用。");refreshUi();};
@@ -415,16 +416,21 @@
     if(map&&map!==context.map)disposeMap();
     if(!map){map=context.map;map.on("moveend",onMove);map.on("remove",onRemove);}
     cancelCandidate();const token=++candidateGeneration,nextGeneration=generation+1,expectedMap=map;
-    const next=new Worker("./traffic-worker.js?v=8.0-traffic-population-v2");candidate=next;ui.cancel.hidden=false;
-    const key=regions.map(r=>r.osm_id).sort().join(",");let newInput=null;
+    const next=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");candidate=next;ui.cancel.hidden=false;
+    const key=regions.map(r=>r.osm_id).sort().join(",");let newInput=null,lastStage="启动模拟程序";
     regionProgress=ui.regionStatus.textContent="正在读取完整行政区；同时准备视野附近预览…";refreshUi();
     function fail(message){if(token!==candidateGeneration)return;cancelCandidate();
       if(/signal is aborted|AbortError|operation was aborted/iu.test(message))message="区域数据请求中断或超时";
       const kept=latest?.preview?"附近预览继续运行":latest?"保留已有模拟":"本次尚未启动全域模拟";
       regionProgress=ui.regionStatus.textContent=`${message}。${kept}，可重试或减少范围。`;refreshUi();}
-    next.onerror=()=>fail("区域后台任务失败");
+    next.onerror=event=>{
+      const message=String(event.message||"");
+      const reason=/memory|allocation failed/iu.test(message)?"可用内存不足":/importScripts|script|fetch|network/iu.test(message)?"模拟程序文件未能加载":"模拟线程异常中断";
+      fail(`${reason}（阶段：${lastStage}）${lastStage==="启动模拟程序"?"，请刷新页面重试；本地预览还需确认网页服务正在运行":""}`);
+    };
+    next.onmessageerror=()=>fail(`后台结果传输失败（阶段：${lastStage}）`);
     next.onmessage=event=>{const d=event.data;if(token!==candidateGeneration||!enabled||map!==expectedMap)return;
-      if(d.progress){regionProgress=ui.regionStatus.textContent=d.progress;if(!latest||latest.preview)refreshUi();return;}
+      if(d.progress){lastStage=d.progress;regionProgress=ui.regionStatus.textContent=d.progress;if(!latest||latest.preview)refreshUi();return;}
       if(d.loadedInput){newInput=d.loadedInput;return;}
       if(d.error){fail(d.error);return;}
       if(!d.demand?.pairs){fail(`读取了 ${d.edges} 段道路，但缺少标注人口、设施或往返连通`);return;}
@@ -445,7 +451,7 @@
       next.postMessage({action:"build-region",generation:nextGeneration,regions,viewport,previewPending,regionalInput:reuse&&cachedRegion?.key===key?cachedRegion.input:undefined,options,paused:isPaused(),rate:rate()});};
     if(latest?.demand.pairs){loadFull();return;}
     // The preview has its own worker so a failed/cancelled full-region load cannot remove it.
-    const near=new Worker("./traffic-worker.js?v=8.0-traffic-population-v2");priorityWorker=near;
+    const near=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");priorityWorker=near;
     const previewDone=()=>{if(token===candidateGeneration&&candidate===next)next.postMessage({action:"load-slots",generation:nextGeneration});};
     const skipPreview=()=>{if(priorityWorker===near){near.terminate();priorityWorker=null;}previewDone();};
     near.onerror=skipPreview;

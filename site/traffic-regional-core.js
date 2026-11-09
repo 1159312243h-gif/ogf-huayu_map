@@ -91,6 +91,7 @@
         if(!z)break;slots.set(z,slots.get(z)-1);allocated--;}
       const residentialNodes=nodes.filter(n=>n.out.some(id=>/^(residential|living_street)$/.test(graph.edges[id].highway)));
       for(const z of input.population.zones){
+        if(z.locationMissing){unconnectedResidents+=z.residents;continue;}
         let accesses=housing.accesses.get(z)||[];
         if(housing.complete){unconnectedResidents+=z.residents*(housing.unconnected.get(z)||0);if(!accesses.length)continue;}
         if(!accesses.length&&slots.get(z)>1){
@@ -181,7 +182,7 @@
         unservedHomes:homeSites.filter(h=>!this.pairs.some(p=>p.home===h)).length,
         unservedResidents:homeSites.filter(h=>!this.pairs.some(p=>p.home===h)).reduce((n,h)=>n+h.weight,0),
         totalResidents:input.population.total,populationRows:input.population.rows,populationConflicts:input.population.conflicts,
-        missingPopulation:input.population.missing,limited:false,regional:true,crossPairs:this.pairs.filter(p=>p.cross).length};
+        missingPopulation:input.population.missing,boundaryWarnings:input.population.boundaryWarnings||[],limited:false,regional:true,crossPairs:this.pairs.filter(p=>p.cross).length};
       this.basis.residentialLand=housing.land;this.basis.coveredResidentialLand=housing.covered;this.basis.unknownResidentialLand=housing.unknown;
       this.basis.buildings=housing.buildings;this.basis.homeBuildings=housing.homeBuildings;this.basis.unknownBuildings=housing.unknownBuildings;
       this.basis.connectedBuildings=housing.connectedBuildings;this.basis.excludedBuildings=housing.excludedBuildings;this.basis.missingBuildingGeometry=housing.missingGeometry;

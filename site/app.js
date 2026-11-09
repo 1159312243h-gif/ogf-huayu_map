@@ -11764,9 +11764,7 @@
     const queryText = normalizeTransitSearchText(query);
     const queryBase = administrativePlaceNameKey({ name: query });
     const queryPinyin = transitPinyinize(query);
-    const names = [primaryPlaceName(result), String(result?.display_name || "").split(",")[0],
-      ...Object.values(result?.namedetails || {})]
-      .filter(Boolean);
+    const names = placeSearchOwnNames(result);
     let best = Number.POSITIVE_INFINITY;
     names.forEach((name) => {
       const text = normalizeTransitSearchText(name);
@@ -11792,8 +11790,7 @@
     const canonicalSuffix = value => (value.match(suffix)?.[0] || "").replace(/[縣區鎮鄉廳]/gu, c => ({縣:"县",區:"区",鎮:"镇",鄉:"乡",廳:"厅"})[c]);
     const queryText = normalize(query), querySuffix = canonicalSuffix(queryText);
     const terms = transitAtlasCityQueryVariants(query).map(normalize);
-    const names = [primaryPlaceName(result), String(result?.display_name || "").split(",")[0],
-      ...Object.values(result?.namedetails || {})].flatMap(name => String(name || "").split(/[;；]/u));
+    const names = placeSearchOwnNames(result);
     let best = Infinity;
     for (const name of names) {
       const text = normalize(name); if (!text) continue;
@@ -11911,7 +11908,7 @@
 
   async function findTransitAtlasCities(query, options = {}) {
     // Separate exact-name results from legacy fuzzy atlas searches and their cache.
-    const cacheKey = `${options.exactNames ? "exact-city-v1:" : ""}${normalizePlaceSearchText(query)}`;
+    const cacheKey = `${options.exactNames ? "exact-city-v2:" : ""}${normalizePlaceSearchText(query)}`;
     if (options.exactNames) { const saved = administrativeCityPoints(query); if (saved.length) options.onPlaces?.(saved); }
     const cached = transitAtlasCitySearchCache.get(cacheKey);
     if (cached && Date.now() - cached.createdAt < 3 * 60 * 60 * 1000) return cached.results;
@@ -16729,15 +16726,21 @@
     return [...preferredByName.values()].slice(0, 4);
   }
 
+  function placeSearchOwnNames(result) {
+    // Nominatim's _place_name belongs to a linked centre, not to this boundary.
+    // Only explicit name/alias keys may rename or identify the source object.
+    const ownNames = tags => Object.entries(tags && typeof tags === "object" ? tags : {})
+      .filter(([key]) => /^(?:name|official_name|short_name|alt_name|loc_name|old_name|int_name)(?::.*)?$/u.test(key))
+      .map(([, value]) => value);
+    return [result?.name, String(result?.display_name || "").split(",")[0],
+      ...ownNames(result?.namedetails), ...ownNames(result?.extratags)]
+      .flatMap(value => String(value || "").split(/[;；]/u)).map(name => name.trim()).filter(Boolean);
+  }
+
   function withQueryMatchedPlaceName(result, query) {
     const queryText = normalizePlaceSearchText(query);
     if (!queryText) return result;
-    const details = result?.namedetails && typeof result.namedetails === "object"
-      ? Object.values(result.namedetails) : [];
-    const tags = result?.extratags && typeof result.extratags === "object" ? result.extratags : {};
-    const candidates = [result?.name, String(result?.display_name || "").split(",")[0],
-      tags["name:zh"], ...details]
-      .map((value) => String(value || "").trim()).filter(Boolean);
+    const candidates = placeSearchOwnNames(result);
     const preferred = candidates.map((name, index) => {
       const normalized = normalizePlaceSearchText(name);
       const score = normalized === queryText ? 0

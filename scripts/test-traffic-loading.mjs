@@ -59,6 +59,26 @@ const full={data:{generation:1,regional:true,demand:{pairs:2},bounds:[150,12,151
   const late=all.onmessage;c.cancelCandidate();late(full);assert.equal(c.worker,null);assert.ok(all.terminated);
 }
 {
+  const {c,jobs,ui}=context();c.buildRegions();
+  jobs[0].onerror({message:"Failed to execute importScripts: network error"});
+  assert.match(ui.regionStatus.textContent,/程序文件未能加载.*启动模拟程序.*本地预览.*网页服务/);
+  assert.equal(c.worker,null);assert.ok(jobs.every(w=>w.terminated));assert.equal(ui.cancel.hidden,true);
+}
+{
+  const {c,jobs,ui}=context();c.buildRegions();const [all,near]=jobs;
+  near.onmessage({data:{generation:1,preview:true,demand:{pairs:1}}});
+  all.onmessage({data:{progress:"全域建筑已就绪，正在准备人口"}});all.onerror({message:"Out of memory"});
+  assert.match(ui.regionStatus.textContent,/可用内存不足.*全域建筑已就绪.*附近预览继续运行/);
+  assert.ok(all.terminated);assert.equal(c.worker,near);assert.equal(near.terminated,false);
+}
+{
+  const {c,jobs,ui}=context();c.buildRegions();jobs[0].onmessage(full);
+  const running=c.worker;c.buildRegions();const next=jobs.at(-1);
+  next.onmessage({data:{progress:"完整路网已就绪"}});next.onmessageerror({});
+  assert.match(ui.regionStatus.textContent,/结果传输失败.*完整路网已就绪.*保留已有模拟/);
+  assert.equal(c.worker,running);assert.equal(running.terminated,false);assert.ok(c.latest.regional);assert.ok(next.terminated);
+}
+{
   const {c,ui,locations}=context();let complete;
   c.root.HuayuAtlas.findAdministrativeCities=(_q,{onPlaces,exactNames})=>{assert.equal(exactNames,true,"simulation must request exact names instead of fuzzy boundary winners");onPlaces([point,{...point,osm_id:2,category:"railway",type:"station"}]);return new Promise(resolve=>{complete=resolve;});};
   ui.query.value="合江市";const pending=c.searchRegions();

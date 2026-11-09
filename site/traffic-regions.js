@@ -1,6 +1,6 @@
 (function installTrafficRegions(root) {
   "use strict";
-  const VERSION="8.0-traffic-population-v2", URL="https://overpass.opengeofiction.net/api/interpreter";
+  const VERSION="8.0-traffic-boundaries-v1", URL="https://overpass.opengeofiction.net/api/interpreter";
   const LIMITS={regions:4,ways:40000,vertices:350000,objects:60000,bytes:32*1024*1024};
   const rings=g=>g?.type==="Polygon"?[g.coordinates]:g?.type==="MultiPolygon"?g.coordinates:[];
   function inside(p,g) {
@@ -53,9 +53,22 @@
   function placeLevel(tags={}){return declaredLevel(tags)||({shi:5,qu:6,xian:6,ting:6,jiedao:8,zhen:8,xiang:8,shequ:10,cun:10})[tags["place:hx"]]
     ||({city:5,town:8,suburb:8,quarter:10,neighbourhood:10,village:10})[tags.place];}
   function populationZones(elements,selected,details=[]) {
-    const byId=new Map(elements.map(e=>[`${e.type}:${e.id}`,e])),used=new Set(),allAreas=[];
-    for(const e of elements.filter(e=>e.type==="relation"&&e.tags?.boundary==="administrative")) {
-      const g=geometry(e),level=Number(e.tags.admin_level)||99,centre=(e.members||[]).find(m=>m.type==="node"&&m.role==="admin_centre"),n=centre&&byId.get(`node:${centre.ref}`);
+    const byId=new Map(elements.map(e=>[`${e.type}:${e.id}`,e])),used=new Set(),allAreas=[],unbounded=[],boundaryWarnings=[];
+    const relations=elements.filter(e=>e.type==="relation"&&e.tags?.boundary==="administrative"),parents=new Map();
+    for(const e of relations)for(const m of e.members||[])if(m.type==="relation"&&m.role==="subarea"){
+      const key=`relation:${m.ref}`;if(!parents.has(key))parents.set(key,[]);parents.get(key).push(`relation:${e.id}`);
+    }
+    const ancestors=id=>{const seen=new Set(),pending=[...(parents.get(id)||[])];
+      while(pending.length){const key=pending.pop();if(seen.has(key)||key===id)continue;seen.add(key);for(const p of parents.get(key)||[])pending.push(p);}return seen;};
+    for(const e of relations) {
+      const level=Number(e.tags.admin_level)||99,centre=(e.members||[]).find(m=>m.type==="node"&&m.role==="admin_centre"),n=centre&&byId.get(`node:${centre.ref}`);
+      let g;try{g=geometry(e);}catch(error){
+        // A complete source response can contain label-only or unclosed lower
+        // administrative relations. They are not the selected city's boundary.
+        // Missing member coordinates, however, still mean an incomplete response.
+        if(selected.some(s=>Number(s.osm_id)===e.id)||/成员几何缺失/.test(error.message))throw error;
+        unbounded.push({e,n,level,reason:error.message});continue;
+      }
       const direct=population(e.tags),centrePopulation=n&&(!declaredLevel(n.tags)||declaredLevel(n.tags)===level)?population(n.tags):0,
         p=n&&Number.isFinite(n.lon)&&inside([n.lon,n.lat],g)?[n.lon,n.lat]:anchor(g);
       allAreas.push({id:`relation:${e.id}`,name:e.tags.name||String(e.id),level,geometry:g,coordinate:p,population:direct||centrePopulation,
@@ -66,9 +79,22 @@
     // Overpass can also return a containing province whose centre falls inside
     // the selected city. Ancestors cannot consume that city's population node.
     const areas=allAreas.filter(a=>roots.includes(a)||roots.some(r=>a.level>r.level&&inside(a.coordinate,r.geometry)));
+    for(const {e,n,level,reason} of unbounded.sort((a,b)=>a.level-b.level||a.e.id-b.e.id)){
+      const id=`relation:${e.id}`,links=ancestors(id),hasPoint=n&&Number.isFinite(n.lon)&&Number.isFinite(n.lat),coordinate=hasPoint?[n.lon,n.lat]:null;
+      const scopes=areas.filter(a=>a.geometry&&a.level<level&&(coordinate?inside(coordinate,a.geometry):links.has(a.id))).sort((a,b)=>b.level-a.level||a.id.localeCompare(b.id));
+      const scope=scopes[0];if(!scope)continue; // Outside the selected administrative tree.
+      const direct=population(e.tags),centrePopulation=n&&(!declaredLevel(n.tags)||declaredLevel(n.tags)===level)?population(n.tags):0;
+      boundaryWarnings.push({id,name:e.tags.name||String(e.id),reason,pointFallback:Boolean(coordinate),populationUnlocated:!coordinate&&Boolean(direct)});
+      // Preserve relation population and its identity even without a point;
+      // reserve that share as unallocated instead of putting it at a fake centre.
+      areas.push({id,name:e.tags.name||String(e.id),level,coordinate:coordinate||scope.coordinate,population:direct||centrePopulation,
+        centreId:n?.id,centrePopulation,source:direct?(number(e.tags.population)?"population":"population:hx"):centrePopulation?`admin_centre ${n.id} · ${number(n.tags?.population)?"population":"population:hx"}`:"未标人口",
+        scopeId:scope.id,scopeGeometry:scope.geometry,place:n?.tags?.place,locationMissing:!coordinate,children:[]});
+    }
     for(const a of areas)if(a.centrePopulation)used.add(a.centreId);
-    const contained=(a,b)=>inside(a.coordinate,b.geometry);
-    for(const a of areas){const parents=areas.filter(b=>b.level<a.level&&contained(a,b)).sort((a,b)=>b.level-a.level);a.parent=parents[0];a.parent?.children.push(a);}
+    for(const a of areas){const links=ancestors(a.id),candidates=areas.filter(b=>b.level<a.level&&
+      (!a.locationMissing&&b.geometry&&inside(a.coordinate,b.geometry)||(!a.geometry||!b.geometry)&&links.has(b.id))).sort((a,b)=>b.level-a.level||a.id.localeCompare(b.id));
+      a.parent=candidates[0];a.parent?.children.push(a);}
     for(const e of elements.filter(e=>e.type==="node"&&population(e.tags)&&!used.has(e.id))) {
       const p=[e.lon,e.lat],level=placeLevel(e.tags);
       if(!level||!roots.some(r=>inside(p,r.geometry)))continue;
@@ -76,7 +102,7 @@
       const matching=areas.filter(a=>a.level===level&&inside(p,a.geometry));
       if(matching.length===1&&!matching[0].population){const a=matching[0];a.population=population(e.tags);a.source=`辖内 ${e.tags.place||"行政中心"} 节点 ${e.id} · ${number(e.tags.population)?"population":"population:hx"}`;a.coordinate=p;used.add(e.id);continue;}
       if(matching.length){used.add(e.id);continue;} // A second representation of an already counted area.
-      const parent=areas.filter(a=>a.level<level&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
+      const parent=areas.filter(a=>a.geometry&&a.level<level&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
       if(parent)parent.children.push({id:`node:${e.id}`,name:e.tags.name||e.tags.place,level,coordinate:p,population:population(e.tags),source:`place 节点 · ${number(e.tags.population)?"population":"population:hx"}`,children:[],
         place:e.tags.place,scopeId:parent.id,scopeGeometry:parent.geometry});
     }
@@ -92,8 +118,8 @@
     for(const f of finer){if(areas.some(a=>a.id===f.id)||areas.some(a=>a.children.some(c=>c.id===f.id)))continue;
       const p=f.geometry.coordinates,g=f.area;if(!roots.some(r=>inside(p,r.geometry)))continue;
       let parent=fineAreas.filter(a=>a.geometry&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
-      if(!parent){parent=areas.filter(a=>inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
-        const peers=(parent?.children||[]).filter(a=>a.scopeGeometry&&!a.geometry&&inside(p,a.scopeGeometry));
+      if(!parent){parent=areas.filter(a=>a.geometry&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
+        const peers=(parent?.children||[]).filter(a=>!a.locationMissing&&a.scopeGeometry&&!a.geometry&&inside(p,a.scopeGeometry));
         const dx=Math.cos(p[1]*Math.PI/180),distance=a=>((a.coordinate[0]-p[0])*dx)**2+(a.coordinate[1]-p[1])**2;
         if(peers.length)parent=peers.sort((a,b)=>distance(a)-distance(b)||a.id.localeCompare(b.id))[0];}
       if(!parent)continue;
@@ -113,16 +139,16 @@
         if(c.allocationKind==="building")excludedSiteIds.push(c.id);for(const v of c.children)exclude(v);};
       for(const c of a.children)exclude(c);
       if(residual)zones.push({id:a.id,name:a.name,coordinate:a.coordinate,geometry:a.geometry,residents:residual,region,source:a.source,level:a.level,
-        exclusions,excludedSiteIds,siteId:!a.geometry&&a.allocationKind==="building"?a.id:undefined,allocationKind:a.allocationKind,
+        exclusions,excludedSiteIds,siteId:!a.geometry&&a.allocationKind==="building"?a.id:undefined,allocationKind:a.allocationKind,locationMissing:a.locationMissing,
         ...(a.scopeGeometry?{place:a.place,scopeId:a.scopeId,scopeGeometry:a.scopeGeometry}:{})});
       rows.push({id:a.id,name:a.name,level:a.level,population:a.population||null,allocated:total,residual,source:a.source,region});return total;
     }
     // Nested selected regions are one population tree, not two copies of the same residents.
     const top=roots.filter(r=>!roots.some(p=>p!==r&&p.level<r.level&&inside(r.coordinate,p.geometry)));
     let total=0;for(const r of top)total+=visit(r,r.name);
-    const coverageAreas=areas.filter(a=>roots.includes(a)||roots.includes(a.parent)).map(a=>({id:a.id,name:a.name,level:a.level,geometry:a.geometry,
+    const coverageAreas=areas.filter(a=>a.geometry&&(roots.includes(a)||roots.includes(a.parent))).map(a=>({id:a.id,name:a.name,level:a.level,geometry:a.geometry,
       residualArea:roots.includes(a)&&areas.some(b=>b.parent===a)}));
-    return {zones,rows,conflicts,total,coverageAreas,missing:rows.filter(r=>r.population===null).length};
+    return {zones,rows,conflicts,total,coverageAreas,boundaryWarnings,missing:rows.filter(r=>r.population===null).length};
   }
   async function request(query,fetcher=root.fetch,options={}) {
     const label=options.label||"区域数据";

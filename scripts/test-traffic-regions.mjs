@@ -54,6 +54,53 @@ check("capital and local administrative level distinguish county city points fro
   const p=R.populationZones([city,county,node],[selection(city,g)]);
   assert.equal(p.total,1000000);assert.equal(p.rows.find(r=>r.id==="relation:911").population,200000);assert.equal(p.conflicts.length,0);
 });
+check("label-only lower administrative relations retain population as points without blocking a complete city",()=>{
+  const g=poly(-2000,-1000,2000,1000),city=rel(920,"任意城市",5,g,{population:"1000"});
+  const district=rel(921,"无边界区",6,poly(-1800,-800,-100,800),{population:"400"},922);
+  district.members=district.members.filter(m=>m.type!=="way");city.members.push({type:"relation",ref:921,role:"subarea"});
+  const node=place(922,"无边界区",400,-1000,0,"city");node.tags.capital="6";
+  const p=R.populationZones([city,district,node],[selection(city,g)]),z=p.zones.find(z=>z.id==="relation:921");
+  assert.equal(p.total,1000);assert.equal(p.rows.length,2);assert.equal(z.residents,400);assert.equal(z.geometry,undefined);
+  assert.equal(z.scopeId,"relation:920");assert.deepEqual(plain(z.scopeGeometry),plain(g));assert.equal(p.boundaryWarnings.length,1);
+  assert.equal(p.boundaryWarnings[0].pointFallback,true);assert.equal(p.coverageAreas.length,1,"an estimated point scope is not an official district polygon");
+  assert.throws(()=>R.populationZones([city,district,node],[selection(district,g)]),/外环/);
+});
+check("unclosed child boundaries keep explicit hierarchy and conservative totals, never invent a closing line",()=>{
+  const g=poly(-2000,-1000,2000,1000),city=rel(930,"城市",5,g,{population:"1000"});
+  const district=rel(931,"未闭合区",6,poly(-1800,-800,-100,800),{population:"400"},932),sub=rel(933,"真实街道",8,poly(-1500,-500,-500,500),{population:"150"});
+  district.members[0].geometry.pop();district.members.push({type:"relation",ref:933,role:"subarea"});city.members.push({type:"relation",ref:931,role:"subarea"});
+  const node=place(932,"区中心",0,-1000,0,"city");node.tags.capital="6";
+  const p=R.populationZones([city,district,sub,node],[selection(city,g)]);
+  assert.equal(p.total,1000);assert.equal(p.conflicts.length,0);assert.equal(p.zones.find(z=>z.id==="relation:931").residents,250);
+  assert.equal(p.zones.find(z=>z.id==="relation:930").residents,600);assert.match(p.boundaryWarnings[0].reason,/未闭合/);
+  assert.equal(p.zones.find(z=>z.id==="relation:931").geometry,undefined);
+  const missing=plain(district);delete missing.members[0].geometry;
+  assert.throws(()=>R.populationZones([city,missing,sub,node],[selection(city,g)]),/成员几何缺失/,"truncated source geometry is still rejected");
+});
+check("unlocated lower population is reserved, while unrelated labels and cyclic relation links do not change the city",()=>{
+  const g=poly(-2000,-1000,2000,1000),city=rel(940,"城市",5,g,{population:"1000"});
+  const child={type:"relation",id:941,tags:{boundary:"administrative",admin_level:"6",population:"250",name:"无定位区"},members:[{type:"relation",ref:940,role:"subarea"}]};
+  city.members.push({type:"relation",ref:941,role:"subarea"});
+  const unrelated={...child,id:942,members:[],tags:{...child.tags,name:"无关区域",population:"5000"}};
+  const p=R.populationZones([unrelated,city,child],[selection(city,g)]);
+  assert.equal(p.total,1000);assert.equal(p.zones.find(z=>z.id==="relation:941").locationMissing,true);
+  assert.equal(p.zones.find(z=>z.id==="relation:940").residents,750);assert.equal(p.boundaryWarnings.length,1);
+  assert.equal(p.boundaryWarnings[0].populationUnlocated,true);assert.ok(!p.rows.some(r=>r.id==="relation:942"));
+});
+check("missing locations never borrow an ancestor anchor to choose a district or absorb a nearby building",()=>{
+  const g=poly(-2000,-1000,2000,1000),city=rel(960,"城市",5,g,{population:"1000"});
+  const district=rel(961,"有边界区",6,poly(-1000,-800,1000,800),{population:"700"});
+  const child={type:"relation",id:962,tags:{boundary:"administrative",admin_level:"8",population:"250",name:"无定位街道"},members:[]};
+  city.members.push({type:"relation",ref:962,role:"subarea"});
+  const p=R.populationZones([city,district,child],[selection(city,g)]);
+  assert.equal(p.zones.find(z=>z.id==="relation:960").residents,50);
+  assert.equal(p.zones.find(z=>z.id==="relation:961").residents,700);
+  assert.equal(p.zones.find(z=>z.id==="relation:962").residents,250);
+  const building={type:"Feature",id:"way:963",properties:{building:"house",population:"20"},geometry:{type:"Point",coordinates:xy(1500,0)}};
+  const detailed=R.populationZones([city,district,child],[selection(city,g)],[building]);
+  assert.equal(detailed.zones.find(z=>z.id==="relation:962").residents,250);
+  assert.equal(detailed.zones.find(z=>z.id==="relation:960").residents,30);
+});
 const road=(id,pts,tags={})=>({type:"Feature",id,properties:{highway:"primary",roadNodes:pts.map(p=>p[0]),...tags},geometry:{type:"LineString",coordinates:pts.map(p=>xy(p[1],p[2]))}});
 check("regional roads extend beyond the old radius, retain actual bridges and do not connect independent crossing IDs/layers",()=>{
   const roads=[road("a",[[1,-3000,0],[2,0,0],[3,3000,0]],{layer:1,bridge:"yes"}),road("b",[[4,0,-3000],[2,0,0],[5,0,3000]])];
@@ -75,6 +122,14 @@ function input(join=true,parking=false){
     selected:selected.map(s=>({name:s.name,id:s.osm_id,geometry:s.geojson})),bounds:[...xy(-2100,-600),...xy(2100,600)],sourceTimes:[1000],provincial:false};
 }
 const simulation=(i,extra={})=>new U.RegionalSimulation(U.buildGraph(i),{regionalInput:i,startHour:8,demandFactor:1,...extra});
+check("population lacking a valid lower-area location remains unallocated instead of moving to other buildings",()=>{
+  const i=input(),g=poly(-2000,-1000,2000,1000),city=rel(950,"城市",5,g,{population:"1000"});
+  const child={type:"relation",id:951,tags:{boundary:"administrative",admin_level:"6",population:"250",name:"无定位区"},members:[]};
+  city.members.push({type:"relation",ref:951,role:"subarea"});i.population=R.populationZones([city,child],[selection(city,g)]);i.selected=[{name:"城市",id:950,geometry:g}];
+  for(const complete of [false,true]){i.buildingsLoaded=complete;const s=simulation(i),d=s.demand.summary();
+    assert.equal(d.totalResidents,1000);assert.ok(d.unconnectedResidents>=250);assert.ok(s.demand.sites.filter(h=>h.kind==="home").reduce((n,h)=>n+h.weight,0)<=750);
+    assert.equal(d.boundaryWarnings.length,1);}
+});
 const housing=(id,g,properties={})=>({type:"Feature",id,properties:{landuse:"residential",...properties},geometry:{type:"Point",coordinates:R.bounds(g).slice(0,2).map((v,j)=>(v+R.bounds(g)[j+2])/2)},area:g});
 function housingInput(){
   const i=input(),g=poly(-500,-600,9000,600),r=rel(10,"住宅测试市",5,g),p=place(101,"街道",12000,0,0);

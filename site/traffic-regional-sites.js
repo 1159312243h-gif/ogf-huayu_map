@@ -93,7 +93,7 @@
     for(const r of model.records)if(r.metrics){const a=areaAt(point(r.feature));if(a){a.floorArea+=r.floor;if(r.homeWeight)a.homeBuildings++;}}
     const areaWeights=new Map();
     const ground=[...graph.nodes.values()].filter(n=>n.out.some(id=>!graph.edges[id].elevated&&!graph.edges[id].motorway)),index=nodeIndex(ground);
-    const prepared=zones.map(z=>({z,point:project.xy(z.coordinate),geometry:z.geometry||z.scopeGeometry,bounds:(z.geometry||z.scopeGeometry)&&R.bounds(z.geometry||z.scopeGeometry),level:z.level??(z.geometry?5:10)}));
+    const prepared=zones.filter(z=>!z.locationMissing).map(z=>({z,point:project.xy(z.coordinate),geometry:z.geometry||z.scopeGeometry,bounds:(z.geometry||z.scopeGeometry)&&R.bounds(z.geometry||z.scopeGeometry),level:z.level??(z.geometry?5:10)}));
     const owners=(p,siteId)=>{const xy=project.xy(p),eligible=prepared.filter(v=>{
       if(v.z.siteId&&v.z.siteId!==siteId||siteId&&v.z.excludedSiteIds?.includes(siteId))return false;
       if(v.bounds&&(p[0]<v.bounds[0]||p[0]>v.bounds[2]||p[1]<v.bounds[1]||p[1]>v.bounds[3]))return false;
@@ -138,7 +138,7 @@
     const accesses=new Map();for(const z of zones){const list=grouped.get(z)||[],total=totals.get(z)||0,connected=list.reduce((n,v)=>n+v.weight,0);
       accesses.set(z,list.map(v=>({...v,share:v.weight/total})));const missing=total?Math.max(0,1-connected/total):model.complete?1:0;unconnected.set(z,missing<1e-12?0:missing);
       if(total){for(const [a,w] of areaWeights.get(z)||[]){a.residents+=z.residents*w.weight/total;a.unconnectedResidents+=z.residents*w.unconnected/total;}}
-      else if(model.complete){const a=areaAt(z.coordinate);if(a){a.residents+=z.residents;a.unconnectedResidents+=z.residents;}}}
+      else if(model.complete){const a=z.locationMissing?areaRows.find(a=>a.id===z.scopeId):areaAt(z.coordinate);if(a){a.residents+=z.residents;a.unconnectedResidents+=z.residents;}}}
     return {accesses,unconnected,complete:model.complete,land:covered+unknown+model.coveredLand.size,covered:covered+model.coveredLand.size,unknown,
       areaRows:areaRows.map(({geometry,feature,...r})=>r),connectedBuildings,fallbackPopulationZones:fallbackZones.size,...model.stats};
   }

@@ -24,14 +24,16 @@ function context(overrides = {}) {
     administrativeCityPointSearchCache:new Map(),
     normalizeTransitSearchText:value=>String(value).toLowerCase().replace(/\s+/gu,""),
     transitPinyinize:value=>String(value).toLowerCase(),transitSearchEditDistance:()=>99,
-    map:{getBounds:()=>({contains:()=>false})},searchPlaces:async()=>[],
+    map:{getBounds:()=>({contains:()=>false}),getCenter:()=>({lat:12.5,lng:150.5})},
+    distanceMeters:(a,b)=>Math.hypot(a.lat-b.lat,a.lng-b.lng),searchPlaces:async()=>[],
     fetchAdministrativeExportPayload:async()=>empty(),
     activeAdministrativeFeatureBounds:features=>{
       const points=features.flatMap(f=>f.geometry.coordinates.flat(Infinity)).filter(Number.isFinite);
       const lons=points.filter((_,index)=>index%2===0),lats=points.filter((_,index)=>index%2===1);
       return {minLon:Math.min(...lons),maxLon:Math.max(...lons),minLat:Math.min(...lats),maxLat:Math.max(...lats)};
     },...overrides});
-  for (const name of ["normalizePlaceSearchText","fuzzyAdministrativeNameKey","primaryPlaceName","administrativePlaceNameKey",
+  for (const name of ["normalizePlaceSearchText","fuzzyAdministrativeNameKey","placeSearchOwnNames","withQueryMatchedPlaceName","primaryPlaceName","administrativePlaceNameKey",
+    "placeSearchResultKey","placeSearchMatchScore","isAdministrativeCenterResult","rankPlaceSearchResults",
     "administrativeResultKey","isAdministrativeBoundaryResult","polygonFeatureGeometry","administrativeBoundaryGeometry",
     "sameAdministrativeCoordinate","pointInAdministrativeRing","stitchAdministrativeRings","overpassRelationFeature",
     "transitSearchEditDistance","transitAtlasCityQueryVariants","transitAtlasCitySearchScore","exactAdministrativeCitySearchScore","transitAtlasCityCandidates",
@@ -69,6 +71,26 @@ assert.throws(()=>c.transitAtlasCityBoundaryResults({elements:[],remark:"timeout
 assert.equal(c.transitAtlasCityCandidates([{...boundary(),geojson:{type:"Point",coordinates:[150,12]}}],"津川").length,0);
 assert.equal(c.transitAtlasCityCandidates([boundary(1,"Different city")],"津川").length,0);
 assert.equal(c.transitAtlasCitySearchScore({...boundary(2,"Jinchuan"),namedetails:{"name:zh":"津川市"}},"津川"),1);
+
+// Actual Nominatim structure: a province links to its capital, but that capital
+// is not an alias of the province and must never replace its displayed name.
+const province={...boundary(307794),name:undefined,display_name:"金沙省, 天南道, 华夏共和国",
+  namedetails:{ref:"HX-S3",name:"金沙省",short_name:"金",_place_name:"高阳府"},extratags:{linked_place:"city"}};
+const gaoyang={...boundary(347805),name:undefined,display_name:"高阳府, 金沙省, 天南道, 华夏共和国",namedetails:{name:"高阳府"}};
+assert.equal(c.primaryPlaceName(c.withQueryMatchedPlaceName(province,"高阳府")),"金沙省");
+assert.equal(c.primaryPlaceName(c.withQueryMatchedPlaceName(gaoyang,"高阳府")),"高阳府");
+assert.equal(c.exactAdministrativeCitySearchScore(province,"高阳府"),Infinity);
+assert.deepEqual(plain(c.transitAtlasCityCandidates([province,gaoyang],"高阳府",true)).map(r=>r.osm_id),[347805]);
+assert.equal(c.exactAdministrativeCitySearchScore(province,"金"),0,"a real short_name remains searchable");
+assert.equal(c.exactAdministrativeCitySearchScore(province,"HX-S3"),Infinity,"a provider ref is not a name");
+assert.equal(c.primaryPlaceName(c.withQueryMatchedPlaceName({...gaoyang,namedetails:{name:"高阳府","name:en":"Gaoyang",alt_name:"高阳城;高阳旧府",_place_name:"错误中心"}},"高阳旧府")),"高阳旧府");
+assert.equal(c.exactAdministrativeCitySearchScore({...gaoyang,namedetails:{name:"高阳府","name:en":"Gaoyang"}},"Gaoyang"),0);
+assert.equal(c.primaryPlaceName(c.withQueryMatchedPlaceName({...province,huayu_search_name:"高阳府"},"金沙省")),"金沙省","new matches do not reuse a stale inferred title");
+const ranked=c.rankPlaceSearchResults([province,gaoyang],"高阳府",12);
+assert.deepEqual(plain(ranked).map(r=>r.osm_id),[347805,307794],"the requested city precedes a related province");
+assert.deepEqual(plain(ranked).map(r=>c.primaryPlaceName(r)),["高阳府","金沙省"]);
+assert.equal(ranked[1].geojson,province.geojson,"naming does not alter the selected administrative geometry");
+assert.equal(c.primaryPlaceName(c.withQueryMatchedPlaceName({...province,osm_id:999,namedetails:{name:"其他省",_place_name:"另一个府"},display_name:"其他省, 其他道"},"另一个府")),"其他省","the fix applies to other linked administrative centres");
 
 let calls=0;
 const fallback=context({searchPlaces:async()=>{throw new Error("HTTP_503");},
@@ -147,7 +169,7 @@ const raceUpdates=[],raceResult=race.findTransitAtlasCities("合江市",{exactNa
 await new Promise(setImmediate);assert.equal(settled,false,"a fast wrong town and an older fuzzy cache cannot finish an exact city search");
 finishGeocoder([cityPoint]);for(const [q,resolve] of originalResolvers)resolve(q.includes('node["place"')?payload({type:"node",id:431549267,lon:141.4226814,lat:35.9421869,tags:{place:"city",name:"合江市"}}):empty());
 assert.deepEqual(plain(await raceResult),[]);assert.ok(raceUpdates.some(r=>r.osm_id===431549267));assert.ok(raceUpdates.every(r=>r.osm_id!==452801));
-assert.equal(race.transitAtlasCitySearchCache.has("exact-city-v1:合江市"),false,"a missing exact boundary is not cached as a wrong place");
+assert.equal(race.transitAtlasCitySearchCache.has("exact-city-v2:合江市"),false,"a missing exact boundary is not cached as a wrong place");
 
 const storage=new Map(),sessionStorage={getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
 const savedPoints=context({sessionStorage,searchPlaces:async()=>[cityPoint],fetchAdministrativeExportPayload:async()=>empty()});
