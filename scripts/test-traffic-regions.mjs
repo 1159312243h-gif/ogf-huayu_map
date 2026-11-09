@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import {createHash} from "node:crypto";
 const context=vm.createContext({console,AbortController,setTimeout,clearTimeout,TextDecoder,Uint8Array,Float64Array});
-for(const name of ["traffic-core","traffic-demand","traffic-regions","traffic-regional-core","traffic-protocol"])vm.runInContext(await readFile(new URL(`../site/${name}.js`,import.meta.url),"utf8"),context);
+for(const name of ["traffic-core","traffic-demand","traffic-regions","traffic-regional-sites","traffic-regional-core","traffic-protocol"])vm.runInContext(await readFile(new URL(`../site/${name}.js`,import.meta.url),"utf8"),context);
 const C=context.HuayuTrafficCore,R=context.HuayuTrafficRegions,U=context.HuayuRegionalTraffic,plain=v=>JSON.parse(JSON.stringify(v));
 const center=[152,14],project=C.projection(center),xy=(x,y)=>project.lngLat([x,y]);
 const poly=(x0,y0,x1,y1)=>({type:"Polygon",coordinates:[[xy(x0,y0),xy(x1,y0),xy(x1,y1),xy(x0,y1),xy(x0,y0)]]});
@@ -11,6 +12,17 @@ const rel=(id,name,level,g,tags={},centre=null)=>({type:"relation",id,tags:{name
 const place=(id,name,pop,x,y,kind="suburb")=>({type:"node",id,lon:xy(x,y)[0],lat:xy(x,y)[1],tags:{name,place:kind,population:String(pop)}});
 const selection=(r,g)=>({osm_type:"relation",osm_id:r.id,name:r.tags.name,extratags:r.tags,geojson:g});
 let cases=0;function check(name,fn){fn();cases++;console.log(`passed: ${name}`);}
+check("indexed regional searches preserve legacy routes, exact costs and distances in both directions",()=>{
+  const g={nodes:new Map(),edges:[]};for(let i=0;i<20;i++)g.nodes.set(String(i),{id:String(i),out:[]});
+  let seed=7919;const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;};
+  for(let a=0;a<19;a++)for(let b=0;b<19;b++)if(a!==b&&rand()%5===0){const q=rand(),e={id:g.edges.length,from:String(a),to:String(b),line:{length:50+q%2000},speed:3+q%17,
+    highway:["primary","residential","service","living_street"][q%4],accessOnly:q%4>=2};g.edges.push(e);g.nodes.get(e.from).out.push(e.id);}
+  const rows=[];for(const start of g.nodes.keys())for(const reverse of [false,true]){const t=U.tree(g,start,reverse);
+    for(const end of g.nodes.keys())rows.push([start,end,reverse,t.cost.get(end)??null,t.meters.get(end)??null,U.path(g,t,start,end,reverse)]);}
+  // Recorded from the previous published search on the same deterministic graph.
+  assert.equal(createHash("sha256").update(JSON.stringify(rows)).digest("hex"),"ffba65f04660ecccb962d0542c1a26517f7c2aad4f7f3d032c8e0857179d45e3");
+  assert.equal(U.path(g,U.tree(g,"0"),"0","19"),null,"a disconnected destination stays unreachable");
+});
 check("population:hx, actual admin_centre, contained place population, residual conservation and nested selections",()=>{
   const all=poly(-2000,-1000,2000,1000),sub=poly(-1800,-800,-100,800),a=rel(1,"同名",5,all,{},101),b=rel(2,"同名",6,sub,{"population:hx":"400"});
   const input=[a,b,place(101,"市",1000,0,0,"city"),place(102,"社区",100,-1000,0,"quarter")],p=R.populationZones(input,[selection(a,all),selection(b,sub)]);
@@ -25,6 +37,22 @@ check("administrative holes and incomplete rings never become population or fake
   const a=rel(1,"有洞",5,g,{population:"200"});assert.equal(R.inside(center,R.geometry(a)),false);
   assert.equal(R.populationZones([a,place(2,"洞内",999,0,0,"quarter")],[selection(a,g)]).total,200);
   const damaged=plain(a);damaged.members[0].geometry.pop();assert.throws(()=>R.geometry(damaged),/闭合/);
+});
+check("an ancestor admin centre cannot consume the selected city's population label",()=>{
+  const g=poly(-2000,-1000,2000,1000),province=rel(900,"上级省",4,poly(-4000,-3000,4000,3000),{},901),city=rel(902,"主城区市",5,g);
+  const node={...place(901,"主城区市",23560000,0,0,"city"),tags:{...place(901,"",0,0,0).tags,name:"主城区市",place:"city",capital:"5",population:"23560000"}};
+  const district=rel(903,"局部区",6,poly(-1900,-900,-500,900));
+  const p=R.populationZones([province,city,district,node,place(904,"街道",50000,-1000,0)],[selection(city,g)]);
+  assert.equal(p.total,23560000);assert.equal(p.rows.find(r=>r.id==="relation:902").population,23560000);
+  assert.equal(p.zones.find(z=>z.id==="relation:902").residents,23510000);assert.equal(p.rows.some(r=>r.id==="relation:900"),false);
+  const both=R.populationZones([province,city,district,node],[selection(province,poly(-4000,-3000,4000,3000)),selection(city,g)]);
+  assert.equal(both.total,23560000);assert.equal(both.rows.find(r=>r.id==="relation:900").population,null,"a level-5 city label does not become a level-4 provincial count");
+});
+check("capital and local administrative level distinguish county city points from their parent city",()=>{
+  const g=poly(-2000,-1000,2000,1000),city=rel(910,"另一城市",5,g,{population:"1000000"}),county=rel(911,"县区",6,poly(-1900,-900,-500,900));
+  const node=place(912,"县区",200000,-1000,0,"city");node.tags.capital="6";node.tags["place:hx"]="xian";
+  const p=R.populationZones([city,county,node],[selection(city,g)]);
+  assert.equal(p.total,1000000);assert.equal(p.rows.find(r=>r.id==="relation:911").population,200000);assert.equal(p.conflicts.length,0);
 });
 const road=(id,pts,tags={})=>({type:"Feature",id,properties:{highway:"primary",roadNodes:pts.map(p=>p[0]),...tags},geometry:{type:"LineString",coordinates:pts.map(p=>xy(p[1],p[2]))}});
 check("regional roads extend beyond the old radius, retain actual bridges and do not connect independent crossing IDs/layers",()=>{
@@ -47,6 +75,74 @@ function input(join=true,parking=false){
     selected:selected.map(s=>({name:s.name,id:s.osm_id,geometry:s.geojson})),bounds:[...xy(-2100,-600),...xy(2100,600)],sourceTimes:[1000],provincial:false};
 }
 const simulation=(i,extra={})=>new U.RegionalSimulation(U.buildGraph(i),{regionalInput:i,startHour:8,demandFactor:1,...extra});
+const housing=(id,g,properties={})=>({type:"Feature",id,properties:{landuse:"residential",...properties},geometry:{type:"Point",coordinates:R.bounds(g).slice(0,2).map((v,j)=>(v+R.bounds(g)[j+2])/2)},area:g});
+function housingInput(){
+  const i=input(),g=poly(-500,-600,9000,600),r=rel(10,"住宅测试市",5,g),p=place(101,"街道",12000,0,0);
+  i.population=R.populationZones([r,p],[selection(r,g)]);i.selected=[{name:r.tags.name,geometry:g}];
+  const points=[0,1000,2000,2800,4000,8000].map((x,n)=>[n+1,x,0]);
+  i.roads=points.slice(1).map((p,n)=>road(`housing-road${n}`,[points[n],p],{highway:"residential"}));
+  i.features=[{type:"Feature",id:"work",properties:{office:"yes"},geometry:{type:"Point",coordinates:xy(8000,0)}},
+    ...[0,1000,2000,2800,4000].map((x,n)=>housing(`land${n}`,poly(x-50*(n+1),-100,x+50*(n+1),100)))];return i;
+}
+check("residential land distributes tagged place population beyond 450m without adding residents or changing drawing-independent demand",()=>{
+  const i=housingInput(),z=i.population.zones[0];
+  assert.equal(z.geometry,undefined);assert.equal(z.place,"suburb");assert.equal(z.scopeId,"relation:10");
+  assert.ok(R.inside(xy(2000,0),z.scopeGeometry));
+  const s=simulation(i),homes=s.demand.sites.filter(p=>p.kind==="home");
+  assert.equal(homes.length,5);assert.equal(homes.reduce((n,h)=>n+h.weight,0),12000);
+  assert.equal(s.demand.summary().estimatedResidents,0);assert.equal(s.demand.summary().totalResidents,12000);
+  assert.equal(s.demand.summary().coveredResidentialLand,5);assert.equal(s.demand.summary().unknownResidentialLand,0);
+  assert.ok(homes.some(h=>Math.abs(h.point[0]-2000)<1));assert.ok(homes.some(h=>Math.abs(h.point[0]-4000)<1),"a population label covers its parent area without a 3km cutoff");
+  const first=homes.find(h=>Math.abs(h.point[0])<1),third=homes.find(h=>Math.abs(h.point[0]-2000)<1);
+  assert.ok(Math.abs(third.weight/first.weight-3)<1e-8,"use land area, not an equal population for every road vertex");
+  assert.ok(s.demand.pairs.some(p=>Math.abs(p.home.point[0]-2000)<1&&p.hourly>0));
+  const more=simulation(i,{count:1200});assert.equal(more.demand.total,s.demand.total);
+  assert.deepEqual(plain(more.demand.pairs.map(p=>p.hourly)),plain(s.demand.pairs.map(p=>p.hourly)));
+});
+check("residential ownership respects real parent holes, point range and deeper population areas",()=>{
+  const i=housingInput(),g=poly(-500,-600,2500,600);g.coordinates.push(poly(900,-80,1100,80).coordinates[0]);
+  i.population.zones[0].scopeGeometry=g;
+  const child={id:"child",name:"独立社区",region:"住宅测试市",level:10,residents:2000,coordinate:xy(2000,0),geometry:poly(1900,-200,2100,200)};
+  i.population.zones.push(child);i.population.total+=2000;
+  const result=U.residentialAccesses(U.buildGraph(i),i),parent=result.accesses.get(i.population.zones[0]),children=result.accesses.get(child);
+  assert.equal(parent.length,1);assert.ok(Math.abs(parent[0].point[0])<1);assert.equal(children.length,1);assert.ok(Math.abs(children[0].point[0]-2000)<1);
+  assert.equal(result.covered,2);assert.equal(result.unknown,3);
+  assert.equal(parent.reduce((n,a)=>n+a.share,0),1);assert.equal(children.reduce((n,a)=>n+a.share,0),1);
+  i.population.zones=[];assert.equal(U.residentialAccesses(U.buildGraph(i),i).accesses.size,0,"unknown population must never be invented from land area");
+});
+check("residential relation members are not counted twice and unclosed source land is not made into a polygon",()=>{
+  const i=housingInput(),f=i.features[1];f.id="relation:20";f.properties.trafficMembers=["way:21"];
+  const baseline=U.residentialAccesses(U.buildGraph(i),i);
+  i.features.push({...f,id:"way:21",properties:{landuse:"residential"}});
+  const result=U.residentialAccesses(U.buildGraph(i),i);assert.equal(result.land,baseline.land);
+  assert.deepEqual(plain([...result.accesses.values()]),plain([...baseline.accesses.values()]));
+  const open=R.feature({type:"way",id:23,tags:{landuse:"residential"},nodes:[1,2,3],geometry:[{lon:152,lat:14},{lon:152.001,lat:14},{lon:152.002,lat:14}]});
+  assert.equal(open.area,null);i.features.push(open);
+  const invalid=U.residentialAccesses(U.buildGraph(i),i);assert.equal(invalid.covered,result.covered);assert.equal(invalid.unknown,result.unknown+1);
+  assert.throws(()=>R.feature({type:"way",id:23,tags:{landuse:"residential"},nodes:[1,2,3],geometry:[{lon:152,lat:14}]}),/几何不完整/);
+});
+check("housing accesses use legal surface roads, including internal access, and keep disconnected homes unserved",()=>{
+  const i=housingInput();
+  i.roads.push(road("internal",[[20,1500,-40],[21,1550,-40]],{highway:"service"}),
+    road("private",[[30,2200,0],[31,2250,0]],{highway:"residential",access:"private"}),
+    road("bridge",[[40,2400,0],[41,2450,0]],{highway:"residential",layer:"1",bridge:"yes"}),
+    road("tunnel",[[50,2600,0],[51,2650,0]],{highway:"residential",layer:"-1",tunnel:"yes"}));
+  i.features.push(...[1500,2200,2400,2600].map(x=>housing(`extra${x}`,poly(x-10,-60,x+80,60))));
+  const s=simulation(i),homes=s.demand.sites.filter(p=>p.kind==="home"),internal=homes.find(h=>/^(20|21)$/.test(h.node));
+  assert.ok(internal);assert.ok(!s.demand.pairs.some(p=>p.home===internal));assert.ok(s.demand.summary().unservedResidents>0);
+  assert.ok(!homes.some(h=>/^(30|31|40|41|50|51)$/.test(h.node)));
+  assert.ok(Math.abs(homes.reduce((n,h)=>n+h.weight,0)-12000)<1e-7);
+});
+check("housing overflow coarsens all land weights within the same population zone without truncating its far side",()=>{
+  const i=housingInput(),xs=Array.from({length:600},(_,n)=>n*500),g=poly(-100,-100,300000,100);
+  i.population.zones=[{id:"large",name:"大区",region:"测试市",level:6,residents:60000,coordinate:xy(0,0),geometry:g}];
+  i.features=xs.map((x,n)=>housing(`land${n}`,poly(x-20,-20,x+20,20)));
+  i.roads=xs.map((x,n)=>road(`street${n}`,[[n*2,x,0],[n*2+1,x+10,0]],{highway:"residential"}));
+  const result=U.residentialAccesses(U.buildGraph(i),i),list=result.accesses.get(i.population.zones[0]);
+  assert.equal(result.covered,600);assert.ok(list.length<=512&&list.length>1);
+  assert.ok(Math.abs(list.reduce((n,v)=>n+v.share*60000,0)-60000)<1e-7);
+  assert.ok(list.some(v=>v.point[0]<1000));assert.ok(list.some(v=>v.point[0]>298000));
+});
 check("ordinary districts spread conserved population over real residential access points and retain holes",()=>{
   const i=input(),area=poly(-1800,-500,-100,500);area.coordinates.push(poly(-850,-50,-750,50).coordinates[0]);
   i.population={...i.population,total:60000,zones:[{id:"district",name:"街道",region:"甲市",residents:60000,coordinate:xy(-1500,0),geometry:area}]};
@@ -56,6 +152,93 @@ check("ordinary districts spread conserved population over real residential acce
   assert.equal(homes.length,3);assert.equal(homes.reduce((n,h)=>n+h.weight,0),60000);
   for(const h of homes){assert.ok(a.graph.nodes.has(h.node));assert.ok(R.inside(h.access,area));assert.ok(h.weight<60000);}
   const b=simulation(i,{count:1200});assert.equal(a.demand.total,b.demand.total);assert.deepEqual(plain(a.demand.pairs.map(p=>p.hourly)),plain(b.demand.pairs.map(p=>p.hourly)));
+});
+const buildingFeature=(id,x,props={})=>({...housing(id,poly(x-10,20,x+10,40)),properties:{building:"yes",osmType:"way",...props}});
+check("building occupancy uses measured footprint and real levels or usable height, never one person per building",()=>{
+  const metrics=context.HuayuRegionalSites.buildingMetrics;
+  const a=metrics(buildingFeature("small",0,{"building:levels":"2"}),project),b=metrics(buildingFeature("tall",0,{"building:levels":"80"}),project);
+  assert.ok(Math.abs(b.floor/a.floor-40)<1e-8);assert.equal(b.levels,80);
+  const h=metrics(buildingFeature("height",0,{height:"30 m",min_height:"3", "roof:height":"6"}),project);
+  assert.equal(h.source,"height");assert.equal(h.levels,7);
+  const ft=metrics(buildingFeature("feet",0,{height:"30 ft"}),project);assert.equal(ft.levels,3);
+  const i=housingInput();i.buildingsLoaded=true;
+  i.features=[buildingFeature("small",0,{building:"apartments","building:levels":"2"}),buildingFeature("large",1000,{building:"apartments","building:levels":"20"}),buildingFeature("office",2800,{building:"office"})];
+  const s=simulation(i),homes=s.demand.sites.filter(h=>h.kind==="home"),first=homes.find(h=>h.node==="1"),second=homes.find(h=>h.node==="2");
+  assert.ok(first.weight>1);assert.ok(Math.abs(second.weight/first.weight-10)<1e-7);
+  assert.ok(Math.abs(homes.reduce((n,h)=>n+h.weight,0)-12000)<1e-7);
+  assert.ok(s.demand.basis.buildingAudit.floorArea>0);
+});
+check("all-region buildings inherit regional totals across the whole parent instead of a label radius",()=>{
+  const i=housingInput();i.buildingsLoaded=true;
+  const g=poly(-1000,-1000,21000,1000),r=rel(40,"另一个城市",5,g,{population:"20000"});
+  i.population=R.populationZones([r,place(401,"西区",12000,0,0),place(402,"东区",8000,14000,0)],[selection(r,g)]);
+  i.selected=[{name:r.tags.name,geometry:g}];
+  i.roads=[road("whole",[[1,0,0],[2,5000,0],[3,10000,0],[4,18000,0],[5,20000,0]],{highway:"residential"})];
+  i.features=[buildingFeature("generic",5000),buildingFeature("home",10000,{building:"apartments"}),buildingFeature("distant",18000),buildingFeature("work",20000,{building:"office"}),buildingFeature("garage",0,{building:"garage"})];
+  const s=simulation(i),d=s.demand.summary(),homes=s.demand.sites.filter(s=>s.kind==="home");
+  assert.equal(d.buildings,5);assert.equal(d.homeBuildings,3);assert.equal(d.unknownBuildings,2);assert.equal(d.excludedBuildings,1);
+  assert.ok(s.graph.nodes.has("2"),"a real building access vertex splits the original way without inventing a junction");
+  assert.ok(homes.some(h=>h.node==="2"));assert.ok(homes.some(h=>h.node==="4"));
+  assert.equal(d.totalResidents,20000);assert.equal(homes.reduce((n,h)=>n+h.weight,0)+d.unconnectedResidents,20000);
+  assert.ok(s.demand.sites.some(s=>s.kind==="activity"));assert.equal(d.estimatedResidents,0);
+  assert.ok(s.demand.pairs.some(p=>p.home.node==="4"&&p.hourly>0));
+});
+check("building area and floors distribute one regional population and residential envelopes/members do not duplicate it",()=>{
+  const i=housingInput();i.buildingsLoaded=true;i.population.zones=[{id:"all",name:"区",region:"甲市",residents:900,level:6,coordinate:xy(1000,0),geometry:poly(-100,-200,3000,200)}];i.population.total=900;
+  i.features=[buildingFeature("relation:b",0,{building:"apartments","building:levels":"2",trafficMembers:["way:member"]}),
+    buildingFeature("b2",1000,{building:"apartments","building:levels":"4"}),buildingFeature("way:member",0,{building:"apartments","building:levels":"2"}),
+    housing("estate",poly(-100,-200,2100,200)),{type:"Feature",id:"work",properties:{office:"yes"},geometry:{type:"Point",coordinates:xy(2800,0)}}];
+  const s=simulation(i),homes=s.demand.sites.filter(s=>s.kind==="home");assert.equal(s.demand.summary().buildings,2);assert.equal(homes.length,2);
+  assert.ok(Math.abs(homes.find(h=>h.node==="2").weight/homes.find(h=>h.node==="1").weight-2)<1e-7);
+  assert.equal(homes.reduce((n,h)=>n+h.weight,0),900);
+});
+check("tagged building and housing-area population are subtracted from community and city totals",()=>{
+  const g=poly(-1000,-1000,4000,1000),r=rel(50,"市",5,g,{population:"1000"}),estate=housing("estate",poly(-200,-200,500,200),{population:"200"});
+  const b=buildingFeature("house",0,{building:"apartments",population:"80"});
+  const pop=R.populationZones([r,place(501,"社区",400,0,0,"quarter")],[selection(r,g)],[estate,b]);
+  assert.equal(pop.total,1000);assert.equal(pop.zones.reduce((n,z)=>n+z.residents,0),1000);
+  assert.equal(pop.zones.find(z=>z.id==="house").residents,80);assert.equal(pop.zones.find(z=>z.id==="estate").residents,120);
+  assert.equal(pop.zones.find(z=>z.id==="node:501").residents,200);assert.equal(pop.zones.find(z=>z.id==="relation:50").residents,600);
+  assert.equal(pop.zones.find(z=>z.id==="estate").exclusions.length,1);
+  assert.equal(pop.zones.find(z=>z.id==="relation:50").exclusions.length,1,"known estate geometry is excluded through a point community too");
+});
+check("every reachable building destination group receives OD coverage, beyond the nearest four",()=>{
+  const i=housingInput();i.buildingsLoaded=true;i.population.zones=[{id:"all",name:"区",region:"甲市",residents:1000,level:6,coordinate:xy(0,0),geometry:poly(-100,-200,11000,200)}];i.population.total=1000;
+  i.selected=[{name:"甲市",geometry:i.population.zones[0].geometry}];
+  i.roads=[road("all-destinations",Array.from({length:11},(_,n)=>[n+1,n*1000,0]),{highway:"residential"})];
+  i.features=[buildingFeature("home",0,{building:"apartments"}),...Array.from({length:10},(_,n)=>buildingFeature(`office${n}`,1000*(n+1),{building:"office"}))];
+  const s=simulation(i),dest=s.demand.sites.filter(s=>s.kind!=="home");assert.equal(dest.length,10);
+  for(const d of dest)assert.ok(s.demand.pairs.some(p=>p.destination===d&&p.hourly>0),d.id);
+  const limited=simulation(i,{count:60});assert.equal(limited.demand.total,s.demand.total);
+});
+check("population place representations and nested estate totals are not duplicated as buildings",()=>{
+  const g=poly(-1000,-1000,4000,1000),r=rel(60,"市",5,g),p=place(601,"市",1000,0,0,"city");
+  const duplicate={type:"Feature",id:"node:601",geometry:{type:"Point",coordinates:xy(0,0)},properties:{...p.tags,building:"yes",osmType:"node",osmId:601}};
+  const outer=housing("z-outer",poly(-500,-500,3000,500),{population:"600"});
+  const inner=housing("a-inner",poly(-200,-200,500,200),{population:"200"});
+  const b=buildingFeature("b",0,{building:"apartments",population:"80",disused:"no","building:part":"no"});
+  const pop=R.populationZones([r,p],[selection(r,g)],[inner,outer,b,duplicate]);
+  assert.equal(pop.total,1000);assert.equal(pop.rows.filter(z=>z.id==="node:601").length,0);
+  assert.equal(pop.zones.find(z=>z.id==="z-outer").residents,400);
+  assert.equal(pop.zones.find(z=>z.id==="a-inner").residents,120);
+  assert.equal(pop.zones.find(z=>z.id==="b").residents,80);
+});
+check("unconnected buildings retain unallocated population, while districts without footprints keep an explicit road fallback",()=>{
+  const i=housingInput();i.buildingsLoaded=true;i.population.zones=[{id:"all",name:"区",region:"甲市",residents:1000,level:6,coordinate:xy(0,0),geometry:poly(-100,-1000,4000,1000)}];i.population.total=1000;
+  i.features=[buildingFeature("near",0,{building:"apartments"}),{...buildingFeature("far",2000,{building:"apartments"}),geometry:{type:"Point",coordinates:xy(2000,800)},area:poly(1990,790,2010,810)}];
+  const s=simulation(i),d=s.demand.summary();assert.ok(Math.abs(d.unconnectedResidents-500)<1e-5);
+  assert.ok(Math.abs(s.demand.sites.filter(s=>s.kind==="home").reduce((n,h)=>n+h.weight,0)+d.unconnectedResidents-1000)<1e-6);
+  const noBuildings={...i,features:[]},fallback=U.residentialAccesses(U.buildGraph(noBuildings),noBuildings);
+  assert.equal(fallback.fallbackPopulationZones,1);assert.ok(fallback.accesses.get(i.population.zones[0]).length>1);assert.equal(fallback.unconnected.get(i.population.zones[0]),0);
+});
+check("an explicitly populated point building keeps its own count instead of reallocating it across the parent scope",()=>{
+  const i=housingInput(),g=poly(-100,-300,4000,300),r=rel(61,"市",5,g,{population:"1000"});
+  const b={type:"Feature",id:"node:610",properties:{building:"apartments",population:"80",osmType:"node",osmId:610},geometry:{type:"Point",coordinates:xy(0,30)}};
+  i.features=[b,buildingFeature("other",1000,{building:"apartments"}),buildingFeature("office",2800,{building:"office"})];
+  i.population=R.populationZones([r],[selection(r,g)],i.features);i.selected=[{name:r.tags.name,geometry:g}];i.buildingsLoaded=true;
+  const s=simulation(i),homes=s.demand.sites.filter(s=>s.kind==="home");
+  assert.ok(Math.abs(homes.find(h=>h.node==="1").weight-80)<1e-7);
+  assert.ok(Math.abs(homes.find(h=>h.node==="2").weight-920)<1e-7);assert.equal(s.demand.summary().totalResidents,1000);
 });
 check("over 512 facilities within the supported budget retain their own access points and total weight",()=>{
   const i=input(),points=Array.from({length:602},(_,n)=>[n+1,-1500+n*5,0]);
@@ -174,7 +357,7 @@ check("compact vehicle frames preserve phases and identities, send only changed 
   for(let id=2;id<100;id++)decoder.decode(encode([{...car,id}]));
   assert.equal(encoder.known.size,1);assert.equal(decoder.known.size,1);
   decoder.decode(encode([]));assert.equal(decoder.known.size,0);
-  assert.throws(()=>decoder.decode({vehicleFrames:new Float64Array(10)}),/格式/);
+  assert.throws(()=>decoder.decode({vehicleFrames:new Float64Array(11)}),/格式/);
 });
 check("cross-city OD uses real reachable roads; no connection produces no fabricated cross-region traffic",()=>{
   const connected=simulation(input()),disconnected=simulation(input(false));
@@ -190,8 +373,24 @@ check("drawing budget and viewport sampling do not alter aggregate population, t
   assert.ok(a.snapshot().moving>60);assert.equal(a.snapshot().sampleCount,1800);
   const before=a.snapshot();a.paused=true;a.advance(100);assert.equal(a.snapshot().time,before.time);
 });
+check("regional samples keep legal lanes through continuous junction paths and lane count controls directional capacity",()=>{
+  const i=input();i.roads=i.roads.map(r=>({...r,properties:{...r.properties,lanes:'4'}}));
+  const s=simulation(i),c=s.cars.find(c=>c.phase==='edge'&&c.route.length>1);assert.ok(c);
+  c.index=0;c.edge=c.route[0];c.lane=s.graph.edges[c.edge].lanes-1;c.waitFor=0;c.v=10;c.s=s.graph.edges[c.edge].line.length-.01;s.cars=[c];
+  const incoming=s.graph.edges[c.edge],out=s.graph.edges[c.route[1]],expected=C.nextLane(incoming,out,c.lane),before=s.snapshot().vehicles[0].coordinate;
+  s.advance(.2);assert.equal(c.phase,'turn');
+  const first=s.snapshot().vehicles[0].coordinate;assert.ok(Math.hypot((first[0]-before[0])*111320*Math.cos(center[1]*Math.PI/180),(first[1]-before[1])*111320)<1);
+  for(let j=0;j<250&&c.phase==='turn';j++)s.advance(.2);
+  assert.equal(c.phase,'edge');assert.equal(c.edge,out.id);assert.equal(c.lane,expected);
+  for(const v of s.snapshot().vehicles)assert.ok(v.lane>=1&&v.lane<=v.lanes);
+  const single=simulation({...i,roads:i.roads.map(r=>({...r,properties:{...r.properties,lanes:'2'}}))});
+  assert.equal(s.capacity[incoming.id],single.capacity[incoming.id]*2);
+});
 check("marked parking capacity causes entry queues, conserves road/parking mass, and never invents free spaces",()=>{
-  const s=simulation(input(true,true),{demandFactor:3}),initial=s.stock.reduce((n,v)=>n+v,0)+s.parking.get("parking").occupied;
+  const i=input(true,true);
+  // Keep the known four-lane bottleneck independent of untagged class defaults.
+  i.roads=i.roads.map(r=>({...r,properties:{...r.properties,lanes:'4'}}));
+  const s=simulation(i,{demandFactor:3}),initial=s.stock.reduce((n,v)=>n+v,0)+s.parking.get("parking").occupied;
   for(let i=0;i<5000;i++)s.advance(.2);
   const parked=s.parking.get("parking"),mass=s.stock.reduce((n,v)=>n+v,0)+s.backlog.reduce((n,v)=>n+v,0)+parked.occupied;
   assert.ok(parked.occupied>=0&&parked.occupied<=2+1e-7);assert.ok(s.snapshot().parking.waiting>0);assert.ok(s.snapshot().pending>0);
@@ -215,19 +414,53 @@ check("nearby travel dominates, administrative borders do not inflate distant tr
 });
 const payload=(elements,stamp)=>JSON.stringify({osm3s:{timestamp_osm_base:new Date(stamp).toISOString()},elements:[...elements,{type:"count",tags:{total:String(elements.length)}}]});
 {
+  const i=housingInput(),g=i.selected[0].geometry,r=rel(10,"住宅测试市",5,g),rawLand=rel(21,"住宅用地",0,poly(-100,-100,100,100),{landuse:"residential",type:"multipolygon"});
+  rawLand.tags={landuse:"residential",type:"multipolygon"};const captured=[];
+  const loaded=await R.load([selection(r,g)],()=>{},async(_url,o)=>{
+    const q=new URLSearchParams(o.body).get("data");captured.push(q);
+    return new Response(payload(q.includes('node(r.r:')?[r,place(101,"街道",12000,0,0)]:q.includes('way(area.a)[highway~')
+      ?i.roads.map((f,n)=>({type:"way",id:n+1,tags:f.properties,nodes:f.properties.roadNodes,geometry:f.geometry.coordinates.map(p=>({lon:p[0],lat:p[1]}))})):[rawLand],1000));
+  });
+  assert.equal(captured.length,4,"building completeness has its own bounded request");
+  const query=captured.find(q=>q.includes('->.f;'));
+  assert.match(query,/landuse~"\^\(residential\|industrial\|commercial\|retail\)/);assert.match(query,/nwr\.f\[landuse\]/);assert.match(query,/\.shape out body geom/);
+  assert.ok(captured.some(q=>q.includes('[building][building!=no]')&&q.includes('out body geom;out count;')));
+  assert.equal(loaded.features[0].area.type,"Polygon");assert.equal(loaded.features[0].properties.trafficMembers.length,1);
+  assert.equal(loaded.population.zones[0].scopeId,"relation:10");assert.equal(loaded.population.total,12000);
+  cases++;console.log("passed: full-region residential geometry and parent population scope arrive in the existing complete bounded requests");
+}
+{
   const i=input(),g=poly(-2100,-600,2100,600),r=rel(1,"甲市",5,g,{population:"20000"}),s=[selection(r,g)],pending=[];
   let active=0,peak=0,started=0;
   const full=R.load(s,()=>{},async(_url,options)=>{
     const q=new URLSearchParams(options.body).get("data");active++;peak=Math.max(peak,active);started++;
-    const index=q.includes('node(r.r:')?0:q.includes('way(area.a)[highway~')?1:2;
+    const index=q.includes('node(r.r:')?0:q.includes('way(area.a)[highway~')?1:q.includes('[building][building!=no]')?3:2;
     const elements=index===0?[r]:index===1?i.roads.map((f,n)=>({type:"way",id:n+1,tags:f.properties,nodes:f.properties.roadNodes,geometry:f.geometry.coordinates.map(p=>({lon:p[0],lat:p[1]}))})):[{type:"node",id:9,lon:xy(1500,0)[0],lat:xy(1500,0)[1],tags:{office:"yes"}}];
     return new Promise(resolve=>pending.push(()=>{active--;resolve(new Response(payload(elements,1000*(index+1))));}));
   });
   assert.equal(started,2);pending.shift()();await new Promise(setImmediate);assert.equal(started,3);assert.equal(peak,2);
-  for(const resolve of pending.splice(0))resolve();
+  while(started<4||pending.length){pending.shift()();await new Promise(setImmediate);}
   const result=await full;assert.equal(result.population.total,20000);assert.equal(result.roads.length,2);assert.equal(result.features.length,1);
-  assert.deepEqual(plain(result.sourceTimes),[1000,2000,3000]);
+  assert.deepEqual(plain(result.sourceTimes),[1000,2000,3000,4000]);
   cases++;console.log("passed: full-region requests overlap within two slots and retain complete input and source times");
+}
+{
+  const i=input(),g=poly(-2100,-600,2100,600),r=rel(1,"甲市",5,g,{population:"20000"}),s=[selection(r,g)];
+  for(const expand of [true,false]){
+    const capacity={slots:1},pending=[];let active=0,peak=0,started=0;
+    const loading=R.load(s,()=>{},async(_url,o)=>{
+      const q=new URLSearchParams(o.body).get("data"),elements=q.includes('node(r.r:')?[r]:q.includes('way(area.a)[highway~')
+        ?i.roads.map((f,n)=>({type:"way",id:n+1,tags:f.properties,nodes:f.properties.roadNodes,geometry:f.geometry.coordinates.map(p=>({lon:p[0],lat:p[1]}))})):[];
+      started++;active++;peak=Math.max(peak,active);
+      return new Promise(resolve=>pending.push(()=>{active--;resolve(new Response(payload(elements,1000)));}));
+    },{capacity});
+    assert.equal(started,1,"reserve a slot while nearby preview is still reading");
+    if(expand){capacity.slots=2;capacity.wake();assert.equal(started,2);}
+    while(started<4||pending.length){pending.shift()();await new Promise(setImmediate);}
+    const result=await loading;assert.equal(result.population.total,20000);assert.equal(result.roads.length,2);
+    assert.equal(peak,expand?2:1);assert.equal(capacity.wake,null);
+  }
+  cases++;console.log("passed: full-region load starts with one slot, expands after preview, or completes without expansion");
 }
 {
   const s=input().selected.map(s=>({name:s.name,geojson:s.geometry})),roadFeature=road("near",[[1,-400,0],[2,400,0]]),raw={type:"way",id:1,tags:{highway:"primary"},nodes:[1,2],geometry:roadFeature.geometry.coordinates.map(p=>({lon:p[0],lat:p[1]}))};
@@ -272,6 +505,19 @@ const payload=(elements,stamp)=>JSON.stringify({osm3s:{timestamp_osm_base:new Da
   cases++;console.log("passed: actual regional worker keeps metadata/route on sparse transferable frames, changes sample budget without time and pauses");
 }
 // Exercise the actual bounded response reader, including a misleading/partial count.
+{
+  let capacity,finish;const messages=[];
+  const w=vm.createContext({console,onmessage:null,importScripts(){},HuayuRegionalTraffic:U,HuayuTrafficProtocol:context.HuayuTrafficProtocol,
+    HuayuTrafficRegions:{load:(_s,_p,_f,options)=>{capacity=options.capacity;return new Promise(resolve=>{finish=resolve;});}},
+    postMessage:m=>messages.push(m),setInterval:()=>assert.fail("paused build must not start a timer"),clearInterval(){}});
+  vm.runInContext(await readFile(new URL("../site/traffic-worker.js",import.meta.url),"utf8"),w);
+  const loading=w.onmessage({data:{action:"build-region",generation:7,regions:[],previewPending:true,options:{count:60},paused:true}});
+  assert.equal(capacity.slots,1);let wakes=0;capacity.wake=()=>wakes++;
+  await w.onmessage({data:{action:"load-slots",generation:6}});assert.equal(capacity.slots,1);assert.equal(wakes,0);
+  await w.onmessage({data:{action:"load-slots",generation:7}});assert.equal(capacity.slots,2);assert.equal(wakes,1);
+  finish(lotInput());await loading;assert.ok(messages.at(-1).regional);
+  cases++;console.log("passed: actual worker expands only the current region generation's request slots");
+}
 await assert.rejects(()=>R.request("fixture",async()=>new Response(JSON.stringify({elements:[{type:"count",tags:{total:"2"}},{type:"node",id:1}]}))),/计数不完整/);
 cases++;console.log("passed: partial upstream results are rejected before takeover");
 console.log(JSON.stringify({status:"passed",cases}));

@@ -754,6 +754,7 @@
   let focusedTransitGuideRelation = null;
   let transitAtlasRequestId = 0;
   const transitAtlasCitySearchCache = new Map();
+  const administrativeCityPointSearchCache = new Map();
   let transitAtlasCity = null;
   let transitAtlasModel = null;
   let transitAtlasPrepared = null;
@@ -11785,13 +11786,35 @@
     return best;
   }
 
-  function transitAtlasCityCandidates(results, query) {
+  function exactAdministrativeCitySearchScore(result, query) {
+    const suffix = /(?:特别行政区|自治州|自治县|自治旗|自治区|街道办事处|街道|地区|社区|省|市|縣|县|區|区|都|道|府|州|厅|廳|旗|盟|镇|鎮|乡|鄉|村)$/u;
+    const normalize = value => normalizePlaceSearchText(String(value || "").normalize("NFKC"));
+    const canonicalSuffix = value => (value.match(suffix)?.[0] || "").replace(/[縣區鎮鄉廳]/gu, c => ({縣:"县",區:"区",鎮:"镇",鄉:"乡",廳:"厅"})[c]);
+    const queryText = normalize(query), querySuffix = canonicalSuffix(queryText);
+    const terms = transitAtlasCityQueryVariants(query).map(normalize);
+    const names = [primaryPlaceName(result), String(result?.display_name || "").split(",")[0],
+      ...Object.values(result?.namedetails || {})].flatMap(name => String(name || "").split(/[;；]/u));
+    let best = Infinity;
+    for (const name of names) {
+      const text = normalize(name); if (!text) continue;
+      const nameSuffix = canonicalSuffix(text);
+      if (querySuffix && nameSuffix && querySuffix !== nameSuffix) continue;
+      for (const term of terms) {
+        if (text === term) best = Math.min(best, text === queryText ? 0 : 1);
+        else if (text.replace(suffix, "") === term.replace(suffix, "")) best = Math.min(best, 1);
+      }
+    }
+    return best;
+  }
+
+  function transitAtlasCityCandidates(results, query, exactNames = false) {
+    const score = result => exactNames ? exactAdministrativeCitySearchScore(result, query) : transitAtlasCitySearchScore(result, query);
     return [...new Map(results.filter((result) => isAdministrativeBoundaryResult(result)
-      && polygonFeatureGeometry(result) && Number.isFinite(transitAtlasCitySearchScore(result, query)))
+      && polygonFeatureGeometry(result) && Number.isFinite(score(result)))
       .map((result) => [administrativeResultKey(result), result])).values()]
       .sort((first, second) => {
-        const firstScore = transitAtlasCitySearchScore(first, query);
-        const secondScore = transitAtlasCitySearchScore(second, query);
+        const firstScore = score(first);
+        const secondScore = score(second);
         if (firstScore !== secondScore) return firstScore - secondScore;
         const firstInView = map.getBounds().contains([Number(first.lat), Number(first.lon)]);
         const secondInView = map.getBounds().contains([Number(second.lat), Number(second.lon)]);
@@ -11800,15 +11823,18 @@
       }).slice(0, 8);
   }
 
-  function transitAtlasCityBoundaryQuery(query) {
+  function transitAtlasCityBoundaryQuery(query, includePlaces = false) {
     const bases = [...new Set(transitAtlasCityQueryVariants(query).map((term) =>
       fuzzyAdministrativeNameKey(term)).filter((term) => term.length >= 2 && term.length <= 64))];
     if (!bases.length) return null;
     const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     const pattern = `(^|;)(${bases.map(escape).join("|")})(特别行政区|自治州|自治县|自治旗|自治区|地区|市|縣|县|區|区|都|府|州|旗|盟|镇|鎮|乡|鄉|村)?($|;)`;
-    return '[out:json][timeout:20][maxsize:16777216];rel["boundary"="administrative"]'
-      + `[~"^(name(:.*)?|official_name|short_name|alt_name)$"~${JSON.stringify(pattern)},i]->.matches;`
-      + '.matches out count;.matches out geom 17;';
+    const names = `[~"^(name(:.*)?|official_name|short_name|alt_name)$"~${JSON.stringify(pattern)},i]`;
+    const boundaries = `rel["boundary"="administrative"]${names}`;
+    const points = `node["place"~"^(city|town|village|municipality|borough|suburb)$"]${names}`;
+    const matches = includePlaces === "only" ? points : includePlaces ? `(${boundaries};${points};)` : boundaries;
+    return (includePlaces === "only" ? '[out:json][timeout:8][maxsize:262144];' : '[out:json][timeout:20][maxsize:16777216];')
+      + matches + '->.matches;.matches out count;.matches out ' + (includePlaces === "only" ? 'body' : 'geom') + ' 17;';
   }
 
   function transitAtlasCityBoundaryResults(payload) {
@@ -11849,11 +11875,70 @@
     });
   }
 
-  async function findTransitAtlasCities(query) {
-    const cacheKey = normalizePlaceSearchText(query);
+  function administrativeCityPoints(query, results) {
+    const storageKey = "huayu-city-points-v1", maxAge = 3 * 60 * 60 * 1000, now = Date.now();
+    const key = normalizePlaceSearchText(query), valid = (result, name) => result?.osm_type === "node"
+      && /^\d+$/u.test(String(result.osm_id)) && (result.category || result.class) === "place"
+      && ["city","town","village","municipality","borough","suburb"].includes(result.type)
+      && Number.isFinite(Number(result.lon)) && Math.abs(Number(result.lon)) <= 180
+      && Number.isFinite(Number(result.lat)) && Math.abs(Number(result.lat)) <= 85
+      && Number.isFinite(exactAdministrativeCitySearchScore(result, name));
+    if (!administrativeCityPointSearchCache.size) {
+      try {
+        const saved = globalThis.sessionStorage?.getItem(storageKey);
+        if (saved && saved.length <= 128 * 1024) for (const entry of JSON.parse(saved)) {
+          if (typeof entry.query !== "string" || !Number.isFinite(entry.createdAt) || entry.createdAt > now
+            || now - entry.createdAt >= maxAge || !Array.isArray(entry.results)) continue;
+          const good = entry.results.filter(result => valid(result, entry.query));
+          if (good.length) administrativeCityPointSearchCache.set(normalizePlaceSearchText(entry.query), { ...entry, results:good.slice(0,8) });
+          if (administrativeCityPointSearchCache.size >= 8) break;
+        }
+      } catch { /* Session storage is optional. */ }
+    }
+    for (const [name, entry] of administrativeCityPointSearchCache) if (now - entry.createdAt >= maxAge) administrativeCityPointSearchCache.delete(name);
+    if (results) {
+      const good = results.filter(result => valid(result, query)).slice(0, 8);
+      if (good.length) {
+        administrativeCityPointSearchCache.delete(key);
+        administrativeCityPointSearchCache.set(key, {query, results:good, createdAt:now});
+        while (administrativeCityPointSearchCache.size > 8 || JSON.stringify([...administrativeCityPointSearchCache.values()]).length > 128 * 1024)
+          administrativeCityPointSearchCache.delete(administrativeCityPointSearchCache.keys().next().value);
+        try { globalThis.sessionStorage?.setItem(storageKey, JSON.stringify([...administrativeCityPointSearchCache.values()])); } catch {}
+      }
+    }
+    return administrativeCityPointSearchCache.get(key)?.results || [];
+  }
+
+  async function findTransitAtlasCities(query, options = {}) {
+    // Separate exact-name results from legacy fuzzy atlas searches and their cache.
+    const cacheKey = `${options.exactNames ? "exact-city-v1:" : ""}${normalizePlaceSearchText(query)}`;
+    if (options.exactNames) { const saved = administrativeCityPoints(query); if (saved.length) options.onPlaces?.(saved); }
     const cached = transitAtlasCitySearchCache.get(cacheKey);
     if (cached && Date.now() - cached.createdAt < 3 * 60 * 60 * 1000) return cached.results;
     const noBoundary = () => new Error("NO_CITY_BOUNDARY");
+    const candidatesFor = results => transitAtlasCityCandidates(results, query, options.exactNames);
+    const reportPlaces = results => {
+      const matches = options.exactNames ? results.filter(result => Number.isFinite(exactAdministrativeCitySearchScore(result, query))) : results;
+      if (options.exactNames) administrativeCityPoints(query, matches);
+      if (matches.length) options.onPlaces?.(matches);
+    };
+    // City points need no boundary geometry. Keep their small query independent
+    // so a large/slow administrative relation cannot suppress location results.
+    const pointQuery = options.exactNames && options.onPlaces ? transitAtlasCityBoundaryQuery(query, "only") : null;
+    const pointLookup = pointQuery ? (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const payload = await fetchAdministrativeExportPayload(pointQuery, 11000);
+          const count = payload.elements.find(element => element.type === "count");
+          if (!count || Number(count.tags?.total) > 16 || Number(count.tags?.total) !== payload.elements.length - 1) throw new Error("INCOMPLETE_CITY_POINTS");
+          reportPlaces(payload.elements.filter(element => element.type === "node").map(element => ({osm_type:"node", osm_id:element.id,
+            category:"place", type:element.tags?.place, name:element.tags?.name || element.tags?.["name:zh"],
+            display_name:element.tags?.name || element.tags?.["name:zh"], lon:element.lon, lat:element.lat,
+            namedetails:Object.fromEntries(Object.entries(element.tags || {}).filter(([name]) => /^(?:name(?::.*)?|official_name|short_name|alt_name)$/u.test(name)))})));
+          return;
+        } catch (error) { if (attempt || /INCOMPLETE_CITY_POINTS/u.test(error.message)) return; }
+      }
+    })() : null;
     const services = [async () => {
       const terms = transitAtlasCityQueryVariants(query);
       const failures = [];
@@ -11870,7 +11955,8 @@
               failures.push({ term, error });
               throw error;
             }
-            const candidates = transitAtlasCityCandidates(results, query);
+            reportPlaces(results);
+            const candidates = candidatesFor(results);
             if (!candidates.length) throw noBoundary();
             return candidates;
           }));
@@ -11881,16 +11967,22 @@
         const retryTerm = (failures.find((failure) => /市$/u.test(failure.term)) || failures[0]).term;
         const retry = await searchPlaces(retryTerm, 20, {
           includeBoundary: true, includeNameDetails: true, featureType: "city", dedupe: false });
-        const candidates = transitAtlasCityCandidates(retry, query);
+        reportPlaces(retry);
+        const candidates = candidatesFor(retry);
         if (candidates.length) return candidates;
         throw failures[0].error;
       }
       throw noBoundary();
     }];
-    const boundaryQuery = transitAtlasCityBoundaryQuery(query);
+    const boundaryQuery = transitAtlasCityBoundaryQuery(query, Boolean(options.onPlaces) && !options.exactNames);
     if (boundaryQuery) services.push(async () => {
       const payload = await fetchAdministrativeExportPayload(boundaryQuery, 25000);
-      const results = transitAtlasCityCandidates(transitAtlasCityBoundaryResults(payload), query);
+      const results = candidatesFor(transitAtlasCityBoundaryResults(payload));
+      reportPlaces((payload.elements || []).flatMap((element) => element.type === "node" && element.tags?.place
+        && Number.isFinite(element.lon) && Number.isFinite(element.lat) ? [{osm_type:"node", osm_id:element.id,
+          category:"place", type:element.tags.place, name:element.tags.name || element.tags["name:zh"],
+          display_name:element.tags.name || element.tags["name:zh"], lon:String(element.lon), lat:String(element.lat),
+          namedetails:Object.fromEntries(Object.entries(element.tags).filter(([key]) => /^(?:name(?::.*)?|official_name|short_name|alt_name)$/u.test(key)))}] : []));
       if (!results.length) throw noBoundary();
       return results;
     });
@@ -11900,6 +11992,7 @@
       // slower service. Promise.any also handles the losing task's rejection.
       results = await Promise.any(services.map((service) => service()));
     } catch (error) {
+      await pointLookup;
       const failures = error.errors || [error];
       if (failures.some((failure) => failure?.message === "CITY_SEARCH_TOO_BROAD")) throw new Error("CITY_SEARCH_TOO_BROAD");
       if (failures.some((failure) => failure?.message !== "NO_CITY_BOUNDARY")) throw new Error("CITY_SEARCH_UNAVAILABLE");
@@ -27784,8 +27877,8 @@
             // Simulation-only permissions. Keep the existing render factory,
             // model cache versions and source timestamps unchanged.
             trafficTags: new Map(result.payload.elements.filter(e => e.type === "way" && e.tags?.highway
-                && ["access","vehicle","motor_vehicle","motorcar","maxspeed","junction"].some(key => e.tags[key]))
-              .map(e => [String(e.id), Object.fromEntries(["access","vehicle","motor_vehicle","motorcar","maxspeed","junction"]
+                && ["access","vehicle","motor_vehicle","motorcar","maxspeed","junction","lanes","lanes:forward","lanes:backward","lanes:both_ways","width"].some(key => e.tags[key]))
+              .map(e => [String(e.id), Object.fromEntries(["access","vehicle","motor_vehicle","motorcar","maxspeed","junction","lanes","lanes:forward","lanes:backward","lanes:both_ways","width"]
                 .filter(key => e.tags[key]).map(key => [key, String(e.tags[key])]))])),
             loadedAt: result.loadedAt,
             cachedAt: Date.now(),
@@ -35544,14 +35637,14 @@
         nonPassengerStationIds:(transitServiceRules.railOperatingRules||[]).flatMap(r=>r.nonPassengerStationIds),
         satellite:!["huayu","huayu-night"].includes(selectedBasemapId),signature:revisions.sort().join("|")};
     },
-    prepareTrafficCamera: coordinate => {
+    prepareTrafficCamera: (coordinate, zoom) => {
       if (window.HuayuPersonalData?.isPickingBounds() || administrativeBoxPicking || mapPickTarget || currentView === "measure") {
         showToast("请先完成当前选点或范围操作，再启用车辆镜头"); return false;
       }
       const glMap=currentVectorBasemap();
       if(!glMap || !["huayu","huayu-night"].includes(selectedBasemapId))return false;
       const c=glMap.getCenter();
-      return enterVectorPerspectiveMode(55,glMap.getBearing(),{silent:true,center:coordinate || [c.lng,c.lat],zoom:Math.max(coordinate ? 18 : 17,glMap.getZoom())});
+      return enterVectorPerspectiveMode(Number.isFinite(zoom)?glMap.getPitch():55,glMap.getBearing(),{silent:true,center:coordinate || [c.lng,c.lat],zoom:Number.isFinite(zoom)?zoom:Math.max(coordinate ? 18 : 17,glMap.getZoom())});
     },
     applyPersonalDataSnapshot,
     prepareOverlayEditing: () => exitVectorPerspectiveMode({silent:true}),

@@ -1,7 +1,7 @@
 (function installTrafficDemand(root) {
   "use strict";
-  const PURPOSES = {work:"通勤",education:"上学",errand:"购物／办事",health:"就医",leisure:"休闲",transport:"车站／机场接送与换乘"};
-  const DWELL = {work:480,education:360,errand:15,health:45,leisure:30,transport:20}; // Scenario minutes, not observed visits.
+  const PURPOSES = {work:"通勤",education:"上学",errand:"购物／办事",health:"就医",leisure:"休闲",transport:"车站／机场接送与换乘",activity:"一般活动（用途未标）"};
+  const DWELL = {work:480,education:360,errand:15,health:45,leisure:30,transport:20,activity:30}; // Scenario minutes, not observed visits.
   const RESIDENTIAL = new Set(["apartments","residential","house","detached","terrace","dormitory","semidetached_house"]);
   const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
   function population(value,max=10000000) {
@@ -11,7 +11,7 @@
   }
   function category(p) {
     if(p.disused && p.disused!=="no" || p.abandoned && p.abandoned!=="no" || ["construction","proposed","demolished","ruins"].includes(p.building)
-      || p["building:part"] || p.buildingPart || Number(p.minHeight)>0 || Number(p.level)>0)return null;
+      || p["building:part"]&&p["building:part"]!=="no" || p.buildingPart&&p.buildingPart!=="no" || Number(p.minHeight)>0 || Number(p.level)>0)return null;
     if(hubType(p))return "transport";
     if(["school","university","college","kindergarten"].some(v=>v===p.amenity||v===p.building)||p.featureClass==="education")return "education";
     if(["hospital","clinic","doctors"].some(v=>v===p.amenity||v===p.building)||p.healthcare&&p.healthcare!=="no"||p.featureClass==="healthcare")return "health";
@@ -92,7 +92,7 @@
     const sites=candidates.filter(s=>!memberIds.has(s.id)).filter(s=>!candidates.some(o=>o!==s&&o.kind===s.kind
       && (s.land&&!o.land&&contains(o.coordinate,s.geometry)
         || !s.area&&o.area>0&&contains(s.coordinate,o.geometry))));
-    const accessNodes=[...graph.nodes.values()].filter(n=>n.out.some(id=>!graph.edges[id].motorway));
+    const accessNodes=[...graph.nodes.values()].filter(n=>n.out.some(id=>!graph.edges[id].motorway&&!graph.edges[id].elevated));
     const result=[];
     // Fixed spatial ordering rather than input arrival order; quotas keep both origins and destinations.
     for(const s of sites.sort((a,b)=>a.id.localeCompare(b.id))) {
@@ -194,5 +194,5 @@
     summary() {return {...this.basis,sites:this.sites.length,pairs:this.pairs.length,hourly:this.total,returnHourly:this.returnTotal,personHourly:this.total*1.4/0.35,
       multiplier:this.multiplier,carShare:0.35,occupancy:1.4,squareMetersPerResident:35};}
   }
-  root.HuayuTrafficDemand=Object.freeze({Demand,prepareSites,shortestPaths,route,activity,category,population,hubType,hubWeight,PURPOSES,DWELL});
+  root.HuayuTrafficDemand=Object.freeze({Demand,prepareSites,shortestPaths,route,activity,category,population,hubType,hubWeight,measure,PURPOSES,DWELL});
 })(globalThis);

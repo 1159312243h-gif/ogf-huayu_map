@@ -21,6 +21,7 @@ function context(overrides = {}) {
   const result = vm.createContext({Map,Set,Promise,Date:{now:()=>clock},
     TRANSIT_PINYIN_ALIASES:new Map([["津川",["jinchuan"]]]),
     transitAtlasCitySearchCache:new Map(),
+    administrativeCityPointSearchCache:new Map(),
     normalizeTransitSearchText:value=>String(value).toLowerCase().replace(/\s+/gu,""),
     transitPinyinize:value=>String(value).toLowerCase(),transitSearchEditDistance:()=>99,
     map:{getBounds:()=>({contains:()=>false})},searchPlaces:async()=>[],
@@ -33,8 +34,8 @@ function context(overrides = {}) {
   for (const name of ["normalizePlaceSearchText","fuzzyAdministrativeNameKey","primaryPlaceName","administrativePlaceNameKey",
     "administrativeResultKey","isAdministrativeBoundaryResult","polygonFeatureGeometry","administrativeBoundaryGeometry",
     "sameAdministrativeCoordinate","pointInAdministrativeRing","stitchAdministrativeRings","overpassRelationFeature",
-    "transitAtlasCityQueryVariants","transitAtlasCitySearchScore","transitAtlasCityCandidates",
-    "transitAtlasCityBoundaryQuery","transitAtlasCityBoundaryResults","findTransitAtlasCities"]) {
+    "transitSearchEditDistance","transitAtlasCityQueryVariants","transitAtlasCitySearchScore","exactAdministrativeCitySearchScore","transitAtlasCityCandidates",
+    "transitAtlasCityBoundaryQuery","transitAtlasCityBoundaryResults","administrativeCityPoints","findTransitAtlasCities"]) {
     const declaration=app.match(new RegExp(`  (?:async )?function ${name}\\([^]*?\\n  \\}`,"u"))?.[0];
     assert.ok(declaration,name);vm.runInContext(declaration,result);
   }
@@ -104,6 +105,68 @@ const recover=context({searchPlaces:async()=>{if(fail)throw new Error("HTTP_503"
 await assert.rejects(recover.findTransitAtlasCities("津川"),/CITY_SEARCH_UNAVAILABLE/u);
 assert.equal(recover.transitAtlasCitySearchCache.size,0,"never cache a failure as an empty result");
 fail=false;assert.deepEqual(plain(await recover.findTransitAtlasCities("津川")),[]);
+
+const cityPoint={osm_type:"node",osm_id:431549267,name:"合江市",display_name:"合江市, 汤海共和国",
+  category:"place",type:"city",lat:"35.9421869",lon:"141.4226814",geojson:{type:"Point",coordinates:[141.4226814,35.9421869]}};
+let completeBoundary;
+const points=context({searchPlaces:async()=>[cityPoint],fetchAdministrativeExportPayload:q=>q.includes('node["place"')?Promise.resolve(empty()):new Promise(resolve=>{completeBoundary=resolve;})});
+const updates=[],pointSearch=points.findTransitAtlasCities("合江市",{exactNames:true,onPlaces:results=>updates.push(plain(results))});
+await new Promise(setImmediate);
+assert.equal(updates[0][0].osm_id,431549267,"simulation receives international city points before a slow boundary lookup finishes");
+completeBoundary(empty());assert.deepEqual(plain(await pointSearch),[],"shared atlas results still require real complete boundaries");
+assert.equal(points.transitAtlasCitySearchCache.size,0,"city points must not pollute the complete-boundary cache");
+const independentQueries=[];
+const independentPoints=context({searchPlaces:()=>new Promise(()=>{}),fetchAdministrativeExportPayload:async q=>{
+  independentQueries.push(q);return q.includes('node["place"')?payload({type:"node",id:431549267,lon:141.4226814,lat:35.9421869,tags:{place:"city",name:"合江市"}}):empty();
+}});
+const independentUpdates=[];
+void independentPoints.findTransitAtlasCities("合江市",{exactNames:true,onPlaces:results=>independentUpdates.push(plain(results))});
+await new Promise(setImmediate);
+assert.ok(independentQueries.some(q=>q.includes('node["place"')&&!q.includes('geom')&&!q.includes('rel[')),"city point lookup never waits for administrative geometry");
+assert.equal(independentUpdates[0][0].osm_id,431549267,"an independent original-tag query locates the city even when the geocoder hangs");
+assert.doesNotMatch(c.transitAtlasCityBoundaryQuery("合江市"),/node\["place"/u,"default railway atlas lookup remains boundary-only");
+
+// Actual returned near-match: a town in a different country, not the requested city.
+const wrongTown={...boundary(452801,"围江镇"),display_name:"围江镇, 河东厅, 京承府, 赤汤省, 东原道, 华夏共和国"};
+assert.equal(c.transitAtlasCityCandidates([wrongTown],"合江市").length,1,"exercise the real edit-distance path that caused the false winner");
+assert.equal(c.transitAtlasCityCandidates([wrongTown],"合江市",true).length,0);
+for(const name of ["合江镇","合江县","河阴区","内河街道"])assert.equal(c.exactAdministrativeCitySearchScore({...boundary(2,name),display_name:`${name}, 合江省, AR923`},"合江市"),Infinity);
+assert.equal(c.exactAdministrativeCitySearchScore(cityPoint,"合江市"),0);
+assert.equal(c.exactAdministrativeCitySearchScore({...cityPoint,name:"合江",display_name:"合江"},"合江市"),1);
+assert.equal(c.exactAdministrativeCitySearchScore({...cityPoint,name:"合江市",namedetails:{"name:en":"He Jiang",alt_name:"合江旧城;合江新城"}},"He Jiang"),0);
+assert.equal(c.exactAdministrativeCitySearchScore({...cityPoint,namedetails:{alt_name:"合江旧城;合江新城"}},"合江新城"),0);
+assert.equal(c.exactAdministrativeCitySearchScore(boundary(9,"北湖縣"),"北湖县"),1);
+assert.equal(c.exactAdministrativeCitySearchScore(boundary(9,"赤汤省"),"赤汤"),1);
+assert.equal(c.exactAdministrativeCitySearchScore(boundary(9,"津川市"),"jinchuan"),1);
+
+let finishGeocoder,settled=false;const originalResolvers=[];
+const race=context({searchPlaces:term=>term==="合江市"?new Promise(resolve=>{finishGeocoder=resolve;}):Promise.resolve([wrongTown]),
+  fetchAdministrativeExportPayload:q=>new Promise(resolve=>{originalResolvers.push([q,resolve]);})});
+race.transitAtlasCitySearchCache.set(race.normalizePlaceSearchText("合江市"),{results:[wrongTown],createdAt:Date.now(),bytes:100});
+const raceUpdates=[],raceResult=race.findTransitAtlasCities("合江市",{exactNames:true,onPlaces:results=>raceUpdates.push(...plain(results))}).then(results=>{settled=true;return results;});
+await new Promise(setImmediate);assert.equal(settled,false,"a fast wrong town and an older fuzzy cache cannot finish an exact city search");
+finishGeocoder([cityPoint]);for(const [q,resolve] of originalResolvers)resolve(q.includes('node["place"')?payload({type:"node",id:431549267,lon:141.4226814,lat:35.9421869,tags:{place:"city",name:"合江市"}}):empty());
+assert.deepEqual(plain(await raceResult),[]);assert.ok(raceUpdates.some(r=>r.osm_id===431549267));assert.ok(raceUpdates.every(r=>r.osm_id!==452801));
+assert.equal(race.transitAtlasCitySearchCache.has("exact-city-v1:合江市"),false,"a missing exact boundary is not cached as a wrong place");
+
+const storage=new Map(),sessionStorage={getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
+const savedPoints=context({sessionStorage,searchPlaces:async()=>[cityPoint],fetchAdministrativeExportPayload:async()=>empty()});
+await savedPoints.findTransitAtlasCities("合江市",{exactNames:true,onPlaces(){}});
+assert.equal(storage.size,1,"positive city points survive a page reload in this tab");
+const restored=context({sessionStorage,searchPlaces:async()=>{throw Error("HTTP_503");},fetchAdministrativeExportPayload:async()=>{throw Error("HTTP_502");}});
+const recoveredPoints=[];await assert.rejects(restored.findTransitAtlasCities("合江市",{exactNames:true,onPlaces:r=>recoveredPoints.push(...plain(r))}),/CITY_SEARCH_UNAVAILABLE/u);
+assert.equal(recoveredPoints[0].osm_id,431549267,"a total network outage must not remove the previously verified city point");
+const originalTime=restored.administrativeCityPointSearchCache.get("合江市").createdAt;
+restored.advance(1000);restored.administrativeCityPoints("合江市");assert.equal(restored.administrativeCityPointSearchCache.get("合江市").createdAt,originalTime,"cache reads do not extend source age");
+restored.advance(3*60*60*1000);assert.equal(restored.administrativeCityPoints("合江市").length,0);
+savedPoints.administrativeCityPoints("其他市",[]);assert.equal(savedPoints.administrativeCityPointSearchCache.has("其他市"),false);
+const unavailableStorage=context({sessionStorage:{getItem(){throw Error("denied");},setItem(){throw Error("denied");}}});
+assert.equal(unavailableStorage.administrativeCityPoints("合江市",[cityPoint])[0].osm_id,431549267);
+const retryPoints=context({searchPlaces:async()=>[],fetchAdministrativeExportPayload:async q=>{
+  if(!q.includes('node["place"'))return empty();retryPoints.attempts=(retryPoints.attempts||0)+1;
+  if(retryPoints.attempts===1)throw Error("HTTP_503");return payload({type:"node",id:431549267,lon:141.4226814,lat:35.9421869,tags:{place:"city",name:"合江市"}});
+}});
+const retried=[];await retryPoints.findTransitAtlasCities("合江市",{exactNames:true,onPlaces:r=>retried.push(...plain(r))});assert.equal(retryPoints.attempts,2);assert.equal(retried[0].osm_id,431549267);
 
 function node(){return {children:[],hidden:false,value:"",classList:{toggle(){}},
   append(...children){this.children.push(...children);},appendChild(child){this.children.push(child);},

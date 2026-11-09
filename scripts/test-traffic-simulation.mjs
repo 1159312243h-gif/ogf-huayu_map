@@ -30,7 +30,11 @@ check("single direction, reverse, roundabout, explicit car permissions and motor
   assert.equal(graph([road('a',base,{oneway:'-1'})]).edges[0].from,'b');
   assert.equal(graph([road('a',base,{junction:'roundabout'})]).edges.length,1);
   assert.equal(graph([road('a',base,{junction:'roundabout',oneway:'no'})]).edges.length,2);
-  for(const p of [{highway:'footway'},{highway:'construction'},{bridge:1},{tunnel:1},{layer:1},{layer:-1},{access:'private'},{motorcar:'no'}])assert.equal(graph([road('a',base,p)]).edges.length,0);
+  for(const p of [{highway:'footway'},{highway:'construction'},{access:'private'},{motorcar:'no'}])assert.equal(graph([road('a',base,p)]).edges.length,0);
+  for(const p of [{bridge:1},{bridge:'yes'},{tunnel:1},{tunnel:'yes'},{layer:1},{layer:-1}]){
+    const g=graph([road('a',base,p)]);assert.equal(g.edges.length,2);assert.ok(g.edges.every(e=>e.elevated));
+  }
+  assert.ok(graph([road('a',base,{bridge:'no',tunnel:'no',layer:'0'})]).edges.every(e=>!e.elevated));
   assert.equal(graph([road('a',base,{access:'no',motorcar:'yes'})]).edges.length,2);
 });
 const cross=[road('ew',[['w',-300,0],['j',0,0],['e',300,0]]),road('ns',[['s',0,-300],['j',0,0],['n',0,300]])];
@@ -40,7 +44,12 @@ check("real nodes define junctions; coincident and overpassing roads never acqui
   const unconnected=graph([cross[0],road('other',[['s',0,-300],['other-j',0,0],['n',0,300]])]);
   assert.equal(unconnected.edges.length,4);
   assert.equal(unconnected.edges.find(e=>e.from==='w').next.length,0);
-  assert.equal(graph([cross[0],road('over',cross[1].properties.roadNodes.map((id,i)=>[id,0,(i-1)*300]),{layer:1})]).edges.length,2);
+  const over=graph([cross[0],road('over',cross[1].properties.roadNodes.map((id,i)=>[id,0,(i-1)*300]),{layer:1})]);
+  assert.equal(over.edges.length,4);assert.equal(over.edges.find(e=>e.from==='w').next.length,0);
+  assert.equal(over.edges.find(e=>e.from==='s').next.length,0);
+  const ramp=graph([road('ground',[['a',-250,0],['r',-150,0]]),road('bridge',[['r',-150,0],['b',150,0]],{bridge:'yes',layer:'1'}),road('exit',[['b',150,0],['c',250,0]])]);
+  const entry=ramp.edges.find(e=>e.from==='a');assert.ok(entry.next.some(id=>ramp.edges[id].bridge));
+  assert.ok(ramp.edges.find(e=>e.from==='r'&&e.bridge).next.some(id=>ramp.edges[id].to==='c'));
 });
 check("shape nodes, handedness, local bounds, duplicate data and missing topology",()=>{
   const r=road('curve',[['a',-80,0],['b',0,25],['c',80,0]]);
@@ -48,6 +57,14 @@ check("shape nodes, handedness, local bounds, duplicate data and missing topolog
   assert.ok(g.edges[0].offset>0);assert.ok(graph([r],{drivingSide:'left'}).edges[0].offset<0);
   assert.equal(graph([road('outside',[['a',1000,0],['b',1100,0]])]).edges.length,0);
   assert.equal(graph([road('missing',[['a',0,0],['b',100,0]],{roadNodes:[]})]).edges.length,0);
+});
+check("local return trips use a bridge connector, retain road identities and count its traffic without attaching homes to a raised crossing",()=>{
+  const g=graph([road('entry',[['w',-400,0],['a',-200,0]]),road('bridge',[['a',-200,0],['j',0,0],['b',200,0]],{bridge:'yes',layer:1}),road('exit',[['b',200,0],['e',400,0]])]);
+  const s=new Simulation(g,{...options,demandFeatures:[site('home',-400,25,{building:'apartments',population:'3000'}),site('work',400,25,{building:'office'})]});
+  assert.ok(s.demand.pairs.length);assert.equal(g.structures.bridges,1);
+  assert.ok(g.edges.filter(e=>e.bridge).every(e=>(s.demand.flows.get(e.id)||0)>0));
+  let seen=false;for(let i=0;i<1000;i++){s.advance(.1);if(s.snapshot().vehicles.some(v=>v.roadId==='bridge'&&v.elevated))seen=true;}
+  assert.ok(seen);assert.ok(s.network().some(e=>e.bridge&&e.hourly>0));
 });
 check("fixed steps are deterministic, pause preserves time and vehicles, boundary trips finish",()=>{
   const g=graph(cross),a=new Simulation(g,{...options,seed:17}),b=new Simulation(g,{...options,seed:17});

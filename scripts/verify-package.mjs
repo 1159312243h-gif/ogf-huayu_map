@@ -51,7 +51,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
   "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
-  "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-protocol.js",
+  "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-regional-sites.js", "traffic-protocol.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -1579,6 +1579,12 @@ const bridgeModelsTest = await runCheck([path.join(root, "scripts", "test-bridge
 assert.equal(bridgeModelsTest.status, 0, `桥梁与立交纵断面回归失败：${bridgeModelsTest.stderr}`);
 const trafficSimulationTest = await runCheck([path.join(root, "scripts", "test-traffic-simulation.mjs")]);
 const trafficRegionsTest = await runCheck([path.join(root, "scripts", "test-traffic-regions.mjs")]);
+const trafficLanesTest = await runCheck([path.join(root, "scripts", "test-traffic-lanes.mjs")]);
+const trafficLoadingTest = await runCheck([path.join(root, "scripts", "test-traffic-loading.mjs")]);
+const trafficRequestsTest = await runCheck([path.join(root, "scripts", "test-traffic-requests.mjs")]);
+assert.equal(trafficRequestsTest.status, 0, `区域流式接收、超时重试与取消回归失败：${trafficRequestsTest.stderr}`);
+assert.equal(trafficLoadingTest.status, 0, `区域并行加载、完整接管与城市点搜索回归失败：${trafficLoadingTest.stderr}`);
+assert.equal(trafficLanesTest.status, 0, `车道估算、几何与分道行驶回归失败：${trafficLanesTest.stderr}`);
 assert.equal(trafficRegionsTest.status, 0, `区域人口、路网与停车模拟回归失败：${trafficRegionsTest.stderr}`);
 assert.equal(trafficSimulationTest.status, 0, `局部道路车流模拟回归失败：${trafficSimulationTest.stderr}`);
 const satelliteBasemapTest = await runCheck([path.join(root,"scripts","test-satellite-basemap.mjs")]);

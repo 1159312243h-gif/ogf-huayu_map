@@ -1,7 +1,7 @@
 (function installHuayuBridgeModels(root) {
   "use strict";
 
-  const ALGORITHM = "bridge-layer-profile-v4";
+  const ALGORITHM = "bridge-layer-profile-v5";
   const STORAGE_KEY = "ogf-atlas-bridge-settings-v1";
   const DEFAULTS = Object.freeze({enabled: false});
   const normalize = value => ({enabled: value?.enabled === true});
@@ -39,6 +39,9 @@
     if (Number.isInteger(lanes) && lanes >= 1 && lanes <= 10) return clamp(lanes * 3.25 + 0.8, 3, 35);
     if (/^(footway|path|cycleway|pedestrian|bridleway)$/u.test(p.highway)) return 3;
     if (/_link$/u.test(p.highway)) return 5.5;
+    const one = ["yes","1","true","-1","reverse"].includes(String(p.oneway));
+    if (p.highway === "primary") return (one ? 3 : 6) * 3.2 + 0.8;
+    if (p.highway === "trunk") return (one ? 4 : 8) * 3.2 + 0.8;
     if (/^(motorway|trunk)$/u.test(p.highway)) return p.oneway === "yes" ? 10.5 : 15;
     return /^(primary|secondary|tertiary)$/u.test(p.highway) ? 9 : 6;
   }
@@ -832,7 +835,7 @@
         solid([p.x - half, p.y - half, top], [p.x + half, p.y - half, top],
           [p.x + half, p.y + half, top], [p.x - half, p.y + half, top], top - p.ground, concrete);
       }
-      accepted.push({...plan, maxGrade, heights});
+      accepted.push({...plan, maxGrade, heights, surfaceWidths:edges.map(edge=>edge.width/edge.p.ratio)});
     }
     let joined = 0;
     for (const branches of junctions.values()) {

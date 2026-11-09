@@ -352,10 +352,11 @@
                 <p class="model-options-summary">可选 1–4 个行政区；多个相邻城市或省份通过真实连通干道分配区域间出行。省级采用主要道路，城市包含住宅道路，服务路不作为城市穿行通道。跨海断路不会生成虚构连接。</p>
                 <div id="traffic-region-selected" class="traffic-region-list"></div>
                 <div class="sunlight-presets"><button id="traffic-region-build" class="secondary-button" type="button">加载所选区域并模拟</button><button id="traffic-region-cancel" class="secondary-button" type="button" hidden>取消加载</button></div>
-                <p id="traffic-region-status" class="model-options-summary" role="status">先选择行政区；优先预览视野附近，再后台补齐完整区域。移动地图不重建全域。</p>
+                <p id="traffic-region-status" class="model-options-summary" role="status">先选择行政区；完整区域与附近预览同时准备。移动地图不重建全域。只有城市点的结果可先定位，再切换“当前街区”。</p>
               </details>
               <button id="traffic-region-overview" class="secondary-button" type="button">查看模拟全域</button>
               <p id="traffic-summary" class="model-options-summary" role="status">等待路网和出行需求…</p>
+              <details id="traffic-building-audit" class="traffic-basis" hidden><summary>建筑与人口核算（分区）</summary><p id="traffic-building-summary" class="model-options-summary"></p><div id="traffic-building-rows" class="traffic-region-list" aria-label="分区建筑及人口核算"></div></details>
               <details class="traffic-basis"><summary>模拟排队集中路段与停车场</summary><div id="traffic-hotspots" class="traffic-region-list" aria-label="模拟排队集中路段"></div></details>
               <label class="render-setting-field" for="traffic-time"><span>情景开始时间</span><input id="traffic-time" type="time" value="08:00" /></label>
               <label class="render-setting-field" for="traffic-demand"><span>需求强度</span><select id="traffic-demand"><option value="1" selected>基础假设 · 1×</option><option value="3">高峰演示 · 3×</option><option value="6">压力情景 · 6×</option><option value="8">压力情景 · 8×</option></select></label>
@@ -363,6 +364,10 @@
               <label class="render-setting-field" for="traffic-rate"><span>模拟速度</span><select id="traffic-rate"><option value="0.5">0.5 倍</option><option value="1" selected>1 倍</option><option value="2">2 倍</option><option value="10">10 倍 · 加快观察行程</option></select></label>
               <label class="render-setting-field" for="traffic-side"><span>通行方向（模拟）</span><select id="traffic-side"><option value="right">靠右行驶</option><option value="left">靠左行驶</option></select></label>
               <label class="render-setting-toggle" for="traffic-overlay"><span>需求与模拟路况图</span><input id="traffic-overlay" type="checkbox" checked /><span class="render-setting-switch" aria-hidden="true"></span></label>
+              <label class="render-setting-toggle" for="traffic-lanes"><span>近景车道</span><input id="traffic-lanes" type="checkbox" checked aria-describedby="traffic-lane-note" /><span class="render-setting-switch" aria-hidden="true"></span></label>
+              <p id="traffic-lane-status" class="model-options-summary" role="status">放大到街道近景显示车道。</p>
+              <p id="traffic-bridge-note" class="model-options-summary" role="status" hidden></p>
+              <details class="traffic-basis"><summary>车道估算依据</summary><p id="traffic-lane-note" class="model-options-summary">优先 lanes 与方向车道标签；缺失时按有效 width 估算，否则采用道路类型默认值：高速单向 3 道，干线双向共 8 道，主要道路双向共 6 道（单独绘制的单向车行道分别为 4、3 道），普通道路共 2 道，匝道／服务路／生活街道 1 道。窄双向路共享路面；车辆按本方向车道行驶、分道跟车，路口按下游车道衔接。推算值不代表实测车道，未根据建筑间距推算；桥隧未取得合法高度时保留原表达。</p></details>
               <p class="model-options-summary traffic-legend"><span>绿：较顺畅</span><span>黄：减速</span><span>红：明显减速</span><span>灰：未分配车流／暂无在途量</span></p>
               <p class="model-options-summary">线宽表示分配的需求强弱；颜色取有车方向中较慢的一侧，不是实测拥堵。零需求道路也保留灰线，灰色表示此次未分配到可达行程或暂无在途量；不代表道路缺失或已证实畅通。金线为所选车的路线，起终点标记是估算的道路接入点。</p>
               <div class="sunlight-presets"><button id="traffic-pause" type="button" class="secondary-button">暂停模拟</button><button id="traffic-reset" type="button" class="secondary-button">重新模拟</button><button id="traffic-near" type="button" class="secondary-button">移近当前街区</button></div>
@@ -372,7 +377,7 @@
               <details class="traffic-basis"><summary>人口、设施与估算依据</summary><p id="traffic-basis" class="model-options-summary"></p><p class="model-options-summary">优先使用完整局部住宅范围的人口标签；缺失时按住宅面积、有效高度／层数估算，每人 35 m²、住宅利用率 80%，住宅用地额外按 25% 建筑覆盖率。层数不明按 2 层估算；无用途建筑不凭名称当住宅。每人每小时基准 0.22 次出发、汽车分担率 35%、每车 1.4 人，再乘时段、设施容量、路程衰减与所选强度。停留基准：购物 15 分钟、休闲 30 分钟、就医 45 分钟、工作 8 小时、上学 6 小时，允许约 ±20% 差异。这些是假设参数，未用实测客流校准。局部模式不覆盖范围外出行；区域模式采用已读取的完整路网和分层人口。市内及周边出行优先；采用 94% 的 7 公里衰减和 6% 的 45 公里衰减混合权重，同距离跨行政边界不额外放大或压低。仅有远处设施时减少出发，不把全部本地需求分给远处。面板显示 25 公里内及 100 公里以上的车次比例，均为未校准假设。</p></details>
             </div>
             <p id="traffic-status" class="model-options-summary" role="status" aria-live="polite">默认关闭，开启后可选择城市、区县、省份或局部街区。</p>
-            <p id="traffic-note" class="model-options-summary">默认关闭，仅本次开启。区域模式按所选行政区读取路网、设施及分层人口，优先 population／population:hx 与行政中心人口，父子区域不重复相加。按道路车道、等级及容量计算在途量、队列和待出发量；近景汽车为同一出行需求的展示样本，可跟随、到达停留及返程，绘制上限不改变区域流量。桥隧参与路网，尚无合法桥面高度时不画贴地汽车；路况线仍显示。局部模式仍为约 850 米地面精细模拟。两种模式都是未校准情景，不是实测路况。后台暂停；拖动、滚轮或 Esc 退出跟随。</p>
+            <p id="traffic-note" class="model-options-summary">默认关闭，仅本次开启。区域模式按所选行政区读取路网、设施及分层人口，优先 population／population:hx 与行政中心人口，父子区域不重复相加。按道路车道、等级及容量计算在途量、队列和待出发量；近景汽车为同一出行需求的展示样本，可跟随、到达停留及返程，绘制上限不改变区域流量。桥隧参与路网，尚无合法桥面高度时不画贴地汽车；路况线仍显示。局部模式仍为约 850 米局部精细模拟。两种模式都是未校准情景，不是实测路况。后台暂停；拖动、滚轮或 Esc 退出跟随。</p>
           </fieldset>
         </section>
 
@@ -957,13 +962,15 @@
               <h3>桥梁与立交</h3>
               <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。俯视仍显示平面道路。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
               <h3>交通模拟、人口与停车</h3>
-              <p>打开独立“模拟”菜单，手动开启（默认关闭，不保存开关）。选择“城市／跨市／跨省”，输入行政区名称并选中完整边界，可添加 1–4 个行政区，再点“加载所选区域并模拟”。优先复用视野附近已加载的道路和住宅，不足时先读约 1.5 公里邻近范围，显示明确标为局部的预览；不将全市人口塞入街区。全域数据在后台最多两路并行读取，完整成功才替换；失败或取消保留已有预览／模拟。城市包含住宅道路，省级主要道路，跨区域沿真实连通干道通行；移动地图保留全域计算。点“查看全域”观看路况，放大到街道观看样本汽车。手机底栏可横向滑动，面板可收起并从“模拟”恢复。</p>
-              <p>人口同时读取 population、population:hx 和实际行政中心成员；社区、街道、区县按层级分配，父子不重复相加。未标人口、缺少道路或设施、父子数据冲突会列出。大区剩余人口粗略分到本区住宅道路；设施缺少容量也需估算。工作、学校、商圈、医疗与休闲按用途、时段和距离吸引出行；有可往返的真实道路才分配，断路不会凭空连接。小路、服务路和生活街道可供所在人口及设施首末接入，跨区行程不将内部路作穿行捷径。省级范围只在车站、航站楼与停车场附近补内部接入路，减少加载量。默认 08:00、1 倍，可选更强情景；这些是假设情景，不是实测交通预测。</p>
+              <p>开启模拟后，“近景车道”在街道近景显示路面、外侧线、同向白色虚线及双向黄色分界；缩小自动隐藏细节，关闭该显示不改变车辆行驶。车道数优先使用 lanes、lanes:forward/backward，支持单行、反向单行及左右通行；缺失时按有效 width，再按道路等级采用界面列明的固定默认值，不依据建筑间距猜测。未明确分道的窄双向路保留共享路面，不强画两条车道。局部车辆按车道保持间距、路口让行后连续接入下游；区域展示样本按合法车道运行，聚合容量使用同一车道数。第几车道从本方向内侧计数，车道减少在路口衔接，不模拟沿途自主超车；推算不补写原始地图，不是实测道路宽度或工程车道模型。</p>
+              <p>打开独立“模拟”菜单，手动开启（默认关闭，不保存开关）。选择“城市／跨市／跨省”，输入行政区名称并选中完整边界，可添加 1–4 个行政区，再点“加载所选区域并模拟”。优先复用视野附近已加载的道路和住宅，不足时先读约 1.5 公里邻近范围，显示明确标为局部的预览；不将全市人口塞入街区。全域读取立即开始，与附近预览共用最多两个请求槽，不等待预览完成；完整成功才替换；后台路径计算复用路网索引，保持相同需求与路线。失败或取消保留已有预览／模拟。城市包含住宅道路，省级主要道路，跨区域沿真实连通干道通行；移动地图保留全域计算。点“查看全域”观看路况，放大到街道观看样本汽车。名称按完整名称或明确别名匹配；已填写“市／县／镇”等后缀时，不混入其他类型或仅上级地址相同的候选。城市点会先显示并允许定位，但不能将点周围矩形用作整市范围；缺少完整行政边界时可定位后手动切换“当前街区”。城市点使用独立轻量查询，成功结果在本标签页保留三小时，刷新或网络失败仍可定位；缓存读取不会延长年龄，不缓存失败或空结果。边界查询失败提供重试入口，不表示城市不存在。手机底栏可横向滑动，面板可收起并从“模拟”恢复。</p>
+              <p>人口同时读取 population、population:hx 和实际行政中心成员；上级关系不能提前消耗城市人口点，明确 capital／admin_level 层级优先，城市与县区不因都标 city 而混为一层。社区、街道、区县按层级分配，父子不重复相加。未标人口、缺少道路或设施、父子数据冲突会列出。大区剩余人口粗略分到本区住宅道路；设施缺少容量也需估算。工作、学校、商圈、医疗与休闲按用途、时段和距离吸引出行；有可往返的真实道路才分配，断路不会凭空连接。小路、服务路和生活街道可供所在人口及设施首末接入，跨区行程不将内部路作穿行捷径。省级范围只在车站、航站楼与停车场附近补内部接入路，减少加载量。默认 08:00、1 倍，可选更强情景；这些是假设情景，不是实测交通预测。</p>
               <p>铁路客站、机场与航站楼单独产生接送／换乘需求，读取容量或年旅客量；缺标时车站吸引力 5000、机场 12000、停留 20 分钟均为示意假设，早晚需求较高。站台、同名重复站点、机场主体与航站楼避免重复放大，人工确认的货运站不生成客运接送需求；未接入真实列车时刻或航班。</p>
-              <p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。桥隧参与区域路网，尚无合法高度时不画错误贴地汽车。</p>
-              <p>街道人口分散到实际住宅道路，有边界时每约 25000 人增加一个接入点、每区最多四处；只有点位且人口至少 3000 的社区可在 450 米内选两处接入。人数等分且总量不变，依然是粗略估算。设施在 1800 组预算内保留不同道路接入，超限才从 250 米网格逐级合并；原本属于不同停车场的设施不挪到同一个停车场，避免将大片区域需求压进一条小区路。</p>
-              <p>已标停车场使用 capacity，缺失暂按 20 位；开场 50% 占用、入口 300 辆／小时及设施周边 800 米选择均为明示假设。满位限制到达并保留道路队列，返程释放已有库存。露天停车面内有真实相连的内部路时，车辆沿路进场、低速驶入示意泊位、保持可见地停留，再驶出返程；保留面边界及孔洞，不代表真实车位布局。可从“模拟排队集中路段与停车场”点“查看停车进出场”定位，列表中“已停车”可选中查看。开场少量已停车样本代表假设的原有占用。缺少相连道路或仅有点位时仍计算停车库存，但不虚构入口；未标停车场处仍为场外停留。聚合返程参考对应停留时长前的需求，样本则到达后实际停留再返家：工作 8 小时、上学 6 小时、购物 15 分钟、就医 45 分钟、休闲 30 分钟、交通枢纽 20 分钟。不是实际停车余位或逐车停车记录。</p>
-              <p>点击汽车或从列表选择，查看用途、起终点、金线、等待与停留，再点跟随。拖动、滚轮、Esc 或停止跟随退出，到达停留自动停止；面板收起后仍能停止。后台暂停且不补算；关闭、底图切换和恢复默认释放资源，原导航、模型及日照独立。仍可切换“当前街区”使用约 850 米已加载地面路网的精细跟车和路口让行；局部人口不足会提示，不随机巡游。区域加载失败／取消保留现有模拟，跨度和容量过大请减小范围。修改情景时间／强度会重新准备，新版不会清理建筑或改变数据更新周期。</p>
+              <p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。局部及城市路网均计算桥梁、高架和隧道。桥上汽车、车道和路况需在“设置 → 桥梁渲染”开启桥面，并使用倾斜视角，等待完整桥面高度就绪；没有有效桥面时保留原道路和路况线，不将桥上或地下汽车画到地面。桥梁渲染保持默认关闭。</p>
+              <p>区域模拟读取范围内全部建筑，按明确用途、内部设施和用地判断住宅、办公、商业、教育等活动；按占地面积乘有效楼层分配已有标注人口，缺楼层先按扣除底高和屋顶后的有效墙高每 3 米推算，再缺失暂按两层，不额外造人口。用途未标建筑以一半楼面权重分配居民位置，同时作为一般活动地点，这是情景假设，不代表已确认住宅用途；车库、纯屋盖、停用和建筑部件等不重复生成人员活动。真实行政／小区范围及孔洞优先，只有人口点时覆盖真实上级范围，按邻近同级点估计归属，不使用固定半径截断；这不等于正式下级边界。建筑、小区和上级人口逐级扣除，关系成员、建筑与外围用地去重。缺少建筑时采用住宅用地，仍缺失时在该范围合法住宅／服务道路上粗略分配；有建筑但接不上道路的份额保留为未分配，不集中到其他建筑。人口接入按约 400 米归组，最多 512 组；设施最多 1800 组，超限逐级合并并保留全部权重与停车归属。所有可往返的设施组纳入行程，实际路径和距离决定是否有需求；未知人口和不连通地点不会随机造车，也不保证每栋同时有样本车。展开“建筑与人口核算（分区）”可查看各区建筑数、楼面面积、分配人口与未接路人数；根区其余区域单列，分区人口是位置估算，不是官方新统计。一栋楼可分配多人，楼面大小和层数决定相对权重，整个行政区人口保持守恒。</p>
+              <p>已标停车场使用 capacity，缺失暂按 20 位；开场 50% 占用、入口 300 辆／小时及设施周边 800 米选择均为明示假设。满位限制到达并保留道路队列，返程释放已有库存。露天停车面内有真实相连的内部路时，车辆沿路进场、低速驶入示意泊位、保持可见地停留，再驶出返程；保留面边界及孔洞，不代表真实车位布局。可从“模拟排队集中路段与停车场”点“查看停车进出场”定位，列表中“已停车”可选中查看。开场少量已停车样本代表假设的原有占用。缺少相连道路或仅有点位时仍计算停车库存，但不虚构入口；未标停车场处仍为场外停留。聚合返程参考对应停留时长前的需求，样本则到达后实际停留再返家：工作 8 小时、上学 6 小时、购物 15 分钟、就医 45 分钟、休闲及用途未标的一般活动 30 分钟、交通枢纽 20 分钟。不是实际停车余位或逐车停车记录。</p>
+              <p>大范围路网首次下载可能较慢，面板会显示人口、路网、设施或全域建筑四项的接收进度；仍在传输的数据不会因为超过 95 秒被直接丢弃。传输停滞或临时连接失败时最多自动重试两次，保留本轮其他已成功的数据；持续失败会指出具体项目，可再次点击“加载所选区域并模拟”，或取消并保留已有模拟。系统不会擅自缩小行政范围。</p>
+              <p>点击汽车或从列表选择，查看用途、起终点、金线、等待与停留，再点跟随。拖动、滚轮、Esc 或停止跟随退出，到达停留自动停止；面板收起后仍能停止。后台暂停且不补算；关闭、底图切换和恢复默认释放资源，原导航、模型及日照独立。仍可切换“当前街区”使用约 850 米已加载路网的精细跟车和路口让行；局部人口不足会提示，不随机巡游。区域加载失败／取消保留现有模拟，跨度和容量过大请减小范围。修改情景时间／强度会重新准备，新版不会清理建筑或改变数据更新周期。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div>
               <h3>模型替代方案与本机导入</h3>
               <p>可为树木、灌木、花簇、亭子、候车亭、喷泉、墙等选择现有模型或已提供的替代方案。也可导入自己合法取得的 GLB，先预览，再调整朝上轴、旋转和部件后应用；单文件不超过 24 MiB。本机导入只保存在当前浏览器，不随账号跨设备同步，换浏览器时需重新导入。移除文件需要确认。</p>
@@ -1120,16 +1127,17 @@
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./building-tiles.js?v=8.0-building-tiles-v1"></script>
     <script src="./building-roofs.js?v=8.0-smooth-render-v1"></script>
-    <script src="./bridge-models.js?v=7.1-bridge-options-v1"></script>
+    <script src="./bridge-models.js?v=8.0-traffic-loading-v1"></script>
     <script src="./map-export.js?v=8.0-building-tiles-v1"></script>
     <script src="./coastline-client.js?v=2"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=2"></script>
-    <script src="./app.js?v=8.0-traffic-distribution-v1"></script>
-    <script src="./traffic-protocol.js?v=8.0-traffic-distribution-v1"></script>
-    <script src="./traffic-simulation.js?v=8.0-traffic-distribution-v1"></script>
+    <script src="./app.js?v=8.0-traffic-population-v2"></script>
+    <script src="./traffic-surfaces.js?v=8.0-traffic-loading-v1"></script>
+    <script src="./traffic-protocol.js?v=8.0-traffic-loading-v1"></script>
+    <script src="./traffic-simulation.js?v=8.0-traffic-population-v2"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./brand-browser.js?v=5"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>

@@ -1,14 +1,15 @@
 "use strict";
-importScripts("./traffic-core.js?v=8.0-traffic-distribution-v1", "./traffic-demand.js?v=8.0-traffic-distribution-v1",
-  "./traffic-regions.js?v=8.0-traffic-distribution-v1", "./traffic-regional-core.js?v=8.0-traffic-distribution-v1", "./traffic-protocol.js?v=8.0-traffic-distribution-v1");
+importScripts("./traffic-core.js?v=8.0-traffic-loading-v1", "./traffic-demand.js?v=8.0-traffic-population-v2",
+  "./traffic-regions.js?v=8.0-traffic-population-v2", "./traffic-regional-sites.js?v=8.0-traffic-population-v2", "./traffic-regional-core.js?v=8.0-traffic-population-v2", "./traffic-protocol.js?v=8.0-traffic-loading-v1", "./traffic-surfaces.js?v=8.0-traffic-loading-v1");
 let simulation, timer, encoder, generation = 0, rate = 1, publishedRevision=-1, selectedKey="",publishedStats=-1;
+let loadingCapacity=null;
 function stop() {clearInterval(timer); timer = null;}
 function publish(roads=false) {
   if(!simulation)return;
   const data={generation,...simulation.snapshot(),preview:Boolean(simulation.preview)};
   const fresh=publishedRevision!==simulation.networkRevision;
   if(fresh){data.network=simulation.network();publishedRevision=simulation.networkRevision;}
-  if(data.regional&&!fresh){for(const key of ["demand","edges","nodes","sourceTimes","bounds","regionNames"])delete data[key];}
+  if(data.regional&&!fresh){for(const key of ["demand","edges","nodes","structures","sourceTimes","bounds","regionNames"])delete data[key];}
   if(data.regional&&publishedStats===simulation.statsRevision&&!roads){for(const key of ["parking","hotspots","pending"])delete data[key];}
   publishedStats=simulation.statsRevision;
   if(roads)data.roadStates=[...simulation.roadSamples.values()];
@@ -25,6 +26,19 @@ function run() {
     if (++ticks % 2 === 0) publish(ticks%20===0);}, 50);
 }
 onmessage = async ({data}) => {
+  if(data.action==="load-slots"){if(data.generation===generation&&loadingCapacity){loadingCapacity.slots=2;loadingCapacity.wake?.();}return;}
+  if(data.action==="bridge-surfaces"){
+    if(!simulation||data.generation!==generation)return;
+    try{const geometry=HuayuTrafficSurfaces.geometry(simulation.graph,data.plans,data.bounds);
+      postMessage({generation,bridgeRequest:data.request,bridgeGeometry:geometry},[geometry.positions.buffer,geometry.colors.buffer,geometry.flow.buffer]);}
+    catch{postMessage({generation,bridgeRequest:data.request,bridgeError:true});}return;
+  }
+  if(data.action==="lanes"){
+    if(!simulation||data.generation!==generation)return;
+    try{postMessage({generation,laneRequest:data.request,laneGeometry:HuayuTrafficCore.laneGeometry(simulation.graph,data.bounds)});}
+    catch{postMessage({generation,laneRequest:data.request,laneError:true});}
+    return;
+  }
   try {
     if(data.action==="build-preview"){
       stop();generation=data.generation;publishedRevision=publishedStats=-1;selectedKey="";
@@ -40,7 +54,9 @@ onmessage = async ({data}) => {
       simulation.preview=true;simulation.paused=data.paused;rate=data.rate||1;publish(true);run();
     } else if(data.action==="build-region"){
       stop();generation=data.generation;publishedRevision=publishedStats=-1;selectedKey="";
-      const input=data.regionalInput||await HuayuTrafficRegions.load(data.regions,progress=>postMessage({generation,progress}));
+      loadingCapacity={slots:data.previewPending?1:2};
+      const input=data.regionalInput||await HuayuTrafficRegions.load(data.regions,progress=>postMessage({generation,progress}),undefined,{capacity:loadingCapacity});
+      loadingCapacity=null;
       postMessage({generation,progress:"数据完整，正在后台分配人口、起终点及道路容量…"});
       const options={...data.options,center:input.center,regional:true,regionalInput:input};
       simulation=new HuayuRegionalTraffic.RegionalSimulation(HuayuRegionalTraffic.buildGraph(input,options),options);
