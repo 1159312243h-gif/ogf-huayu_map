@@ -1,6 +1,6 @@
 "use strict";
-importScripts("./traffic-core.js?v=8.0-traffic-loading-v1", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
-  "./traffic-regions.js?v=8.0-traffic-boundaries-v1", "./traffic-regional-sites.js?v=8.0-traffic-boundaries-v1", "./traffic-regional-core.js?v=8.0-traffic-boundaries-v1", "./traffic-protocol.js?v=8.0-traffic-loading-v1", "./traffic-surfaces.js?v=8.0-traffic-loading-v1");
+importScripts("./traffic-core.js?v=8.0-traffic-structures-v1", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
+  "./traffic-regions.js?v=8.0-traffic-structures-v1", "./traffic-regional-sites.js?v=8.0-traffic-structures-v1", "./traffic-regional-core.js?v=8.0-traffic-structures-v1", "./traffic-protocol.js?v=8.0-traffic-loading-v1", "./traffic-surfaces.js?v=8.0-traffic-loading-v1");
 let simulation, timer, encoder, generation = 0, rate = 1, publishedRevision=-1, selectedKey="",publishedStats=-1;
 let loadingCapacity=null;
 function stop() {clearInterval(timer); timer = null;}

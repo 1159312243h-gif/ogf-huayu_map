@@ -178,7 +178,7 @@ assert.ok(worker.includes('node["natural"="tree"](${bbox})->.basemapTrees;')
   && worker.includes("const treeNodes = zoom >= 15")
   && app.includes("const treeNodes = tile.z >= 15")
   && worker.includes('z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain"')
-  && worker.includes('z === 13 ? "huayu-live-basemap-v10-elevated-roads"'),
+  && worker.includes('z === 13 ? "huayu-live-basemap-v11-tunnels"'),
 "实时底图必须仅在 z15 查询树木点，并使用渐进地形缓存 schema");
 assert.ok(app.includes('treeTrunk: "ogf-atlas-huayu-tree-trunk"')
   && app.includes('treeCanopy: "ogf-atlas-huayu-tree-canopy"')
@@ -1545,6 +1545,8 @@ const transitAtlasSearchTest = await runCheck([path.join(root, "scripts", "test-
 assert.equal(transitAtlasSearchTest.status, 0, `线路图城市搜索回归失败：${transitAtlasSearchTest.stderr}`);
 const modelOcclusionTest = await runCheck([path.join(root, "scripts", "test-model-occlusion.mjs")]);
 assert.equal(modelOcclusionTest.status, 0, `模型遮挡回归失败：${modelOcclusionTest.stderr}`);
+const landOverlapOrderTest = await runCheck([path.join(root, "scripts", "test-land-overlap-order.mjs")]);
+assert.equal(landOverlapOrderTest.status, 0, `学校与果林重叠排序回归失败：${landOverlapOrderTest.stderr}`);
 const modelLoadingTest = await runCheck([path.join(root, "scripts", "test-model-loading.mjs")]);
 assert.equal(modelLoadingTest.status, 0, `模型加载回归失败：${modelLoadingTest.stderr}`);
 const buildingOwnershipTest = await runCheck([path.join(root,"scripts","test-building-ownership.mjs")]);

@@ -83,13 +83,13 @@ function liveBasemapOverpassQuery(bounds, zoom) {
   const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
   if (zoom < 13) {
     return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
-      + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});)->.roads;`
+      + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});)->.roads;`
       + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
   }
   const highwaySelector = zoom <= 13
     ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
   const elevatedWays = zoom <= 13
-    ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});` : "";
+    ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});` : "";
   const treeNodes = zoom >= 15
     ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
   const gardenNodes = zoom >= 15
@@ -521,7 +521,7 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
   const policy = liveBasemapCachePolicy(z);
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", z < 13 ? "huayu-road-overview-v1" : z === 13 ? "huayu-live-basemap-v10-elevated-roads"
+  cacheUrl.searchParams.set("schema", z < 13 ? "huayu-road-overview-v2-tunnels" : z === 13 ? "huayu-live-basemap-v11-tunnels"
     : z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);

@@ -54,6 +54,55 @@ check("capital and local administrative level distinguish county city points fro
   const p=R.populationZones([city,county,node],[selection(city,g)]);
   assert.equal(p.total,1000000);assert.equal(p.rows.find(r=>r.id==="relation:911").population,200000);assert.equal(p.conflicts.length,0);
 });
+check("national and provincial capitals remain peer city populations instead of absorbing other cities",()=>{
+  const g=poly(-4000,-3000,4000,3000),nation=rel(1001,"国家",2,g);
+  const cities=["yes","2","3","4"].map((capital,i)=>{
+    const n=place(1002+i,"城市"+i,1000+i*100,-2500+i*1500,0,"city");n.tags.capital=capital;return n;
+  });
+  nation.members.push({type:"node",ref:1002,role:"admin_centre"});
+  const p=R.populationZones([nation,...cities],[selection(nation,g)]);
+  assert.equal(p.total,4600);assert.equal(p.conflicts.length,0);
+  assert.equal(p.rows.find(r=>r.id==="relation:1001").population,null,"a city seat is not a national total");
+  assert.equal(p.pointScopes.filter(r=>r.scopeId==="relation:1001").length,4);
+  const province=rel(1010,"省",4,g,{},1004);
+  const q=R.populationZones([province,...cities],[selection(province,g)]);
+  assert.equal(q.total,4600);assert.equal(q.conflicts.length,0);
+  assert.equal(q.rows.find(r=>r.id==="relation:1010").population,null);
+});
+check("explicit population extents and foreign level-8 city centres retain their actual hierarchy",()=>{
+  const g=poly(-3000,-2000,3000,2000),nation=rel(1020,"国家",2,g,{},1021);
+  const label=place(1021,"国名",10000,0,0,"country"),province=place(1022,"省名",4000,0,0,"province");
+  const city=rel(1023,"Municipality",8,poly(-1000,-1000,1000,1000),{},1024),centre=place(1024,"City",2000,0,0,"city");centre.tags.capital="4";
+  const p=R.populationZones([nation,label,province,city,centre],[selection(nation,g)]);
+  assert.equal(p.total,10000);assert.equal(p.conflicts.length,0);
+  assert.equal(p.rows.find(r=>r.id==="relation:1023").population,2000);
+  assert.equal(p.rows.find(r=>r.id==="node:1022").residual,2000);
+  assert.equal(p.zones.reduce((n,z)=>n+z.residents,0),10000);
+  const explicit={...centre,tags:{...centre.tags,admin_level:"2"}};
+  assert.equal(R.populationZones([nation,explicit],[selection(nation,g)]).total,2000,"explicit extent takes priority over the city fallback");
+});
+check("locality coverage counts untagged places without inventing residents or counting holes",()=>{
+  const g=poly(-2000,-1000,2000,1000);g.coordinates.push(poly(1400,-100,1600,100).coordinates[0]);
+  const nation=rel(1030,"国家",2,g,{population:"10000"});
+  const known=place(1031,"已标市",3000,-1000,0,"city"),unknown=place(1032,"未标镇",0,1000,0,"town"),hole=place(1033,"洞内",0,1500,0,"town");
+  delete unknown.tags.population;
+  const p=R.populationZones([nation,known,unknown,hole],[selection(nation,g)]);
+  assert.equal(p.total,10000);assert.equal(p.localities.total,2);
+  assert.equal(p.localities.withPopulation,1);assert.equal(p.localities.withoutPopulation,1);
+  assert.equal(p.localities.byType.town.withPopulation,0);
+});
+check("an explicitly tagged provincial capital extent includes subordinate cities only once",()=>{
+  const g=poly(-3000,-2000,3000,2000),province=rel(1040,"都",4,g);
+  const capital=place(1041,"都",37000000,-1000,0,"city");capital.tags.capital="yes";capital.tags["place:hx"]="du";
+  const city=place(1042,"下辖市",3500000,1000,0,"city");city.tags["place:hx"]="shi";
+  const p=R.populationZones([province,capital,city],[selection(province,g)]);
+  assert.equal(p.total,37000000);assert.equal(p.rows.find(r=>r.id==="relation:1040").population,37000000);
+  assert.equal(p.rows.find(r=>r.id==="relation:1040").residual,33500000);assert.equal(p.conflicts.length,0);
+});
+check("a malformed facility multipolygon reports its source ID and refuses partial takeover",()=>{
+  const r=rel(1050,"建筑",0,poly(-100,-100,100,100));r.tags={building:"yes",type:"multipolygon"};r.members[0].role="inner";
+  assert.throws(()=>R.feature(r),/设施／建筑 relation:1050.*无完整外环.*未接管部分结果/);
+});
 check("label-only lower administrative relations retain population as points without blocking a complete city",()=>{
   const g=poly(-2000,-1000,2000,1000),city=rel(920,"任意城市",5,g,{population:"1000"});
   const district=rel(921,"无边界区",6,poly(-1800,-800,-100,800),{population:"400"},922);
@@ -121,7 +170,49 @@ function input(join=true,parking=false){
   return {center,roads:[road("west",[[1,-1500,0],[2,0,0]]),road("east",[[join?2:4,0,0],[3,1500,0]])],features,population,
     selected:selected.map(s=>({name:s.name,id:s.osm_id,geometry:s.geojson})),bounds:[...xy(-2100,-600),...xy(2100,600)],sourceTimes:[1000],provincial:false};
 }
+const housing=(id,g,properties={})=>({type:"Feature",id,properties:{landuse:"residential",...properties},geometry:{type:"Point",coordinates:R.bounds(g).slice(0,2).map((v,j)=>(v+R.bounds(g)[j+2])/2)},area:g});
+const buildingFeature=(id,x,props={})=>({...housing(id,poly(x-10,20,x+10,40)),properties:{building:"yes",osmType:"way",...props}});
 const simulation=(i,extra={})=>new U.RegionalSimulation(U.buildGraph(i),{regionalInput:i,startHour:8,demandFactor:1,...extra});
+check("province city and village points conserve hierarchy and keep city residuals connected",()=>{
+  const g=poly(-1000,-1000,5000,1000),province=rel(970,"任意省",4,g),city=place(971,"市",10000,0,0,"city"),village=place(972,"村",200,2500,0,"village");
+  const i=input();i.selected=[{id:970,name:"任意省",geometry:g}];i.buildingsLoaded=true;
+  i.population=R.populationZones([village,province,city],[selection(province,g)]);
+  assert.equal(i.population.total,10000,"a village count is part of the city's count");
+  assert.equal(i.population.zones.find(z=>z.id==="node:971").residents,9800);
+  assert.equal(i.population.zones.find(z=>z.id==="node:972").scopeId,"node:971");
+  i.features=[buildingFeature("home1",0,{building:"apartments"}),buildingFeature("home2",2500,{building:"apartments"}),
+    {type:"Feature",id:"office",properties:{office:"yes"},geometry:{type:"Point",coordinates:xy(4000,0)}}];
+  i.roads=[road("local",[[1,0,0],[2,2500,0],[3,4000,0]],{highway:"residential"})];
+  const s=simulation(i),d=s.demand.summary(),homes=s.demand.sites.filter(h=>h.kind==="home");
+  assert.equal(d.unconnectedResidents,0);assert.equal(homes.reduce((n,h)=>n+h.weight,0),10000);
+  assert.ok(homes.some(h=>h.sources.includes("市")&&h.weight>4000));assert.ok(d.hourly>100);
+  assert.equal(d.missingPopulation,1,"an untagged province is still reported as unknown");
+  const tagged={...village,tags:{...village.tags,building:"apartments"}};
+  const repeated=R.populationZones([tagged,province,city],[selection(province,g)],[R.feature(tagged)]);
+  assert.equal(repeated.total,10000);assert.equal(repeated.rows.filter(r=>r.id==="node:972").length,1,"a nested population place also fetched as a building is one source");
+});
+check("nested point scopes retain city partitions even when a city has no residual population",()=>{
+  const g=poly(-1000,-1000,7000,1000),province=rel(980,"两城省",4,g),a=place(981,"甲市",300,0,0,"city"),b=place(982,"乙市",700,6000,0,"city"),
+    child=place(983,"甲村",300,500,0,"village"),other=place(984,"乙村",100,5500,0,"village");
+  const i=input();i.selected=[{id:980,name:"两城省",geometry:g}];i.buildingsLoaded=true;
+  i.population=R.populationZones([other,b,child,province,a],[selection(province,g)]);
+  assert.equal(i.population.total,1000);assert.ok(!i.population.zones.some(z=>z.id==="node:981"));
+  assert.ok(i.population.pointScopes.some(z=>z.id==="node:981"),"zero residual parents still constrain geography");
+  i.features=[buildingFeature("a-home",0,{building:"apartments"}),buildingFeature("b-home",6000,{building:"apartments"})];
+  i.roads=[road("both",[[1,0,0],[2,6000,0]],{highway:"residential"})];
+  const result=U.residentialAccesses(U.buildGraph(i),i);
+  for(const z of i.population.zones){const nodes=result.accesses.get(z);assert.equal(nodes.length,1);
+    assert.equal(nodes[0].node,z.id==="node:983"?"1":"2");assert.equal(nodes[0].share,1);}
+});
+check("a city population point contains lower relation counts without losing their real audit boundaries",()=>{
+  const g=poly(-1000,-1000,7000,1000),province=rel(985,"省",4,g),city=place(986,"市",10000,0,0,"city"),
+    district=rel(987,"有边界区",6,poly(-500,-500,1500,500),{population:"2000"}),
+    label={type:"relation",id:988,tags:{boundary:"administrative",admin_level:"6",population:"1000",name:"仅中心区"},members:[{type:"node",ref:989,role:"admin_centre"}]},node=place(989,"中心",1000,6000,0,"city");node.tags.capital="6";
+  const pop=R.populationZones([label,province,district,node,city],[selection(province,g)]);
+  assert.equal(pop.total,10000);assert.equal(pop.zones.find(z=>z.id==="node:986").residents,7000);
+  assert.equal(pop.zones.find(z=>z.id==="relation:988").scopeId,"node:986");
+  assert.ok(pop.coverageAreas.some(a=>a.id==="relation:987"));assert.ok(pop.zones.find(z=>z.id==="node:986").exclusions.length);
+});
 check("population lacking a valid lower-area location remains unallocated instead of moving to other buildings",()=>{
   const i=input(),g=poly(-2000,-1000,2000,1000),city=rel(950,"城市",5,g,{population:"1000"});
   const child={type:"relation",id:951,tags:{boundary:"administrative",admin_level:"6",population:"250",name:"无定位区"},members:[]};
@@ -130,7 +221,6 @@ check("population lacking a valid lower-area location remains unallocated instea
     assert.equal(d.totalResidents,1000);assert.ok(d.unconnectedResidents>=250);assert.ok(s.demand.sites.filter(h=>h.kind==="home").reduce((n,h)=>n+h.weight,0)<=750);
     assert.equal(d.boundaryWarnings.length,1);}
 });
-const housing=(id,g,properties={})=>({type:"Feature",id,properties:{landuse:"residential",...properties},geometry:{type:"Point",coordinates:R.bounds(g).slice(0,2).map((v,j)=>(v+R.bounds(g)[j+2])/2)},area:g});
 function housingInput(){
   const i=input(),g=poly(-500,-600,9000,600),r=rel(10,"住宅测试市",5,g),p=place(101,"街道",12000,0,0);
   i.population=R.populationZones([r,p],[selection(r,g)]);i.selected=[{name:r.tags.name,geometry:g}];
@@ -208,7 +298,6 @@ check("ordinary districts spread conserved population over real residential acce
   for(const h of homes){assert.ok(a.graph.nodes.has(h.node));assert.ok(R.inside(h.access,area));assert.ok(h.weight<60000);}
   const b=simulation(i,{count:1200});assert.equal(a.demand.total,b.demand.total);assert.deepEqual(plain(a.demand.pairs.map(p=>p.hourly)),plain(b.demand.pairs.map(p=>p.hourly)));
 });
-const buildingFeature=(id,x,props={})=>({...housing(id,poly(x-10,20,x+10,40)),properties:{building:"yes",osmType:"way",...props}});
 check("building occupancy uses measured footprint and real levels or usable height, never one person per building",()=>{
   const metrics=context.HuayuRegionalSites.buildingMetrics;
   const a=metrics(buildingFeature("small",0,{"building:levels":"2"}),project),b=metrics(buildingFeature("tall",0,{"building:levels":"80"}),project);
@@ -480,6 +569,7 @@ const payload=(elements,stamp)=>JSON.stringify({osm3s:{timestamp_osm_base:new Da
   const query=captured.find(q=>q.includes('->.f;'));
   assert.match(query,/landuse~"\^\(residential\|industrial\|commercial\|retail\)/);assert.match(query,/nwr\.f\[landuse\]/);assert.match(query,/\.shape out body geom/);
   assert.ok(captured.some(q=>q.includes('[building][building!=no]')&&q.includes('out body geom;out count;')));
+  assert.ok(captured.some(q=>q.includes('node(area.a)[place~')&&q.includes('country|state|province|region|city|town')),"population coverage includes untagged localities in the same request");
   assert.equal(loaded.features[0].area.type,"Polygon");assert.equal(loaded.features[0].properties.trafficMembers.length,1);
   assert.equal(loaded.population.zones[0].scopeId,"relation:10");assert.equal(loaded.population.total,12000);
   cases++;console.log("passed: full-region residential geometry and parent population scope arrive in the existing complete bounded requests");
@@ -522,6 +612,7 @@ const payload=(elements,stamp)=>JSON.stringify({osm3s:{timestamp_osm_base:new Da
   const captured=[];
   const preview=await R.loadPreview(xy(-500,0),s,async(_url,o)=>{captured.push(new URLSearchParams(o.body).get("data"));return new Response(payload([raw],1000));});
   assert.equal(preview.roads.length,1);assert.equal(preview.radius,1500);assert.deepEqual(plain(preview.sourceTimes),[1000]);assert.ok(!captured[0].includes('area('));
+  assert.match(captured[0],/motorway\\|trunk\\|primary/);
   assert.equal(await R.loadPreview(xy(100000,0),s,()=>assert.fail("outside selected region must not fetch a neighbourhood")),null);
   await assert.rejects(()=>R.loadPreview(xy(-500,0),s,async()=>new Response(payload([{...raw,nodes:[1]}],1000))),/节点不完整/);
   cases++;console.log("passed: nearby preview queries a bounded neighbourhood, preserves topology, and never assigns city population");
@@ -560,6 +651,20 @@ const payload=(elements,stamp)=>JSON.stringify({osm3s:{timestamp_osm_base:new Da
   cases++;console.log("passed: actual regional worker keeps metadata/route on sparse transferable frames, changes sample budget without time and pauses");
 }
 // Exercise the actual bounded response reader, including a misleading/partial count.
+{
+  const g=poly(-1000,-1000,5000,1000),r=rel(990,"省级测试",4,g),captured=[];
+  const roads=[road("res",[[1,0,0],[2,1000,0]],{highway:"residential"}),road("service",[[2,1000,0],[3,2000,0]],{highway:"service"}),
+    road("living",[[3,2000,0],[4,3000,0]],{highway:"living_street"})];
+  const loaded=await R.load([selection(r,g)],()=>{},async(_url,o)=>{
+    const q=new URLSearchParams(o.body).get("data");captured.push(q);
+    return new Response(payload(q.includes('node(r.r:')?[r,place(991,"市",10000,0,0,"city")]:q.includes('way(area.a)[highway~')
+      ?roads.map((f,n)=>({type:"way",id:n+1,tags:f.properties,nodes:f.properties.roadNodes,geometry:f.geometry.coordinates.map(p=>({lon:p[0],lat:p[1]}))})):[],1000));
+  });
+  const query=captured.find(q=>q.includes('way(area.a)[highway~'));
+  assert.match(query,/unclassified\|residential\|living_street\|service/);assert.ok(!query.includes('around.access'));
+  assert.equal(loaded.provincial,true);assert.equal(loaded.roads.length,3);assert.equal(captured.length,4);assert.equal(loaded.population.total,10000);
+  cases++;console.log("passed: provinces load complete residential and internal road access within the same four bounded requests");
+}
 {
   let capacity,finish;const messages=[];
   const w=vm.createContext({console,onmessage:null,importScripts(){},HuayuRegionalTraffic:U,HuayuTrafficProtocol:context.HuayuTrafficProtocol,

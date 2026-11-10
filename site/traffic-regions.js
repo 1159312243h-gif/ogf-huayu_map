@@ -1,6 +1,6 @@
 (function installTrafficRegions(root) {
   "use strict";
-  const VERSION="8.0-traffic-boundaries-v1", URL="https://overpass.opengeofiction.net/api/interpreter";
+  const VERSION="8.0-traffic-structures-v1", URL="https://overpass.opengeofiction.net/api/interpreter";
   const LIMITS={regions:4,ways:40000,vertices:350000,objects:60000,bytes:32*1024*1024};
   const rings=g=>g?.type==="Polygon"?[g.coordinates]:g?.type==="MultiPolygon"?g.coordinates:[];
   function inside(p,g) {
@@ -25,7 +25,9 @@
     if(e.type==="way"&&e.geometry){
       if(e.geometry.some(p=>!p||!Number.isFinite(p.lon)||!Number.isFinite(p.lat))||e.nodes?.length!==e.geometry.length)throw Error("设施范围几何不完整");
       if(e.nodes[0]===e.nodes.at(-1)&&e.nodes.length>=4)area={type:"Polygon",coordinates:[e.geometry.map(p=>[p.lon,p.lat])]};
-    }else if(e.type==="relation"&&e.tags?.type==="multipolygon"&&e.members?.some(m=>m.geometry))area=geometry(e);
+    }else if(e.type==="relation"&&e.tags?.type==="multipolygon"&&e.members?.some(m=>m.geometry)){
+      try{area=geometry(e);}catch(error){throw Error(`设施／建筑 relation:${e.id} 范围无效：${error.message.replace(/^行政边界 \d+ /," ").trim()}；请修复源几何或选择较小范围，未接管部分结果`);}
+    }
     // An open residential way has complete source geometry but no usable area.
     // Retain it as unallocated input; never invent a closing edge or population.
     const openResidential=e.type==="way"&&(e.tags?.landuse||e.tags?.building)&&e.geometry?.[Math.floor(e.geometry.length/2)];
@@ -49,9 +51,19 @@
   }
   function number(value) {const s=String(value??"").trim();return /^(?:\d+|\d{1,3}(?:[, ]\d{3})+)$/.test(s)&&Number(s.replace(/[, ]/g,""))<=2e9?Number(s.replace(/[, ]/g,"")):0;}
   function population(tags={}) {return number(tags.population)||number(tags["population:hx"]);}
-  function declaredLevel(tags={}){const n=Number(tags.admin_level||tags.capital);return Number.isInteger(n)&&n>=2&&n<=12?n:null;}
-  function placeLevel(tags={}){return declaredLevel(tags)||({shi:5,qu:6,xian:6,ting:6,jiedao:8,zhen:8,xiang:8,shequ:10,cun:10})[tags["place:hx"]]
-    ||({city:5,town:8,suburb:8,quarter:10,neighbourhood:10,village:10})[tags.place];}
+  function validLevel(value){const n=Number(value);return Number.isInteger(n)&&n>=2&&n<=12?n:null;}
+  const localLevel=tags=>({shi:5,qu:6,xian:6,ting:6,jiedao:8,zhen:8,xiang:8,shequ:10,cun:10,sheng:4,du:4})[tags["place:hx"]];
+  function declaredLevel(tags={}){return validLevel(tags.admin_level)||localLevel(tags)||(validLevel(tags.capital)>=5?validLevel(tags.capital):null);}
+  function placeLevel(tags={}){return declaredLevel(tags)
+    ||({country:2,state:4,province:4,region:4,city:5,town:8,suburb:8,quarter:10,neighbourhood:10,village:10,hamlet:10})[tags.place];}
+  function centrePopulation(node,level){
+    if(!node)return 0;const tags=node.tags||{},declared=declaredLevel(tags);
+    if(declared)return declared===level?population(tags):0;
+    // capital=yes/2/3/4 describes the seat of government, not the population
+    // extent. A capital city's count cannot stand in for a country or province.
+    if(level<=4&&tags.place&&placeLevel(tags)!==level)return 0;
+    return population(tags);
+  }
   function populationZones(elements,selected,details=[]) {
     const byId=new Map(elements.map(e=>[`${e.type}:${e.id}`,e])),used=new Set(),allAreas=[],unbounded=[],boundaryWarnings=[];
     const relations=elements.filter(e=>e.type==="relation"&&e.tags?.boundary==="administrative"),parents=new Map();
@@ -69,10 +81,10 @@
         if(selected.some(s=>Number(s.osm_id)===e.id)||/成员几何缺失/.test(error.message))throw error;
         unbounded.push({e,n,level,reason:error.message});continue;
       }
-      const direct=population(e.tags),centrePopulation=n&&(!declaredLevel(n.tags)||declaredLevel(n.tags)===level)?population(n.tags):0,
+      const direct=population(e.tags),centreCount=centrePopulation(n,level),
         p=n&&Number.isFinite(n.lon)&&inside([n.lon,n.lat],g)?[n.lon,n.lat]:anchor(g);
-      allAreas.push({id:`relation:${e.id}`,name:e.tags.name||String(e.id),level,geometry:g,coordinate:p,population:direct||centrePopulation,
-        centreId:n?.id,centrePopulation,source:direct?(number(e.tags.population)?"population":"population:hx"):centrePopulation?`admin_centre ${n.id} · ${number(n.tags?.population)?"population":"population:hx"}`:"未标人口",children:[]});
+      allAreas.push({id:`relation:${e.id}`,name:e.tags.name||String(e.id),level,geometry:g,coordinate:p,population:direct||centreCount,
+        centreId:n?.id,centrePopulation:centreCount,source:direct?(number(e.tags.population)?"population":"population:hx"):centreCount?`admin_centre ${n.id} · ${number(n.tags?.population)?"population":"population:hx"}`:"未标人口",children:[]});
     }
     const roots=selected.map(s=>allAreas.find(a=>a.id===`relation:${s.osm_id}`));
     if(roots.some(r=>!r))throw Error("缺少所选行政区完整边界");
@@ -83,28 +95,51 @@
       const id=`relation:${e.id}`,links=ancestors(id),hasPoint=n&&Number.isFinite(n.lon)&&Number.isFinite(n.lat),coordinate=hasPoint?[n.lon,n.lat]:null;
       const scopes=areas.filter(a=>a.geometry&&a.level<level&&(coordinate?inside(coordinate,a.geometry):links.has(a.id))).sort((a,b)=>b.level-a.level||a.id.localeCompare(b.id));
       const scope=scopes[0];if(!scope)continue; // Outside the selected administrative tree.
-      const direct=population(e.tags),centrePopulation=n&&(!declaredLevel(n.tags)||declaredLevel(n.tags)===level)?population(n.tags):0;
+      const direct=population(e.tags),centreCount=centrePopulation(n,level);
       boundaryWarnings.push({id,name:e.tags.name||String(e.id),reason,pointFallback:Boolean(coordinate),populationUnlocated:!coordinate&&Boolean(direct)});
       // Preserve relation population and its identity even without a point;
       // reserve that share as unallocated instead of putting it at a fake centre.
-      areas.push({id,name:e.tags.name||String(e.id),level,coordinate:coordinate||scope.coordinate,population:direct||centrePopulation,
-        centreId:n?.id,centrePopulation,source:direct?(number(e.tags.population)?"population":"population:hx"):centrePopulation?`admin_centre ${n.id} · ${number(n.tags?.population)?"population":"population:hx"}`:"未标人口",
+      areas.push({id,name:e.tags.name||String(e.id),level,coordinate:coordinate||scope.coordinate,population:direct||centreCount,
+        centreId:n?.id,centrePopulation:centreCount,source:direct?(number(e.tags.population)?"population":"population:hx"):centreCount?`admin_centre ${n.id} · ${number(n.tags?.population)?"population":"population:hx"}`:"未标人口",
         scopeId:scope.id,scopeGeometry:scope.geometry,place:n?.tags?.place,locationMissing:!coordinate,children:[]});
     }
     for(const a of areas)if(a.centrePopulation)used.add(a.centreId);
     for(const a of areas){const links=ancestors(a.id),candidates=areas.filter(b=>b.level<a.level&&
       (!a.locationMissing&&b.geometry&&inside(a.coordinate,b.geometry)||(!a.geometry||!b.geometry)&&links.has(b.id))).sort((a,b)=>b.level-a.level||a.id.localeCompare(b.id));
       a.parent=candidates[0];a.parent?.children.push(a);}
-    for(const e of elements.filter(e=>e.type==="node"&&population(e.tags)&&!used.has(e.id))) {
+    const pointAreas=[],distance=(p,a)=>((a.coordinate[0]-p[0])*Math.cos(p[1]*Math.PI/180))**2+(a.coordinate[1]-p[1])**2;
+    const within=(p,a)=>{
+      if(a.locationMissing)return false;
+      if(a.geometry)return inside(p,a.geometry);
+      if(!a.scopeGeometry||!inside(p,a.scopeGeometry)||a.parent&&!within(p,a.parent))return false;
+      const peers=[...areas,...pointAreas].filter(b=>!b.geometry&&!b.locationMissing&&b.level===a.level&&b.parent===a.parent);
+      return peers.sort((a,b)=>distance(p,a)-distance(p,b)||a.id.localeCompare(b.id))[0]===a;
+    };
+    const parentAt=(p,level)=>[...areas,...pointAreas].filter(a=>a.level<level&&within(p,a))
+      .sort((a,b)=>b.level-a.level||distance(p,a)-distance(p,b)||a.id.localeCompare(b.id))[0];
+    // Coarse place labels must become parents before finer labels. A village
+    // cannot shadow the entire city's remaining population as a province peer.
+    for(const e of elements.filter(e=>e.type==="node"&&population(e.tags)&&!used.has(e.id))
+      .sort((a,b)=>(placeLevel(a.tags)||99)-(placeLevel(b.tags)||99)||a.id-b.id)) {
       const p=[e.lon,e.lat],level=placeLevel(e.tags);
       if(!level||!roots.some(r=>inside(p,r.geometry)))continue;
       // Match by actual containing administrative geometry/level, never by a similar name.
       const matching=areas.filter(a=>a.level===level&&inside(p,a.geometry));
       if(matching.length===1&&!matching[0].population){const a=matching[0];a.population=population(e.tags);a.source=`辖内 ${e.tags.place||"行政中心"} 节点 ${e.id} · ${number(e.tags.population)?"population":"population:hx"}`;a.coordinate=p;used.add(e.id);continue;}
       if(matching.length){used.add(e.id);continue;} // A second representation of an already counted area.
-      const parent=areas.filter(a=>a.geometry&&a.level<level&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
-      if(parent)parent.children.push({id:`node:${e.id}`,name:e.tags.name||e.tags.place,level,coordinate:p,population:population(e.tags),source:`place 节点 · ${number(e.tags.population)?"population":"population:hx"}`,children:[],
-        place:e.tags.place,scopeId:parent.id,scopeGeometry:parent.geometry});
+      const parent=parentAt(p,level);
+      if(parent){const a={id:`node:${e.id}`,name:e.tags.name||e.tags.place,level,coordinate:p,population:population(e.tags),source:`place 节点 · ${number(e.tags.population)?"population":"population:hx"}`,children:[],parent,
+        place:e.tags.place,scopeId:parent.id,scopeGeometry:parent.geometry||parent.scopeGeometry};parent.children.push(a);pointAreas.push(a);}
+    }
+    // A city's boundary may be absent while its district relations are present.
+    // Insert the city point into that tree too, not just standalone village nodes.
+    for(const a of [...areas,...pointAreas].sort((a,b)=>a.level-b.level||a.id.localeCompare(b.id))){
+      if(a.locationMissing)continue;
+      const parent=parentAt(a.coordinate,a.level);
+      if(!parent||parent===a.parent||parent.level<=(a.parent?.level??-1))continue;
+      if(a.parent)a.parent.children=a.parent.children.filter(child=>child!==a);
+      a.parent=parent;parent.children.push(a);
+      if(!a.geometry){a.scopeId=parent.id;a.scopeGeometry=parent.geometry||parent.scopeGeometry;}
     }
     // Building and residential-area population are finer children of the same
     // totals, not extra people to add on top of a district/community label.
@@ -115,20 +150,17 @@
       &&!(f.properties.osmType==="node"&&used.has(Number(f.properties.osmId))))
       .sort((a,b)=>Boolean(a.properties.building)-Boolean(b.properties.building)||extent(b)-extent(a)||a.id.localeCompare(b.id));
     const fineAreas=[];
-    for(const f of finer){if(areas.some(a=>a.id===f.id)||areas.some(a=>a.children.some(c=>c.id===f.id)))continue;
+    for(const f of finer){if(areas.some(a=>a.id===f.id)||pointAreas.some(a=>a.id===f.id)||areas.some(a=>a.children.some(c=>c.id===f.id)))continue;
       const p=f.geometry.coordinates,g=f.area;if(!roots.some(r=>inside(p,r.geometry)))continue;
       let parent=fineAreas.filter(a=>a.geometry&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
-      if(!parent){parent=areas.filter(a=>a.geometry&&inside(p,a.geometry)).sort((a,b)=>b.level-a.level)[0];
-        const peers=(parent?.children||[]).filter(a=>!a.locationMissing&&a.scopeGeometry&&!a.geometry&&inside(p,a.scopeGeometry));
-        const dx=Math.cos(p[1]*Math.PI/180),distance=a=>((a.coordinate[0]-p[0])*dx)**2+(a.coordinate[1]-p[1])**2;
-        if(peers.length)parent=peers.sort((a,b)=>distance(a)-distance(b)||a.id.localeCompare(b.id))[0];}
+      if(!parent)parent=parentAt(p,Infinity);
       if(!parent)continue;
       const a={id:f.id,name:f.properties.name||"标注人口建筑／住宅区",coordinate:p,geometry:g,level:Math.max(parent.level+1,f.properties.building?14:12),
         population:population(f.properties),source:f.properties.building?"建筑 · population":"住宅区 · population",children:[],
         ...(g?{}:{scopeId:parent.id,scopeGeometry:parent.geometry||parent.scopeGeometry}),allocationKind:f.properties.building?"building":"residential"};
       parent.children.push(a);fineAreas.push(a);
     }
-    const zones=[],rows=[],conflicts=[];
+    const zones=[],rows=[],conflicts=[],pointScopes=[];
     function visit(a,region){let child=0;for(const c of a.children)child+=visit(c,region);
       if(a.population&&child>a.population)conflicts.push({name:a.name,parent:a.population,children:child});
       const residual=Math.max(0,a.population-child),total=Math.max(child,a.population);a.allocated=total;
@@ -146,9 +178,19 @@
     // Nested selected regions are one population tree, not two copies of the same residents.
     const top=roots.filter(r=>!roots.some(p=>p!==r&&p.level<r.level&&inside(r.coordinate,p.geometry)));
     let total=0;for(const r of top)total+=visit(r,r.name);
-    const coverageAreas=areas.filter(a=>a.geometry&&(roots.includes(a)||roots.includes(a.parent))).map(a=>({id:a.id,name:a.name,level:a.level,geometry:a.geometry,
-      residualArea:roots.includes(a)&&areas.some(b=>b.parent===a)}));
-    return {zones,rows,conflicts,total,coverageAreas,boundaryWarnings,missing:rows.filter(r=>r.population===null).length};
+    const scopes=a=>{if(!a.geometry&&!a.locationMissing&&!a.allocationKind&&a.scopeGeometry)pointScopes.push({id:a.id,level:a.level,coordinate:a.coordinate,
+      scopeId:a.parent?.id||a.scopeId,scopeGeometry:a.scopeGeometry});for(const child of a.children)scopes(child);};for(const r of top)scopes(r);
+    const coverageAreas=areas.filter(a=>{if(!a.geometry)return false;let parent=a.parent;while(parent&&!parent.geometry)parent=parent.parent;
+      return roots.includes(a)||roots.includes(parent);}).map(a=>({id:a.id,name:a.name,level:a.level,geometry:a.geometry,
+      residualArea:roots.includes(a)&&areas.some(b=>b.level>a.level&&b.geometry&&inside(b.coordinate,a.geometry))}));
+    const localities={total:0,withPopulation:0,withoutPopulation:0,byType:{}};
+    for(const e of elements)if(e.type==="node"&&placeLevel(e.tags)&&roots.some(r=>inside([e.lon,e.lat],r.geometry))){
+      const type=e.tags?.place;if(!type)continue;
+      const counts=localities.byType[type]||(localities.byType[type]={total:0,withPopulation:0});
+      localities.total++;counts.total++;
+      if(population(e.tags)){localities.withPopulation++;counts.withPopulation++;}else localities.withoutPopulation++;
+    }
+    return {zones,rows,conflicts,total,coverageAreas,pointScopes,boundaryWarnings,localities,missing:rows.filter(r=>r.population===null).length};
   }
   async function request(query,fetcher=root.fetch,options={}) {
     const label=options.label||"区域数据";
@@ -207,7 +249,11 @@
     if(!selected.some(s=>inside(center,s.geojson)))return null;
     const dx=1500/(111320*Math.cos(center[1]*Math.PI/180)),dy=1500/111320;
     const b=[center[0]-dx,center[1]-dy,center[0]+dx,center[1]+dy],bbox=`${b[1]},${b[0]},${b[3]},${b[2]}`;
-    const data=await request(`[out:json][timeout:20];(way(${bbox})[highway~"^(primary|secondary|tertiary|unclassified|residential|living_street|service)(_link)?$"];nwr(${bbox})[building];nwr(${bbox})[landuse~"^(residential|industrial|commercial|retail)$"];nwr(${bbox})[amenity];nwr(${bbox})[shop];nwr(${bbox})[office];nwr(${bbox})[leisure~"^(park|garden|sports_centre|stadium)$"];);out body geom;out count;`,fetcher,{timeout:28000});
+    // The neighbourhood preview must contain the same car-road classes as the
+    // complete region load. In particular, motorway/trunk ways are often the
+    // only connection across a bridge or through a tunnel; omitting them makes
+    // a valid local graph look disconnected until the full region arrives.
+    const data=await request(`[out:json][timeout:20];(way(${bbox})[highway~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service)(_link)?$"];nwr(${bbox})[building];nwr(${bbox})[landuse~"^(residential|industrial|commercial|retail)$"];nwr(${bbox})[amenity];nwr(${bbox})[shop];nwr(${bbox})[office];nwr(${bbox})[leisure~"^(park|garden|sports_centre|stadium)$"];);out body geom;out count;`,fetcher,{timeout:28000});
     if(data.elements.length>6000)throw Error("附近预览超过预算，继续准备完整区域");
     const roads=[],demand=[];
     for(const e of data.elements){
@@ -233,11 +279,11 @@
     const bs=selected.map(s=>bounds(s.geojson)),b=[Math.min(...bs.map(b=>b[0])),Math.min(...bs.map(b=>b[1])),Math.max(...bs.map(b=>b[2])),Math.max(...bs.map(b=>b[3]))];
     if(b.some(v=>!Number.isFinite(v))||b[2]-b[0]>12||b[3]-b[1]>12)throw Error("区域跨度超过 12°，请减少范围或选择相邻城市／省份");
     const areas=selected.map(s=>`area(${3600000000+Number(s.osm_id)});`).join(""),rels=selected.map(s=>`rel(${Number(s.osm_id)});`).join("");
-    const provincial=selected.some(s=>Number(s.extratags?.admin_level)<5),pattern=provincial?"motorway|trunk|primary|secondary|tertiary|unclassified":"motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service";
+    const provincial=selected.some(s=>Number(s.extratags?.admin_level)<5),pattern="motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service";
     const bbox=`${b[1]},${b[0]},${b[3]},${b[2]}`;
     const queries=[
-      `[out:json][timeout:80];(${areas})->.a;(${rels}rel(area.a)[boundary=administrative];)->.r;(.r;node(r.r:"admin_centre");node(area.a)[population];node(area.a)["population:hx"];);out body geom;out count;`,
-      `[out:json][timeout:80];(${areas})->.a;${provincial?'(nwr(area.a)[amenity=parking];nwr(area.a)[railway=station];nwr(area.a)[aeroway=terminal];)->.access;':''}(way(area.a)[highway~"^(${pattern})(_link)?$"];${provincial?'way(around.access:300)[highway~"^(service|living_street|residential)$"];':''}${selected.length>1?`way(${bbox})[highway~"^(motorway|trunk|primary|secondary)(_link)?$"];`:""});out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(${rels}rel(area.a)[boundary=administrative];)->.r;(.r;node(r.r:"admin_centre");node(area.a)[population];node(area.a)["population:hx"];node(area.a)[place~"^(country|state|province|region|city|town|suburb|quarter|neighbourhood|village|hamlet)$"];);out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(way(area.a)[highway~"^(${pattern})(_link)?$"];${selected.length>1?`way(${bbox})[highway~"^(motorway|trunk|primary|secondary)(_link)?$"];`:""});out body geom;out count;`,
       `[out:json][timeout:80];(${areas})->.a;(nwr(area.a)[amenity~"^(parking|parking_entrance|school|university|college|kindergarten|hospital|clinic|doctors|cafe|restaurant|fast_food|bank|marketplace|post_office)$"];nwr(area.a)[railway~"^(station|halt)$"];nwr(area.a)[public_transport=station][train=yes];nwr(area.a)[aeroway~"^(aerodrome|terminal)$"];nwr(area.a)[shop][shop!~"^(no|vacant|closed)$"];nwr(area.a)[office];nwr(area.a)[leisure~"^(park|garden|sports_centre|stadium)$"];nwr(area.a)[landuse~"^(residential|industrial|commercial|retail)$"];)->.f;(nwr.f[amenity=parking];nwr.f[aeroway=aerodrome];nwr.f[landuse];)->.shape;(.f; - .shape;)->.rest;.rest out body center;.shape out body geom;.f out count;`,
       `[out:json][timeout:80];(${areas})->.a;nwr(area.a)[building][building!=no];out body geom;out count;`
     ];

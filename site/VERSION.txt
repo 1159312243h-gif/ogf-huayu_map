@@ -1,6 +1,8 @@
 华域地图 v8.0
-Released: 2026-11-09
+Released: 2026-11-10
 Cloudflare Pages project: ogf-atlas
+
+Release build 8.0-traffic-structures-v1 (2026-11-10): Include motorway/trunk in local previews and tunnels in low-zoom road queries, with matching browser/edge queries and new scoped cache schemas. Retain bridge/tunnel demand and lane allocation; render bridge markings only on accepted deck intervals and never put underground vehicles or lanes on the surface. Bound deferred lane metadata to the current view and segment budget. Include hierarchical regional population/road coverage fixes, a documented audit of 15 real regions with source limitations, and specific agricultural fills above campus education backgrounds. Preserve model defaults, existing roof/color/sunlight behavior, original source timestamps and update schedules. Deployment status is verified separately.
 
 Release build 8.0-admin-search-names-v1 (2026-11-09; includes the boundary fix below): Match and display an object's own name and explicit aliases, excluding linked-centre _place_name and non-name ref metadata. Keep Jinsha Province distinct from its capital Gaoyang in ordinary and exact administrative searches, preserving source identities, geometry and real multilingual/short/alternate names. No map data or update timestamps changed. Deployment status is verified separately.
 

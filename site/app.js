@@ -833,6 +833,8 @@
     waterway: "ogf-atlas-huayu-live-waterway",
     roadCasing: "ogf-atlas-huayu-live-road-casing",
     road: "ogf-atlas-huayu-live-road",
+    tunnelCasing: "ogf-atlas-huayu-live-tunnel-casing",
+    tunnel: "ogf-atlas-huayu-live-tunnel",
     railway: "ogf-atlas-huayu-live-railway",
     railwayHatching: "ogf-atlas-huayu-live-railway-hatching",
     sportsOverviewFill: "ogf-atlas-huayu-live-sports-overview-fill",
@@ -21957,6 +21959,30 @@
     return "";
   }
 
+  // Land-use polygons can legitimately overlap: a school relation often
+  // describes the whole campus while an orchard/farm way describes a more
+  // specific area inside it.  MapLibre draws larger fill-sort-key values on
+  // top, so keep the broad education tint below agricultural detail while
+  // retaining sports and parks as their own higher-priority surfaces.
+  function huayuLiveLandSortKeyExpression() {
+    return ["match", ["get", "featureClass"],
+      "residential", 0,
+      "industrial", 1,
+      "commercial", 3,
+      "retail", 3,
+      "parking", 3,
+      "cemetery", 4,
+      "education", 4,
+      "healthcare", 4,
+      "wood", 5,
+      "grass", 5,
+      "farm", 5.5,
+      "park", 6,
+      "sand", 7,
+      "sports", 8,
+      2];
+  }
+
   function huayuLiveBasemapRoadClass(highway) {
     const value = String(highway || "").toLocaleLowerCase();
     if (["motorway", "motorway_link"].includes(value)) return value === "motorway" ? "motorway" : "motorway_link";
@@ -25876,22 +25902,7 @@
       "sand", palette.liveLandSand,
       "parking", palette.liveLandParking,
       palette.liveLandResidential];
-    const landSortKey = ["match", ["get", "featureClass"],
-      "residential", 0,
-      "industrial", 1,
-      "farm", 2,
-      "commercial", 3,
-      "retail", 3,
-      "parking", 3,
-      "cemetery", 4,
-      "education", 4,
-      "healthcare", 4,
-      "wood", 5,
-      "grass", 5,
-      "park", 6,
-      "sand", 7,
-      "sports", 8,
-      2];
+    const landSortKey = huayuLiveLandSortKeyExpression();
     const facilityColor = ["match", ["get", "featureClass"],
       "fire", palette.facilityFire,
       "recycling", palette.facilityRecycling,
@@ -26155,6 +26166,29 @@
           "path", huayuSatelliteTextureImage(glMap, "ground", "#91886c"),
           huayuSatelliteTextureImage(glMap, "urban", palette.liveRoadMinor)]} : {}),
       },
+    }, roadBeforeId);
+    // Tunnel ways are intentionally separate from the surface-road filters.
+    // Keep a subdued dashed corridor so the loaded tunnel and its simulated
+    // flow remain locatable without pretending that underground cars are on
+    // the ground. Vehicle meshes still require a valid underground surface.
+    const tunnelFilter = ["all", ["==", ["get", "renderKind"], "road"], ["==", ["get", "tunnel"], 1]];
+    addLayer({
+      id: HUAYU_LIVE_BASEMAP_LAYERS.tunnelCasing,
+      type: "line",
+      source: HUAYU_LIVE_BASEMAP_SOURCE,
+      minzoom: huayuLiveBasemapMinimumZoom(),
+      filter: tunnelFilter,
+      layout: { "line-cap": "butt", "line-join": "round", "line-sort-key": roadLayerOrder },
+      paint: { "line-color": palette.night ? "#3f464a" : "#c3c7c5", "line-opacity": palette.satellite ? 0.22 : 0.88, "line-width": roadCasingWidth },
+    }, roadBeforeId);
+    addLayer({
+      id: HUAYU_LIVE_BASEMAP_LAYERS.tunnel,
+      type: "line",
+      source: HUAYU_LIVE_BASEMAP_SOURCE,
+      minzoom: huayuLiveBasemapMinimumZoom(),
+      filter: tunnelFilter,
+      layout: { "line-cap": "butt", "line-join": "round", "line-sort-key": roadLayerOrder },
+      paint: { "line-color": palette.night ? "#697276" : "#8d9697", "line-opacity": palette.satellite ? 0.28 : 0.9, "line-width": roadWidth, "line-dasharray": [1.2, 1.2] },
     }, roadBeforeId);
     const railwayWidthExpression = (hatching = false) => {
       const serviceStops = hatching
@@ -26491,7 +26525,8 @@
       || !state.snapshotTileKeys?.size) return false;
     const requiredLayers = [HUAYU_LIVE_BASEMAP_LAYERS.land, HUAYU_LIVE_BASEMAP_LAYERS.water,
       HUAYU_LIVE_BASEMAP_LAYERS.waterway, HUAYU_LIVE_BASEMAP_LAYERS.roadCasing,
-      HUAYU_LIVE_BASEMAP_LAYERS.road, HUAYU_LIVE_BASEMAP_LAYERS.railway,
+      HUAYU_LIVE_BASEMAP_LAYERS.road, HUAYU_LIVE_BASEMAP_LAYERS.tunnel,
+      HUAYU_LIVE_BASEMAP_LAYERS.railway,
       HUAYU_LIVE_BASEMAP_LAYERS.treeTrunk, HUAYU_LIVE_BASEMAP_LAYERS.treeCanopy];
     if (requiredLayers.some((layerId) => !state.glMap.getLayer(layerId))) return false;
     return huayuLiveBasemapKeysReady(state, state.detailTileKeys)
@@ -27108,7 +27143,8 @@
       clearHuayuLiveBasemapPrimarySync(state);
       syncHuayuLiveBasemapPrimaryLayers(glMap, state, false);
     }
-    for (const id of [HUAYU_LIVE_BASEMAP_LAYERS.roadCasing, HUAYU_LIVE_BASEMAP_LAYERS.road]) {
+    for (const id of [HUAYU_LIVE_BASEMAP_LAYERS.roadCasing, HUAYU_LIVE_BASEMAP_LAYERS.road,
+      HUAYU_LIVE_BASEMAP_LAYERS.tunnelCasing, HUAYU_LIVE_BASEMAP_LAYERS.tunnel]) {
       const layer = glMap.getLayer(id), minimum = huayuLiveBasemapMinimumZoom();
       if (layer && layer.minzoom !== minimum) glMap.setLayerZoomRange(id, minimum, layer.maxzoom ?? 24);
     }
@@ -27240,13 +27276,13 @@
     const bbox = `${bounds.south.toFixed(7)},${bounds.west.toFixed(7)},${bounds.north.toFixed(7)},${bounds.east.toFixed(7)}`;
     if (tile.z < 13) {
       return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
-        + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});)->.roads;`
+        + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});)->.roads;`
         + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
     }
     const highwaySelector = tile.z <= 13
       ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
     const elevatedWays = tile.z <= 13
-      ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});` : "";
+      ? `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});` : "";
     const treeNodes = tile.z >= 15
       ? `node["natural"="tree"](${bbox})->.basemapTrees;` : "";
     const gardenNodes = tile.z >= 15

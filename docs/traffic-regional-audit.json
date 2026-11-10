@@ -1,0 +1,2477 @@
+{
+  "algorithm": "8.0-traffic-regional-audit-v1",
+  "generatedAt": "2026-11-09T15:15:54.112Z",
+  "methodology": "Production loader and simulation; four complete bounded inputs, population/access conservation and 20 seconds of aggregate inventory checks. Source timestamps are retained; replay is not a fresh download.",
+  "reports": [
+    {
+      "id": "309347",
+      "name": "原西省",
+      "level": "4",
+      "startedAt": "2026-11-09T08:48:01.943Z",
+      "finishedAt": "2026-11-09T08:48:03.191Z",
+      "mode": "replayed-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794207457000,
+        1794207457000,
+        1794207457000,
+        1794207457000
+      ],
+      "readAt": 1794207814433,
+      "roads": 1862,
+      "roadTypes": {
+        "secondary": 44,
+        "residential": 1279,
+        "tertiary": 114,
+        "tertiary_link": 2,
+        "service": 315,
+        "unclassified": 21,
+        "living_street": 13,
+        "motorway": 2,
+        "trunk": 50,
+        "primary": 22
+      },
+      "edges": 10970,
+      "buildings": 1217,
+      "population": 1340000,
+      "connected": 1299473.7035699887,
+      "unconnected": 40526.29643001116,
+      "unserved": 255.4206444625662,
+      "hourly": 25032.456370897286,
+      "pairs": 5021,
+      "missingPopulation": 1,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 3,
+        "withPopulation": 3,
+        "withoutPopulation": 0,
+        "byType": {
+          "village": {
+            "total": 2,
+            "withPopulation": 2
+          },
+          "city": {
+            "total": 1,
+            "withPopulation": 1
+          }
+        }
+      },
+      "localityInventoryComplete": false,
+      "aggregateConservation": true,
+      "moving": 8397,
+      "ms": 1247,
+      "buildingAudit": {
+        "footprintArea": 7597959.961894959,
+        "floorArea": 15348970.544589937,
+        "areas": [
+          {
+            "id": "relation:309347",
+            "name": "原西省",
+            "level": 4,
+            "residualArea": false,
+            "buildings": 1216,
+            "homeBuildings": 763,
+            "floorArea": 15346083.931175172,
+            "residents": 1340000,
+            "unconnectedResidents": 40526.29643001201
+          }
+        ]
+      }
+    },
+    {
+      "id": "307794",
+      "name": "金沙省",
+      "level": "4",
+      "startedAt": "2026-11-09T08:45:10.053Z",
+      "finishedAt": "2026-11-09T08:45:46.621Z",
+      "mode": "live-population-with-retained-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown",
+        "lower-boundary-gaps",
+        "many-residents-unconnected"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213423000,
+        1794213423000,
+        1794213423000
+      ],
+      "readAt": 1794213918460,
+      "roads": 14410,
+      "roadTypes": {
+        "primary": 1459,
+        "motorway": 1444,
+        "secondary": 1305,
+        "motorway_link": 1962,
+        "trunk": 463,
+        "tertiary": 1658,
+        "residential": 2446,
+        "unclassified": 53,
+        "primary_link": 572,
+        "trunk_link": 1329,
+        "service": 1579,
+        "secondary_link": 117,
+        "tertiary_link": 23
+      },
+      "edges": 51868,
+      "buildings": 3226,
+      "population": 53270000,
+      "connected": 40118008.91436651,
+      "unconnected": 13151991.085633483,
+      "unserved": 2972883.6115756785,
+      "hourly": 2217615.7633312163,
+      "pairs": 9637,
+      "missingPopulation": 335,
+      "populationConflicts": [],
+      "boundaryWarnings": [
+        {
+          "id": "relation:416182",
+          "name": "南山区",
+          "reason": "行政边界 416182 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416209",
+          "name": "高阳工业园区",
+          "reason": "行政边界 416209 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:34478",
+          "name": "扈水镇",
+          "reason": "行政边界 34478 无完整外环",
+          "pointFallback": false,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:415039",
+          "name": "万丛街道",
+          "reason": "行政边界 415039 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416210",
+          "name": "漕溪街道",
+          "reason": "行政边界 416210 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:442050",
+          "name": "石东街道",
+          "reason": "行政边界 442050 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450130",
+          "name": "丰华街道",
+          "reason": "行政边界 450130 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450136",
+          "name": "蓬州街道",
+          "reason": "行政边界 450136 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450141",
+          "name": "曲水镇",
+          "reason": "行政边界 450141 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450332",
+          "name": "棠川街道",
+          "reason": "行政边界 450332 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450333",
+          "name": "渔湾街道",
+          "reason": "行政边界 450333 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450334",
+          "name": "博海街道",
+          "reason": "行政边界 450334 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450335",
+          "name": "喜山街道",
+          "reason": "行政边界 450335 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450341",
+          "name": "东阳街道",
+          "reason": "行政边界 450341 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450342",
+          "name": "九龙湖镇",
+          "reason": "行政边界 450342 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450343",
+          "name": "宏江街道",
+          "reason": "行政边界 450343 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:572567",
+          "name": "鹧鸪河镇",
+          "reason": "行政边界 572567 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:410943",
+          "name": "三江社区",
+          "reason": "行政边界 410943 无完整外环",
+          "pointFallback": false,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416163",
+          "name": "上黄街道",
+          "reason": "行政边界 416163 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416164",
+          "name": "泰村街道",
+          "reason": "行政边界 416164 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450624",
+          "name": "园区社区",
+          "reason": "行政边界 450624 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450632",
+          "name": "溪北社区",
+          "reason": "行政边界 450632 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        }
+      ],
+      "localities": {
+        "total": 538,
+        "withPopulation": 13,
+        "withoutPopulation": 525,
+        "byType": {
+          "town": {
+            "total": 178,
+            "withPopulation": 0
+          },
+          "city": {
+            "total": 86,
+            "withPopulation": 13
+          },
+          "village": {
+            "total": 58,
+            "withPopulation": 0
+          },
+          "suburb": {
+            "total": 143,
+            "withPopulation": 0
+          },
+          "quarter": {
+            "total": 68,
+            "withPopulation": 0
+          },
+          "state": {
+            "total": 1,
+            "withPopulation": 0
+          },
+          "hamlet": {
+            "total": 4,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 257259,
+      "ms": 36568,
+      "buildingAudit": {
+        "footprintArea": 8337891.499969685,
+        "floorArea": 45815826.831578515,
+        "areas": [
+          {
+            "id": "relation:300312",
+            "name": "通冈市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 2450000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:300316",
+            "name": "浦北市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 2880000,
+            "unconnectedResidents": 2880000
+          },
+          {
+            "id": "relation:300407",
+            "name": "日出岛市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 3620000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:307794",
+            "name": "金沙省",
+            "level": 4,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:347805",
+            "name": "高阳府",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 2732,
+            "homeBuildings": 1313,
+            "floorArea": 40290245.5871981,
+            "residents": 9270000,
+            "unconnectedResidents": 111443.87192620413
+          },
+          {
+            "id": "relation:347807",
+            "name": "武港市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 60,
+            "homeBuildings": 53,
+            "floorArea": 2041455.5169539452,
+            "residents": 3900000,
+            "unconnectedResidents": 64073.099967989765
+          },
+          {
+            "id": "relation:347808",
+            "name": "海雾市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 27,
+            "homeBuildings": 20,
+            "floorArea": 2342072.6708070263,
+            "residents": 4500000,
+            "unconnectedResidents": 4368669.940994491
+          },
+          {
+            "id": "relation:438794",
+            "name": "樊阳市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 22,
+            "homeBuildings": 16,
+            "floorArea": 653850.4702222645,
+            "residents": 6500000,
+            "unconnectedResidents": 29561.60037070776
+          },
+          {
+            "id": "relation:438796",
+            "name": "塱滘直厅",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 2900000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:438797",
+            "name": "立石市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 35,
+            "homeBuildings": 14,
+            "floorArea": 140276.4993133545,
+            "residents": 5250000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:438798",
+            "name": "桦凌市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 4700000,
+            "unconnectedResidents": 4700000
+          },
+          {
+            "id": "relation:444034",
+            "name": "荆川直厅",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 350,
+            "homeBuildings": 306,
+            "floorArea": 347926.0870838165,
+            "residents": 3050000.0000000005,
+            "unconnectedResidents": 998242.5723740909
+          },
+          {
+            "id": "relation:444035",
+            "name": "铐江市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 4250000,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "28660",
+      "name": "上京都",
+      "level": "4",
+      "startedAt": "2026-11-09T08:45:56.937Z",
+      "finishedAt": "2026-11-09T08:46:08.805Z",
+      "mode": "live-population-with-retained-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213423000,
+        1794213423000,
+        1794213423000
+      ],
+      "readAt": 1794213960223,
+      "roads": 7380,
+      "roadTypes": {
+        "residential": 1740,
+        "living_street": 21,
+        "tertiary": 956,
+        "secondary": 609,
+        "motorway": 199,
+        "service": 2043,
+        "unclassified": 157,
+        "primary": 502,
+        "trunk": 317,
+        "motorway_link": 317,
+        "primary_link": 215,
+        "tertiary_link": 13,
+        "secondary_link": 48,
+        "trunk_link": 243
+      },
+      "edges": 34863,
+      "buildings": 6855,
+      "population": 37000000,
+      "connected": 31604627.59261459,
+      "unconnected": 5395372.407385409,
+      "unserved": 1168224.9416104737,
+      "hourly": 1961833.2288605683,
+      "pairs": 5063,
+      "missingPopulation": 66,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 497,
+        "withPopulation": 9,
+        "withoutPopulation": 488,
+        "byType": {
+          "village": {
+            "total": 97,
+            "withPopulation": 0
+          },
+          "city": {
+            "total": 22,
+            "withPopulation": 2
+          },
+          "town": {
+            "total": 58,
+            "withPopulation": 2
+          },
+          "suburb": {
+            "total": 115,
+            "withPopulation": 5
+          },
+          "quarter": {
+            "total": 161,
+            "withPopulation": 0
+          },
+          "hamlet": {
+            "total": 44,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 117392,
+      "ms": 11868,
+      "buildingAudit": {
+        "footprintArea": 10145977.67489624,
+        "floorArea": 43040580.67143631,
+        "areas": [
+          {
+            "id": "relation:28660",
+            "name": "上京都",
+            "level": 4,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:352889",
+            "name": "京正市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 6161,
+            "homeBuildings": 5154,
+            "floorArea": 39091269.79032898,
+            "residents": 289488,
+            "unconnectedResidents": 195801.16942095436
+          },
+          {
+            "id": "relation:352894",
+            "name": "甘泉区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 290,
+            "homeBuildings": 263,
+            "floorArea": 2267389.994392395,
+            "residents": 424141,
+            "unconnectedResidents": 159847.53989051442
+          },
+          {
+            "id": "relation:352895",
+            "name": "南江区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 134,
+            "homeBuildings": 100,
+            "floorArea": 568389.9201469421,
+            "residents": 9369015.921462135,
+            "unconnectedResidents": 77290.8777376967
+          },
+          {
+            "id": "relation:352897",
+            "name": "河生区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 52,
+            "homeBuildings": 46,
+            "floorArea": 120022.8617401123,
+            "residents": 5429848.880868666,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:352898",
+            "name": "丽竹区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 56,
+            "homeBuildings": 53,
+            "floorArea": 191708.90586090088,
+            "residents": 7260213.5443402035,
+            "unconnectedResidents": 2398780.913618209
+          },
+          {
+            "id": "relation:415907",
+            "name": "倪石纳西阿米诺斯族民族自治县-꓀ꑾ'ꉢꎳ ꒘ꂰꆈ꒘ꌘ ꒸ꊜ'ꅿꂾ ꆅ꒤ꑟꍎ\"꒤ꊜ",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 136,
+            "homeBuildings": 116,
+            "floorArea": 557055.0126190186,
+            "residents": 10727292.653328992,
+            "unconnectedResidents": 2552774.981177516
+          },
+          {
+            "id": "relation:439221",
+            "name": "丽都市",
+            "level": 5,
+            "residualArea": false,
+            "buildings": 26,
+            "homeBuildings": 26,
+            "floorArea": 244744.18634796143,
+            "residents": 3500000,
+            "unconnectedResidents": 10876.9255405188
+          }
+        ]
+      }
+    },
+    {
+      "id": "363176",
+      "name": "南滨市",
+      "level": "5",
+      "startedAt": "2026-11-09T08:48:03.194Z",
+      "finishedAt": "2026-11-09T08:48:16.614Z",
+      "mode": "replayed-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794194807000,
+        1794194807000,
+        1794194807000,
+        1794194807000
+      ],
+      "readAt": 1794194993763,
+      "roads": 6879,
+      "roadTypes": {
+        "primary": 491,
+        "secondary": 489,
+        "primary_link": 214,
+        "tertiary": 571,
+        "trunk": 183,
+        "motorway": 96,
+        "motorway_link": 212,
+        "service": 2082,
+        "trunk_link": 431,
+        "residential": 1766,
+        "secondary_link": 157,
+        "tertiary_link": 47,
+        "living_street": 38,
+        "unclassified": 102
+      },
+      "edges": 38570,
+      "buildings": 8351,
+      "population": 23560000,
+      "connected": 21041207.700254407,
+      "unconnected": 2518792.2997455946,
+      "unserved": 140961.64316770912,
+      "hourly": 1495364.0035331792,
+      "pairs": 8528,
+      "missingPopulation": 9,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 8,
+        "withPopulation": 8,
+        "withoutPopulation": 0,
+        "byType": {
+          "city": {
+            "total": 1,
+            "withPopulation": 1
+          },
+          "suburb": {
+            "total": 4,
+            "withPopulation": 4
+          },
+          "village": {
+            "total": 2,
+            "withPopulation": 2
+          },
+          "town": {
+            "total": 1,
+            "withPopulation": 1
+          }
+        }
+      },
+      "localityInventoryComplete": false,
+      "aggregateConservation": true,
+      "moving": 111312,
+      "ms": 13420,
+      "buildingAudit": {
+        "footprintArea": 17288025.0687339,
+        "floorArea": 62765395.12759757,
+        "areas": [
+          {
+            "id": "relation:363174",
+            "name": "武川区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 14,
+            "homeBuildings": 13,
+            "floorArea": 170858.1331090927,
+            "residents": 4397030.318947794,
+            "unconnectedResidents": 11947.289422115744
+          },
+          {
+            "id": "relation:363175",
+            "name": "旗岗区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 242,
+            "homeBuildings": 159,
+            "floorArea": 2815992.178453237,
+            "residents": 1318075.6819120399,
+            "unconnectedResidents": 31547.659368633325
+          },
+          {
+            "id": "relation:363176",
+            "name": "南滨市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 1087,
+            "homeBuildings": 923,
+            "floorArea": 6457757.945589976,
+            "residents": 3098106.842060165,
+            "unconnectedResidents": 203971.9096990915
+          },
+          {
+            "id": "relation:377664",
+            "name": "成滨区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 1331,
+            "homeBuildings": 1178,
+            "floorArea": 6367208.915966576,
+            "residents": 4583568.601597223,
+            "unconnectedResidents": 1425.4930833709848
+          },
+          {
+            "id": "relation:377665",
+            "name": "薪县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 367,
+            "homeBuildings": 225,
+            "floorArea": 6283952.141628325,
+            "residents": 2137710.202962367,
+            "unconnectedResidents": 880592.1886762368
+          },
+          {
+            "id": "relation:394323",
+            "name": "将陵区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 2202,
+            "homeBuildings": 1822,
+            "floorArea": 8357507.091083333,
+            "residents": 154200,
+            "unconnectedResidents": 247.51510166642268
+          },
+          {
+            "id": "relation:459289",
+            "name": "龙河县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 370,
+            "homeBuildings": 249,
+            "floorArea": 749747.3328613751,
+            "residents": 31000,
+            "unconnectedResidents": 501.6755226238517
+          },
+          {
+            "id": "relation:501746",
+            "name": "秋崇区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 420,
+            "homeBuildings": 323,
+            "floorArea": 2009342.2183053056,
+            "residents": 1100,
+            "unconnectedResidents": 18.123320920059452
+          },
+          {
+            "id": "relation:552951",
+            "name": "统川区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 1913,
+            "homeBuildings": 1681,
+            "floorArea": 16166204.838632384,
+            "residents": 6819892.35006393,
+            "unconnectedResidents": 1348827.6092675251
+          },
+          {
+            "id": "relation:572819",
+            "name": "西滨新区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 405,
+            "homeBuildings": 142,
+            "floorArea": 13386824.331967935,
+            "residents": 1019316.0024564718,
+            "unconnectedResidents": 39712.83628339788
+          }
+        ]
+      }
+    },
+    {
+      "id": "307796",
+      "name": "津川市",
+      "level": "5",
+      "startedAt": "2026-11-09T08:48:16.617Z",
+      "finishedAt": "2026-11-09T08:48:29.485Z",
+      "mode": "replayed-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-source-conflicts",
+        "many-residents-unconnected"
+      ],
+      "sourceTimes": [
+        1794194807000,
+        1794194807000,
+        1794194807000,
+        1794194807000
+      ],
+      "readAt": 1794195001950,
+      "roads": 3945,
+      "roadTypes": {
+        "tertiary": 450,
+        "secondary": 387,
+        "trunk": 340,
+        "service": 1406,
+        "residential": 466,
+        "primary": 613,
+        "trunk_link": 164,
+        "motorway": 100,
+        "unclassified": 3,
+        "living_street": 14,
+        "primary_link": 2
+      },
+      "edges": 28714,
+      "buildings": 8371,
+      "population": 7623086,
+      "connected": 3075248.4233324863,
+      "unconnected": 4547837.576667514,
+      "unserved": 0,
+      "hourly": 188511.34380107917,
+      "pairs": 8806,
+      "missingPopulation": 0,
+      "populationConflicts": [
+        {
+          "name": "津州区",
+          "parent": 608000,
+          "children": 849963
+        },
+        {
+          "name": "平章区",
+          "parent": 740000,
+          "children": 1101605
+        },
+        {
+          "name": "逻山区",
+          "parent": 770000,
+          "children": 931830
+        },
+        {
+          "name": "廉康镇",
+          "parent": 172353,
+          "children": 172985
+        },
+        {
+          "name": "下街",
+          "parent": 2381,
+          "children": 3105
+        },
+        {
+          "name": "桓禾县",
+          "parent": 515835,
+          "children": 516467
+        },
+        {
+          "name": "盛岸区",
+          "parent": 685000,
+          "children": 905560
+        },
+        {
+          "name": "津川市",
+          "parent": 7494310,
+          "children": 7623086
+        }
+      ],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 220,
+        "withPopulation": 220,
+        "withoutPopulation": 0,
+        "byType": {
+          "city": {
+            "total": 11,
+            "withPopulation": 11
+          },
+          "suburb": {
+            "total": 61,
+            "withPopulation": 61
+          },
+          "quarter": {
+            "total": 49,
+            "withPopulation": 49
+          },
+          "town": {
+            "total": 55,
+            "withPopulation": 55
+          },
+          "village": {
+            "total": 25,
+            "withPopulation": 25
+          },
+          "hamlet": {
+            "total": 10,
+            "withPopulation": 10
+          },
+          "neighbourhood": {
+            "total": 9,
+            "withPopulation": 9
+          }
+        }
+      },
+      "localityInventoryComplete": false,
+      "aggregateConservation": true,
+      "moving": 40397,
+      "ms": 12868,
+      "buildingAudit": {
+        "footprintArea": 7426329.560209763,
+        "floorArea": 35946242.57859078,
+        "areas": [
+          {
+            "id": "relation:307796",
+            "name": "津川市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:415935",
+            "name": "沥安厅",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 1,
+            "homeBuildings": 0,
+            "floorArea": 116652.33735251427,
+            "residents": 641222,
+            "unconnectedResidents": 641222
+          },
+          {
+            "id": "relation:475064",
+            "name": "钟鸣区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 473,
+            "homeBuildings": 261,
+            "floorArea": 6551097.258418649,
+            "residents": 570000,
+            "unconnectedResidents": 26764.216169403448
+          },
+          {
+            "id": "relation:475065",
+            "name": "铭金区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 21,
+            "homeBuildings": 0,
+            "floorArea": 796195.887532115,
+            "residents": 770000,
+            "unconnectedResidents": 102940
+          },
+          {
+            "id": "relation:475066",
+            "name": "雁华县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 2,
+            "homeBuildings": 0,
+            "floorArea": 297160.0338467788,
+            "residents": 424007,
+            "unconnectedResidents": 424007
+          },
+          {
+            "id": "relation:475067",
+            "name": "久昭厅",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 9,
+            "homeBuildings": 8,
+            "floorArea": 16782.291118741035,
+            "residents": 912432,
+            "unconnectedResidents": 912432
+          },
+          {
+            "id": "relation:475082",
+            "name": "津州区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 2689,
+            "homeBuildings": 2136,
+            "floorArea": 13437476.182716291,
+            "residents": 849963,
+            "unconnectedResidents": 399902.6631904017
+          },
+          {
+            "id": "relation:475083",
+            "name": "平章区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 3,
+            "homeBuildings": 0,
+            "floorArea": 414491.46709549427,
+            "residents": 1101605,
+            "unconnectedResidents": 695301
+          },
+          {
+            "id": "relation:475084",
+            "name": "逻山区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 63,
+            "homeBuildings": 44,
+            "floorArea": 529581.3349876106,
+            "residents": 931830,
+            "unconnectedResidents": 722994
+          },
+          {
+            "id": "relation:475115",
+            "name": "桓禾县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 5100,
+            "homeBuildings": 4401,
+            "floorArea": 13466063.330005169,
+            "residents": 516467,
+            "unconnectedResidents": 306690.6973077083
+          },
+          {
+            "id": "relation:503116",
+            "name": "盛岸区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 10,
+            "homeBuildings": 1,
+            "floorArea": 320742.45551741123,
+            "residents": 905560,
+            "unconnectedResidents": 315584
+          }
+        ]
+      }
+    },
+    {
+      "id": "309351",
+      "name": "北沪市",
+      "level": "5",
+      "startedAt": "2026-11-09T08:45:46.623Z",
+      "finishedAt": "2026-11-09T08:45:56.934Z",
+      "mode": "live-population-with-retained-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213423000,
+        1794213423000,
+        1794213423000
+      ],
+      "readAt": 1794213948646,
+      "roads": 6858,
+      "roadTypes": {
+        "primary": 938,
+        "primary_link": 106,
+        "motorway": 149,
+        "secondary": 905,
+        "trunk": 333,
+        "trunk_link": 455,
+        "motorway_link": 261,
+        "tertiary": 830,
+        "residential": 1262,
+        "secondary_link": 92,
+        "service": 1519,
+        "tertiary_link": 8
+      },
+      "edges": 31294,
+      "buildings": 2154,
+      "population": 1450000,
+      "connected": 1362436.780230936,
+      "unconnected": 87563.21976906406,
+      "unserved": 14789.162629003496,
+      "hourly": 101785.17743381385,
+      "pairs": 5381,
+      "missingPopulation": 6,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 312,
+        "withPopulation": 1,
+        "withoutPopulation": 311,
+        "byType": {
+          "city": {
+            "total": 14,
+            "withPopulation": 1
+          },
+          "quarter": {
+            "total": 224,
+            "withPopulation": 0
+          },
+          "hamlet": {
+            "total": 1,
+            "withPopulation": 0
+          },
+          "town": {
+            "total": 15,
+            "withPopulation": 0
+          },
+          "suburb": {
+            "total": 57,
+            "withPopulation": 0
+          },
+          "village": {
+            "total": 1,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 12966,
+      "ms": 10311,
+      "buildingAudit": {
+        "footprintArea": 2308465.7687660772,
+        "floorArea": 20881788.428377528,
+        "areas": [
+          {
+            "id": "relation:309351",
+            "name": "北沪市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 889,
+            "homeBuildings": 335,
+            "floorArea": 11498998.660644516,
+            "residents": 1045376.4317227304,
+            "unconnectedResidents": 13203.14612657915
+          },
+          {
+            "id": "relation:555987",
+            "name": "符港区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:555988",
+            "name": "三泉县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:555989",
+            "name": "符图县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 103,
+            "homeBuildings": 73,
+            "floorArea": 275912.1780855553,
+            "residents": 30185.52822166241,
+            "unconnectedResidents": 461.08908757163573
+          },
+          {
+            "id": "relation:572533",
+            "name": "华和区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 882,
+            "homeBuildings": 592,
+            "floorArea": 7052608.945830941,
+            "residents": 173700.6036744373,
+            "unconnectedResidents": 60046.95538205983
+          },
+          {
+            "id": "relation:572535",
+            "name": "宋山区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 237,
+            "homeBuildings": 73,
+            "floorArea": 1915519.1182697266,
+            "residents": 190509.53380380492,
+            "unconnectedResidents": 9546.844065551135
+          },
+          {
+            "id": "relation:574320",
+            "name": "归仁县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 43,
+            "homeBuildings": 34,
+            "floorArea": 138749.52554678824,
+            "residents": 10227.902577371231,
+            "unconnectedResidents": 4305.185107306882
+          }
+        ]
+      }
+    },
+    {
+      "id": "347805",
+      "name": "高阳府",
+      "level": "5",
+      "startedAt": "2026-11-09T08:48:29.488Z",
+      "finishedAt": "2026-11-09T08:48:50.465Z",
+      "mode": "replayed-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown",
+        "lower-boundary-gaps"
+      ],
+      "sourceTimes": [
+        1794201150000,
+        1794201150000,
+        1794201150000,
+        1794201150000
+      ],
+      "readAt": 1794202027358,
+      "roads": 10898,
+      "roadTypes": {
+        "motorway": 683,
+        "motorway_link": 762,
+        "trunk": 319,
+        "residential": 1846,
+        "tertiary": 1437,
+        "trunk_link": 1278,
+        "service": 1542,
+        "primary_link": 558,
+        "primary": 1135,
+        "secondary": 1182,
+        "secondary_link": 117,
+        "tertiary_link": 20,
+        "unclassified": 19
+      },
+      "edges": 40607,
+      "buildings": 2732,
+      "population": 9270000,
+      "connected": 9158559.111775368,
+      "unconnected": 111440.88822463133,
+      "unserved": 83393.331400699,
+      "hourly": 681149.6823530655,
+      "pairs": 8741,
+      "missingPopulation": 190,
+      "populationConflicts": [],
+      "boundaryWarnings": [
+        {
+          "id": "relation:416182",
+          "name": "南山区",
+          "reason": "行政边界 416182 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416209",
+          "name": "高阳工业园区",
+          "reason": "行政边界 416209 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:415039",
+          "name": "万丛街道",
+          "reason": "行政边界 415039 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416210",
+          "name": "漕溪街道",
+          "reason": "行政边界 416210 未闭合",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:410943",
+          "name": "三江社区",
+          "reason": "行政边界 410943 无完整外环",
+          "pointFallback": false,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416163",
+          "name": "上黄街道",
+          "reason": "行政边界 416163 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:416164",
+          "name": "泰村街道",
+          "reason": "行政边界 416164 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450624",
+          "name": "园区社区",
+          "reason": "行政边界 450624 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450632",
+          "name": "溪北社区",
+          "reason": "行政边界 450632 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        }
+      ],
+      "localities": {
+        "total": 188,
+        "withPopulation": 2,
+        "withoutPopulation": 186,
+        "byType": {
+          "suburb": {
+            "total": 105,
+            "withPopulation": 0
+          },
+          "city": {
+            "total": 13,
+            "withPopulation": 2
+          },
+          "town": {
+            "total": 50,
+            "withPopulation": 0
+          },
+          "quarter": {
+            "total": 20,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": false,
+      "aggregateConservation": true,
+      "moving": 72332,
+      "ms": 20977,
+      "buildingAudit": {
+        "footprintArea": 6570821.339486468,
+        "floorArea": 40461645.06242487,
+        "areas": [
+          {
+            "id": "relation:347805",
+            "name": "高阳府",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:347809",
+            "name": "清河区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 822,
+            "homeBuildings": 319,
+            "floorArea": 8606113.266018098,
+            "residents": 1650000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:351385",
+            "name": "平湖区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 654,
+            "homeBuildings": 238,
+            "floorArea": 13882694.852365116,
+            "residents": 1689276.5366243839,
+            "unconnectedResidents": 10317.056388435105
+          },
+          {
+            "id": "relation:407872",
+            "name": "高港区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 129,
+            "homeBuildings": 30,
+            "floorArea": 1162492.0350076086,
+            "residents": 1183801.3068729306,
+            "unconnectedResidents": 10698.256550680971
+          },
+          {
+            "id": "relation:416170",
+            "name": "高平区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 270,
+            "homeBuildings": 122,
+            "floorArea": 5549239.418053952,
+            "residents": 1375827.878632758,
+            "unconnectedResidents": 25562.106006162056
+          },
+          {
+            "id": "relation:416173",
+            "name": "平沙区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 238,
+            "homeBuildings": 167,
+            "floorArea": 3140304.959606747,
+            "residents": 1499486.5825493478,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416174",
+            "name": "滨江街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 17,
+            "homeBuildings": 6,
+            "floorArea": 440925.65447739605,
+            "residents": 146975.68181651164,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416175",
+            "name": "南业街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 114203.97228461452,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416176",
+            "name": "河回街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416177",
+            "name": "江北街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 1,
+            "homeBuildings": 1,
+            "floorArea": 322546.71638634056,
+            "residents": 93875.46096539564,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416178",
+            "name": "东北塘街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416179",
+            "name": "云林街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 32653.822828198834,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416180",
+            "name": "东林街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416181",
+            "name": "金沙街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416190",
+            "name": "白石区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 15,
+            "homeBuildings": 11,
+            "floorArea": 85560.73630934488,
+            "residents": 52444.31273732571,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416191",
+            "name": "凤山区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 13,
+            "homeBuildings": 7,
+            "floorArea": 93129.0346791856,
+            "residents": 9402.922202229705,
+            "unconnectedResidents": 709.2210176881333
+          },
+          {
+            "id": "relation:416194",
+            "name": "金庭区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 384,
+            "homeBuildings": 322,
+            "floorArea": 2598709.5577507415,
+            "residents": 885954.35734548,
+            "unconnectedResidents": 41683.46980699175
+          },
+          {
+            "id": "relation:416201",
+            "name": "新北区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 49,
+            "homeBuildings": 16,
+            "floorArea": 1036553.1173470169,
+            "residents": 35767.16487078296,
+            "unconnectedResidents": 7274.837881885172
+          },
+          {
+            "id": "relation:416203",
+            "name": "万年镇",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:416204",
+            "name": "琴似区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 57,
+            "homeBuildings": 48,
+            "floorArea": 816835.2439383715,
+            "residents": 345967.8797160559,
+            "unconnectedResidents": 9167.088640885218
+          },
+          {
+            "id": "relation:416212",
+            "name": "龙阳区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 77,
+            "homeBuildings": 23,
+            "floorArea": 2540993.86551442,
+            "residents": 75437.6551694578,
+            "unconnectedResidents": 6028.8519318951
+          },
+          {
+            "id": "relation:420156",
+            "name": "上河街道",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 6,
+            "homeBuildings": 3,
+            "floorArea": 185546.60497052222,
+            "residents": 78924.46538451935,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:420157",
+            "name": "澛渔镇",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "305055",
+      "name": "Kadah",
+      "level": "2",
+      "startedAt": "2026-11-09T08:45:00.712Z",
+      "finishedAt": "2026-11-09T08:45:10.048Z",
+      "mode": "live-population-with-retained-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213064000,
+        1794213064000,
+        1794213064000
+      ],
+      "readAt": 1794213902442,
+      "roads": 6598,
+      "roadTypes": {
+        "trunk": 179,
+        "primary": 208,
+        "residential": 3368,
+        "service": 2294,
+        "secondary": 161,
+        "tertiary_link": 3,
+        "tertiary": 277,
+        "living_street": 14,
+        "unclassified": 68,
+        "secondary_link": 10,
+        "primary_link": 16
+      },
+      "edges": 38576,
+      "buildings": 7601,
+      "population": 890000,
+      "connected": 877120.5680827717,
+      "unconnected": 12879.4319172283,
+      "unserved": 23245.70572627367,
+      "hourly": 56492.932295558865,
+      "pairs": 5423,
+      "missingPopulation": 1,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 450,
+        "withPopulation": 7,
+        "withoutPopulation": 443,
+        "byType": {
+          "city": {
+            "total": 28,
+            "withPopulation": 4
+          },
+          "town": {
+            "total": 105,
+            "withPopulation": 3
+          },
+          "village": {
+            "total": 284,
+            "withPopulation": 0
+          },
+          "hamlet": {
+            "total": 33,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 12283,
+      "ms": 9335,
+      "buildingAudit": {
+        "footprintArea": 3239373.349881731,
+        "floorArea": 7286771.819705769,
+        "areas": [
+          {
+            "id": "relation:305055",
+            "name": "Kadah",
+            "level": 2,
+            "residualArea": false,
+            "buildings": 7601,
+            "homeBuildings": 6343,
+            "floorArea": 7286771.819705769,
+            "residents": 890000,
+            "unconnectedResidents": 12879.431917227483
+          }
+        ]
+      }
+    },
+    {
+      "id": "43812",
+      "name": "Hespi-Szaja",
+      "level": "2",
+      "startedAt": "2026-11-09T08:47:11.831Z",
+      "finishedAt": "2026-11-09T08:47:39.144Z",
+      "mode": "live-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213423000,
+        1794213423000,
+        1794213423000
+      ],
+      "readAt": 1794214048453,
+      "roads": 2708,
+      "roadTypes": {
+        "unclassified": 873,
+        "primary": 164,
+        "residential": 247,
+        "secondary": 150,
+        "living_street": 28,
+        "service": 1090,
+        "tertiary": 76,
+        "trunk": 49,
+        "trunk_link": 31
+      },
+      "edges": 24846,
+      "buildings": 23862,
+      "population": 210000,
+      "connected": 176762.75906718592,
+      "unconnected": 33237.24093281408,
+      "unserved": 15743.701144624993,
+      "hourly": 12092.304603461638,
+      "pairs": 8205,
+      "missingPopulation": 1,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 87,
+        "withPopulation": 0,
+        "withoutPopulation": 87,
+        "byType": {
+          "village": {
+            "total": 47,
+            "withPopulation": 0
+          },
+          "hamlet": {
+            "total": 32,
+            "withPopulation": 0
+          },
+          "town": {
+            "total": 7,
+            "withPopulation": 0
+          },
+          "country": {
+            "total": 1,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 3336,
+      "ms": 27312,
+      "buildingAudit": {
+        "footprintArea": 4025839.691637794,
+        "floorArea": 8096933.894979524,
+        "areas": [
+          {
+            "id": "relation:43812",
+            "name": "Hespi-Szaja",
+            "level": 2,
+            "residualArea": true,
+            "buildings": 23858,
+            "homeBuildings": 22194,
+            "floorArea": 8084272.046062338,
+            "residents": 209676.3515556731,
+            "unconnectedResidents": 33237.240932814195
+          },
+          {
+            "id": "relation:154184",
+            "name": "Kwiaz Spadj Tekhug Ekdun",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 4,
+            "homeBuildings": 4,
+            "floorArea": 12661.84891718626,
+            "residents": 323.64844432687886,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "154184",
+      "name": "Kwiaz Spadj Tekhug Ekdun",
+      "level": "8",
+      "startedAt": "2026-11-09T08:48:55.329Z",
+      "finishedAt": "2026-11-09T08:48:58.049Z",
+      "mode": "live-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "no-known-population",
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794213423000,
+        1794213423000,
+        1794213423000,
+        1794213423000
+      ],
+      "readAt": 1794214138040,
+      "roads": 3,
+      "roadTypes": {
+        "unclassified": 1,
+        "service": 2
+      },
+      "edges": 16,
+      "buildings": 4,
+      "population": 0,
+      "connected": 0,
+      "unconnected": 0,
+      "unserved": 0,
+      "hourly": 0,
+      "pairs": 0,
+      "missingPopulation": 1,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 0,
+        "withPopulation": 0,
+        "withoutPopulation": 0,
+        "byType": {}
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 0,
+      "ms": 2719,
+      "buildingAudit": {
+        "footprintArea": 6323.053453690747,
+        "floorArea": 12646.106907381494,
+        "areas": [
+          {
+            "id": "relation:154184",
+            "name": "Kwiaz Spadj Tekhug Ekdun",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 4,
+            "homeBuildings": 4,
+            "floorArea": 12646.106907381494,
+            "residents": 0,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "426157",
+      "name": "汤海共和国",
+      "startedAt": "2026-11-09T08:52:46.406Z",
+      "finishedAt": "2026-11-09T08:52:48.123Z",
+      "status": "not-complete",
+      "stage": "complete-input",
+      "error": "设施／建筑 relation:566910 范围无效：无完整外环；请修复源几何或选择较小范围，未接管部分结果",
+      "ms": 1714,
+      "level": "2"
+    },
+    {
+      "id": "300312",
+      "name": "通冈市",
+      "level": "5",
+      "startedAt": "2026-11-09T15:12:55.797Z",
+      "finishedAt": "2026-11-09T15:12:59.720Z",
+      "mode": "live-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown"
+      ],
+      "sourceTimes": [
+        1794236525000,
+        1794236525000,
+        1794236525000,
+        1794236525000
+      ],
+      "readAt": 1794237179576,
+      "roads": 187,
+      "roadTypes": {
+        "motorway": 73,
+        "trunk": 12,
+        "primary": 11,
+        "motorway_link": 85,
+        "tertiary": 2,
+        "secondary": 2,
+        "residential": 2
+      },
+      "edges": 372,
+      "buildings": 0,
+      "population": 2450000,
+      "connected": 2450000,
+      "unconnected": 0,
+      "unserved": 0,
+      "hourly": 2286.3471324372154,
+      "pairs": 4,
+      "missingPopulation": 6,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 11,
+        "withPopulation": 1,
+        "withoutPopulation": 10,
+        "byType": {
+          "city": {
+            "total": 7,
+            "withPopulation": 1
+          },
+          "town": {
+            "total": 4,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 2592,
+      "ms": 3920,
+      "buildingAudit": {
+        "footprintArea": 0,
+        "floorArea": 0,
+        "areas": [
+          {
+            "id": "relation:300312",
+            "name": "通冈市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:442906",
+            "name": "檎阳县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:459475",
+            "name": "西冈县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:459476",
+            "name": "珐涵县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:459477",
+            "name": "冈南区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:459478",
+            "name": "秦安区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 2450000,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:459479",
+            "name": "书库区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "347807",
+      "name": "武港市",
+      "level": "5",
+      "startedAt": "2026-11-09T15:12:59.722Z",
+      "finishedAt": "2026-11-09T15:13:02.785Z",
+      "mode": "live-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown",
+        "lower-boundary-gaps"
+      ],
+      "sourceTimes": [
+        1794236525000,
+        1794236525000,
+        1794236525000,
+        1794236525000
+      ],
+      "readAt": 1794237182585,
+      "roads": 405,
+      "roadTypes": {
+        "motorway": 83,
+        "tertiary": 35,
+        "residential": 33,
+        "secondary": 18,
+        "primary": 27,
+        "primary_link": 2,
+        "motorway_link": 191,
+        "tertiary_link": 3,
+        "trunk": 13
+      },
+      "edges": 1092,
+      "buildings": 60,
+      "population": 3900000,
+      "connected": 3835926.9000321846,
+      "unconnected": 64073.09996781532,
+      "unserved": 0,
+      "hourly": 208901.34468255047,
+      "pairs": 269,
+      "missingPopulation": 13,
+      "populationConflicts": [],
+      "boundaryWarnings": [
+        {
+          "id": "relation:450136",
+          "name": "蓬州街道",
+          "reason": "行政边界 450136 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450141",
+          "name": "曲水镇",
+          "reason": "行政边界 450141 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        },
+        {
+          "id": "relation:450335",
+          "name": "喜山街道",
+          "reason": "行政边界 450335 无完整外环",
+          "pointFallback": true,
+          "populationUnlocated": false
+        }
+      ],
+      "localities": {
+        "total": 36,
+        "withPopulation": 1,
+        "withoutPopulation": 35,
+        "byType": {
+          "village": {
+            "total": 5,
+            "withPopulation": 0
+          },
+          "city": {
+            "total": 9,
+            "withPopulation": 1
+          },
+          "suburb": {
+            "total": 5,
+            "withPopulation": 0
+          },
+          "town": {
+            "total": 17,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 17889,
+      "ms": 3063,
+      "buildingAudit": {
+        "footprintArea": 1021663.1320065483,
+        "floorArea": 2043326.2640130967,
+        "areas": [
+          {
+            "id": "relation:347807",
+            "name": "武港市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450135",
+            "name": "新泉区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450137",
+            "name": "武洲区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450138",
+            "name": "湾子区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 3560015.3305869424,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450139",
+            "name": "兴武区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450140",
+            "name": "新港区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450142",
+            "name": "良衾县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 60,
+            "homeBuildings": 53,
+            "floorArea": 2043326.2640130967,
+            "residents": 339984.6694130578,
+            "unconnectedResidents": 64073.09996781517
+          },
+          {
+            "id": "relation:450337",
+            "name": "涵桓县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450340",
+            "name": "任虹县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "347808",
+      "name": "海雾市",
+      "level": "5",
+      "startedAt": "2026-11-09T15:13:02.789Z",
+      "finishedAt": "2026-11-09T15:13:05.007Z",
+      "mode": "live-complete-source",
+      "status": "complete-with-limitations",
+      "issues": [
+        "population-coverage-unknown",
+        "many-residents-unconnected"
+      ],
+      "sourceTimes": [
+        1794236525000,
+        1794236525000,
+        1794236525000,
+        1794236525000
+      ],
+      "readAt": 1794237184855,
+      "roads": 468,
+      "roadTypes": {
+        "primary": 64,
+        "secondary": 14,
+        "unclassified": 19,
+        "residential": 33,
+        "tertiary": 5,
+        "motorway": 135,
+        "motorway_link": 94,
+        "trunk": 58,
+        "trunk_link": 38,
+        "primary_link": 8
+      },
+      "edges": 1197,
+      "buildings": 27,
+      "population": 4500000,
+      "connected": 131330.0590047827,
+      "unconnected": 4368669.940995217,
+      "unserved": 15666.736893143074,
+      "hourly": 9107.829234334295,
+      "pairs": 26,
+      "missingPopulation": 20,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 37,
+        "withPopulation": 1,
+        "withoutPopulation": 36,
+        "byType": {
+          "town": {
+            "total": 22,
+            "withPopulation": 0
+          },
+          "city": {
+            "total": 7,
+            "withPopulation": 1
+          },
+          "village": {
+            "total": 4,
+            "withPopulation": 0
+          },
+          "suburb": {
+            "total": 4,
+            "withPopulation": 0
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 9621,
+      "ms": 2218,
+      "buildingAudit": {
+        "footprintArea": 332409.8728475459,
+        "floorArea": 2346217.5061043054,
+        "areas": [
+          {
+            "id": "relation:347808",
+            "name": "海雾市",
+            "level": 5,
+            "residualArea": true,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:440778",
+            "name": "雾霭区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450045",
+            "name": "烟升区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 5,
+            "homeBuildings": 0,
+            "floorArea": 158704.48492754996,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450046",
+            "name": "山望区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450047",
+            "name": "缥缈区",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          },
+          {
+            "id": "relation:450049",
+            "name": "瓦里县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 22,
+            "homeBuildings": 20,
+            "floorArea": 2187513.0211767554,
+            "residents": 4500000,
+            "unconnectedResidents": 4368669.940995216
+          },
+          {
+            "id": "relation:450050",
+            "name": "侯安县",
+            "level": 6,
+            "residualArea": false,
+            "buildings": 0,
+            "homeBuildings": 0,
+            "floorArea": 0,
+            "residents": 0,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "524354",
+      "name": "恩野区",
+      "level": "8",
+      "startedAt": "2026-11-09T15:14:26.285Z",
+      "finishedAt": "2026-11-09T15:14:28.513Z",
+      "mode": "live-complete-source",
+      "status": "complete",
+      "issues": [],
+      "sourceTimes": [
+        1794236525000,
+        1794236525000,
+        1794236525000,
+        1794236525000
+      ],
+      "readAt": 1794237268368,
+      "roads": 60,
+      "roadTypes": {
+        "trunk": 4,
+        "secondary": 11,
+        "motorway": 14,
+        "primary": 13,
+        "motorway_link": 13,
+        "unclassified": 1,
+        "tertiary": 4
+      },
+      "edges": 224,
+      "buildings": 1,
+      "population": 450000,
+      "connected": 450000,
+      "unconnected": 0,
+      "unserved": 10975.57779727673,
+      "hourly": 22088.84519490415,
+      "pairs": 72,
+      "missingPopulation": 0,
+      "populationConflicts": [],
+      "boundaryWarnings": [],
+      "localities": {
+        "total": 1,
+        "withPopulation": 1,
+        "withoutPopulation": 0,
+        "byType": {
+          "suburb": {
+            "total": 1,
+            "withPopulation": 1
+          }
+        }
+      },
+      "localityInventoryComplete": true,
+      "aggregateConservation": true,
+      "moving": 1337,
+      "ms": 2227,
+      "buildingAudit": {
+        "footprintArea": 1211.832840476185,
+        "floorArea": 2423.66568095237,
+        "areas": [
+          {
+            "id": "relation:524354",
+            "name": "恩野区",
+            "level": 8,
+            "residualArea": false,
+            "buildings": 1,
+            "homeBuildings": 1,
+            "floorArea": 2423.66568095237,
+            "residents": 450000,
+            "unconnectedResidents": 0
+          }
+        ]
+      }
+    }
+  ]
+}

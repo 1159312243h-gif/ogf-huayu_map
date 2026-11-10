@@ -71,6 +71,13 @@ check("lane geometry uses the same metre offsets, clips long roads to the view, 
   const raw=[road('wide',line,{lanes:'4',width:'12'}),road('bridge',[['c',-300,20],['d',300,20]],{layer:'1'})],copy=plain(raw);
   const graph=g(raw,{regional:true}),bounds=[-.001,-.001,.001,.001],view=C.laneGeometry(graph,bounds);
   assert.equal(view.roads,1);assert.equal(view.estimated,0);
+  assert.equal(view.deferredElevated,1,"bridge lane allocation is retained until a legal deck height is accepted");
+  assert.equal(view.deferredTunnel,0);
+  assert.equal(C.laneGeometry(graph,[1,1,2,2]).deferred.length,0,"out-of-view bridge metadata must not cross the Worker boundary");
+  assert.equal(C.laneGeometry(g(Array.from({length:1201},(_,i)=>road(`bridge-${i}`,[[`a${i}`,-100,20],[`b${i}`,100,20]],{layer:'1',highway:'primary'})),{regional:true}),bounds).deferred.length,1200,"bridge metadata respects the near-view segment budget");
+  const tunnelView=C.laneGeometry(g([road('tunnel',line,{tunnel:'yes',lanes:'4'})],{regional:true}),bounds);
+  assert.equal(tunnelView.roads,0);assert.equal(tunnelView.deferredTunnel,1,"underground lanes remain data-only until an underground surface exists");
+  assert.equal(tunnelView.deferred[0].lanes,4,"deferred lane metadata reports the physical total, rather than one direction");
   assert.equal(view.features.filter(f=>f.properties.kind==='divider').length,2);
   assert.equal(view.features.filter(f=>f.properties.kind==='center').length,1);
   for(const f of view.features)for(const part of f.geometry.coordinates)for(const [x,y] of part){assert.ok(x>=bounds[0]-1e-10&&x<=bounds[2]+1e-10&&y>=bounds[1]-1e-10&&y<=bounds[3]+1e-10);}

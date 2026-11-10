@@ -283,7 +283,9 @@ check("overview tile selection, query parity and preview camera preserve broad c
   vm.runInContext("result=huayuLiveBasemapViewTiles(null,bounds);",c);
   assert.equal(c.result.snapshotTiles.length,25);assert.equal(c.result.detailTiles.length,0,
     "overview plus detail must fit the existing 72-tile cache together");
-  assert.ok(c.query.includes('way["highway"]["layer"](') && c.query.includes('way["highway"]["bridge"]'));
+  assert.ok(c.query.includes('way["highway"]["layer"](')
+    && c.query.includes('way["highway"]["bridge"]')
+    && c.query.includes('way["highway"]["tunnel"]'));
   const worker = fs.readFileSync(new URL("../site/_worker.js", import.meta.url),"utf8");
   const start = worker.indexOf("function liveBasemapOverpassQuery(");
   vm.runInContext(`${worker.slice(start,worker.indexOf("\nfunction ",start+1))}\nworkerQuery=liveBasemapOverpassQuery(bounds,13);`,c);

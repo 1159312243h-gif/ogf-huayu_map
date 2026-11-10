@@ -86,7 +86,7 @@ try {
   assert.equal(upstreamQueries.length, 1, "cache hit should not request Overpass again");
 
   const liveCacheKey = [...cache.keys()].find((key) =>
-    key.includes("huayu-live-basemap-v10-elevated-roads"));
+    key.includes("huayu-live-basemap-v11-tunnels"));
   assert.ok(liveCacheKey, "live basemap tile should be retained in the edge snapshot cache");
   const retained = cache.get(liveCacheKey);
   const retainedHeaders = new Headers(retained.headers);
@@ -361,7 +361,7 @@ try {
     const before=upstreamQueries.length;
     assert.equal((await worker.fetch(new Request(url),{ASSETS:assets},context)).headers.get("x-ogf-basemap-cache"),"HIT");
     assert.equal(upstreamQueries.length,before);
-    const key=[...cache.keys()].find(key=>key.includes(`/live-basemap/${zoom}/`)&&key.includes("huayu-road-overview-v1"));
+    const key=[...cache.keys()].find(key=>key.includes(`/live-basemap/${zoom}/`)&&key.includes("huayu-road-overview-v2-tunnels"));
     assert.ok(key,"regional road data must have its own cache generation");
     const retained=cache.get(key),headers=new Headers(retained.headers);
     headers.set("X-OGF-Basemap-Fetched-At",new Date(Date.now()-4*60*60*1000).toISOString());

@@ -8,7 +8,7 @@
   const colors = ["#e5e0d5", "#d2674f", "#50869b", "#e4b85c", "#78847b", "#9c8eaf"];
   let enabled = false, paused = false, selected = null, following = false, worker = null, generation = 0;
   let map, layer, graphics, alive = 0, frame = 0, lastFrame = 0, followAt = 0, lastUi = 0;
-  let center, signature, latest, previous, received = 0, projected = [], preparing = false, status = "默认关闭，开启后可选择城市、区县、省份或局部街区。";
+  let center, signature, latest, previous, received = 0, projected = [], preparing = false, status = "默认关闭，开启后可选择城市、区县、省、国家或局部街区。";
   let flowDirty=true,routeDirty=true,flowRatios=new Map(),previousVehicles=new Map(),basisDemand=null;
   let network=[], roadStates=new Map(), trip=null, pendingContext=false, pendingSignature=null, pendingTimer=0;
   let regions=[],searchGeneration=0,candidate=null,candidateGeneration=0,searching=false;
@@ -53,10 +53,12 @@
       const times=latest.sourceTimes||[],stamp=times.length?new Date(Math.min(...times)).toLocaleString():"未提供";
       if(updateBasis)ui.basis.textContent=`已采用 ${d.residentialSites} 处住宅、${d.poiSites} 处设施，${d.pairs} 组可往返起终点；已读人口标签 ${d.taggedResidents} 人（${d.populationSites} 处），面积估算约 ${d.estimatedResidents} 人。未分类建筑 ${d.unknownBuildings} 处、距可用道路过远 ${d.unconnected} 处、没有往返目的地的住宅 ${d.unservedHomes} 处${d.limited?"；已达输入预算，仅为部分样本":""}。最早源记录时间：${stamp}。仅代表当前已加载部分。`;
       if(latest.regional){
-        ui.summary.textContent=`${latest.regionNames.join("、")} · 采用 ${d.totalResidents.toLocaleString()} 人 · 模拟 ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}。路段计算约 ${latest.moving.toLocaleString()} 辆在途、${latest.waiting.toLocaleString()} 辆排队，${latest.pending.toLocaleString()} 车次等待进入路网；累计到达 ${latest.arrived}、返家 ${latest.returned}。预计去程 ${Math.round(d.hourly).toLocaleString()}、返程 ${Math.round(d.returnHourly).toLocaleString()} 车次／小时，25 公里内约 ${(d.nearbyShare*100).toFixed(1)}%，100 公里以上约 ${(d.remoteShare*100).toFixed(1)}%。近景从 ${latest.sampleCount} 个行程样本中最多绘制 ${count()} 辆，样本不等于总车数。${latest.parking?`停车占用约 ${latest.parking.occupied}／${latest.parking.capacity} 位，入场排队约 ${latest.parking.waiting} 辆。`:""}`;
+        ui.summary.textContent=`${latest.regionNames.join("、")} · 已知人口 ${d.totalResidents.toLocaleString()} 人（已接路约 ${Math.round(d.taggedResidents).toLocaleString()} 人，未接路约 ${Math.round(d.unconnectedResidents).toLocaleString()} 人${d.missingPopulation?`；${d.missingPopulation} 个行政区缺直接人口，未知部分未补算`:""}）· 模拟 ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}。路段计算约 ${latest.moving.toLocaleString()} 辆在途、${latest.waiting.toLocaleString()} 辆排队，${latest.pending.toLocaleString()} 车次等待进入路网；累计到达 ${latest.arrived}、返家 ${latest.returned}。预计去程 ${Math.round(d.hourly).toLocaleString()}、返程 ${Math.round(d.returnHourly).toLocaleString()} 车次／小时，25 公里内约 ${(d.nearbyShare*100).toFixed(1)}%，100 公里以上约 ${(d.remoteShare*100).toFixed(1)}%。近景从 ${latest.sampleCount} 个行程样本中最多绘制 ${count()} 辆，样本不等于总车数。${latest.parking?`停车占用约 ${latest.parking.occupied}／${latest.parking.capacity} 位，入场排队约 ${latest.parking.waiting} 辆。`:""}`;
         if(updateBasis){const rows=d.populationRows||[];
         ui.basis.textContent=`分层人口合计 ${d.totalResidents.toLocaleString()} 人；父子人口只分配一次。接入道路过远未分配 ${Math.round(d.unconnectedResidents).toLocaleString()} 人，无往返设施未分配 ${Math.round(d.unservedResidents).toLocaleString()} 人；${d.crossPairs} 组跨区域可达起终点。${d.missingPopulation} 个行政区无直接人口，采用已知下级，未知部分不填零；${d.populationConflicts.length} 处上下级人口冲突（保留下级）：${d.populationConflicts.map(c=>`${c.name}上级 ${c.parent.toLocaleString()}、下级合计 ${c.children.toLocaleString()}`).join("；")}。${rows.map(r=>`${r.name}：${r.population===null?"未标":r.population.toLocaleString()}，${r.source}${r.residual?`，上级剩余分配 ${r.residual.toLocaleString()} 人`:""}`).join("；")}。最早上游时间：${stamp}。人口及设施接入点为估算，不是实测出入口。区域／小区人口表示整片范围，优先按全域建筑的用途、占地及楼层分配位置，分区过多时空间合并并保留全部人口；缺少建筑时使用住宅用地或范围内道路回退。${d.parkingNote||""}`;
         ui.basis.textContent+=(d.allocationNote||"")+(d.distanceNote||"")+(d.transportNote||"");
+        if(d.populationLocalities){const l=d.populationLocalities;
+          ui.basis.textContent+=` 地名人口覆盖：${l.total} 个国家／省／城市／社区等地名点中，${l.withPopulation} 个有有效人口，${l.withoutPopulation} 个未标；未标地点可使用已知上级总人口分配位置，不另造人口。上级也未标时，该部分人口未知。`;}
         if(d.boundaryWarnings?.length)ui.basis.textContent+=` 下级边界限制 ${d.boundaryWarnings.length} 处：${d.boundaryWarnings.map(w=>`${w.name}（${w.id}）：${w.pointFallback?"缺少有效闭合边界，按中心点在真实上级范围内估算位置":w.populationUnlocated?"缺少有效边界和中心点，已知人口保留为未定位、未分配":"缺少有效边界和中心点，不推定其范围或人口"}`).join("；")}。所选行政区边界完整，下级估算范围不是正式边界。`;}
       }
       if(latest.preview)ui.summary.textContent=`视野附近约 1.5 公里局部预览；${regionProgress||"全域尚未就绪，可重试加载"}。${ui.summary.textContent}`;
@@ -159,7 +161,13 @@
     }
     const visibility=ui.lanes.checked&&map.getZoom()>=16?"visible":"none";
     for(const id of laneLayers)map.setLayoutProperty(id,"visibility",visibility);
-    ui.laneStatus.textContent=`近景 ${result.roads} 段路面，${result.estimated} 段车道数为估算${result.limited?"；本视窗达细节预算，请放大查看其余道路":""}。窄双向路保留共享路面。`;
+    updateLaneStatus();
+  }
+  function updateLaneStatus(){
+    const result=laneResult;if(!result)return;
+    const bridgeNote=result.deferredElevated?`；另有 ${result.deferredElevated} 段桥梁／高架已计入车流，按已接管的合法桥面区间显示分道线，未就绪部分保留原道路` : "";
+    const tunnelNote=result.deferredTunnel?`；另有 ${result.deferredTunnel} 段隧道已计入车流，暂不画贴地车道` : "";
+    ui.laneStatus.textContent=`近景 ${result.roads} 段路面，${result.estimated} 段车道数为估算${result.limited?"；本视窗达细节预算，请放大查看其余道路":""}${bridgeNote}${tunnelNote}。窄双向路保留共享路面。`;
   }
   function clearBridgeGraphics(g=graphics){
     if(!g)return;for(const mesh of g.bridgeMeshes||[]){g.scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}g.bridgeMeshes=[];g.bridgeData=null;
@@ -183,7 +191,8 @@
     const build=(positions,colors,opacity)=>{const geometry=new T.BufferGeometry();geometry.setAttribute('position',new T.BufferAttribute(positions,3));geometry.setAttribute('color',new T.BufferAttribute(colors,3));
       const material=new T.MeshBasicMaterial({vertexColors:true,side:T.DoubleSide,transparent:opacity<1,opacity,depthTest:true,depthWrite:false,toneMapped:false});
       const mesh=new T.Mesh(geometry,material);mesh.frustumCulled=false;g.scene.add(mesh);return mesh;};
-    g.bridgeMeshes=[build(data.positions,data.colors,1),build(data.flow,new Float32Array(data.flow.length),.8)];g.bridgeData=data;updateBridgeFlow();refreshBridgeNote();map.triggerRepaint();
+    g.bridgeMeshes=[build(data.positions,data.colors,1),build(data.flow,new Float32Array(data.flow.length),.8)];g.bridgeData=data;updateBridgeFlow();refreshBridgeNote();
+    map.triggerRepaint();
   }
   function updateBridgeFlow(){
     const g=graphics;if(!g?.bridgeData)return;const attr=g.bridgeMeshes[1].geometry.getAttribute('color');let dirty=false;
@@ -379,7 +388,7 @@
     selected=null;latest=previous=null;network=[];roadStates.clear();trip=null;generation++;
     worker?.terminate(); worker=null;
     try {
-      worker=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");
+      worker=new Worker("./traffic-worker.js?v=8.0-traffic-structures-v1");
       const currentWorker=worker;
       worker.onmessage=receive;
       worker.onerror=()=>{if(worker!==currentWorker)return;disposeMap();setStatus("车流后台线程未能启动，可点击重新模拟。原地图继续使用。");refreshUi();};
@@ -416,7 +425,7 @@
     if(map&&map!==context.map)disposeMap();
     if(!map){map=context.map;map.on("moveend",onMove);map.on("remove",onRemove);}
     cancelCandidate();const token=++candidateGeneration,nextGeneration=generation+1,expectedMap=map;
-    const next=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");candidate=next;ui.cancel.hidden=false;
+    const next=new Worker("./traffic-worker.js?v=8.0-traffic-structures-v1");candidate=next;ui.cancel.hidden=false;
     const key=regions.map(r=>r.osm_id).sort().join(",");let newInput=null,lastStage="启动模拟程序";
     regionProgress=ui.regionStatus.textContent="正在读取完整行政区；同时准备视野附近预览…";refreshUi();
     function fail(message){if(token!==candidateGeneration)return;cancelCandidate();
@@ -451,7 +460,7 @@
       next.postMessage({action:"build-region",generation:nextGeneration,regions,viewport,previewPending,regionalInput:reuse&&cachedRegion?.key===key?cachedRegion.input:undefined,options,paused:isPaused(),rate:rate()});};
     if(latest?.demand.pairs){loadFull();return;}
     // The preview has its own worker so a failed/cancelled full-region load cannot remove it.
-    const near=new Worker("./traffic-worker.js?v=8.0-traffic-boundaries-v1");priorityWorker=near;
+    const near=new Worker("./traffic-worker.js?v=8.0-traffic-structures-v1");priorityWorker=near;
     const previewDone=()=>{if(token===candidateGeneration&&candidate===next)next.postMessage({action:"load-slots",generation:nextGeneration});};
     const skipPreview=()=>{if(priorityWorker===near){near.terminate();priorityWorker=null;}previewDone();};
     near.onerror=skipPreview;

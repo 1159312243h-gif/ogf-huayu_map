@@ -182,7 +182,7 @@
         unservedHomes:homeSites.filter(h=>!this.pairs.some(p=>p.home===h)).length,
         unservedResidents:homeSites.filter(h=>!this.pairs.some(p=>p.home===h)).reduce((n,h)=>n+h.weight,0),
         totalResidents:input.population.total,populationRows:input.population.rows,populationConflicts:input.population.conflicts,
-        missingPopulation:input.population.missing,boundaryWarnings:input.population.boundaryWarnings||[],limited:false,regional:true,crossPairs:this.pairs.filter(p=>p.cross).length};
+        missingPopulation:input.population.missing,populationLocalities:input.population.localities,boundaryWarnings:input.population.boundaryWarnings||[],limited:false,regional:true,crossPairs:this.pairs.filter(p=>p.cross).length};
       this.basis.residentialLand=housing.land;this.basis.coveredResidentialLand=housing.covered;this.basis.unknownResidentialLand=housing.unknown;
       this.basis.buildings=housing.buildings;this.basis.homeBuildings=housing.homeBuildings;this.basis.unknownBuildings=housing.unknownBuildings;
       this.basis.connectedBuildings=housing.connectedBuildings;this.basis.excludedBuildings=housing.excludedBuildings;this.basis.missingBuildingGeometry=housing.missingGeometry;

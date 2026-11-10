@@ -179,7 +179,7 @@
     return path(points);
   }
   function laneGeometry(graph, bounds) {
-    const project=projection(graph.center),features=[],seen=new Set();let vertices=0,roads=0,estimated=0,limited=false;
+    const project=projection(graph.center),features=[],seen=new Set(),deferred=[];let vertices=0,roads=0,estimated=0,limited=false;
     if(!Array.isArray(bounds)||bounds.length!==4||!bounds.every(Number.isFinite)||bounds[0]>=bounds[2]||bounds[1]>=bounds[3])return {features,roads,estimated,limited};
     const [west,south]=project.xy(bounds.slice(0,2)),[east,north]=project.xy(bounds.slice(2));
     // Clip in metres before serialization; a long regional road cannot upload its whole way.
@@ -200,8 +200,18 @@
     };
     const candidates=[],cx=(west+east)/2,cy=(south+north)/2;
     for(const e of graph.edges){
-      if(e.elevated||seen.has(e.segment))continue;seen.add(e.segment);
+      if(seen.has(e.segment))continue;seen.add(e.segment);
       const roadParts=clipped(e.line.points);if(!roadParts.length)continue;
+      if(e.elevated){
+        // A 2-D lane line here would put a bridge or an underground road on
+        // the ground. Keep its measured lane allocation available to the UI;
+        // accepted bridge plans are drawn by traffic-surfaces at deck height,
+        // while tunnels remain simulation-only until a real underground
+        // surface is available.
+        if(deferred.length<1200)deferred.push({roadId:e.roadId,name:e.name,lanes:e.laneSpec.total,laneSource:e.laneSpec.source,bridge:e.bridge,tunnel:e.tunnel,elevated:true});
+        else limited=true;
+        continue;
+      }
       let closest=Infinity;
       for(const part of roadParts)for(let i=1;i<part.length;i++){
         const a=part[i-1],b=part[i],dx=b[0]-a[0],dy=b[1]-a[1],t=clamp(((cx-a[0])*dx+(cy-a[1])*dy)/(dx*dx+dy*dy||1),0,1);
@@ -232,7 +242,7 @@
       if(roads>=1200||vertices+size>80000){limited=true;break;}
       vertices+=size;roads++;if(spec.source!=="tag")estimated++;features.push(...batch);
     }
-    return {features,roads,estimated,limited,vertices};
+    return {features,roads,estimated,limited,vertices,deferred, deferredElevated:deferred.filter(e=>e.bridge&&!e.tunnel).length, deferredTunnel:deferred.filter(e=>e.tunnel).length};
   }
   class Simulation {
     constructor(graph, options = {}) {

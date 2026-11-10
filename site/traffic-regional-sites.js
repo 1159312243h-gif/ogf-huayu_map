@@ -94,6 +94,9 @@
     const areaWeights=new Map();
     const ground=[...graph.nodes.values()].filter(n=>n.out.some(id=>!graph.edges[id].elevated&&!graph.edges[id].motorway)),index=nodeIndex(ground);
     const prepared=zones.filter(z=>!z.locationMissing).map(z=>({z,point:project.xy(z.coordinate),geometry:z.geometry||z.scopeGeometry,bounds:(z.geometry||z.scopeGeometry)&&R.bounds(z.geometry||z.scopeGeometry),level:z.level??(z.geometry?5:10)}));
+    const pointScopes=(input.population.pointScopes||zones.filter(z=>!z.geometry&&!z.locationMissing&&!z.allocationKind&&z.scopeGeometry)).map(z=>({...z,point:project.xy(z.coordinate)}));
+    const scopeById=new Map(pointScopes.map(z=>[z.id,z])),scopePeers=new Map();
+    for(const z of pointScopes){const key=`${z.scopeId}:${z.level}`;if(!scopePeers.has(key))scopePeers.set(key,[]);scopePeers.get(key).push(z);}
     const owners=(p,siteId)=>{const xy=project.xy(p),eligible=prepared.filter(v=>{
       if(v.z.siteId&&v.z.siteId!==siteId||siteId&&v.z.excludedSiteIds?.includes(siteId))return false;
       if(v.bounds&&(p[0]<v.bounds[0]||p[0]>v.bounds[2]||p[1]<v.bounds[1]||p[1]>v.bounds[3]))return false;
@@ -102,10 +105,18 @@
       return Boolean(v.geometry)||Math.hypot(xy[0]-v.point[0],xy[1]-v.point[1])<=450&&input.selected.some(s=>R.inside(p,s.geometry));
     }),actual=eligible.filter(v=>v.z.geometry),depth=Math.max(-1,...actual.map(v=>v.level));
       const nearest=a=>a.sort((a,b)=>Math.hypot(xy[0]-a.point[0],xy[1]-a.point[1])-Math.hypot(xy[0]-b.point[0],xy[1]-b.point[1])||a.z.id.localeCompare(b.z.id))[0];
+      const membership=new Map(),belongs=z=>{if(membership.has(z.id))return membership.get(z.id);membership.set(z.id,false);
+        if(!R.inside(p,z.scopeGeometry))return false;
+        const parent=scopeById.get(z.scopeId);if(parent&&!belongs(parent))return false;
+        const peers=scopePeers.get(`${z.scopeId}:${z.level}`)||[z];
+        const first=peers.reduce((a,b)=>{const da=Math.hypot(xy[0]-a.point[0],xy[1]-a.point[1]),db=Math.hypot(xy[0]-b.point[0],xy[1]-b.point[1]);return db<da||db===da&&b.id.localeCompare(a.id)<0?b:a;});
+        const result=first.id===z.id;membership.set(z.id,result);return result;};
       const out=[];if(actual.length)out.push(nearest(actual.filter(v=>v.level===depth)).z);
-      const peers=new Map();for(const v of eligible.filter(v=>!v.z.geometry&&v.level>depth)){const k=`${v.z.scopeId||"legacy"}:${v.level}`;if(!peers.has(k))peers.set(k,[]);peers.get(k).push(v);}
+      const peers=new Map();for(const v of eligible.filter(v=>!v.z.geometry&&v.level>depth&&(!scopeById.has(v.z.id)||belongs(scopeById.get(v.z.id))))){const k=`${v.z.scopeId||"legacy"}:${v.level}`;if(!peers.has(k))peers.set(k,[]);peers.get(k).push(v);}
       // Point labels partition their parent's whole area; they do not define a radius.
-      const pointZones=[...peers.values()].map(nearest);if(pointZones.length)out.push(nearest(pointZones.filter(v=>v.level===Math.max(...pointZones.map(v=>v.level)))).z);
+      // Each point ancestor also distributes its own residual, already reduced
+      // by its children. A fine village must not suppress the whole city's share.
+      out.push(...[...peers.values()].map(v=>nearest(v).z));
       return out;};
     const weights=new Map(),totals=new Map(),unconnected=new Map();let covered=0,unknown=0,connectedBuildings=0;
     const add=(z,n,w,p)=>{totals.set(z,(totals.get(z)||0)+w);
