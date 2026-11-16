@@ -29,6 +29,18 @@
     (b[1] - a[1]) * 111320);
   const interpolate = (a, b, t) => [mix(a[0], b[0], t), mix(a[1], b[1], t)];
 
+  // The simulation already owns complete source ways. Reuse their actual
+  // topology instead of waiting for another basemap request to draw a deck.
+  function trafficRoads(features) {
+    const marked = value => value !== undefined && value !== null && !["", "no", "0", "false"].includes(String(value).toLowerCase());
+    return (features || []).filter(f => f.geometry?.type === "LineString" && f.properties?.highway).map(f => {
+      const p = f.properties, explicit = p.layerExplicit ?? (p.layer !== undefined && p.layer !== "");
+      const bridge = marked(p.bridge), tunnel = marked(p.tunnel);
+      return {...f, properties: {...p, osmId: p.osmId ?? f.id, renderKind: "road", featureClass: p.featureClass || p.highway,
+        bridge, tunnel, layerExplicit: explicit, layer: explicit ? Number(p.layer) : tunnel ? -1 : bridge ? 1 : 0}};
+    });
+  }
+
   function roadWidth(p) {
     const explicit = /^\s*(\d+(?:\.\d+)?)\s*(m|metres?|meters?|ft|feet)?\s*$/iu.exec(String(p.width || ""));
     if (explicit) {
@@ -950,7 +962,8 @@
 
     wanted() {
       return this.alive && this.options.enabled && !this.options.satellite
-        && this.map.getPitch() > 0.5 && this.map.getZoom() >= RULES.minZoom;
+        && (this.map.getPitch() > 0.5 || this.options.overhead === true && this.map.getZoom() >= 16)
+        && this.map.getZoom() >= RULES.minZoom;
     }
 
     schedule() {
@@ -1186,7 +1199,7 @@
       this.options.onStatus?.({count: this.result?.accepted.filter(plan => plan.kind !== "ground-ramp").length || 0,
         rejected: this.result?.rejected || [], inventory: this.result?.inventory,
         state: this.options.paused ? "paused" : this.options.satellite ? "satellite"
-          : this.map.getPitch() <= 0.5 ? "overhead" : this.map.getZoom() < RULES.minZoom ? "distant"
+          : this.map.getPitch() <= 0.5 && !(this.options.overhead && this.map.getZoom() >= 16) ? "overhead" : this.map.getZoom() < RULES.minZoom ? "distant"
             : !this.options.enabled ? "loading" : this.jobFailed ? "failed"
               : this.waitingTerrain ? "terrain" : enabled ? "active"
                 : this.dirty || this.elevationDirty || !this.result ? "preparing" : "empty"});
@@ -1214,7 +1227,7 @@
     }
   }
 
-  root.HuayuBridgeModels = {ALGORITHM, LAYER_ID, RULES, roadWidth, graph, chains, approach, profile, prepare, geometry,
+  root.HuayuBridgeModels = {ALGORITHM, LAYER_ID, RULES, trafficRoads, roadWidth, graph, chains, approach, profile, prepare, geometry,
     remainder, styleValue, workerSource, STORAGE_KEY, DEFAULTS, normalize, setPreferences,
     getPreferences: () => ({...preferences}),
     sync(map, features, options) {

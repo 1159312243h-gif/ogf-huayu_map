@@ -2,17 +2,18 @@
   "use strict";
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),mix=(a,b,t)=>a+(b-a)*t;
   function index(plans){
-    const origin=plans[0]?.samples[0]?.coordinate||[0,0],sx=111320*Math.cos(origin[1]*Math.PI/180),cells=new Map();
+    const origin=plans[0]?.samples[0]?.coordinate||[0,0],sx=111320*Math.cos(origin[1]*Math.PI/180),cells=new Map(),roadIds=new Set();
     const xy=p=>[(p[0]-origin[0])*sx,(p[1]-origin[1])*111320];
     for(const plan of plans)for(let i=1;i<plan.samples.length;i++){
       const a=xy(plan.samples[i-1].coordinate),b=xy(plan.samples[i].coordinate),id=String(plan.samples[i-1].roadId);
       if(!Number.isFinite(plan.heights[i-1])||!Number.isFinite(plan.heights[i]))continue;
+      roadIds.add(id);
       const span={a,b,z0:plan.heights[i-1],z1:plan.heights[i],width:Math.min(plan.surfaceWidths?.[i-1]||plan.samples[i-1].width,plan.surfaceWidths?.[i]||plan.samples[i].width)};
       const seen=new Set(),steps=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/16));
       for(let j=0;j<=steps;j++){const key=`${id}:${Math.floor(mix(a[0],b[0],j/steps)/32)}:${Math.floor(mix(a[1],b[1],j/steps)/32)}`;
         if(seen.has(key))continue;seen.add(key);if(!cells.has(key))cells.set(key,[]);cells.get(key).push(span);}
     }
-    return {origin,sx,cells,xy};
+    return {origin,sx,cells,xy,roadIds};
   }
   function locate(surface,id,coordinate){
     if(!surface||id===undefined)return null;

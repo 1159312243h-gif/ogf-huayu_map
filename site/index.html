@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=8.0-traffic-auto-render-v5" />
+    <link rel="stylesheet" href="./styles.css?v=8.0-auto-structure-lanes-v1" />
     <link rel="stylesheet" href="./brand-browser.css?v=2" />
   </head>
   <body>
@@ -185,6 +185,7 @@
               <span id="feature-type"></span>
             </div>
             <dl id="feature-properties" class="feature-property-list"></dl>
+            <div id="feature-export-actions"></div>
           </section>
           <section id="boundary-export-section" class="panel-section boundary-export-section" aria-labelledby="boundary-export-heading" hidden>
             <div class="boundary-export-heading">
@@ -302,7 +303,15 @@
         </section>
 
         <section id="download-view" class="panel-view" data-view="download" hidden>
-          <div class="boundary-resolution-row"><label for="download-content-mode">添加内容</label><select id="download-content-mode"><option value="map">底图与行政区</option><option value="objects">地图物体</option></select><p class="boundary-resolution-note">选择内容后加入下方同一份清单，可混合打包下载。</p></div>
+          <div class="boundary-resolution-row"><label for="download-content-mode">添加内容</label><select id="download-content-mode"><option value="map">底图与行政区</option><option value="objects">地图物体</option></select><p class="boundary-resolution-note">表格、品牌清单、线路数据和图片可直接下载或加入下方清单；多项会合并为 ZIP。</p></div>
+          <section id="huaxia-admin-catalog" class="huaxia-admin-catalog" aria-labelledby="huaxia-admin-catalog-heading">
+            <div class="section-heading"><h2 id="huaxia-admin-catalog-heading">华夏行政区清单</h2><i data-lucide="list" aria-hidden="true"></i></div>
+            <p class="boundary-resolution-note">以“华夏共和国”国家关系为根范围读取实际存在的各级行政关系，结果可下载或加入统一下载清单。</p>
+            <button id="huaxia-admin-catalog-load" class="secondary-button boundary-full-button" type="button">读取华夏各级行政区</button>
+            <button id="huaxia-admin-catalog-refresh" class="secondary-button boundary-full-button" type="button" hidden>检查最新数据</button>
+            <p id="huaxia-admin-catalog-status" class="view-status" aria-live="polite"></p>
+            <div id="huaxia-admin-catalog-actions"></div>
+          </section>
           <section id="feature-download-panel" hidden>
             <fieldset class="boundary-extent-fieldset"><legend>按范围与类型选择</legend>
               <div class="boundary-resolution-row"><label for="feature-range">范围</label><select id="feature-range"><option value="view">当前地图范围</option><option value="rectangle">矩形框选</option><option value="polygon">手绘多边形</option><option value="administrative">已选行政区轮廓</option></select></div>
@@ -320,7 +329,7 @@
             <label class="boundary-toggle-option"><input id="feature-pick-map" type="checkbox" /><span><strong>在地图上点选物体</strong><small>点击目标后查看轮廓与属性，再点击“加入下载”</small></span></label>
           </section>
             <fieldset id="download-queue" class="boundary-extent-fieldset"><legend id="feature-queue-heading">下载清单 · 0 项</legend>
-              <p class="boundary-resolution-note">底图、行政区与地物共用清单。底图和行政区保存加入时的范围、格式与选项；地物按下方设置合并导出。多个文件自动打包 ZIP。最多 2000 项，其中底图／行政区任务最多 10 项。清单仅保留在本页，刷新前请先下载。</p>
+              <p class="boundary-resolution-note">底图、行政区、地物、表格 CSV 和生成图片共用清单。底图和行政区保存加入时的范围与选项；多个文件自动打包 ZIP 并附来源、数据时间和导出时间。最多 2000 项，其中底图／行政区任务最多 10 项。清单仅保留在本页，刷新前请先下载。</p>
               <div id="feature-queue-list" class="feature-object-list" aria-live="polite"></div>
               <button id="feature-clear-queue" class="text-button" type="button" disabled>清空下载清单</button>
               <div id="feature-output-options">
@@ -367,7 +376,7 @@
               <label class="render-setting-toggle" for="traffic-lanes"><span>近景车道</span><input id="traffic-lanes" type="checkbox" checked aria-describedby="traffic-lane-note" /><span class="render-setting-switch" aria-hidden="true"></span></label>
               <p id="traffic-lane-status" class="model-options-summary" role="status">放大到街道近景显示车道。</p>
               <p id="traffic-bridge-note" class="model-options-summary" role="status" hidden></p>
-              <details class="traffic-basis"><summary>车道估算依据</summary><p id="traffic-lane-note" class="model-options-summary">优先 lanes 与方向车道标签；缺失时按有效 width 估算，否则采用道路类型默认值：高速单向 3 道，干线双向共 8 道，主要道路双向共 6 道（单独绘制的单向车行道分别为 4、3 道），普通道路共 2 道，匝道／服务路／生活街道 1 道。窄双向路共享路面；车辆按本方向车道行驶、分道跟车，路口按下游车道衔接。推算值不代表实测车道，未根据建筑间距推算；桥隧未取得合法高度时保留原表达。</p></details>
+              <details class="traffic-basis"><summary>车道估算依据</summary><p id="traffic-lane-note" class="model-options-summary">优先 lanes 与方向车道标签；缺失时按有效 width 估算，否则采用道路类型默认值：高速单向 3 道，干线双向共 8 道，主要道路双向共 6 道（单独绘制的单向车行道分别为 4、3 道），普通道路共 2 道，匝道／服务路／生活街道 1 道。窄双向路共享路面；车辆按本方向车道行驶、分道跟车，路口按下游车道衔接。推算值不代表实测车道，未根据建筑间距推算；桥面按合法高度显示，俯视同样自动开启；视野内隧道提供带方向、总数和来源的独立车道示意，非地下实景，无需先跟车。</p></details>
               <p class="model-options-summary traffic-legend"><span>绿：较顺畅</span><span>黄：减速</span><span>红：明显减速</span><span>灰：未分配车流／暂无在途量</span></p>
               <p class="model-options-summary">线宽表示分配的需求强弱；颜色取有车方向中较慢的一侧，不是实测拥堵。零需求道路也保留灰线，灰色表示此次未分配到可达行程或暂无在途量；不代表道路缺失或已证实畅通。金线为所选车的路线，起终点标记是估算的道路接入点。</p>
               <div class="sunlight-presets"><button id="traffic-pause" type="button" class="secondary-button">暂停模拟</button><button id="traffic-reset" type="button" class="secondary-button">重新模拟</button><button id="traffic-near" type="button" class="secondary-button">移近当前街区</button></div>
@@ -387,7 +396,7 @@
               <details class="traffic-basis"><summary>人口、设施与估算依据</summary><p id="traffic-basis" class="model-options-summary"></p><p class="model-options-summary">优先使用完整局部住宅范围的人口标签；缺失时按住宅面积、有效高度／层数估算，每人 35 m²、住宅利用率 80%，住宅用地额外按 25% 建筑覆盖率。层数不明按 2 层估算；无用途建筑不凭名称当住宅。每人每小时基准 0.22 次出发、汽车分担率 35%、每车 1.4 人，再乘时段、设施容量、路程衰减与所选强度。停留基准：购物 15 分钟、休闲 30 分钟、就医 45 分钟、工作 8 小时、上学 6 小时，允许约 ±20% 差异。这些是假设参数，未用实测客流校准。局部模式不覆盖范围外出行；区域模式采用已读取的完整路网和分层人口。市内及周边出行优先；采用 94% 的 7 公里衰减和 6% 的 45 公里衰减混合权重，同距离跨行政边界不额外放大或压低。仅有远处设施时减少出发，不把全部本地需求分给远处。面板显示 25 公里内及 100 公里以上的车次比例，均为未校准假设。</p></details>
             </div>
             <p id="traffic-status" class="model-options-summary" role="status" aria-live="polite">默认关闭，开启后可选择城市、区县、省、国家或局部街区。</p>
-            <p id="traffic-note" class="model-options-summary">默认关闭，仅本次开启。区域模式按所选行政区读取路网、设施及分层人口，优先 population／population:hx 与行政中心人口，父子区域不重复相加。按道路车道、等级及容量计算在途量、队列和待出发量；近景汽车为同一出行需求的展示样本，可跟随、到达停留及返程，绘制上限不改变区域流量。开启模拟会临时自动启用桥面和近景车道，关闭后恢复原设置；倾斜或 3D 跟随可查看桥面。桥隧参与路网，尚无合法桥面高度时不画贴地汽车；路况线仍显示。局部模式仍为约 850 米局部精细模拟。两种模式都是未校准情景，不是实测路况。后台暂停；拖动地图或 Esc 退出跟随，滚轮／双指缩放保持跟随。</p>
+            <p id="traffic-note" class="model-options-summary">默认关闭，仅本次开启。区域模式按所选行政区读取路网、设施及分层人口，优先 population／population:hx 与行政中心人口，父子区域不重复相加。按道路车道、等级及容量计算在途量、队列和待出发量；近景汽车为同一出行需求的展示样本，可跟随、到达停留及返程，绘制上限不改变区域流量。开启模拟会临时自动启用桥面和近景车道，关闭后恢复原设置；街道近景下俯视和 3D 均自动显示桥面车道，视野内隧道自动提供独立车道图。桥隧参与路网，尚无合法桥面高度时不画贴地汽车；路况线仍显示。局部模式仍为约 850 米局部精细模拟。两种模式都是未校准情景，不是实测路况。后台暂停；拖动地图或 Esc 退出跟随，滚轮／双指缩放保持跟随。</p>
           </fieldset>
         </section>
 
@@ -514,6 +523,7 @@
             <label>识别来源<select id="brand-recognition"><option value="all">标签 + 店名识别</option><option value="tag">仅 brand 标签</option><option value="name">仅名称识别</option><option value="candidate">待确认店名</option></select></label>
           </div>
           <div class="brand-toolbar"><button id="brand-discover" class="secondary-button" type="button">发现当前范围的品牌</button><button id="brand-reset" class="text-button" type="button" hidden>返回全域目录</button><button id="brand-catalog-refresh" class="text-button" type="button">检查新版目录</button></div>
+          <div id="brand-catalog-export" class="brand-export-actions"></div>
           <p id="brand-catalog-status" class="view-status" role="status"></p>
           <div id="brand-catalog-list" class="brand-list"></div>
           <button id="brand-more" class="secondary-button" type="button" hidden>显示更多</button>
@@ -528,6 +538,7 @@
             </div>
             <label class="brand-branch-filter">筛选门店<input id="brand-branch-query" type="search" placeholder="名称、分店、城市或地址" /></label>
             <p id="brand-detail-status" class="view-status" role="status"></p>
+            <div id="brand-location-export" class="brand-export-actions"></div>
             <div id="brand-location-list" class="brand-list"></div>
             <button id="brand-locations-more" class="secondary-button" type="button" hidden>显示更多门店</button>
           </section>
@@ -655,7 +666,8 @@
               </button>
               <div id="transit-atlas-legend" class="transit-atlas-legend" aria-label="铁路与轨道交通线路显示开关"></div>
               <button id="transit-atlas-add-queue" class="secondary-button" type="button">将可见线路与站点加入下载清单</button>
-              <p class="transit-atlas-hint">按当前范围、线路和建设状态保存，可在“下载”中统一导出 GeoJSON、SHP 或 CSV。线路图几何含边界截断，不能作为原始 OSM 导出。</p>
+              <button id="transit-atlas-add-file-queue" class="secondary-button" type="button">将当前线路图文件加入下载清单</button>
+              <p class="transit-atlas-hint">按当前范围、线路和建设状态保存，可在“下载”中统一导出 GeoJSON、SHP、CSV、PNG 或 SVG。线路图几何含边界截断，不能作为原始 OSM 导出。</p>
               <div class="transit-atlas-download">
                 <label for="transit-atlas-format">下载格式</label>
                 <select id="transit-atlas-format">
@@ -705,6 +717,7 @@
               <span id="transit-guide-stats">0 个站点</span>
               <span class="transit-guide-note">班次与票价未在 OGF 数据中提供</span>
             </div>
+            <div class="transit-guide-export"><button id="transit-guide-download-stops" class="text-button" type="button">下载站点 CSV</button><button id="transit-guide-queue-stops" class="text-button" type="button">加入下载清单</button></div>
             <div id="transit-guide-stops" class="transit-guide-stops" role="list" aria-label="线路站点"></div>
           </section>
           <div id="transit-results" class="result-list" aria-live="polite"></div>
@@ -911,8 +924,9 @@
           <details id="help-ranges" class="help-topic" data-help-section open>
             <summary><span>范围、下载与贴图<small>选中一块区域，下载地图或放置自己的图片</small></span></summary>
             <div class="help-topic-content">
-              <p class="help-callout">“底图与行政区”和“地图物体”共用页面下方的下载清单，两类内容都可加入。下载整个清单时，多个文件自动合并为 ZIP。把自己的图片放到地图上则选“贴图”；上传范围需在贴图面板中设置。</p>
+              <p class="help-callout">底图、行政区、华夏各级行政区清单、地图物体、动态表格、品牌目录、分店列表、线路站点及线路图可直接下载或加入页面下方的统一清单。选中物体属性区、行政区面积表和页面中新增的语义表格会提供“下载 CSV／加入下载清单”；品牌页可分别导出目录和当前筛选的分店，线路页可导出站点表或当前底图线路图文件。下载页面的“华夏行政区清单”以华夏共和国国家关系为根读取实际行政关系，不用视野范围代替。多项自动合并为 ZIP，并记录来源、可用数据时间与导出时间。新表格可用通用 CSV 导出入口；图表可接入 CSV 数据或 PNG／SVG 图片。把自己的图片放到地图上则选“贴图”；上传范围需在贴图面板中设置。</p>
               <h3>① 确定范围</h3>
+              <p>“华夏行政区清单”优先读取已校验的完整预制清单或本机保存版本，显示其真实源数据与读取时间；预制清单随三小时目录更新发布。旧完整快照可先下载，同时在后台检查新版；失败保留旧清单。点击“检查最新数据”可主动读取上游，不用重新等待全部地图加载。</p>
               <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。勾选“沿海岸线截取”后，可选“仅陆地”（含河流、湖泊及离岛）或“仅海域”（排除陆地、离岛与内陆河湖），与原有图片裁切叠加；PNG／TIF 未选部分透明、JPG 白底。原始行政边界仍保留，矢量包另外提供所选陆地或海域范围 GeoJSON、SHP（所选格式为 SHP 时）及面积表，属于派生结果，不应上传回 OGF。下载清单保存加入时的陆地／海域选择。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
               <p>“计算陆地／海域面积”按需读取 OGF 海岸线，分别显示行政区总面积、陆地面积（含内陆水体）与海域面积；已加载下级区划也按同一口径显示，嵌套行政区不相加。数值为制图估算，非官方法定面积。海岸线方向或连接不完整、读取失败时不交付部分结果，可重试。没有海岸线穿过范围时另用 OGF 海陆底图核对归属，并保留其源日期；计算及导出均不改变主地图。</p>
               <h3>② 下载底图与行政区</h3>
@@ -970,16 +984,17 @@
               <h3>室外公厕与售卖亭</h3>
               <p>近景倾斜视角中，独立的厕所点可显示小型公厕，商店、咖啡店、快餐、冰淇淋店及餐馆点可显示带遮棚和售卖窗的小亭。仅在建筑与近景底图数据完整后补充，已有建筑或同类设施面覆盖的点，以及明确标为室内、地下、屋顶或其他楼层的点保留原有表达；新模型按完整占地避开已知道路、铁路、水体、建筑、亭子及本批小模型。未标尺寸、方向时可在原点位转向或缩小以适应可用空间，明确标注的参数保持不变；仍放不下时保留原图标。尺寸、外观缺少标注时为制图示意，不代表真实建筑；实际点位、图标、名称和原始数据不变。俯视、模拟卫星或模型失败时继续显示原有标识。</p>
               <h3>桥梁与立交</h3>
-              <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。俯视仍显示平面道路。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
+              <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。普通地图俯视仍显示平面道路；模拟中的街道近景会自动显示有效桥面及车道。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
               <h3>交通模拟、人口与停车</h3>
               <p>开启模拟后，“近景车道”在街道近景显示路面、外侧线、同向白色虚线及双向黄色分界；缩小自动隐藏细节，关闭该显示不改变车辆行驶。车道数优先使用 lanes、lanes:forward/backward，支持单行、反向单行及左右通行；缺失时按有效 width，再按道路等级采用界面列明的固定默认值，不依据建筑间距猜测。未明确分道的窄双向路保留共享路面，不强画两条车道。局部车辆按车道保持间距、路口让行后连续接入下游；区域展示样本按合法车道运行，聚合容量使用同一车道数。信息卡按模拟实际车道索引显示当前位置，不作为导航转向车道建议；车道减少在路口衔接，不模拟沿途自主超车；推算不补写原始地图，不是实测道路宽度或工程车道模型。</p>
               <p>打开独立“模拟”菜单，手动开启（默认关闭，不保存开关）。选择“城市／省／国家”，输入行政区名称并选中完整边界，可添加 1–4 个行政区，再点“加载所选区域并模拟”。优先复用视野附近已加载的道路和住宅，不足时先读约 1.5 公里邻近范围，显示明确标为局部的预览；不将全市人口塞入街区。全域读取立即开始，与附近预览共用最多两个请求槽，不等待预览完成；完整成功才替换；后台路径计算复用路网索引，保持相同需求与路线。失败或取消保留已有预览／模拟。城市、省和国家均读取完整汽车道路类别，跨区域沿真实连通干道通行；移动地图保留全域计算。点“查看全域”观看路况，放大到街道观看样本汽车。名称按完整名称或明确别名匹配；已填写“市／县／镇”等后缀时，不混入其他类型或仅上级地址相同的候选。城市点会先显示并允许定位，但不能将点周围矩形用作整市范围；缺少完整行政边界时可定位后手动切换“当前街区”。城市点使用独立轻量查询，成功结果在本标签页保留三小时，刷新或网络失败仍可定位；缓存读取不会延长年龄，不缓存失败或空结果。边界查询失败提供重试入口，不表示城市不存在。手机底栏可横向滑动，面板可收起并从“模拟”恢复。</p>
               <p>人口同时读取 population、population:hx 和实际行政中心成员；上级关系不能提前消耗城市人口点，明确 admin_level、place:hx 及已有的五级以下首府层级用于区分人口范围，城市与县区不因都标 city 而混为一层；capital=yes／2／3／4 仅表示政府驻地，不能把一个城市的人口当作整国或整省人口。社区、街道、区县按层级分配，父子不重复相加。未标人口、缺少道路或设施、父子数据冲突会列出；同一人口查询同时统计未标人口的城市、镇、社区等地名点，地名缺标不代表无人，也不额外增加已知上级总人口。大区剩余人口粗略分到本区住宅道路；设施缺少容量也需估算。工作、学校、商圈、医疗与休闲按用途、时段和距离吸引出行；有可往返的真实道路才分配，断路不会凭空连接。小路、服务路和生活街道可供所在人口及设施首末接入，跨区行程不将内部路作穿行捷径。省级与城市范围均读取完整汽车主路、住宅路、生活街道和服务路，不再仅在枢纽周围补小路；仍受原请求及路网容量限制，超限保留原模拟并提示缩小范围。默认 08:00、1 倍，可选更强情景；这些是假设情景，不是实测交通预测。</p>
               <p>铁路客站、机场与航站楼单独产生接送／换乘需求，读取容量或年旅客量；缺标时车站吸引力 5000、机场 12000、停留 20 分钟均为示意假设，早晚需求较高。站台、同名重复站点、机场主体与航站楼避免重复放大，人工确认的货运站不生成客运接送需求；未接入真实列车时刻或航班。</p>
-              <p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。局部及城市路网均计算桥梁、高架和隧道。开启模拟会自动启用桥面和近景车道，关闭模拟后恢复原设置；自动桥面不改写已保存偏好。使用倾斜或 3D 跟随视角，等待完整桥面高度就绪后显示桥上汽车、车道和路况；没有有效桥面时保留原道路和路况线，不将桥上或地下汽车画到地面。普通地图的桥梁渲染仍默认关闭。模拟期间设置页标明自动开启，近景车道可手动隐藏；2D 下可从信息卡切换至 3D 查看桥面车道。车道示意按实际左右通行排列。跟随信息卡不依赖桥梁模型开关，桥梁及隧道均持续显示本方向车道数、当前车道、整条道路总数和标签／估算来源；隧道采用独立车道图，明确标注“非地下实景”：蓝色为所跟车辆，灰色为本路段附近同向的已采样车辆，随车辆位置更新；不把地下道路或汽车投到地面。开启近景车道时，桥上铺装与普通道路采用相同灰色，关闭即恢复原桥面；标线采用相同配色，同向虚线按 3 米实线／3 米空隙连续切分，视窗移动不改变虚线位置；倾斜跟随复用车辆附近缓冲范围，不逐帧重建。</p>
+              <p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。局部及城市路网均计算桥梁、高架和隧道。开启模拟会自动启用桥面和近景车道，关闭模拟后恢复原设置；自动桥面不改写已保存偏好。街道近景下俯视和 3D 均可自动显示桥上汽车、车道和路况。优先复用已完整加载的模拟道路及真实节点，补齐桥梁连接和引道，不再等待另一套底图请求；仍须完整桥面高度就绪。没有有效桥面时保留原道路和路况线，不将桥上或地下汽车画到地面。普通地图的桥梁渲染仍默认关闭。模拟期间设置页标明自动开启，近景车道可手动隐藏；2D 不会被强制切成 3D。视野内有隧道时自动显示可收起的桥隧车道图，可选择附近其他隧道，查看双向车道、总数和标签／估算来源；没有样本车也能查看，不要求先跟随。桥面尚在准备时也提供该示意，桥面就绪后自动切为地图标线。车道示意按实际左右通行排列。跟随信息卡不依赖桥梁模型开关，桥梁及隧道均持续显示本方向车道数、当前车道、整条道路总数和标签／估算来源；隧道采用独立车道图，明确标注“非地下实景”：蓝色为所跟车辆，灰色为本路段附近同向的已采样车辆，随车辆位置更新；不把地下道路或汽车投到地面。开启近景车道时，桥上铺装与普通道路采用相同灰色，关闭即恢复原桥面；标线采用相同配色，同向虚线按 3 米实线／3 米空隙连续切分，视窗移动不改变虚线位置；倾斜跟随复用车辆附近缓冲范围，不逐帧重建。</p>
               <p>区域模拟读取范围内全部建筑，按明确用途、内部设施和用地判断住宅、办公、商业、教育等活动；按占地面积乘有效楼层分配已有标注人口，缺楼层先按扣除底高和屋顶后的有效墙高每 3 米推算，再缺失暂按两层，不额外造人口。用途未标建筑以一半楼面权重分配居民位置，同时作为一般活动地点，这是情景假设，不代表已确认住宅用途；车库、纯屋盖、停用和建筑部件等不重复生成人员活动。真实行政／小区范围及孔洞优先，只有人口点时覆盖真实上级范围，按邻近同级点估计归属，不使用固定半径截断；这不等于正式下级边界。市、街道、村庄人口点按层级归属，细点不能压掉上级剩余人口；没有剩余人口的父点仍约束其子级的位置，避免跨入相邻城市。摘要分别列出已知人口、已接路与未接路人数，以及缺少直接人口的行政区，已知合计不代表完整全省人口。建筑、小区和上级人口逐级扣除，关系成员、建筑与外围用地去重。缺少建筑时采用住宅用地，仍缺失时在该范围合法住宅／服务道路上粗略分配；有建筑但接不上道路的份额保留为未分配，不集中到其他建筑。人口接入按约 400 米归组，最多 512 组；设施最多 1800 组，超限逐级合并并保留全部权重与停车归属。所有可往返的设施组纳入行程，实际路径和距离决定是否有需求；未知人口和不连通地点不会随机造车，也不保证每栋同时有样本车。展开“建筑与人口核算（分区）”可查看各区建筑数、楼面面积、分配人口与未接路人数；根区其余区域单列，分区人口是位置估算，不是官方新统计。一栋楼可分配多人，楼面大小和层数决定相对权重，整个行政区人口保持守恒。</p>
               <p>已标停车场使用 capacity，缺失暂按 20 位；开场 50% 占用、入口 300 辆／小时及设施周边 800 米选择均为明示假设。满位限制到达并保留道路队列，返程释放已有库存。露天停车面内有真实相连的内部路时，车辆沿路进场、低速驶入示意泊位、保持可见地停留，再驶出返程；保留面边界及孔洞，不代表真实车位布局。可从“模拟排队集中路段与停车场”点“查看停车进出场”定位，列表中“已停车”可选中查看。开场少量已停车样本代表假设的原有占用。缺少相连道路或仅有点位时仍计算停车库存，但不虚构入口；未标停车场处仍为场外停留。聚合返程参考对应停留时长前的需求，样本则到达后实际停留再返家：工作 8 小时、上学 6 小时、购物 15 分钟、就医 45 分钟、休闲及用途未标的一般活动 30 分钟、交通枢纽 20 分钟。不是实际停车余位或逐车停车记录。</p>
               <p>所选城市必须有完整行政边界；下级社区只有中心点、缺少边界或源边界未闭合时，不再导致整市失败。有有效中心点的下级在真实上级范围内估算人口位置，面板列出缺项，不补画正式边界；没有定位但具有明确上下级关系的已知人口保留为未定位、未分配，不挪到其他建筑。根边界无效、源请求截断或成员坐标缺失仍保留原模拟并提示修正。</p>
+              <p>区域人口、道路、设施与建筑通过同源压缩通道完整传输，有效的完整结果可复用两分钟缓存，源数据时间不会因命中缓存改变；再次加载已有完整区域会主动重读。数据量与功能保持一致，首次查询仍受 OGF 上游响应及网络速度影响；只有四项数据全部通过校验才接管。</p>
               <p>大范围路网首次下载可能较慢，面板会显示人口、路网、设施或全域建筑四项的接收进度；仍在传输的数据不会因为超过 95 秒被直接丢弃。传输停滞或临时连接失败时最多自动重试两次，保留本轮其他已成功的数据；持续失败会指出具体项目和后台阶段，可再次点击“加载所选区域并模拟”，或取消并保留已有模拟。本地网页的后台程序加载失败时，请确认本地服务仍在运行后刷新。系统不会擅自缩小行政范围。</p>
               <p>点击汽车或从列表选择，查看用途、起终点、金线、等待与停留，再点跟随。“车辆跟随视角”可随时切换 2D 北向俯视或 3D 沿行驶方向倾斜，切换不会重建模拟。跟随开始时收起功能面板，点击信息卡的“模拟设置”或原菜单可恢复；独立信息卡持续显示所跟车辆编号、道路、模拟车速、前方路线转向及车道数量，并列出当前路段模拟路况、排队估算及周边展示车辆数。跟随中周边汽车按缓冲视野补齐，长道路穿过画面时也会采样，重叠视野保留已有车辆行程；补充数量受已有路段在途量及原预算限制，不增加区域流量。路况颜色保持正常透明度，跟随车继续受同一路段拥堵和排队影响。蓝色车身、光环和“跟随车辆”标记区分其他汽车，路线以较细蓝线显示以便看清分道线。3D 视角将汽车置于画面偏下方，保留前方道路；跟随中按缓冲视窗持续准备标线，不等待镜头停止。拖动地图、Esc 或停止跟随退出；滚轮、双指及信息卡的加减按钮缩放仍保持跟随并保留缩放级别，到达停留自动停止；面板收起后仍能停止。“自定义车辆起点”支持地图选点、地图中心或输入“纬度,经度”，终点留空自动选可达设施，也可手动指定附近道路接入点。先加载模拟路网；起点 100 米内无可用道路、终点不可达或起点缺少安全发车空间时明确提示，不虚构路线。点击“发车并跟随”添加一辆观察车，按既有车道与排队规则行驶，到达结束，可手动结束后重设；不改变人口、区域需求、停车库存或其他车辆的行程。后台暂停且不补算；关闭、底图切换和恢复默认释放资源，原导航、模型及日照独立。仍可切换“当前街区”使用约 850 米已加载路网的精细跟车和路口让行；局部人口不足会提示，不随机巡游。区域加载失败／取消保留现有模拟，跨度和容量过大请减小范围。修改情景时间／强度会重新准备，新版不会清理建筑或改变数据更新周期。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div>
@@ -1123,6 +1138,13 @@
       </div>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
       <button id="traffic-stop-follow" class="secondary-button traffic-stop-follow" type="button" hidden>停止跟随 · Esc</button>
+      <details id="traffic-structure-lanes" class="traffic-structure-lanes" open hidden>
+        <summary>桥隧车道示意 <small>非地下实景</small></summary>
+        <label for="traffic-structure-select">视野内道路</label><select id="traffic-structure-select"></select>
+        <strong id="traffic-structure-count"></strong>
+        <div id="traffic-structure-strip" class="traffic-follow-lane-strip" aria-label="道路双向车道示意"></div>
+        <p id="traffic-structure-note"></p>
+      </details>
       <section id="traffic-follow-hud" class="traffic-follow-hud" aria-label="模拟车辆跟随" hidden>
         <div class="traffic-follow-heading"><span class="traffic-follow-symbol" id="traffic-follow-symbol" aria-hidden="true">↑</span><div><span class="traffic-follow-kicker" id="traffic-follow-title">模拟车辆</span><strong id="traffic-follow-road"></strong><span id="traffic-follow-next"></span></div><div class="traffic-follow-speed"><strong id="traffic-follow-speed">0</strong><span>km/h</span></div></div>
         <div class="traffic-follow-lane-heading"><strong id="traffic-follow-lane-count"></strong><span id="traffic-follow-structure"></span></div>
@@ -1154,18 +1176,20 @@
     <script src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
     <script src="./building-tiles.js?v=8.0-building-tiles-v1"></script>
     <script src="./building-roofs.js?v=8.0-smooth-render-v1"></script>
-    <script src="./bridge-models.js?v=8.0-traffic-loading-v1"></script>
+    <script src="./bridge-models.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./map-export.js?v=8.0-building-tiles-v1"></script>
     <script src="./coastline-client.js?v=2"></script>
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
+    <script src="./download-center.js?v=8.0-data-download-v1"></script>
+    <script src="./admin-catalog.js?v=8.0-load-performance-v1"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=2"></script>
-    <script src="./app.js?v=8.0-traffic-auto-render-v5"></script>
-    <script src="./traffic-surfaces.js?v=8.0-traffic-auto-render-v5"></script>
+    <script src="./app.js?v=8.0-auto-structure-lanes-v1"></script>
+    <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
-    <script src="./traffic-camera.js?v=8.0-traffic-auto-render-v5"></script>
-    <script src="./traffic-simulation.js?v=8.0-traffic-auto-render-v5"></script>
+    <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
+    <script src="./traffic-simulation.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./map-help.js?v=7.1-help-center-v1"></script>
     <script src="./brand-browser.js?v=5"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>

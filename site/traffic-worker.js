@@ -1,6 +1,6 @@
 "use strict";
-importScripts("./traffic-core.js?v=8.0-traffic-auto-render-v5", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
-  "./traffic-regions.js?v=8.0-traffic-structures-v1", "./traffic-regional-sites.js?v=8.0-traffic-structures-v1", "./traffic-regional-core.js?v=8.0-traffic-auto-render-v5", "./traffic-protocol.js?v=8.0-traffic-auto-render-v5", "./traffic-surfaces.js?v=8.0-traffic-auto-render-v5", "./traffic-trip.js?v=8.0-traffic-auto-render-v5");
+importScripts("./traffic-core.js?v=8.0-auto-structure-lanes-v1", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
+  "./traffic-regions.js?v=8.0-traffic-load-cache-v1", "./traffic-regional-sites.js?v=8.0-traffic-structures-v1", "./traffic-regional-core.js?v=8.0-traffic-auto-render-v5", "./traffic-protocol.js?v=8.0-traffic-auto-render-v5", "./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1", "./traffic-trip.js?v=8.0-traffic-auto-render-v5");
 let simulation, timer, encoder, generation = 0, rate = 1, publishedRevision=-1, selectedKey="",publishedStats=-1;
 let loadingCapacity=null;
 function stop() {clearInterval(timer); timer = null;}
@@ -68,7 +68,7 @@ onmessage = async ({data}) => {
     } else if(data.action==="build-region"){
       stop();generation=data.generation;publishedRevision=publishedStats=-1;selectedKey="";
       loadingCapacity={slots:data.previewPending?1:2};
-      const input=data.regionalInput||await HuayuTrafficRegions.load(data.regions,progress=>postMessage({generation,progress}),undefined,{capacity:loadingCapacity});
+      const input=data.regionalInput||await HuayuTrafficRegions.load(data.regions,progress=>postMessage({generation,progress}),undefined,{capacity:loadingCapacity,reload:data.reload});
       loadingCapacity=null;
       postMessage({generation,progress:"数据完整，正在后台分配人口、起终点及道路容量…"});
       const options={...data.options,center:input.center,regional:true,regionalInput:input};

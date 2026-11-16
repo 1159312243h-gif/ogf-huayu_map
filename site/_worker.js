@@ -1,3 +1,125 @@
+  function trafficRegionQueries(ids,b) {
+    const LIMITS={regions:4};
+    if(!Array.isArray(ids)||!ids.length||ids.length>LIMITS.regions||ids.some(id=>!Number.isSafeInteger(id)||id<=0)
+      ||!Array.isArray(b)||b.length!==4||b.some(v=>!Number.isFinite(v))||b[0]>=b[2]||b[1]>=b[3]
+      ||b[0]<-180||b[2]>180||b[1]<-90||b[3]>90||b[2]-b[0]>12||b[3]-b[1]>12)throw Error("行政区或范围无效，最多 4 区且跨度不超过 12°");
+    const areas=ids.map(id=>`area(${3600000000+id});`).join(""),rels=ids.map(id=>`rel(${id});`).join("");
+    const pattern="motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service";
+    const bbox=`${b[1]},${b[0]},${b[3]},${b[2]}`;
+    return [
+      `[out:json][timeout:80];(${areas})->.a;(${rels}rel(area.a)[boundary=administrative];)->.r;(.r;node(r.r:"admin_centre");node(area.a)[population];node(area.a)["population:hx"];node(area.a)[place~"^(country|state|province|region|city|town|suburb|quarter|neighbourhood|village|hamlet)$"];);out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(way(area.a)[highway~"^(${pattern})(_link)?$"];${ids.length>1?`way(${bbox})[highway~"^(motorway|trunk|primary|secondary)(_link)?$"];`:""});out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(nwr(area.a)[amenity~"^(parking|parking_entrance|school|university|college|kindergarten|hospital|clinic|doctors|cafe|restaurant|fast_food|bank|marketplace|post_office)$"];nwr(area.a)[railway~"^(station|halt)$"];nwr(area.a)[public_transport=station][train=yes];nwr(area.a)[aeroway~"^(aerodrome|terminal)$"];nwr(area.a)[shop][shop!~"^(no|vacant|closed)$"];nwr(area.a)[office];nwr(area.a)[leisure~"^(park|garden|sports_centre|stadium)$"];nwr(area.a)[landuse~"^(residential|industrial|commercial|retail)$"];)->.f;(nwr.f[amenity=parking];nwr.f[aeroway=aerodrome];nwr.f[landuse];)->.shape;(.f; - .shape;)->.rest;.rest out body center;.shape out body geom;.f out count;`,
+      `[out:json][timeout:80];(${areas})->.a;nwr(area.a)[building][building!=no];out body geom;out count;`
+    ];
+  }
+
+const fetchTrafficRegion=(()=>{
+const regions={LIMITS:{bytes:32*1024*1024,objects:60000},queries:trafficRegionQueries};
+const TTL=120000;
+async function bounded(promise,ms=200){
+  let timer;
+  try{return await Promise.race([promise,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),ms);})]);}
+  catch{return null;}finally{clearTimeout(timer);}
+}
+function reply(body,headers){
+  // Upstream JSON is uncompressed. Compress the same full payload on the edge;
+  // never simplify its geometry or omit tags to reduce download size.
+  const stream=(typeof body==="string"?new Blob([body]).stream():body).pipeThrough(new CompressionStream("gzip"));
+  return new Response(stream,{headers:{"Content-Type":"application/json; charset=UTF-8",
+    "Content-Encoding":"gzip","Cache-Control":"public, max-age=120, must-revalidate, no-transform",...headers},encodeBody:"manual"});
+}
+async function fetchTrafficRegion(request,context={}){
+  const url=new URL(request.url);
+  if(request.method!=="GET")return new Response(null,{status:405});
+  let query,part;
+  try{
+    const ids=(url.searchParams.get("ids")||"").split(",").map(Number).sort((a,b)=>a-b);
+    const bounds=(url.searchParams.get("bounds")||"").split(",").map(Number);
+    part=url.searchParams.get("part");
+    if(!/^[0-3]$/u.test(part)||new Set(ids).size!==ids.length)throw Error();
+    query=regions.queries(ids,bounds)[Number(part)];
+  }catch{return new Response("行政区查询范围无效",{status:400});}
+  const reload=url.searchParams.get("reload")==="1";
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(query));
+  const hash=Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,"0")).join("");
+  const key=new Request(`${url.origin}/__traffic-region-v1/${hash}`);
+  if(!reload&&globalThis.caches?.default){
+    const cached=await bounded(caches.default.match(key));
+    const readAt=Number(cached?.headers.get("x-huayu-read-at"));
+    if(cached&&readAt>0&&Date.now()>=readAt&&Date.now()-readAt<TTL){
+      const body=await bounded(cached.text());
+      if(body)return reply(body,{"x-huayu-read-at":String(readAt),"x-huayu-traffic-cache":"HIT",
+        "Cache-Control":`public, max-age=${Math.max(0,Math.floor((TTL-Date.now()+readAt)/1000))}, must-revalidate, no-transform`});
+    }
+  }
+  try{
+    // Forward bytes as they arrive: buffering the whole region here would turn
+    // a slow but healthy transfer into the client's 95 s response timeout.
+    const controller=new AbortController();let timer,hard,reader,size=0,chunks=[],cacheable=true;
+    const abort=()=>controller.abort(),arm=ms=>{clearTimeout(timer);timer=setTimeout(abort,ms);};
+    const cleanup=()=>{clearTimeout(timer);clearTimeout(hard);request.signal.removeEventListener("abort",abort);};
+    request.signal.addEventListener("abort",abort,{once:true});if(request.signal.aborted)abort();
+    hard=setTimeout(abort,300000);arm(95000);
+    let response;
+    try{
+      response=await fetch("https://overpass.opengeofiction.net/api/interpreter",{method:"POST",
+        headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`data=${encodeURIComponent(query)}`,signal:controller.signal,credentials:"omit"});
+      if(!response.ok){cleanup();const status=response.status;await response.body?.cancel();return new Response(null,{status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"3"}});}
+      if(!response.body)throw Error("区域数据响应为空");
+      if(Number(response.headers.get("content-length"))>regions.LIMITS.bytes)throw Error("区域响应超过 32 MiB");
+      reader=response.body.getReader();arm(30000);
+    }catch(error){cleanup();abort();await response?.body?.cancel().catch(()=>{});throw error;}
+    const readAt=Date.now(),headers={"x-huayu-read-at":String(readAt),"x-huayu-traffic-cache":"MISS"};
+    const stream=new ReadableStream({
+      async pull(output){
+        try{
+          const {value,done}=await reader.read();
+          if(done){
+            cleanup();output.close();
+            if(cacheable&&globalThis.caches?.default){
+              const write=(async()=>{
+                const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}chunks=[];
+                const body=new TextDecoder().decode(bytes),payload=JSON.parse(body),counts=payload.elements?.filter(e=>e.type==="count");
+                if(payload.remark||counts?.length!==1||!Number.isSafeInteger(Number(counts[0].tags?.total))
+                  ||Number(counts[0].tags.total)!==payload.elements.length-1||payload.elements.length-1>regions.LIMITS.objects)return;
+                const ids=new Set(),point=p=>p&&Number.isFinite(p.lon)&&Math.abs(p.lon)<=180&&Number.isFinite(p.lat)&&Math.abs(p.lat)<=90;
+                for(const e of payload.elements){
+                  if(e.type==="count")continue;
+                  const identity=`${e.type}:${e.id}`;
+                  if(!["node","way","relation"].includes(e.type)||!Number.isSafeInteger(e.id)||e.id<=0||ids.has(identity))return;
+                  ids.add(identity);
+                  if(e.type==="node"&&!point(e)||e.geometry?.some(p=>!point(p)))return;
+                  if(part==="1"&&(e.type!=="way"||!e.geometry?.length||e.nodes?.length!==e.geometry.length))return;
+                  if(e.members?.some(m=>m.geometry?.some(p=>!point(p))))return;
+                }
+                await caches.default.put(key,new Response(body,{headers:{"Content-Type":"application/json","Cache-Control":"public, max-age=120",...headers}}));
+              })().catch(()=>{});
+              context.waitUntil?.(write);
+            }
+            return;
+          }
+          size+=value.length;if(size>regions.LIMITS.bytes)throw Error("区域响应超过 32 MiB");
+          // Cache memory has its own cap, independent of the accepted input.
+          if(size>8*1024*1024){cacheable=false;chunks=[];}else if(cacheable)chunks.push(value);
+          arm(30000);output.enqueue(value);
+        }catch(error){cleanup();abort();chunks=[];await reader.cancel().catch(()=>{});output.error(error);}
+      },
+      async cancel(){cleanup();abort();chunks=[];await reader.cancel().catch(()=>{});}
+    });
+    // A live stream has not passed its final count yet. Only the already
+    // validated edge HIT may be stored by the browser's HTTP cache.
+    return reply(stream,{...headers,"Cache-Control":"no-store"});
+  }catch(error){
+    const reason=error.name==="AbortError"?"区域数据响应超时或请求已取消":String(error.message||"区域数据读取失败");
+    return new Response(JSON.stringify({error:reason}),{status:error.status||502,
+      headers:{"Content-Type":"application/json","Cache-Control":"no-store","x-huayu-error":encodeURIComponent(reason)}});
+  }
+}
+
+return fetchTrafficRegion;
+})();
+
 const OGF_OVERPASS_URL = "https://overpass.opengeofiction.net/api/interpreter";
 const BUILDING_TILE_ZOOMS = new Set([11, 12, 13, 14, 15]);
 const BUILDING_CACHE_SECONDS = 120;
@@ -1716,6 +1838,8 @@ async function fetchBrandData(request) {
 }
 
 export {
+  fetchTrafficRegion,
+  trafficRegionQueries,
   coastlineQuery,
   normalizedFavorites,
   featureDataQuery,
@@ -1733,6 +1857,7 @@ export {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/traffic-region") return fetchTrafficRegion(request, context);
     const personalResponse = await handlePersonalApi(request, environment);
     if (personalResponse) return personalResponse;
     if (url.pathname === "/api/features") return fetchFeatureData(request);

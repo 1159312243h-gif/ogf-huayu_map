@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 const source=await readFile(new URL("../site/traffic-simulation.js",import.meta.url),"utf8");
+const bridgeSource=await readFile(new URL("../site/bridge-models.js",import.meta.url),"utf8");
 class Element{
   children=[];value="";hidden=false;open=true;
   set textContent(value){this.text=value;this.children=[];}
@@ -17,13 +18,15 @@ function context(){
   const map={on(){},getBounds:()=>({getWest:()=>150,getSouth:()=>12,getEast:()=>151,getNorth:()=>13})};
   const c=vm.createContext({ui,enabled:true,map,regions:[boundary],generation:0,candidateGeneration:0,candidate:null,priorityWorker:null,
     latest:null,previous:null,selected:null,trip:null,worker:null,network:[],roadStates:new Map(),cachedRegion:null,tripRequest:0,tripPending:true,
+    bridgeSource:null,simulationBridgeRoads:[],setTimeout,clearTimeout,CustomEvent:class{constructor(type){this.type=type;}},
     regionProgress:"",searchGeneration:0,searching:false,root:{HuayuAtlas:{getTrafficContext:()=>({map,center:[150,12]}),
       prepareTrafficCamera:(...args)=>{locations.push(args);return true;}}},
     document:{createElement:()=>new Element()},cancelTripPick(){events.push("cancel-trip-pick");},stopFollowing(){},refreshUi(){},receive:e=>{c.latest=e.data;},
     ensureGraphics(){},sendViewport(){},scenario:()=>({}),isPaused:()=>false,rate:()=>1,count:()=>600,
     Worker:class{messages=[];terminated=false;constructor(){jobs.push(this);}postMessage(m){events.push(m.action);this.messages.push(m);}terminate(){this.terminated=true;}}
   });
-  for(const name of ["cancelCandidate","buildRegions","renderRegions","searchRegions"]){
+  vm.runInContext(bridgeSource,c);c.root.HuayuBridgeModels=c.HuayuBridgeModels;c.root.dispatchEvent=e=>events.push(e.type);
+  for(const name of ["setBridgeRoads","cancelCandidate","buildRegions","renderRegions","searchRegions"]){
     const fn=source.match(new RegExp(`  (?:async )?function ${name}\\([^]*?\\n  \\}`,"u"));
     // Some small helpers are written on a single line.
     vm.runInContext(name==="cancelCandidate"||name==="renderRegions"?source.split("\n").find(l=>l.startsWith(`  function ${name}(`)):fn[0],c);
@@ -31,6 +34,17 @@ function context(){
   return {c,jobs,events,locations,ui};
 }
 const full={data:{generation:1,regional:true,demand:{pairs:2},bounds:[150,12,151,13]}};
+{
+  const {c,jobs,events}=context();c.buildRegions();
+  const roads=[{type:'Feature',id:'way:10',properties:{osmId:10,highway:'primary',bridge:'yes',roadNodes:[1,2]},geometry:{type:'LineString',coordinates:[[150,12],[150.01,12]]}}];
+  jobs[0].onmessage({data:{loadedInput:{roads}}});
+  assert.equal(c.simulationBridgeRoads.length,0,'input arrival alone cannot replace the running bridge source');
+  jobs[0].onmessage(full);assert.equal(c.simulationBridgeRoads.length,1);assert.equal(c.simulationBridgeRoads[0].properties.layer,1);
+  assert.ok(events.includes('huayu-traffic-roads-change'));
+  const complete=c.simulationBridgeRoads;c.buildRegions();const next=jobs.at(-1);
+  next.onmessage({data:{loadedInput:{roads:[]}}});next.onmessage({data:{error:'incomplete'}});
+  assert.equal(c.simulationBridgeRoads,complete,'a failed replacement keeps the previous complete roads and bridge heights');
+}
 {
   const {c,jobs,events}=context();c.buildRegions();const [all,near]=jobs,latePreview=near.onmessage;
   assert.deepEqual(events.slice(0,2),["build-region","build-preview"],"full requests start before any preview reply");

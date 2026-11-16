@@ -9,7 +9,7 @@
   const el = id => document.getElementById(id);
   const ids = ["query", "kind", "category", "sort", "catalog-list", "catalog-status", "more", "detail",
     "detail-name", "detail-summary", "detail-status", "scope", "live", "branch-query", "location-list", "locations-more", "fit",
-    "city-query", "city-status", "city-results", "city-scope", "reset", "recognition"];
+    "city-query", "city-status", "city-results", "city-scope", "reset", "recognition", "catalog-export", "location-export"];
   const fields = Object.fromEntries(ids.map(id => [id, el(`brand-${id}`)]));
   const searchBox = el("brand-search-matches");
   const markers = atlas.getBrandMarkerLayer();
@@ -19,6 +19,7 @@
   let selected = null, locations = null, locationKey = "", discovery = null, discovering = false, catalogLimit = 30, locationLimit = 40, visiblePoints = [];
   let searchSequence = 0, loadSequence = 0, catalogCheckedAt = 0, lastLocationCheck = 0, fitOnLoad = false;
   let citySequence = 0, citySearching = false, city = null, discoveryScope = "", lastDiscoveryCheck = 0;
+  const exportBound = new WeakSet();
   const date = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN", {hour12: false}) : "未提供";
   const text = (tag, content, className) => {
     const node = document.createElement(tag); node.textContent = content;
@@ -80,6 +81,10 @@
     found.slice(0, catalogLimit).forEach(entry => fields["catalog-list"].append(catalogCard(entry, fields.kind.value)));
     fields.more.hidden = Boolean(selected) || found.length <= catalogLimit;
     if (!catalog && !discovery) return;
+    if (!exportBound.has(fields["catalog-export"]) && window.HuayuDownloadCenter?.createActions) {
+      exportBound.add(fields["catalog-export"]);
+      window.HuayuDownloadCenter.createActions(fields["catalog-export"], exportCatalogArtifact, {label: "导出品牌目录"});
+    }
     const kindLabel = fields.kind.value === "brand" ? "品牌" : "运营者";
     fields.recognition.disabled = fields.kind.value !== "brand";
     const all = entries(), known = all.filter(entry => !entry.candidate), candidates = all.filter(entry => entry.candidate),
@@ -141,6 +146,10 @@
       if (seen.has(key)) return false; seen.add(key);
       return terms.every(term => data.normalize(Object.values(element.tags || {}).join(" ")).includes(term));
     });
+    if (!exportBound.has(fields["location-export"]) && window.HuayuDownloadCenter?.createActions) {
+      exportBound.add(fields["location-export"]);
+      window.HuayuDownloadCenter.createActions(fields["location-export"], exportLocationsArtifact, {label: "导出分店列表"});
+    }
     const points = found.filter(element => data.place(element));
     visiblePoints = points.map(data.place);
     const center = atlas.map.getCenter();
@@ -179,6 +188,69 @@
     fields.fit.disabled = !points.length;
     fields["locations-more"].hidden = sorted.length <= locationLimit;
     fields["detail-status"].textContent = `${locations.stale ? "更新失败，保留旧结果。" : ""}本次查询 ${locations.scannedTotal ?? locations.total} 个地图要素，匹配 ${locations.elements.length} 个，筛选后 ${found.length} 个，${points.length} 个可定位。${selected.kind === "brand" ? `标签 ${locations.elements.filter(e => e.brandMatch?.source === "tag").length}、名称识别 ${locations.elements.filter(e => e.brandMatch?.source === "name").length}、待确认 ${locations.elements.filter(e => e.brandMatch?.source === "candidate").length}。` : ""}${locations.truncated ? "仅读取前 500 个候选，请缩小范围；并非全部地点。" : ""}读取 ${date(locations.fetchedAt)}；上游 ${date(locations.dbTimestamp)}。${fields.scope.value === "city" && city ? `${city.name}行政边界内查询。` : fields.scope.value === "world" ? "全球查询。" : "当前矩形视野查询。"}`;
+  }
+
+  function exportCatalogArtifact() {
+    const kind = fields.kind.value, found = data.matches(entries(), fields.query.value, fields.category.value, fields.sort.value);
+    if (!found.length) throw Error("当前筛选没有可导出的目录项");
+    const kindLabel = kind === "brand" ? "品牌" : "运营者";
+    return window.HuayuDownloadCenter.tableArtifact({
+      id: `brand-catalog-${kind}-${discovery?.city?.id || discovery?.kind || "world"}`,
+      title: discovery ? `${discovery.city?.name || "当前范围"}${kindLabel}目录` : `${kindLabel}目录`,
+      filename: `${discovery?.city?.name || "全域"}-${kindLabel}清单`,
+      source: discovery ? "OGF 当前范围发现" : "OGF 全域目录快照",
+      sourceTime: discovery?.dbTimestamp || catalog?.dbTimestamp || null,
+      warning: discovery?.truncated ? "上游候选已截断，仅导出当前返回的项目，不是完整统计" : "",
+      columns: [
+        {key: "name", label: kindLabel}, {key: "mapFeatures", label: "地图要素数量"},
+        {key: "tagged", label: "标签识别数量"}, {key: "named", label: "名称识别数量"},
+        {key: "candidates", label: "待确认要素数量"}, {key: "categories", label: "分类及要素数"},
+        {key: "branchCount", label: "不同分店数"}, {key: "branchSamples", label: "分店样本"},
+        {key: "cities", label: "城市样本"}, {key: "recognition", label: "识别来源"},
+      ],
+      rows: found.map(entry => ({name: entry.name, mapFeatures: entry.count, tagged: entry.taggedCount ?? "",
+        named: entry.namedCount ?? "", candidates: entry.candidateCount ?? "",
+        categories: entry.categories.map(([key, count]) => `${key} (${count})`).join("; "),
+        branchCount: entry.branchCount ?? "", branchSamples: (entry.branches || []).join("; "),
+        cities: (entry.cities || []).join("; "), recognition: entry.candidate ? "待确认" : "已识别"})),
+    });
+  }
+
+  function exportLocationsArtifact() {
+    if (!locations || !selected) throw Error("门店列表尚未加载完成");
+    const terms = data.normalize(fields["branch-query"].value).split(" ").filter(Boolean), seen = new Set();
+    const found = locations.elements.filter(element => {
+      const key = `${element.type}/${element.id}`;
+      if (seen.has(key)) return false; seen.add(key);
+      return terms.every(term => data.normalize(Object.values(element.tags || {}).join(" ")).includes(term));
+    });
+    if (!found.length) throw Error("当前筛选没有可导出的门店");
+    const tagsFor = element => element.tags || {};
+    return window.HuayuDownloadCenter.tableArtifact({
+      id: `brand-locations-${selected.kind}-${selected.name}-${locationKey}`,
+      title: `${selected.name}分店列表`, filename: `${selected.name}-${fields.scope.value}-分店列表`,
+      source: locations.stale ? "OGF 缓存结果（刷新失败，保留旧数据）" : "OGF 品牌门店查询",
+      sourceTime: locations.dbTimestamp || locations.fetchedAt || null,
+      warning: locations.truncated ? "上游候选已截断，仅导出当前返回的门店，不是完整清单" : "",
+      columns: [
+        {key: "name", label: "名称"}, {key: "brand", label: "品牌"}, {key: "operator", label: "运营者"},
+        {key: "branch", label: "分店"}, {key: "category", label: "类别"}, {key: "city", label: "城市"},
+        {key: "address", label: "地址"}, {key: "latitude", label: "纬度"}, {key: "longitude", label: "经度"},
+        {key: "recognition", label: "归属识别"}, {key: "osmType", label: "OSM 类型"},
+        {key: "osmId", label: "OSM 编号"}, {key: "source", label: "原始要素"}, {key: "tags", label: "完整标签 JSON"},
+      ],
+      rows: found.map(element => {
+        const tags = tagsFor(element), point = data.place(element), category = ["shop", "amenity", "tourism", "office", "craft", "leisure", "healthcare"]
+          .find(key => tags[key]);
+        return {name: tags["name:zh"] || tags.name || tags.brand || tags.operator || "未命名设施",
+          brand: element.brandMatch?.name || tags.brand || "", operator: tags.operator || "", branch: tags.branch || "",
+          category: category ? `${category}=${tags[category]}` : "", city: tags["addr:city"] || "",
+          address: [tags["addr:street"], tags["addr:housenumber"], tags["addr:unit"]].filter(Boolean).join(" "),
+          latitude: point?.lat ?? "", longitude: point?.lng ?? "", recognition: element.brandMatch?.source || "operator 标签",
+          osmType: element.type, osmId: element.id, source: `https://opengeofiction.net/${element.type}/${element.id}`,
+          tags: JSON.stringify(tags)};
+      }),
+    });
   }
   async function loadLocations(force = false) {
     if (!active || document.hidden || !selected) return;

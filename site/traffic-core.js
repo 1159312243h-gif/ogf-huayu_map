@@ -198,27 +198,34 @@
         if(!part.length)part.push(pair[0]);part.push(pair[1]);
       }if(part.length)parts.push(part);return parts;
     };
-    const candidates=[],cx=(west+east)/2,cy=(south+north)/2;
+    const candidates=[],structures=[],cx=(west+east)/2,cy=(south+north)/2;
     for(const e of graph.edges){
       if(seen.has(e.segment))continue;seen.add(e.segment);
       const roadParts=clipped(e.line.points);if(!roadParts.length)continue;
+      let closest=Infinity,coordinate;
+      for(const part of roadParts)for(let i=1;i<part.length;i++){
+        const a=part[i-1],b=part[i],dx=b[0]-a[0],dy=b[1]-a[1],t=clamp(((cx-a[0])*dx+(cy-a[1])*dy)/(dx*dx+dy*dy||1),0,1);
+        const point=[a[0]+t*dx,a[1]+t*dy],d=(point[0]-cx)**2+(point[1]-cy)**2;
+        if(d<closest){closest=d;coordinate=project.lngLat(point);}
+      }
       if(e.elevated){
         // A 2-D lane line here would put a bridge or an underground road on
         // the ground. Keep its measured lane allocation available to the UI;
         // accepted bridge plans are drawn by traffic-surfaces at deck height,
-        // while tunnels remain simulation-only until a real underground
-        // surface is available.
-        if(deferred.length<1200)deferred.push({roadId:e.roadId,name:e.name,lanes:e.laneSpec.total,laneSource:e.laneSpec.source,bridge:e.bridge,tunnel:e.tunnel,elevated:true});
-        else limited=true;
+        // tunnels use a separate automatic diagram, without surface geometry.
+        const spec=e.laneSpec,directions=spec.shared?[0]:[
+          ...spec.forwardOffsets.map(offset=>({offset,direction:1})),
+          ...spec.backwardOffsets.map(offset=>({offset:-offset,direction:-1})),
+          ...Array.from({length:spec.middle||0},()=>({offset:0,direction:0}))
+        ].sort((a,b)=>a.offset-b.offset).map(v=>v.direction);
+        structures.push({roadId:e.roadId,name:e.name,lanes:spec.total,laneSource:spec.source,bridge:e.bridge,tunnel:e.tunnel,elevated:true,
+          directions,coordinate,distance:closest});
         continue;
-      }
-      let closest=Infinity;
-      for(const part of roadParts)for(let i=1;i<part.length;i++){
-        const a=part[i-1],b=part[i],dx=b[0]-a[0],dy=b[1]-a[1],t=clamp(((cx-a[0])*dx+(cy-a[1])*dy)/(dx*dx+dy*dy||1),0,1);
-        closest=Math.min(closest,(a[0]+t*dx-cx)**2+(a[1]+t*dy-cy)**2);
       }
       candidates.push({e,closest});
     }
+    structures.sort((a,b)=>a.distance-b.distance||String(a.roadId).localeCompare(String(b.roadId)));
+    if(structures.length>1200)limited=true;deferred.push(...structures.slice(0,1200));
     candidates.sort((a,b)=>a.closest-b.closest||a.e.id-b.e.id);
     for(const {e} of candidates){
       const spec=e.laneSpec,scale=1/(156543.033928*Math.cos(graph.center[1]*Math.PI/180)),batch=[];

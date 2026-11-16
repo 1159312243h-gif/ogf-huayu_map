@@ -44,6 +44,7 @@ check("disabled bridge setting avoids modeling and regional bridge requests, inc
     huayuOverlayPalette:()=>({}),HUAYU_LIVE_BASEMAP_MIN_ZOOM:12.5,HUAYU_ROAD_OVERVIEW_MIN_ZOOM:10.5,
     HUAYU_ROAD_OVERVIEW_MIN_TILE_ZOOM:11,HUAYU_LIVE_BASEMAP_MIN_TILE_ZOOM:13,HUAYU_LIVE_BASEMAP_MAX_TILE_ZOOM:15,
     LOCAL_BRIDGE_PREVIEW:true,bridgePreviewPaused:false,HUAYU_LIVE_BASEMAP_LAYERS:{road:"road",roadCasing:"case"},
+    HUAYU_EMPTY_STRUCTURE_MODELS:[],
     observeHuayuMapGestures(){},updateHuayuBridgePreviewStatus(){},clamp:(n,a,b)=>Math.max(a,Math.min(n,b)),map,state});
   vm.runInContext(["bridgeModelsEnabled","huayuLiveBasemapMinimumZoom","huayuLiveBasemapTileZoom","syncHuayuBridgeModels"].map(extract).join("\n"),c);
   vm.runInContext("syncHuayuBridgeModels(map,state);minimum=huayuLiveBasemapMinimumZoom();tileZoom=huayuLiveBasemapTileZoom(map);",c);
@@ -51,6 +52,33 @@ check("disabled bridge setting avoids modeling and regional bridge requests, inc
   enabled=true;vm.runInContext("syncHuayuBridgeModels(map,state);minimum=huayuLiveBasemapMinimumZoom();tileZoom=huayuLiveBasemapTileZoom(map);",c);
   assert.equal(syncs,1);assert.equal(c.minimum,10.5);assert.equal(c.tileZoom,11);
   enabled=false;vm.runInContext("syncHuayuBridgeModels(map,state);",c);assert.equal(syncs,1);assert.equal(disposals,2);
+});
+
+check("simulation roads retain real topology and supply bridges before basemap tiles without replacing newer live ways", () => {
+  const fixtures=simpleBridge(),raw=plain(fixtures);
+  for(const f of raw){delete f.properties.renderKind;delete f.properties.layerExplicit;
+    if(f.properties.bridge)f.properties.bridge='yes';else f.properties.bridge='no';
+    if(!f.properties.layer)delete f.properties.layer;}
+  const copy=JSON.stringify(raw),normalized=bridges.trafficRoads(raw);
+  assert.equal(JSON.stringify(raw),copy);assert.ok(mesh(prepare(normalized)).accepted.length>0);
+  assert.equal(normalized[0].properties.bridge,false);assert.equal(normalized[0].properties.layer,0);
+  const tunnel=bridges.trafficRoads([{...raw[1],properties:{...raw[1].properties,layer:undefined,bridge:'no',tunnel:'yes'}}])[0];
+  assert.equal(tunnel.properties.layer,-1);assert.equal(bridges.graph([tunnel]).roads.get(String(tunnel.properties.osmId)).elevated,false);
+  assert.equal(bridges.graph([tunnel]).roads.get(String(tunnel.properties.osmId)).tunnel,true);
+  const app=fs.readFileSync(new URL('../site/app.js',import.meta.url),'utf8'),calls=[];
+  let simulating=true;
+  const live={...normalized[1],properties:{...normalized[1].properties,width:'12'}},map={getStyle:()=>({layers:[{}]})};
+  const state={active:true,primaryActive:false,groundRenderFeatures:[live]};
+  const c=vm.createContext({window:{HuayuTraffic:{isEnabled:()=>simulating,getBridgeRoads:()=>normalized},
+    HuayuBridgeModels:{sync:(m,f,o)=>calls.push({f,o}),dispose:()=>calls.push('disposed'),getPreferences:()=>({enabled:false})}},
+    huayuLiveBasemapStates:new Map([[map,state]]),huayuOverlayPalette:()=>({}),HUAYU_EMPTY_STRUCTURE_MODELS:[],
+    LOCAL_BRIDGE_PREVIEW:false,HUAYU_LIVE_BASEMAP_LAYERS:{},observeHuayuMapGestures(){},map});
+  for(const name of ['bridgeModelsEnabled','syncHuayuBridgeModels'])vm.runInContext(app.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`, 'u'))[0],c);
+  c.syncHuayuBridgeModels(map);assert.equal(calls[0].o.enabled,true);assert.equal(calls[0].o.overhead,true);
+  assert.equal(calls[0].f.length,normalized.length);assert.ok(calls[0].f.includes(live));
+  assert.ok(calls[0].f.includes(normalized[0]),'complete approach ways are present before independent basemap tiles');
+  c.syncHuayuBridgeModels(map);assert.equal(calls[1].f,calls[0].f,'unchanged sources reuse the merged array');
+  simulating=false;c.syncHuayuBridgeModels(map);assert.equal(calls.at(-1),'disposed');
 });
 
 check("traffic temporarily enables bridge rendering and lanes, preserves preferences and restores them on exit", () => {
@@ -669,6 +697,20 @@ function stubGraphics(controller) {
   controller.prepareRemainder = async () => null;
   controller.build = () => { controller.mesh = {geometry: {dispose() {}}, material: {dispose() {}}}; };
 }
+
+await (async () => {
+  const map=lifecycleMap();map.getPitch=()=>0;
+  const features=simpleBridge(),options={enabled:true,roadLayers:['roads']},controller=bridges.sync(map,features,options);
+  stubGraphics(controller);
+  controller.request=async(action,payload)=>action==='prepare'?bridges.prepare(payload.features,payload.bounds):bridges.geometry(payload.prepared,payload.elevations,payload.night,payload.style);
+  await controller.apply();assert.equal(controller.visible,false,'ordinary overhead mode retains its previous display');
+  controller.update(features,{...options,overhead:true});await controller.apply();
+  assert.ok(controller.result.accepted.length>0);assert.equal(controller.visible,true,'simulation displays accepted decks at pitch zero');
+  map.setZoom(15);controller.onCamera();assert.equal(controller.visible,false,'overhead detail keeps the near-view budget');
+  map.setZoom(18);controller.onCamera();await controller.apply();assert.equal(controller.visible,true);
+  controller.update(features,options);assert.equal(controller.visible,false,'leaving simulation restores the ordinary overhead behavior');
+  bridges.dispose(map);cases++;console.log('passed: simulation automatically renders accepted overhead decks and restores the normal map');
+})();
 
 await (async () => {
   const map = lifecycleMap(), features = simpleBridge(), options = {enabled: true, roadLayers: ["roads"]};

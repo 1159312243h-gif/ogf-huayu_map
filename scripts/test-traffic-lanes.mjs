@@ -87,6 +87,25 @@ check("lane geometry uses the same metre offsets, clips long roads to the view, 
   assert.equal(C.laneGeometry(graph,[1,1,2,2]).roads,0);assert.deepEqual(raw,copy);
   assert.ok(view.vertices<80000);
 });
+check("automatic structural diagrams work without cars or following, preserve direction and hide only accepted bridge roads",()=>{
+  const roads=[road('bridge',[['a',-300,0],['b',300,0]],{highway:'primary',bridge:'yes'}),
+    road('tunnel',[['c',-300,30],['d',300,30]],{tunnel:'yes',lanes:'5','lanes:forward':'3','lanes:backward':'2'}),
+    road('other',[['e',-300,60],['f',300,60]],{layer:'2',highway:'trunk'})],bounds=[-.001,-.001,.001,.001];
+  const geometry=C.laneGeometry(g(roads,{regional:true}),bounds),camera=ctx.HuayuTrafficCamera;
+  assert.equal(geometry.features.length,0,'diagram metadata never creates underground or unsupported ground lines');
+  assert.equal(geometry.deferred[0].roadId,'bridge');
+  assert.deepEqual(plain(geometry.deferred.find(r=>r.roadId==='tunnel').directions),[-1,-1,1,1,1]);
+  const left=C.laneGeometry(g(roads,{regional:true,drivingSide:'left'}),bounds);
+  assert.deepEqual(plain(left.deferred.find(r=>r.roadId==='tunnel').directions),[1,1,1,-1,-1]);
+  let view=camera.structureView(geometry.deferred,'tunnel',bounds,new Set(['bridge']));
+  assert.equal(view.road.roadId,'tunnel');assert.equal(view.road.lanes,5);assert.equal(view.source,'标签');
+  assert.deepEqual(plain(view.choices.map(r=>r.roadId)),['tunnel','other'],'one accepted bridge does not suppress an unrelated missing deck');
+  view=camera.structureView(geometry.deferred,'gone',bounds,new Set(['bridge','other']));
+  assert.equal(view.road.roadId,'tunnel','an old selection automatically falls back to a visible road');
+  assert.equal(camera.structureView(geometry.deferred,'',[1,1,2,2],new Set()),null);
+  const shared=C.laneGeometry(g([road('narrow',line,{tunnel:'yes',width:'4.4'})]),bounds);
+  assert.deepEqual(plain(shared.deferred[0].directions),[0]);
+});
 check("lane changes across road segments survive compact frames without resending unchanged descriptions",()=>{
   const encoder=new ctx.HuayuTrafficProtocol.Encoder(),decoder=new ctx.HuayuTrafficProtocol.Decoder();encoder.reset([{name:'路'}]);
   const v={id:1,coordinate:[0,0],angle:0,speed:10,queueSeconds:0,dwellRemaining:0,phase:'edge',road:'路',purpose:'通勤',origin:'家',destination:'单位',distance:300,lane:2,lanes:3,laneSource:'tag'};

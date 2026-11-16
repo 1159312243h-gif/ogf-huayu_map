@@ -38,5 +38,16 @@
     nearby.sort((a,b)=>a.distance-b.distance||a.id-b.id);
     return {n:view.n,reverse:view.reverse,selected,nearby:nearby.slice(0,16)};
   }
-  root.HuayuTrafficCamera=Object.freeze({target,laneWindow,laneView,tunnelView});
+  function structureView(roads,selected,bounds,bridgeRoadIds){
+    const seen=new Set(),choices=[];
+    for(const r of roads){
+      const p=r.coordinate;
+      if(seen.has(r.roadId)||!p||p[0]<bounds[0]||p[0]>bounds[2]||p[1]<bounds[1]||p[1]>bounds[3]||!r.directions?.length||!r.tunnel&&bridgeRoadIds?.has(String(r.roadId)))continue;
+      seen.add(r.roadId);choices.push(r);
+    }
+    if(!choices.length)return null;
+    const road=choices.find(r=>r.roadId===selected)||choices[0];
+    return {choices,road,source:road.laneSource==='tag'?'标签':road.laneSource==='width'?'路宽估算':'道路类型估算'};
+  }
+  root.HuayuTrafficCamera=Object.freeze({target,laneWindow,laneView,tunnelView,structureView});
 })(globalThis);

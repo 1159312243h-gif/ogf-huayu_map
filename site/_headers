@@ -52,6 +52,12 @@
 /brand-catalog.json
   Cache-Control: public, max-age=300, must-revalidate
 
+/huaxia-admin-catalog.json
+  Cache-Control: public, max-age=300, must-revalidate
+
+/admin-catalog.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /model-options.js
   Cache-Control: public, max-age=0, must-revalidate
 

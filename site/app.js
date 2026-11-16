@@ -163,6 +163,7 @@
   const NOMINATIM_URL = "https://ogfnominatim-api.infinatio.us";
   const ROUTING_URL = "https://ogfrouting-api.infinatio.us";
   const OVERPASS_URL = "https://overpass.opengeofiction.net/api/interpreter";
+  const HUAXIA_COUNTRY_RELATION_ID = 28652;
   // Keep one release key across the generated packets. Their response headers
   // now revalidate after five minutes so the three-hour updater can publish
   // new data without editing application code on every successful run.
@@ -494,6 +495,7 @@
     featureDetails: document.getElementById("feature-details"),
     featureType: document.getElementById("feature-type"),
     featureProperties: document.getElementById("feature-properties"),
+    featureExportActions: document.getElementById("feature-export-actions"),
     boundaryExportSection: document.getElementById("boundary-export-section"),
     boundaryExportHeading: document.getElementById("boundary-export-heading"),
     boundarySelectArea: document.getElementById("boundary-select-area"),
@@ -509,6 +511,9 @@
     boundaryLevelFieldset: document.getElementById("boundary-level-fieldset"),
     boundaryLevelOptions: document.getElementById("boundary-level-options"),
     boundaryLoadButton: document.getElementById("boundary-load-button"),
+    huaxiaAdminCatalogLoad: document.getElementById("huaxia-admin-catalog-load"),
+    huaxiaAdminCatalogStatus: document.getElementById("huaxia-admin-catalog-status"),
+    huaxiaAdminCatalogActions: document.getElementById("huaxia-admin-catalog-actions"),
     boundaryAreaTable: document.getElementById("boundary-area-table"),
     boundaryAreaTableCaption: document.getElementById("boundary-area-table-caption"),
     boundaryAreaTableBody: document.getElementById("boundary-area-table-body"),
@@ -655,6 +660,8 @@
     transitGuideEnd: document.getElementById("transit-guide-end"),
     transitGuideStats: document.getElementById("transit-guide-stats"),
     transitGuideStops: document.getElementById("transit-guide-stops"),
+    transitGuideDownloadStops: document.getElementById("transit-guide-download-stops"),
+    transitGuideQueueStops: document.getElementById("transit-guide-queue-stops"),
     transitAtlasForm: document.getElementById("transit-atlas-form"),
     transitAtlasQuery: document.getElementById("transit-atlas-query"),
     transitAtlasResults: document.getElementById("transit-atlas-results"),
@@ -668,6 +675,7 @@
     transitAtlasConstruction: document.getElementById("transit-atlas-construction"),
     transitAtlasProposed: document.getElementById("transit-atlas-proposed"),
     transitAtlasAddQueue: document.getElementById("transit-atlas-add-queue"),
+    transitAtlasAddFileQueue: document.getElementById("transit-atlas-add-file-queue"),
     transitAtlasPreview: document.getElementById("transit-atlas-preview"),
     transitAtlasCanvas: document.getElementById("transit-atlas-canvas"),
     transitAtlasLegend: document.getElementById("transit-atlas-legend"),
@@ -704,6 +712,11 @@
   let featureRangeResult = null, featureRangeController = null, featureRangeSequence = 0;
   const featureDownloadQueue = new Map();
   let featureExportBusy = false;
+  window.addEventListener("huayu:download-artifact", event => {
+    const artifact = event.detail;
+    if (!artifact?.id || !(artifact.blob instanceof Blob)) return;
+    if (!addFeatureDownloadEntries([{artifact, id: artifact.id, addedAt: new Date().toISOString()}])) event.preventDefault();
+  });
   const administrativeBoundaryCache = new Map();
   const administrativeCenterCache = new Map();
   const administrativeLevelCache = new Map();
@@ -723,6 +736,9 @@
   let administrativeCoastAreaResult = null;
   let administrativeCoastAreaController = null;
   let administrativeCoastAreaSignature = "";
+  let huaxiaAdminCatalogPromise = null;
+  let huaxiaAdminCatalogSequence = 0;
+  let huaxiaAdminCatalogLoader = null;
   let toastTimer;
   let searchRequestId = 0;
   let measurementMode = "distance";
@@ -1887,6 +1903,8 @@
   });
 
   elements.boundaryLevelsButton.addEventListener("click", loadAdministrativeLevelCatalog);
+  elements.huaxiaAdminCatalogLoad.addEventListener("click", loadHuaxiaAdministrativeCatalog);
+  document.getElementById("huaxia-admin-catalog-refresh").addEventListener("click", loadHuaxiaAdministrativeCatalog);
   const renderSettingFields = {
     treeModel: document.getElementById("setting-tree-model"),
     vegetationDensity: document.getElementById("setting-vegetation-density"),
@@ -1989,7 +2007,7 @@
     bridgeRenderSetting.checked = bridgeModelsEnabled();
     bridgeRenderSetting.disabled = simulating;
     document.getElementById("bridge-render-note").textContent = simulating
-      ? "交通模拟期间自动显示桥面；关闭模拟后恢复原桥梁设置。倾斜或 3D 跟随时可查看，首次加载需要等待。"
+      ? "交通模拟期间自动显示桥面与近景车道，俯视和 3D 均可查看；关闭模拟后恢复原设置。首次桥面准备需要等待。"
       : "在倾斜视角显示桥面与坡道，较大范围首次加载需要等待。交通模拟会临时自动开启，关闭模拟后恢复。";
   }
   bridgeRenderSetting.addEventListener("change", () => {
@@ -2004,6 +2022,7 @@
     syncBridgeRenderSettingControl();
     applyHuayuBridgeRenderSetting(currentVectorBasemap());
   });
+  window.addEventListener("huayu-traffic-roads-change", () => syncHuayuBridgeModels(currentVectorBasemap()));
   syncBridgeRenderSettingControl();
   window.addEventListener("huayu-render-settings-change", event => {
     syncRenderSettingControls();
@@ -2325,9 +2344,12 @@
     prepareTransitAtlasBackground().catch(() => {});
   });
   elements.transitAtlasAddQueue.addEventListener("click", () => addTransitAtlasToQueue());
+  elements.transitAtlasAddFileQueue.addEventListener("click", () => addTransitAtlasFileToQueue());
   elements.transitAtlasPreview.addEventListener("click", openTransitAtlasDialog);
   elements.transitAtlasDownload.addEventListener("click", () => downloadTransitAtlas(elements.transitAtlasFormat.value));
   elements.transitAtlasDialogDownload.addEventListener("click", () => downloadTransitAtlas("png"));
+  elements.transitGuideDownloadStops.addEventListener("click", () => exportTransitGuideStops("download"));
+  elements.transitGuideQueueStops.addEventListener("click", () => exportTransitGuideStops("queue"));
   elements.transitAtlasDialogClose.addEventListener("click", closeTransitAtlasDialog);
   elements.transitAtlasZoomOut.addEventListener("click", () => zoomTransitAtlasDialog(2 / 3));
   elements.transitAtlasZoomIn.addEventListener("click", () => zoomTransitAtlasDialog(1.5));
@@ -2870,7 +2892,33 @@
       row.append(term, description);
       elements.featureProperties.appendChild(row);
     });
+    if (!elements.featureExportActions.childElementCount && window.HuayuDownloadCenter?.createActions) {
+      window.HuayuDownloadCenter.createActions(elements.featureExportActions, exportSelectedPlaceFeatureArtifact,
+        {label: "导出所选物体属性"});
+    }
     elements.featureDetails.hidden = false;
+  }
+
+  function exportSelectedPlaceFeatureArtifact() {
+    const selected = selectedPlaceFeature;
+    if (!selected) throw Error("当前没有已选物体");
+    const result = selected.result, tags = result.huayu_object
+      ? result.geojson?.properties?.tags || result.tags || {}
+      : result.extratags || result.tags || {};
+    const sourceId = result.huayu_object?.sourceId || result.huayu_object?.source_id
+      || (result.osm_type && result.osm_id ? `${result.osm_type}/${result.osm_id}` : "");
+    const label = primaryPlaceName(result) || "已选物体";
+    const artifact = window.HuayuDownloadCenter.tableArtifact({
+      id: `selected-feature-${window.HuayuDownloadCenter.snapshotKey(JSON.stringify([sourceId, tags, selected.geometry]))}`,
+      title: `${label}属性`, filename: `${label}-属性`, source: "当前选中物体属性", sourceTime: result.timestamp || null,
+      warning: "仅导出当前选中物体的属性；缺少源数据时间时不推断更新时间。",
+      columns: ["名称", "几何类型", "纬度", "经度", "来源编号", "属性名", "属性值", "完整属性 JSON"],
+      rows: Object.entries(tags).length ? Object.entries(tags).map(([key, value]) => [label, selected.geometry.type,
+        selectedPlace?.lat ?? result.lat ?? "", selectedPlace?.lng ?? result.lon ?? "", sourceId, key, value, JSON.stringify(tags)])
+        : [[label, selected.geometry.type, selectedPlace?.lat ?? result.lat ?? "", selectedPlace?.lng ?? result.lon ?? "", sourceId,
+          "属性", "当前来源未提供标签", "{}"]],
+    });
+    return artifact;
   }
 
   function clearSelectedPlaceFeature() {
@@ -14344,6 +14392,49 @@
     }
   }
 
+  async function addTransitAtlasFileToQueue() {
+    const model = transitAtlasVisibleModel();
+    if (!model?.lines.length) return;
+    const format = elements.transitAtlasFormat.value;
+    const basemap = elements.transitAtlasBasemap.value;
+    const title = format === "geojson" ? transitAtlasNetworkTitle(model) : transitAtlasVisualTitle(model);
+    const baseName = safeDownloadName(title);
+    elements.transitAtlasAddFileQueue.disabled = true;
+    try {
+      let blob, filename, kind;
+      if (format === "geojson") {
+        blob = new Blob([JSON.stringify(transitAtlasGeoJson(model), null, 2)], {type:"application/geo+json;charset=utf-8"});
+        filename = `${baseName}.geojson`; kind = "table";
+      } else {
+        const background = await prepareTransitAtlasBackground(model, basemap, 2400);
+        if (format === "svg") {
+          blob = new Blob([transitAtlasSvg(model, background)], {type:"image/svg+xml;charset=utf-8"});
+          filename = `${baseName}.svg`;
+        } else {
+          const canvas = document.createElement("canvas");
+          renderTransitAtlasCanvas(canvas, model, {width:2400,height:1600,pixelRatio:1,exportMode:true,background});
+          blob = await canvasToBlob(canvas, "image/png");
+          filename = `${baseName}.png`;
+        }
+        kind = "image";
+      }
+      const artifact = window.HuayuDownloadCenter.fileArtifact({
+        id: `transit-atlas-${model.city.feature.properties.osm_id || model.city.label}-${format}-${basemap}-${window.HuayuDownloadCenter.snapshotKey(JSON.stringify([
+          [...(model.routeKeys || [])].sort(), model.routes.map(route => transitAtlasRouteKey(route)).sort(),
+          model.lines.map(line => line.key || line.id || JSON.stringify(line.coordinates)).sort(),
+          model.stops.map(stop => `${stop.id || stop.name}:${stop.lat},${stop.lon}`).sort(),
+        ]))}`,
+        title: `${title} ${format.toUpperCase()}`, filename, kind, blob,
+        source: "OpenGeofiction 城市线路关系与站点", sourceTime: model.fetchedAt || null,
+        warning: "线路、站点及缓冲区按当前筛选与真实行政边界派生；线路几何可能在边界处截断，不能作为原始 OSM 上传。",
+      });
+      window.HuayuDownloadCenter.add(artifact);
+      setStatus(elements.transitAtlasStatus, `已将 ${artifact.name} 加入统一下载清单。`);
+    } catch (error) {
+      setStatus(elements.transitAtlasStatus, humanizeError(error, "线路图文件加入清单失败。"), true);
+    } finally {elements.transitAtlasAddFileQueue.disabled = !transitAtlasVisibleModel()?.lines.length;}
+  }
+
   function addTransitAtlasToQueue(routeKey = null) {
     let model = transitAtlasVisibleModel();
     if (!model?.lines.length) return;
@@ -15094,12 +15185,7 @@
     }
     const guideRelation = focusedTransitGuideRelation || selectedTransitRoot;
     const roundtripInfo = transitGuideRoundtripInfo(guideRelation);
-    const directionalStops = focusedTransitGuideReversed
-      ? [...focusedTransitGuideStops].reverse()
-      : [...focusedTransitGuideStops];
-    const stops = roundtripInfo.roundtrip
-      ? orientTransitGuideOrder(directionalStops, guideRelation)
-      : directionalStops;
+    const stops = currentTransitGuideStopOrder(guideRelation, roundtripInfo);
     const namedStops = stops.filter((stop) => stop.name);
     const transferCount = stops.filter((stop) => uniqueTransitRoutes(stop.routes || []).length > 1).length;
     const focusedRouteIdentity = selectedTransitRoot ? transitRouteInfo(selectedTransitRoot).identity : "";
@@ -15173,6 +15259,34 @@
     elements.transitLineGuide.hidden = false;
     elements.transitResults.hidden = true;
     refreshIcons();
+  }
+
+  function currentTransitGuideStopOrder(guideRelation = focusedTransitGuideRelation || selectedTransitRoot,
+    roundtripInfo = transitGuideRoundtripInfo(guideRelation)) {
+    const directionalStops = focusedTransitGuideReversed ? [...focusedTransitGuideStops].reverse() : [...focusedTransitGuideStops];
+    return roundtripInfo.roundtrip ? orientTransitGuideOrder(directionalStops, guideRelation) : directionalStops;
+  }
+
+  function exportTransitGuideStops(mode) {
+    try {
+      const stops = currentTransitGuideStopOrder();
+      if (!stops.length) throw Error("当前线路没有可导出的站点");
+      const artifact = window.HuayuDownloadCenter.tableArtifact({
+        id: `transit-stops-${selectedTransitRoot?.id || focusedTransitGuideLabel}-${focusedTransitGuideReversed?"reverse":"forward"}`,
+        title: `${focusedTransitGuideLabel}站点列表`, filename: `${focusedTransitGuideLabel}-站点列表`,
+        source: "OpenGeofiction 公共交通关系", sourceTime: transitPreloadGeneratedAt ? new Date(transitPreloadGeneratedAt).toISOString() : null,
+        columns: [
+          {key:"sequence",label:"序号"},{key:"name",label:"站名"},{key:"latitude",label:"纬度"},{key:"longitude",label:"经度"},
+          {key:"routes",label:"线路"},{key:"transfer",label:"换乘"},{key:"sourceId",label:"来源编号"},
+        ],
+        rows: stops.map((stop,index)=>({sequence:index+1,name:stop.name||"未命名站点",latitude:stop.lat,longitude:stop.lon,
+          routes:uniqueTransitRoutes(stop.routes||[]).map(route=>route.label||route.ref||route.type).join("; "),
+          transfer:uniqueTransitRoutes(stop.routes||[]).length>1?"是":"否",sourceId:stop.sourceId??stop.id??""})),
+      });
+      if(mode==="queue")window.HuayuDownloadCenter.add(artifact);
+      else window.HuayuDownloadCenter.download(artifact.blob,artifact.name);
+      setStatus(elements.transitStatus,`${focusedTransitGuideLabel}站点列表已${mode==="queue"?"加入下载清单":"下载"}，共 ${stops.length} 站。`);
+    } catch(error) {setStatus(elements.transitStatus,error.message,true);}
   }
 
   function hideTransitLineGuide() {
@@ -15951,22 +16065,28 @@
     const next=new Map(featureDownloadQueue);
     // Clone a batch as one graph so objects sharing OSM dependencies also share
     // those dependencies in memory; individual JSON clones would multiply them.
-    structuredClone(entries).forEach(entry=>next.set(entry.mapExport?entry.id:entry.feature.id,entry));
+    structuredClone(entries).forEach(entry=>next.set(entry.mapExport?entry.id:entry.artifact?entry.artifact.id:entry.feature.id,entry));
     if(next.size>2000) {showToast("清单最多 2000 项，请先下载或移除部分内容");return false;}
     if([...next.values()].filter(entry=>entry.mapExport).length>10) {showToast("底图／行政区任务最多 10 项，请先分批下载；本批未加入");return false;}
-    const objects=new Map();for(const entry of next.values())for(const object of entry.elements)objects.set(`${object.type}/${object.id}`,object);
+    const objects=new Map();for(const entry of next.values())for(const object of entry.elements||[])objects.set(`${object.type}/${object.id}`,object);
     let bytes=0;for(const object of objects.values()) {bytes+=new TextEncoder().encode(JSON.stringify(object)).length;if(bytes>48*1024*1024)break;}
-    for (const entry of next.values()) if (entry.derived || entry.mapExport) bytes += new TextEncoder().encode(JSON.stringify(entry.mapExport||entry.feature)).length;
-    if(bytes>48*1024*1024) {showToast("清单数据过大，请先下载现有内容；本批未加入");return false;}
+    let artifactBytes=0;
+    for (const entry of next.values()) {
+      if (entry.derived || entry.mapExport) bytes += new TextEncoder().encode(JSON.stringify(entry.mapExport||entry.feature)).length;
+      if (entry.artifact) artifactBytes += entry.artifact.blob.size;
+    }
+    if(bytes>48*1024*1024) {showToast("清单中的底图／行政区及地物数据超过 48 MiB，请先下载现有内容；本批未加入");return false;}
+    if(artifactBytes>256*1024*1024) {showToast("表格与图片超过 256 MiB 下载上限，请先下载或移除部分文件；本批未加入");return false;}
     featureDownloadQueue.clear();for(const [id,entry]of next)featureDownloadQueue.set(id,entry);
     renderFeatureDownloadQueue();showToast(`已加入下载清单，共 ${next.size} 项`);return true;
   }
 
   function renderFeatureDownloadQueue() {
-    const entries=[...featureDownloadQueue.values()],objects=entries.filter(entry=>!entry.mapExport);
-    const maps=entries.length-objects.length;
+    const entries=[...featureDownloadQueue.values()],objects=entries.filter(entry=>!entry.mapExport&&!entry.artifact);
+    const files=entries.filter(entry=>entry.artifact);
+    const maps=entries.filter(entry=>entry.mapExport).length;
     elements.featureOpenQueue.hidden=!featureDownloadQueue.size;
-    elements.featureQueueHeading.textContent=`下载清单 · ${maps} 项底图／行政区 · ${objects.length} 个地物`;
+    elements.featureQueueHeading.textContent=`下载清单 · ${maps} 项底图／行政区 · ${objects.length} 个地物 · ${files.length} 个表格／图片`;
     elements.featureQueueList.replaceChildren();
     for(const [id,entry]of featureDownloadQueue) {
       const remove=()=>{
@@ -15984,10 +16104,17 @@
         label.append(detail);
         button.type="button";button.className="text-button";button.textContent="移除";button.disabled=featureExportBusy;
         button.addEventListener("click",remove);row.append(label,button);elements.featureQueueList.appendChild(row);
+      } else if(entry.artifact) {
+        const row=document.createElement("div");row.className="feature-object-row";
+        const label=document.createElement("span"),button=document.createElement("button"),artifact=entry.artifact;
+        label.textContent=`${artifact.title||artifact.name} · ${artifact.kind==="image"?"图片":"表格"} · ${artifact.name}`;
+        const detail=document.createElement("small");detail.textContent=[artifact.source,artifact.sourceTime?`数据时间：${artifact.sourceTime}`:"未提供数据时间",`加入：${entry.addedAt||"本次会话"}`,artifact.warning].filter(Boolean).join(" · ");
+        label.append(detail);button.type="button";button.className="text-button";button.textContent="移除";button.disabled=featureExportBusy;
+        button.addEventListener("click",remove);row.append(label,button);elements.featureQueueList.appendChild(row);
       } else elements.featureQueueList.appendChild(featureObjectRow(entry.feature,remove,"移除"));
     }
     if(!entries.length) {
-      const empty=document.createElement("p");empty.className="boundary-resolution-note";empty.textContent="清单为空。从上方添加底图、行政区或地图物体。";
+      const empty=document.createElement("p");empty.className="boundary-resolution-note";empty.textContent="清单为空。可添加底图、行政区、地图物体、表格或生成图片。";
       elements.featureQueueList.appendChild(empty);
     }
     elements.featureClearQueue.disabled=featureExportBusy||!featureDownloadQueue.size;
@@ -16018,14 +16145,14 @@
     // Freeze this batch before any async image/data loading. Later edits apply to the next download.
     const snapshot=structuredClone([...featureDownloadQueue.values()]);if(!snapshot.length)return;
     const format=elements.featureExportFormat.value,image=featureImageSettings();
-    const maps=snapshot.filter(entry=>entry.mapExport),objects=snapshot.filter(entry=>!entry.mapExport);
+    const maps=snapshot.filter(entry=>entry.mapExport),objects=snapshot.filter(entry=>!entry.mapExport&&!entry.artifact),files=snapshot.filter(entry=>entry.artifact);
     featureExportBusy=true;administrativeExportBusy=true;
     elements.featureExportStatus.hidden=false;renderFeatureDownloadQueue();updateAdministrativeExportAvailability();
     try {
       const artifacts=[],report=[];let bytes=0;
       const add=result=>{
         bytes+=result.blob.size;
-        if(maps.length+Boolean(objects.length)>1 && bytes>256*1024*1024)throw Error("打包文件超过 256 MiB，请减少清单任务或图片分辨率后分批下载；清单已保留");
+        if(snapshot.length>1 && bytes>256*1024*1024)throw Error("打包文件超过 256 MiB，请减少清单任务或图片分辨率后分批下载；清单已保留");
         artifacts.push(result);
       };
       for(const [index,entry]of maps.entries()) {
@@ -16040,7 +16167,14 @@
         report.push({file:result.name,kind:"objects",format,objectCount:objects.length,image:result.image||null,
           sources:objects.map(entry=>({id:entry.feature.id,fetchedAt:entry.fetchedAt||null,derived:Boolean(entry.derived)}))});
       }
-      if(artifacts.length===1)downloadBlob(artifacts[0].blob,artifacts[0].name);
+      for(const entry of files) {
+        const artifact=entry.artifact;
+        add({blob:artifact.blob,name:artifact.name});
+        report.push({file:artifact.name,kind:artifact.kind||"table",title:artifact.title||artifact.name,addedAt:entry.addedAt,
+          source:artifact.source||"未提供",sourceTime:artifact.sourceTime||null,exportedAt:artifact.exportedAt||null,
+          warning:artifact.warning||""});
+      }
+      if(artifacts.length===1 && !files.length)downloadBlob(artifacts[0].blob,artifacts[0].name);
       else {
         const files=[];
         for(const [index,result]of artifacts.entries()) {
@@ -16052,8 +16186,8 @@
         if(files.reduce((total,file)=>total+file.data.byteLength,0)>256*1024*1024)throw Error("打包文件含清单说明超过 256 MiB，请减少任务后分批下载");
         downloadBlob(buildStoredZip(files),"华域地图-下载清单.zip");
       }
-      const warnings=report.filter(item=>item.warning).map(item=>item.message);
-      setStatus(elements.featureExportStatus,`已导出 ${maps.length} 项底图／行政区和 ${objects.length} 个地物${artifacts.length>1?"，已合并为 ZIP":""}。清单保留，可继续下载其他格式。${warnings.length?` ${warnings.join(" ")}`:""}`);
+      const warnings=report.filter(item=>item.warning).map(item=>item.message||item.warning);
+      setStatus(elements.featureExportStatus,`已导出 ${maps.length} 项底图／行政区、${objects.length} 个地物和 ${files.length} 个表格／图片${artifacts.length>1||files.length?"，已合并为 ZIP":""}。清单保留，可继续下载。${warnings.length?` ${warnings.join(" ")}`:""}`);
     } catch(error) {setStatus(elements.featureExportStatus,`${error.message}。下载未完成，清单已保留。`,true);}
     finally {featureExportBusy=false;administrativeExportBusy=false;renderFeatureDownloadQueue();updateAdministrativeExportAvailability();}
   }
@@ -17340,6 +17474,87 @@
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" } });
     if (!Array.isArray(payload?.elements) || payload.remark) throw new Error("INCOMPLETE_ADMINISTRATIVE_DATA");
     return payload;
+  }
+
+  function huaxiaAdministrativeCatalogQuery() {
+    return window.HuayuAdministrativeCatalog.query(HUAXIA_COUNTRY_RELATION_ID);
+  }
+
+  function huaxiaAdministrativeCatalogRows() {
+    const elements = huaxiaAdminCatalogPromise?.payload?.elements || [];
+    const seen = new Set();
+    return elements.filter((item) => {
+      const level = Number(item?.tags?.admin_level);
+      if (item?.type !== "relation" || !item?.tags || item.tags.boundary !== "administrative"
+        || !Number.isSafeInteger(level) || level <= 0 || !Number.isSafeInteger(Number(item.id)) || seen.has(item.id)) return false;
+      seen.add(item.id); return true;
+    }).map((item) => {
+      const tags = item.tags || {}, center = item.center || {};
+      return {
+        name: tags.name || tags["name:zh"] || tags.official_name || "未命名行政区",
+        officialName: tags.official_name || "", shortName: tags.short_name || "", altName: tags.alt_name || "",
+        adminLevel: Number(tags.admin_level), relationId: item.id, latitude: Number.isFinite(Number(center.lat)) ? center.lat : "",
+        longitude: Number.isFinite(Number(center.lon)) ? center.lon : "", type: tags.type || "",
+        state: tags.state || tags.construction || "", source: `https://opengeofiction.net/relation/${item.id}`,
+      };
+    }).sort((a, b) => a.adminLevel - b.adminLevel || a.name.localeCompare(b.name, "zh-CN") || a.relationId - b.relationId);
+  }
+
+  function huaxiaAdministrativeCatalogArtifact() {
+    const rows = huaxiaAdministrativeCatalogRows();
+    if (!rows.length) throw Error("华夏国家关系内没有可导出的行政关系");
+    const payload = huaxiaAdminCatalogPromise.payload;
+    return window.HuayuDownloadCenter.tableArtifact({
+      id: `huaxia-administrative-catalog-${window.HuayuDownloadCenter.snapshotKey(JSON.stringify(rows))}`,
+      title: "华夏各级行政区清单", filename: "华夏各级行政区清单", source: "OGF 华夏共和国国家关系范围",
+      sourceTime: payload.osm3s?.timestamp_osm_base || null,
+      warning: `本表读取华夏关系/${HUAXIA_COUNTRY_RELATION_ID}范围内返回的行政关系，共 ${rows.length} 条；不含未标 boundary=administrative 或 admin_level 的关系。`,
+      columns: [
+        {key:"name", label:"行政区名称"}, {key:"officialName", label:"正式名称"}, {key:"shortName", label:"简称"},
+        {key:"altName", label:"别名"}, {key:"adminLevel", label:"行政层级"}, {key:"relationId", label:"关系编号"},
+        {key:"latitude", label:"中心纬度"}, {key:"longitude", label:"中心经度"}, {key:"type", label:"关系类型"},
+        {key:"state", label:"状态"}, {key:"source", label:"源链接"},
+      ], rows,
+    });
+  }
+
+  function showHuaxiaAdministrativeCatalog(catalog) {
+    huaxiaAdminCatalogPromise = {payload:{elements:catalog.elements,osm3s:{timestamp_osm_base:catalog.sourceTime}},fetchedAt:catalog.readAt};
+    const rows = huaxiaAdministrativeCatalogRows();
+    const stale = Date.now() - Date.parse(catalog.readAt) >= window.HuayuAdministrativeCatalog.TTL;
+    setStatus(elements.huaxiaAdminCatalogStatus, `已读取完整清单：${rows.length} 个行政关系，覆盖 admin_level ${[...new Set(rows.map(row => row.adminLevel))].join("、")}。源数据时间：${new Date(catalog.sourceTime).toLocaleString("zh-CN")}；读取：${new Date(catalog.readAt).toLocaleString("zh-CN")}。${stale?"当前为上次完整快照，正在后台检查更新。":""}`);
+    if (!elements.huaxiaAdminCatalogActions.childElementCount) {
+      window.HuayuDownloadCenter.createActions(elements.huaxiaAdminCatalogActions, huaxiaAdministrativeCatalogArtifact,
+        {label: "导出华夏行政区清单", downloadLabel: "下载 CSV"});
+    }
+    document.getElementById("huaxia-admin-catalog-refresh").hidden = false;
+  }
+
+  async function loadHuaxiaAdministrativeCatalog(event) {
+    const sequence = ++huaxiaAdminCatalogSequence;
+    const refresh = event?.currentTarget?.id === "huaxia-admin-catalog-refresh";
+    const refreshButton = document.getElementById("huaxia-admin-catalog-refresh");
+    elements.huaxiaAdminCatalogLoad.disabled = true;
+    refreshButton.disabled = true;
+    setStatus(elements.huaxiaAdminCatalogStatus, refresh ? "正在检查最新行政区数据，已有完整清单仍可下载…" : "正在读取华夏各级行政区完整清单…");
+    try {
+      if (!huaxiaAdminCatalogLoader) {
+        huaxiaAdminCatalogLoader = new window.HuayuAdministrativeCatalog.Loader();
+        huaxiaAdminCatalogLoader.listeners.add(showHuaxiaAdministrativeCatalog);
+      }
+      const loaded = await (refresh ? huaxiaAdminCatalogLoader.refresh(true) : huaxiaAdminCatalogLoader.load());
+      if (sequence !== huaxiaAdminCatalogSequence) return;
+      showHuaxiaAdministrativeCatalog(loaded);
+      if (huaxiaAdminCatalogLoader.pending) void huaxiaAdminCatalogLoader.pending.catch(error => {
+        if (sequence === huaxiaAdminCatalogSequence) setStatus(elements.huaxiaAdminCatalogStatus,
+          `新版检查未完成：${humanizeError(error,"连接失败")}；保留上次完整清单，数据时间 ${new Date(loaded.sourceTime).toLocaleString("zh-CN")}，可下载或重试。`,true);
+      });
+    } catch (error) {
+      if (sequence === huaxiaAdminCatalogSequence) setStatus(elements.huaxiaAdminCatalogStatus,
+        `${humanizeError(error, "华夏行政区清单读取失败")}；${huaxiaAdminCatalogPromise?"保留上次完整清单，仍可下载。":"未生成部分清单，请稍后重试。"}`, true);
+    } finally {
+      if (sequence === huaxiaAdminCatalogSequence) {elements.huaxiaAdminCatalogLoad.disabled = false;refreshButton.disabled = false;}
+    }
   }
 
   function applyCachedAdministrativeCenters(features) {
@@ -27167,8 +27382,20 @@
     if (!state?.active || !(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length) || !window.HuayuBridgeModels) return;
     if (!bridgeModelsEnabled()) { window.HuayuBridgeModels.dispose(glMap); return; }
     const palette = huayuOverlayPalette(glMap);
-    window.HuayuBridgeModels.sync(glMap, state.groundRenderFeatures || HUAYU_EMPTY_STRUCTURE_MODELS, {
-      enabled: Boolean(state.primaryActive) && !(LOCAL_BRIDGE_PREVIEW && bridgePreviewPaused),
+    const simulating = window.HuayuTraffic?.isEnabled() === true;
+    const traffic = simulating ? window.HuayuTraffic.getBridgeRoads?.() || HUAYU_EMPTY_STRUCTURE_MODELS : HUAYU_EMPTY_STRUCTURE_MODELS;
+    const ground = state.groundRenderFeatures || HUAYU_EMPTY_STRUCTURE_MODELS;
+    if (state.bridgeTrafficSource !== traffic || state.bridgeGroundSource !== ground) {
+      state.bridgeTrafficSource = traffic; state.bridgeGroundSource = ground;
+      // Live basemap ways win duplicate identities; complete simulation ways
+      // supply missing approaches while that independent tile load catches up.
+      const roads = new Map(ground.map(f => [String(f.properties?.osmId ?? f.id), f]));
+      for (const f of traffic) if (!roads.has(String(f.properties.osmId))) roads.set(String(f.properties.osmId), f);
+      state.bridgeRenderFeatures = traffic.length ? [...roads.values()] : ground;
+    }
+    window.HuayuBridgeModels.sync(glMap, state.bridgeRenderFeatures, {
+      enabled: Boolean(state.primaryActive || traffic.length) && !(LOCAL_BRIDGE_PREVIEW && bridgePreviewPaused),
+      overhead: simulating,
       paused: LOCAL_BRIDGE_PREVIEW && bridgePreviewPaused,
       night: palette.night, satellite: palette.satellite,
       roadLayers: [HUAYU_LIVE_BASEMAP_LAYERS.roadCasing, HUAYU_LIVE_BASEMAP_LAYERS.road],

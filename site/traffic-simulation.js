@@ -8,6 +8,7 @@
   const colors = ["#e5e0d5", "#d2674f", "#50869b", "#e4b85c", "#78847b", "#9c8eaf"];
   let enabled = false, paused = false, selected = null, following = false, worker = null, generation = 0;
   let lanesBeforeSimulation=null;
+  let bridgeSource=null,simulationBridgeRoads=[];
   let map, layer, graphics, alive = 0, frame = 0, lastFrame = 0, followAt = 0, lastUi = 0;
   let center, signature, latest, previous, received = 0, projected = [], preparing = false, status = "默认关闭，开启后可选择城市、区县、省、国家或局部街区。";
   let flowDirty=true,routeDirty=true,flowRatios=new Map(),previousVehicles=new Map(),basisDemand=null;
@@ -30,12 +31,13 @@
     const note=document.getElementById('traffic-bridge-note');if(!note)return;
     note.hidden=!latest?.structures?.bridges;
     if(note.hidden)return;
-    const text=!root.HuayuBridgeModels?.get(map)?.visible?'模拟已自动开启桥面；使用倾斜或 3D 跟随视角，等待完整桥面与高度就绪。'
+    const text=!root.HuayuBridgeModels?.get(map)?.visible?'模拟已自动开启桥面；放大到街道近景，完整桥面就绪后自动显示车道，准备期间保留车道示意。'
       :`桥上汽车和路况跟随实际显示的桥面高度${graphics?.bridgeData?.limited?'；本视窗车道细节达到预算，请放大查看其余部分':''}。隧道参与计算，不在地面显示地下汽车。`;
     if(note.textContent!==text)note.textContent=text;
   }
   function refreshUi() {
     refreshBridgeNote();
+    refreshStructureLanes();
     ui.enabled.checked = enabled; ui.controls.hidden = !enabled;
     ui.regions.hidden=!regional();ui.overview.hidden=!regional();ui.near.hidden=regional();
     ui.overview.disabled=!latest?.regional;
@@ -127,7 +129,7 @@
     refreshTunnelView(car,guide);
     let note=view.shared?"窄双向路共享路面；蓝色为当前车辆位置。":"蓝色为当前车辆所在车道；示意不代表转向专用车道。";
     if(view.structure==="隧道")note="隧道示意按当前车道及附近车辆位置更新；未绘制地下实景，车辆与车道不投到地面。";
-    else if(guide?.bridge||guide?.elevated)note=map?.getPitch()<5?"模拟已自动开启桥面；切换 3D 可查看桥上标线与汽车。":bridgeIndex?"桥面分道线与汽车使用已显示桥面的高度；缺少桥面区间时保留车道示意。":"模拟已自动开启桥面；正在等待完整桥面与高度，车道信息继续显示。";
+    else if(guide?.bridge||guide?.elevated)note=bridgeIndex?"桥面分道线与汽车使用已显示桥面的高度；俯视与 3D 均自动显示近景车道。":"正在准备完整桥面与高度，车道信息继续显示。";
     else if(map?.getZoom()<16)note="已缩小：地图隐藏细标线，车道数量与当前车道继续显示。";
     else if(!ui.lanes.checked)note="已隐藏地图分道线，车道信息仍显示；可在模拟设置开启近景车道。";
     text(ui.hudSurface,note);text(ui.hudMode,ui.followMode.value==="3d"?"切换 2D":"切换 3D");
@@ -203,6 +205,7 @@
     clearTimeout(laneTimer);laneTimer=0;laneRequest++;laneBounds=null;laneWorker=null;laneResult=null;
     clearTimeout(bridgeTimer);bridgeTimer=0;bridgeRequest++;bridgeResult=null;bridgeWorker=null;bridgeIndex=null;bridgeBounds=null;
     network=[];roadStates.clear();trip=null;flowDirty=routeDirty=true;flowRatios.clear();previousVehicles.clear();basisDemand=null;decoder=new root.HuayuTrafficProtocol.Decoder();
+    setBridgeRoads(null);if(ui.structureLanes)ui.structureLanes.hidden=true;
     trafficViewport=null;trafficViewportWorker=null;lastTrafficViewport=0;
     const oldMap=map;map = null; layer = null; center = null; signature = null;
     touchPointers.clear();mapPointers.clear();followPinch=false;
@@ -255,10 +258,11 @@
     if(!map||!worker||!latest)return;
     const visible=ui.lanes.checked&&map.getZoom()>=16;
     for(const id of laneLayers)if(map.getLayer(id))map.setLayoutProperty(id,"visibility",visible?"visible":"none");
-    if(!visible){clearTimeout(laneTimer);laneRequest++;laneBounds=null;ui.laneStatus.textContent=ui.lanes.checked?"放大到街道近景显示车道。":"已隐藏分道线，车辆仍按车道行驶。";return;}
+    if(!visible){clearTimeout(laneTimer);laneRequest++;laneBounds=null;if(ui.structureLanes)ui.structureLanes.hidden=true;ui.laneStatus.textContent=ui.lanes.checked?"放大到街道近景显示车道。":"已隐藏分道线，车辆仍按车道行驶。";return;}
     const b=map.getBounds(),c=map.getCenter(),car=following&&latest.vehicles.find(v=>v.id===selected);
     const anchor=car?.coordinate||[c.lng,c.lat],window=root.HuayuTrafficCamera.laneWindow([b.getWest(),b.getSouth(),b.getEast(),b.getNorth()],anchor);
     const bounds=window.map((v,i)=>anchor[i%2]+(v-anchor[i%2])*.7);
+    refreshStructureLanes();
     if(!force&&laneWorker===worker&&laneBounds&&bounds[0]>=laneBounds[0]&&bounds[1]>=laneBounds[1]&&bounds[2]<=laneBounds[2]&&bounds[3]<=laneBounds[3])return;
     clearTimeout(laneTimer);const token=++laneRequest;
     laneTimer=setTimeout(()=>{
@@ -287,8 +291,32 @@
   function updateLaneStatus(){
     const result=laneResult;if(!result)return;
     const bridgeNote=result.deferredElevated?`；另有 ${result.deferredElevated} 段桥梁／高架已计入车流，按已接管的合法桥面区间显示分道线，未就绪部分保留原道路` : "";
-    const tunnelNote=result.deferredTunnel?`；另有 ${result.deferredTunnel} 段隧道已计入车流，暂不画贴地车道` : "";
+    const tunnelNote=result.deferredTunnel?`；另有 ${result.deferredTunnel} 段隧道已计入车流，自动显示独立车道图（非地下实景）` : "";
     ui.laneStatus.textContent=`近景 ${result.roads} 段路面，${result.estimated} 段车道数为估算${result.limited?"；本视窗达细节预算，请放大查看其余道路":""}${bridgeNote}${tunnelNote}。窄双向路保留共享路面。`;
+    refreshStructureLanes();
+  }
+  function setBridgeRoads(features){
+    if(bridgeSource===features)return;
+    bridgeSource=features;simulationBridgeRoads=root.HuayuBridgeModels?.trafficRoads(features)||[];
+    root.dispatchEvent(new CustomEvent("huayu-traffic-roads-change"));
+  }
+  function refreshStructureLanes(){
+    if(!ui.structureLanes)return;
+    const visible=enabled&&!following&&map&&laneWorker===worker&&ui.lanes.checked&&map.getZoom()>=16&&!document.hidden;
+    const b=visible?map.getBounds():null;
+    const view=visible?root.HuayuTrafficCamera.structureView(laneResult?.deferred||[],ui.structureSelect.value,
+      [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()],graphics?.bridgeData?bridgeIndex?.roadIds:null):null;
+    ui.structureLanes.hidden=!view;if(!view)return;
+    const key=view.choices.map(r=>`${r.roadId}:${r.name}`).join('|');
+    if(ui.structureSelect.dataset.key!==key){ui.structureSelect.dataset.key=key;ui.structureSelect.replaceChildren();
+      for(const r of view.choices)ui.structureSelect.add(new Option(`${r.tunnel?'隧道':'桥梁／高架'} · ${r.name}`,r.roadId));}
+    ui.structureSelect.value=view.road.roadId;
+    ui.structureCount.textContent=`本条道路共 ${view.road.lanes} 道 · ${view.source}`;
+    const laneKey=view.road.directions.join(',');
+    if(ui.structureStrip.dataset.key!==laneKey){ui.structureStrip.dataset.key=laneKey;ui.structureStrip.replaceChildren();
+      for(const direction of view.road.directions){const lane=document.createElement('span');lane.textContent=direction===1?'↑':direction===-1?'↓':'↕';
+        lane.setAttribute('aria-label',direction===1?'正向车道':direction===-1?'反向车道':'双向共享车道');ui.structureStrip.append(lane);}}
+    ui.structureNote.textContent=view.road.tunnel?'隧道车道示意 · 非地下实景；跟随隧道车辆可查看附近样本车。':'该段桥面尚未就绪，保留车道示意；有效桥面就绪后自动显示地图标线。';
   }
   function clearBridgeGraphics(g=graphics){
     if(!g)return;for(const mesh of g.bridgeMeshes||[]){g.bridgeScene?.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}g.bridgeMeshes=[];g.bridgeData=null;
@@ -321,7 +349,7 @@
       const mesh=new T.Mesh(geometry,material);mesh.renderOrder=order;mesh.frustumCulled=false;g.bridgeScene.add(mesh);return mesh;};
     // Pavement/marks write shared depth so a later bridge draw cannot cover them.
     // Flow remains translucent without blocking the physical deck or vehicles.
-    g.bridgeMeshes=[build(data.positions,data.colors,1,-1),build(data.flow,new Float32Array(data.flow.length),.8,-2),build(data.surface,null,1,-3,'#7d8183')];g.bridgeData=data;updateBridgeFlow();refreshBridgeNote();
+    g.bridgeMeshes=[build(data.positions,data.colors,1,-1),build(data.flow,new Float32Array(data.flow.length),.8,-2),build(data.surface,null,1,-3,'#7d8183')];g.bridgeData=data;updateBridgeFlow();refreshBridgeNote();refreshStructureLanes();
     map.triggerRepaint();
   }
   function updateBridgeFlow(){
@@ -541,10 +569,11 @@
     }
     clearTimeout(pendingTimer);pendingTimer=0;pendingSignature=null;pendingContext=false;
     cancelTripPick();tripRequest++;tripPending=false;stopFollowing();signature=context.signature;center=context.center;
+    setBridgeRoads(context.roads);
     selected=null;latest=previous=null;network=[];roadStates.clear();trip=null;generation++;
     worker?.terminate(); worker=null;
     try {
-      worker=new Worker("./traffic-worker.js?v=8.0-traffic-auto-render-v5");
+      worker=new Worker("./traffic-worker.js?v=8.0-auto-structure-lanes-v1");
       const currentWorker=worker;
       worker.onmessage=receive;
       worker.onerror=()=>{if(worker!==currentWorker)return;disposeMap();setStatus("车流后台线程未能启动，可点击重新模拟。原地图继续使用。");refreshUi();};
@@ -602,7 +631,7 @@
   function scenario(){const [h,m]=ui.time.value.split(":").map(Number);return {count:count(),drivingSide:ui.side.value,
     startHour:Number.isFinite(h)&&Number.isFinite(m)?h+m/60:8,demandFactor:Number(ui.demand.value),
     nonPassengerStationIds:root.HuayuAtlas.getTrafficContext(null,true)?.nonPassengerStationIds||[]};}
-  function buildRegions(reuse=false){
+  function buildRegions(reuse=false,reload=false){
     if(!enabled)return;
     const context=root.HuayuAtlas.getTrafficContext(null,true);
     if(!context?.map||context.satellite){setStatus("请先切回华域标准或深夜底图。");return;}
@@ -610,7 +639,7 @@
     if(map&&map!==context.map)disposeMap();
     if(!map){map=context.map;map.on("moveend",onMove);map.on("dragstart",onFollowDrag);map.on("zoom",onFollowZoom);map.on("remove",onRemove);}
     cancelCandidate();const token=++candidateGeneration,nextGeneration=generation+1,expectedMap=map;
-    const next=new Worker("./traffic-worker.js?v=8.0-traffic-auto-render-v5");candidate=next;ui.cancel.hidden=false;
+    const next=new Worker("./traffic-worker.js?v=8.0-auto-structure-lanes-v1");candidate=next;ui.cancel.hidden=false;
     const key=regions.map(r=>r.osm_id).sort().join(",");let newInput=null,lastStage="启动模拟程序";
     regionProgress=ui.regionStatus.textContent="正在读取完整行政区；同时准备视野附近预览…";refreshUi();
     function fail(message){if(token!==candidateGeneration)return;cancelCandidate();
@@ -632,6 +661,7 @@
       cancelTripPick();tripRequest++;tripPending=false;stopFollowing();worker?.terminate();worker=next;candidate=null;ui.cancel.hidden=true;
       generation=nextGeneration;center=d.bounds?[(d.bounds[0]+d.bounds[2])/2,(d.bounds[1]+d.bounds[3])/2]:context.center;
       cachedRegion=newInput?{key,input:newInput}:cachedRegion;
+      setBridgeRoads(cachedRegion?.input.roads||null);
       latest=previous=null;selected=null;trip=null;network=[];roadStates.clear();
       next.onmessage=receive;next.onerror=()=>{if(worker===next){disposeMap();setStatus("区域模拟已停止，原地图继续使用。");refreshUi();}};
       next.postMessage({action:"pause",paused:isPaused()});next.postMessage({action:"rate",rate:rate()});next.postMessage({action:"count",count:count()});
@@ -642,10 +672,10 @@
     };
     const options=scenario(),b=map.getBounds(),viewport=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()];
     const loadFull=(previewPending=false)=>{if(token!==candidateGeneration||!enabled||map!==expectedMap)return;
-      next.postMessage({action:"build-region",generation:nextGeneration,regions,viewport,previewPending,regionalInput:reuse&&cachedRegion?.key===key?cachedRegion.input:undefined,options,paused:isPaused(),rate:rate()});};
+      next.postMessage({action:"build-region",generation:nextGeneration,regions,viewport,previewPending,reload:reload&&cachedRegion?.key===key,regionalInput:reuse&&cachedRegion?.key===key?cachedRegion.input:undefined,options,paused:isPaused(),rate:rate()});};
     if(latest?.demand.pairs){loadFull();return;}
     // The preview has its own worker so a failed/cancelled full-region load cannot remove it.
-    const near=new Worker("./traffic-worker.js?v=8.0-traffic-auto-render-v5");priorityWorker=near;
+    const near=new Worker("./traffic-worker.js?v=8.0-auto-structure-lanes-v1");priorityWorker=near;
     const previewDone=()=>{if(token===candidateGeneration&&candidate===next)next.postMessage({action:"load-slots",generation:nextGeneration});};
     const skipPreview=()=>{if(priorityWorker===near){near.terminate();priorityWorker=null;}previewDone();};
     near.onerror=skipPreview;
@@ -713,6 +743,9 @@
     ui.hudBridge=document.getElementById("traffic-follow-bridge");
     ui.hudTraffic=document.getElementById("traffic-follow-traffic");
     ui.hudTunnel=document.getElementById("traffic-follow-tunnel");ui.hudTunnelScene=document.getElementById("traffic-follow-tunnel-scene");
+    ui.structureLanes=document.getElementById("traffic-structure-lanes");ui.structureSelect=document.getElementById("traffic-structure-select");
+    ui.structureCount=document.getElementById("traffic-structure-count");ui.structureStrip=document.getElementById("traffic-structure-strip");ui.structureNote=document.getElementById("traffic-structure-note");
+    ui.structureSelect.addEventListener('change',refreshStructureLanes);
     if(!ui.enabled)return;
     ui.enabled.addEventListener("change",()=>setEnabled(ui.enabled.checked));
     ui.pause.addEventListener("click",()=>{paused=!paused;if(paused)stopFollowing();worker?.postMessage({action:"pause",paused:isPaused()});refreshUi();if(!paused)startFrames();});
@@ -721,7 +754,7 @@
     document.getElementById("traffic-region-search").addEventListener("click",searchRegions);
     ui.query.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();void searchRegions();}});
     ui.query.addEventListener("input",()=>{searchGeneration++;searching=false;ui.results.replaceChildren();});
-    document.getElementById("traffic-region-build").addEventListener("click",()=>buildRegions());
+    document.getElementById("traffic-region-build").addEventListener("click",()=>buildRegions(false,true));
     ui.cancel.addEventListener("click",()=>{cancelCandidate();regionProgress=ui.regionStatus.textContent="已取消全域加载，保留已有模拟或附近预览。";refreshUi();});
     document.getElementById("traffic-region-overview").addEventListener("click",()=>{const b=latest?.bounds;if(b&&map){stopFollowing();map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{padding:60,duration:800});}});
     ui.near.addEventListener("click",()=>{root.HuayuAtlas.prepareTrafficCamera();syncContext(true);});
@@ -749,7 +782,7 @@
     ui.startTrip.addEventListener("click",startTrip);
     ui.endTrip.addEventListener("click",()=>{if(!worker)return;stopFollowing();tripPending=true;worker.postMessage({action:"end-trip",generation,request:++tripRequest});refreshUi();});
     document.getElementById("reset-render-settings").addEventListener("click",()=>setEnabled(false));
-    document.addEventListener("visibilitychange",()=>{worker?.postMessage({action:"pause",paused:isPaused()});if(document.hidden){cancelAnimationFrame(frame);frame=0;clearTimeout(bridgeTimer);bridgeTimer=0;cancelTripPick();stopFollowing();}else {startFrames();map?.triggerRepaint();}});
+    document.addEventListener("visibilitychange",()=>{worker?.postMessage({action:"pause",paused:isPaused()});if(document.hidden){cancelAnimationFrame(frame);frame=0;clearTimeout(bridgeTimer);bridgeTimer=0;cancelTripPick();stopFollowing();}else {refreshStructureLanes();startFrames();map?.triggerRepaint();}});
     document.getElementById("map").addEventListener("pointerdown",onFollowPointerDown,{passive:true,capture:true});
     document.addEventListener("pointermove",onFollowPointerMove,{passive:true,capture:true});
     for(const type of ["pointerup","pointercancel"])document.addEventListener(type,onFollowPointerUp,{passive:true,capture:true});
@@ -770,7 +803,7 @@
     refreshUi();
     if(new URLSearchParams(root.location.search).get("panel")==="simulation")root.HuayuAtlas.openView("simulation",{preservePerspective:true});
   }
-  root.HuayuTraffic=Object.freeze({syncContext,pick,disposeMap,setEnabled,isEnabled:()=>enabled,
+  root.HuayuTraffic=Object.freeze({syncContext,pick,disposeMap,setEnabled,isEnabled:()=>enabled,getBridgeRoads:()=>simulationBridgeRoads,
     inspect:()=>({enabled,paused,following,followMode:ui.followMode?.value,picking,tripPending,selected,hasWorker:Boolean(worker),hasGraphics:Boolean(graphics),generation,status,center,frame:!!frame,
       pendingContext,loadingRegion:Boolean(candidate),regions:regions.map(r=>({name:r.name,id:r.osm_id})),searching,
       drawn:graphics?.drawn||0,drawnOthers:graphics?.drawnOthers||0,trafficViewport,drawnBridge:graphics?.drawnBridge||0,bridgeSurfaces:graphics?.bridgeData?{segments:graphics.bridgeData.segments,limited:graphics.bridgeData.limited,flowBands:[...new Set(graphics.bridgeData.groups.map(g=>g.band))]}:null,route:trip,networkSize:network.length,lanes:laneResult?{roads:laneResult.roads,estimated:laneResult.estimated,vertices:laneResult.vertices,limited:laneResult.limited,bounds:laneBounds,deferredElevated:laneResult.deferredElevated,deferredTunnel:laneResult.deferredTunnel}:null,snapshot:latest})});

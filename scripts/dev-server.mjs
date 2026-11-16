@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -62,6 +64,9 @@ async function staticResponse(request) {
 }
 
 const server = createServer(async (incoming, outgoing) => {
+  const controller = new AbortController();
+  incoming.once("aborted", () => controller.abort());
+  outgoing.once("close", () => { if (!outgoing.writableFinished) controller.abort(); });
   try {
     const origin = `http://${incoming.headers.host || `127.0.0.1:${port}`}`;
     const chunks = [];
@@ -71,16 +76,19 @@ const server = createServer(async (incoming, outgoing) => {
       method: incoming.method,
       headers: incoming.headers,
       body: ["GET", "HEAD"].includes(incoming.method || "GET") ? undefined : body,
+      signal: controller.signal,
     });
     const pending = [];
     const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}) }, {
       waitUntil(promise) { pending.push(Promise.resolve(promise)); },
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-    if (incoming.method === "HEAD") outgoing.end();
-    else outgoing.end(Buffer.from(await response.arrayBuffer()));
+    if (incoming.method === "HEAD") { await response.body?.cancel(); outgoing.end(); }
+    else if (response.body) await pipeline(Readable.fromWeb(response.body), outgoing);
+    else outgoing.end();
     Promise.allSettled(pending).catch(() => {});
   } catch (error) {
+    if (outgoing.headersSent || outgoing.destroyed) { outgoing.destroy(); return; }
     outgoing.writeHead(500, { "Content-Type": "application/json; charset=UTF-8" });
     outgoing.end(JSON.stringify({ error: "local_worker_failure", message: String(error?.message || error) }));
   }

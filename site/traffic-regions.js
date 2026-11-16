@@ -1,6 +1,6 @@
 (function installTrafficRegions(root) {
   "use strict";
-  const VERSION="8.0-traffic-structures-v1", URL="https://overpass.opengeofiction.net/api/interpreter";
+  const VERSION="8.0-traffic-load-cache-v1", URL="https://overpass.opengeofiction.net/api/interpreter";
   const LIMITS={regions:4,ways:40000,vertices:350000,objects:60000,bytes:32*1024*1024};
   const rings=g=>g?.type==="Polygon"?[g.coordinates]:g?.type==="MultiPolygon"?g.coordinates:[];
   function inside(p,g) {
@@ -194,7 +194,7 @@
   }
   async function request(query,fetcher=root.fetch,options={}) {
     const label=options.label||"区域数据";
-    for(let attempt=0;attempt<3;attempt++){
+    for(let attempt=0;attempt<(options.attempts||3);attempt++){
       // A retry gets fresh wait/idle/total deadlines. A slow 503
       // must not leave the next attempt with only the old timer's last seconds.
       const controller=new AbortController();let timedOut=false,response,reader,wait=0,timer,lastProgress=0;
@@ -206,8 +206,16 @@
       if(options.signal?.aborted)abort();else options.signal?.addEventListener("abort",abort,{once:true});
       try {
         if(controller.signal.aborted)throw Error("请求已取消");
-        response=await fetcher(URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`data=${encodeURIComponent(query)}`,signal:controller.signal,credentials:"omit"});
-        if(!response.ok){const error=Error(`数据服务 HTTP ${response.status}`);
+        response=await fetcher(options.endpoint||URL,options.endpoint
+          ?{signal:controller.signal,credentials:"omit",cache:options.reload?"no-store":"default"}
+          :{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`data=${encodeURIComponent(query)}`,signal:controller.signal,credentials:"omit"});
+        // Older static previews may not provide the edge route yet.
+        if(options.endpoint&&[404,405,501].includes(response.status)){
+          await response.body?.cancel();
+          response=await fetcher(URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:`data=${encodeURIComponent(query)}`,signal:controller.signal,credentials:"omit"});
+        }
+        if(!response.ok){const detail=response.headers.get("x-huayu-error");const error=Error(detail?decodeURIComponent(detail):`数据服务 HTTP ${response.status}`);
+          error.status=response.status;
           error.retryable=[408,429,500,502,503,504].includes(response.status);
           const retryAfter=response.headers.get("retry-after"),seconds=Number(retryAfter),date=Date.parse(retryAfter);
           error.retryAfter=Number.isFinite(seconds)?seconds*1000:Number.isFinite(date)?date-Date.now():0;throw error;}
@@ -224,12 +232,17 @@
           const error=Error(timeout?"上游查询超时，未取得完整数据":"上游未返回完整区域数据");error.retryable=timeout;throw error;}
         if(!count||!elements||Number(count.tags.total)!==elements.length)throw Error("区域数据计数不完整，保留旧模拟");
         if(elements.length>LIMITS.objects)throw Error("区域对象超过 60000，请减少行政区范围");
-        return {elements,sourceTime:Date.parse(data.osm3s?.timestamp_osm_base)||null,readAt:Date.now()};
+        const receivedAt=Number(response.headers.get("x-huayu-read-at"));
+        return {elements,sourceTime:Date.parse(data.osm3s?.timestamp_osm_base)||null,
+          readAt:receivedAt>0&&receivedAt<=Date.now()?receivedAt:Date.now()};
       }catch(error){
         const cancelled=options.signal?.aborted,timeout=timedOut||error.name==="TimeoutError",
           network=error.name==="AbortError"||error.name==="TypeError"&&/fetch|network|connection|load failed/iu.test(error.message);
         const reason=cancelled?"请求已取消":timeout?"响应超时":network?"连接中断或网络不可用":error.message;
-        if(cancelled||!(timeout||network||error.retryable)||attempt===2)throw Error(`${label}：${reason}${attempt?`（已自动重试 ${attempt} 次）`:""}`);
+        if(cancelled||!(timeout||network||error.retryable)||attempt===(options.attempts||3)-1){
+          const failure=Error(`${label}：${reason}${attempt?`（已自动重试 ${attempt} 次）`:""}`);
+          failure.status=error.status||(timeout||network||error.retryable?503:422);throw failure;
+        }
         wait=Math.max(2000,Math.min(15000,error.retryAfter||(attempt+1)*3000));
         options.onRetry?.({attempt:attempt+1,reason,wait});
       }finally{
@@ -274,27 +287,35 @@
     }
     return {center,roads,demand,sourceTimes:[data.sourceTime].filter(Number.isFinite),radius:1500};
   }
+  function queries(ids,b) {
+    if(!Array.isArray(ids)||!ids.length||ids.length>LIMITS.regions||ids.some(id=>!Number.isSafeInteger(id)||id<=0)
+      ||!Array.isArray(b)||b.length!==4||b.some(v=>!Number.isFinite(v))||b[0]>=b[2]||b[1]>=b[3]
+      ||b[0]<-180||b[2]>180||b[1]<-90||b[3]>90||b[2]-b[0]>12||b[3]-b[1]>12)throw Error("行政区或范围无效，最多 4 区且跨度不超过 12°");
+    const areas=ids.map(id=>`area(${3600000000+id});`).join(""),rels=ids.map(id=>`rel(${id});`).join("");
+    const pattern="motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service";
+    const bbox=`${b[1]},${b[0]},${b[3]},${b[2]}`;
+    return [
+      `[out:json][timeout:80];(${areas})->.a;(${rels}rel(area.a)[boundary=administrative];)->.r;(.r;node(r.r:"admin_centre");node(area.a)[population];node(area.a)["population:hx"];node(area.a)[place~"^(country|state|province|region|city|town|suburb|quarter|neighbourhood|village|hamlet)$"];);out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(way(area.a)[highway~"^(${pattern})(_link)?$"];${ids.length>1?`way(${bbox})[highway~"^(motorway|trunk|primary|secondary)(_link)?$"];`:""});out body geom;out count;`,
+      `[out:json][timeout:80];(${areas})->.a;(nwr(area.a)[amenity~"^(parking|parking_entrance|school|university|college|kindergarten|hospital|clinic|doctors|cafe|restaurant|fast_food|bank|marketplace|post_office)$"];nwr(area.a)[railway~"^(station|halt)$"];nwr(area.a)[public_transport=station][train=yes];nwr(area.a)[aeroway~"^(aerodrome|terminal)$"];nwr(area.a)[shop][shop!~"^(no|vacant|closed)$"];nwr(area.a)[office];nwr(area.a)[leisure~"^(park|garden|sports_centre|stadium)$"];nwr(area.a)[landuse~"^(residential|industrial|commercial|retail)$"];)->.f;(nwr.f[amenity=parking];nwr.f[aeroway=aerodrome];nwr.f[landuse];)->.shape;(.f; - .shape;)->.rest;.rest out body center;.shape out body geom;.f out count;`,
+      `[out:json][timeout:80];(${areas})->.a;nwr(area.a)[building][building!=no];out body geom;out count;`
+    ];
+  }
   async function load(selected,progress=()=>{},fetcher,options={}) {
     if(!selected.length||selected.length>LIMITS.regions||selected.some(s=>s.osm_type!=="relation"||!/^\d+$/.test(String(s.osm_id))))throw Error("请选择 1–4 个真实行政区");
     const bs=selected.map(s=>bounds(s.geojson)),b=[Math.min(...bs.map(b=>b[0])),Math.min(...bs.map(b=>b[1])),Math.max(...bs.map(b=>b[2])),Math.max(...bs.map(b=>b[3]))];
     if(b.some(v=>!Number.isFinite(v))||b[2]-b[0]>12||b[3]-b[1]>12)throw Error("区域跨度超过 12°，请减少范围或选择相邻城市／省份");
-    const areas=selected.map(s=>`area(${3600000000+Number(s.osm_id)});`).join(""),rels=selected.map(s=>`rel(${Number(s.osm_id)});`).join("");
-    const provincial=selected.some(s=>Number(s.extratags?.admin_level)<5),pattern="motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service";
-    const bbox=`${b[1]},${b[0]},${b[3]},${b[2]}`;
-    const queries=[
-      `[out:json][timeout:80];(${areas})->.a;(${rels}rel(area.a)[boundary=administrative];)->.r;(.r;node(r.r:"admin_centre");node(area.a)[population];node(area.a)["population:hx"];node(area.a)[place~"^(country|state|province|region|city|town|suburb|quarter|neighbourhood|village|hamlet)$"];);out body geom;out count;`,
-      `[out:json][timeout:80];(${areas})->.a;(way(area.a)[highway~"^(${pattern})(_link)?$"];${selected.length>1?`way(${bbox})[highway~"^(motorway|trunk|primary|secondary)(_link)?$"];`:""});out body geom;out count;`,
-      `[out:json][timeout:80];(${areas})->.a;(nwr(area.a)[amenity~"^(parking|parking_entrance|school|university|college|kindergarten|hospital|clinic|doctors|cafe|restaurant|fast_food|bank|marketplace|post_office)$"];nwr(area.a)[railway~"^(station|halt)$"];nwr(area.a)[public_transport=station][train=yes];nwr(area.a)[aeroway~"^(aerodrome|terminal)$"];nwr(area.a)[shop][shop!~"^(no|vacant|closed)$"];nwr(area.a)[office];nwr(area.a)[leisure~"^(park|garden|sports_centre|stadium)$"];nwr(area.a)[landuse~"^(residential|industrial|commercial|retail)$"];)->.f;(nwr.f[amenity=parking];nwr.f[aeroway=aerodrome];nwr.f[landuse];)->.shape;(.f; - .shape;)->.rest;.rest out body center;.shape out body geom;.f out count;`,
-      `[out:json][timeout:80];(${areas})->.a;nwr(area.a)[building][building!=no];out body geom;out count;`
-    ];
+    const ids=selected.map(s=>Number(s.osm_id)),querySet=queries(ids,b),provincial=selected.some(s=>Number(s.extratags?.admin_level)<5);
     const labels=["人口与边界","路网与干道","设施与用地","全域建筑"],responses=new Array(4);let cursor=0,completed=0;
     progress("后台补齐全域：人口、路网、设施、建筑 0／4…");
     // Two bounded requests overlap; avoid flooding the upstream service with all regions at once.
     const capacity=options.capacity||{slots:2},controller=new AbortController();
     await new Promise((resolve,reject)=>{let active=0,failed=false;
-      const pump=()=>{if(failed)return;if(completed===queries.length){capacity.wake=null;resolve();return;}
-        while(cursor<queries.length&&active<Math.max(1,Math.min(2,capacity.slots))){const i=cursor++;active++;
-          request(queries[i],fetcher,{label:labels[i],signal:controller.signal,
+      const pump=()=>{if(failed)return;if(completed===querySet.length){capacity.wake=null;resolve();return;}
+        while(cursor<querySet.length&&active<Math.max(1,Math.min(2,capacity.slots))){const i=cursor++;active++;
+          const endpoint=!fetcher&&root.location?.protocol?.startsWith("http")
+            ?`${root.location.origin}/api/traffic-region?ids=${ids.join(",")}&bounds=${b.join(",")}&part=${i}${options.reload?"&reload=1":""}`:undefined;
+          request(querySet[i],fetcher,{label:labels[i],signal:controller.signal,endpoint,reload:options.reload,
             onProgress:({bytes})=>{if(!failed)progress(`后台补齐全域：${completed}／4 已就绪；${labels[i]}已接收 ${(bytes/1024/1024).toFixed(1)} MiB…`);},
             onRetry:({attempt,reason})=>{if(!failed)progress(`后台补齐全域：${completed}／4 已就绪；${labels[i]}${reason}，正在自动重试 ${attempt}／2…`);}
           }).then(result=>{if(failed)return;responses[i]=result;completed++;progress(`后台补齐全域：${completed}／4，${labels[i]}已就绪…`);},error=>{if(failed)return;failed=true;capacity.wake=null;controller.abort();reject(error);}).finally(()=>{active--;pump();});}
@@ -307,7 +328,7 @@
     const features=[...new Map([...poi.elements,...building.elements].map(e=>[`${e.type}:${e.id}`,e])).values()].map(feature);
     const population=populationZones(admin.elements,selected,features);
     return {roads,features,population,selected:selected.map(s=>({name:s.name,id:s.osm_id,geometry:s.geojson})),
-      center:[(b[0]+b[2])/2,(b[1]+b[3])/2],bounds:b,sourceTimes:responses.map(p=>p.sourceTime).filter(Number.isFinite),readAt:Date.now(),buildingsLoaded:true,provincial};
+      center:[(b[0]+b[2])/2,(b[1]+b[3])/2],bounds:b,sourceTimes:responses.map(p=>p.sourceTime).filter(Number.isFinite),readAt:Math.min(...responses.map(p=>p.readAt)),buildingsLoaded:true,provincial};
   }
-  root.HuayuTrafficRegions=Object.freeze({VERSION,LIMITS,inside,segmentInside,bounds,geometry,feature,population,populationZones,request,loadPreview,load});
+  root.HuayuTrafficRegions=Object.freeze({VERSION,LIMITS,inside,segmentInside,bounds,geometry,feature,population,populationZones,queries,request,loadPreview,load});
 })(globalThis);

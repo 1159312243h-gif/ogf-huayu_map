@@ -50,7 +50,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js", "building-tiles.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
-  "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
+  "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json", "download-center.js",
   "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-regional-sites.js", "traffic-protocol.js", "traffic-trip.js", "traffic-camera.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
@@ -97,6 +97,14 @@ assert.ok(app.includes("function loadHuayuTerrainPreload(state)")
   && app.includes("terrain-preload-manifest.json")
   && app.includes(`HUAYU_TERRAIN_PRELOAD_RECHECK_MS = ${release.expectedTerrainPreloadRevalidateSeconds / 60} * 60 * 1000`),
   "地形首次加载必须使用空间发布快照，并检查三小时脚本生成的替换包");
+assert.ok(app.includes("HUAXIA_COUNTRY_RELATION_ID = 28652")
+  && app.includes("function huaxiaAdministrativeCatalogQuery()")
+  && app.includes("window.HuayuAdministrativeCatalog.query(HUAXIA_COUNTRY_RELATION_ID)")
+  && index.includes("./admin-catalog.js")
+  && app.includes("boundary=administrative")
+  && index.includes("id=\"huaxia-admin-catalog-load\"")
+  && app.includes("huaxiaAdministrativeCatalogArtifact"),
+  "华夏行政区清单必须以国家关系为根并导出真实行政关系");
 const styles = await fs.readFile(path.join(site, "styles.css"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
 const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
@@ -1537,6 +1545,10 @@ assert.equal(coastExportTest.status, 0, coastExportTest.stderr || "Coastline exp
 assert.equal(adminExportTest.status, 0, `行政区下载回归失败：${adminExportTest.stderr}`);
 const featureDownloadTest = await runCheck([path.join(root, "scripts", "test-feature-download.mjs")]);
 assert.equal(featureDownloadTest.status, 0, `物体选择与下载回归失败：${featureDownloadTest.stderr}`);
+const downloadCenterTest = await runCheck([path.join(root, "scripts", "test-download-center.mjs")]);
+assert.equal(downloadCenterTest.status, 0, `表格、图片与通用下载清单回归失败：${downloadCenterTest.stderr || downloadCenterTest.stdout}`);
+const administrativeCatalogTest = await runCheck([path.join(root, "scripts", "test-admin-catalog.mjs")]);
+assert.equal(administrativeCatalogTest.status, 0, `华夏完整清单、预制加载及源时间回归失败：${administrativeCatalogTest.stderr}`);
 const transitAtlasOptionsTest = await runCheck([path.join(root, "scripts", "test-transit-atlas-options.mjs")]);
 assert.equal(transitAtlasOptionsTest.status, 0, `线路图底图、建设状态及下载回归失败：${transitAtlasOptionsTest.stderr}`);
 const transitAtlasFilteringTest = await runCheck([path.join(root, "scripts", "test-transit-atlas-filtering.mjs")]);
@@ -1586,6 +1598,8 @@ const trafficRegionsTest = await runCheck([path.join(root, "scripts", "test-traf
 const trafficLanesTest = await runCheck([path.join(root, "scripts", "test-traffic-lanes.mjs")]);
 const trafficLoadingTest = await runCheck([path.join(root, "scripts", "test-traffic-loading.mjs")]);
 const trafficRequestsTest = await runCheck([path.join(root, "scripts", "test-traffic-requests.mjs")]);
+const trafficRegionApiTest = await runCheck([path.join(root, "scripts", "test-traffic-region-api.mjs")]);
+assert.equal(trafficRegionApiTest.status, 0, `区域压缩传输与完整缓存回归失败：${trafficRegionApiTest.stderr}`);
 assert.equal(trafficRequestsTest.status, 0, `区域流式接收、超时重试与取消回归失败：${trafficRequestsTest.stderr}`);
 assert.equal(trafficLoadingTest.status, 0, `区域并行加载、完整接管与城市点搜索回归失败：${trafficLoadingTest.stderr}`);
 assert.equal(trafficLanesTest.status, 0, `车道估算、几何与分道行驶回归失败：${trafficLanesTest.stderr}`);
