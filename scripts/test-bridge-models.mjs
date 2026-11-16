@@ -53,6 +53,23 @@ check("disabled bridge setting avoids modeling and regional bridge requests, inc
   enabled=false;vm.runInContext("syncHuayuBridgeModels(map,state);",c);assert.equal(syncs,1);assert.equal(disposals,2);
 });
 
+check("traffic temporarily enables bridge rendering and lanes, preserves preferences and restores them on exit", () => {
+  const app=fs.readFileSync(new URL("../site/app.js",import.meta.url),"utf8"),traffic=fs.readFileSync(new URL("../site/traffic-simulation.js",import.meta.url),"utf8");
+  const model=context.HuayuBridgeModels,events=[];
+  const c=vm.createContext({enabled:false,paused:false,lanesBeforeSimulation:null,ui:{lanes:{checked:false}},
+    Boolean,CustomEvent:class{constructor(type){this.type=type;}},regional:()=>false,syncContext(){},disposeMap(){},setStatus(){},refreshUi(){}});
+  c.window=c.root={HuayuBridgeModels:model,HuayuTraffic:{isEnabled:()=>c.enabled},dispatchEvent:e=>events.push({type:e.type,active:c.bridgeModelsEnabled()})};
+  for(const [name,source] of [["bridgeModelsEnabled",app],["setEnabled",traffic]])vm.runInContext(source.match(new RegExp(`  function ${name}\\([^]*?\\n  \\}`,"u"))[0],c);
+  const before=plain(model.getPreferences());assert.equal(c.bridgeModelsEnabled(),false);
+  c.setEnabled(true);assert.equal(c.bridgeModelsEnabled(),true);assert.equal(c.ui.lanes.checked,true);
+  assert.deepEqual(plain(model.getPreferences()),before,"automatic mode never persists a bridge preference");
+  c.ui.lanes.checked=false;c.setEnabled(true);assert.equal(c.ui.lanes.checked,false,"repeated context activation preserves the user's active lane choice");
+  c.setEnabled(false);assert.equal(c.bridgeModelsEnabled(),false);assert.equal(c.ui.lanes.checked,false);
+  assert.deepEqual(events.map(e=>e.active),[true,false]);assert.ok(events.every(e=>e.type==='huayu-traffic-render-change'));
+  model.setPreferences({enabled:true});c.ui.lanes.checked=true;c.setEnabled(true);c.setEnabled(false);
+  assert.equal(c.bridgeModelsEnabled(),true,"an explicitly enabled bridge preference remains enabled after simulation");assert.equal(c.ui.lanes.checked,true);
+  model.setPreferences(model.DEFAULTS);
+});
 check("worker starts from loaded code and exactly matches the main algorithm", () => {
   const messages = [], worker = vm.createContext({self: {postMessage: message => messages.push(message)}});
   const program = bridges.workerSource();

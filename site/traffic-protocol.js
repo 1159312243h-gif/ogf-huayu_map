@@ -9,8 +9,8 @@
       const cars=data.vehicles,frames=new Float64Array(cars.length*stride),meta=[],live=new Set();
       cars.forEach((v,i)=>{
         live.add(v.id);const old=this.known.get(v.id);
-        if(!old||["purpose","origin","destination","distance","parkingName"].some(key=>old[key]!==v[key])){
-          const m={id:v.id,purpose:v.purpose,origin:v.origin,destination:v.destination,distance:v.distance,parkingName:v.parkingName};this.known.set(v.id,m);meta.push(m);
+        if(!old||["purpose","origin","destination","distance","parkingName"].some(key=>old[key]!==v[key])||Boolean(old.manual)!==Boolean(v.manual)){
+          const m={id:v.id,purpose:v.purpose,origin:v.origin,destination:v.destination,distance:v.distance,parkingName:v.parkingName,...(v.manual===undefined?{}:{manual:v.manual})};this.known.set(v.id,m);meta.push(m);
         }
         const flags=Math.max(0,phases.indexOf(v.phase))+(v.returning?8:0)+(v.elevated?16:0)+(v.hiddenSample?32:0)+(v.waiting?64:0)+(v.parked?128:0)+(v.parking?256:0)+(v.nextElevated?512:0)+(v.nextTunnel?1024:0)+(v.tunnel?2048:0);
         const lane=v.lane?v.lane+v.lanes*32+Math.max(0,laneSources.indexOf(v.laneSource))*1024:0;

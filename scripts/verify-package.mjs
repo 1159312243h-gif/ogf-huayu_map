@@ -51,7 +51,7 @@ for (const required of ["_headers", "_worker.js", "app.js", "personal-data.js", 
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
   "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json",
-  "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-regional-sites.js", "traffic-protocol.js",
+  "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-regional-sites.js", "traffic-protocol.js", "traffic-trip.js", "traffic-camera.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
   assert.ok(manifest.has(required), `缺少生产文件：${required}`);
@@ -1580,6 +1580,8 @@ assert.equal(sunlightShadowsTest.status, 0, `建筑日照阴影回归失败：${
 const bridgeModelsTest = await runCheck([path.join(root, "scripts", "test-bridge-models.mjs")]);
 assert.equal(bridgeModelsTest.status, 0, `桥梁与立交纵断面回归失败：${bridgeModelsTest.stderr}`);
 const trafficSimulationTest = await runCheck([path.join(root, "scripts", "test-traffic-simulation.mjs")]);
+const trafficTripsTest = await runCheck([path.join(root, "scripts", "test-traffic-trips.mjs")]);
+assert.equal(trafficTripsTest.status, 0, `自定义车辆与 2D／3D 跟随回归失败：${trafficTripsTest.stderr}`);
 const trafficRegionsTest = await runCheck([path.join(root, "scripts", "test-traffic-regions.mjs")]);
 const trafficLanesTest = await runCheck([path.join(root, "scripts", "test-traffic-lanes.mjs")]);
 const trafficLoadingTest = await runCheck([path.join(root, "scripts", "test-traffic-loading.mjs")]);

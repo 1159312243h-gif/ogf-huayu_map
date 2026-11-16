@@ -1985,7 +1985,12 @@
   syncSunlightControls();
   const bridgeRenderSetting = document.getElementById("setting-bridge-models");
   function syncBridgeRenderSettingControl() {
+    const simulating = window.HuayuTraffic?.isEnabled() === true;
     bridgeRenderSetting.checked = bridgeModelsEnabled();
+    bridgeRenderSetting.disabled = simulating;
+    document.getElementById("bridge-render-note").textContent = simulating
+      ? "交通模拟期间自动显示桥面；关闭模拟后恢复原桥梁设置。倾斜或 3D 跟随时可查看，首次加载需要等待。"
+      : "在倾斜视角显示桥面与坡道，较大范围首次加载需要等待。交通模拟会临时自动开启，关闭模拟后恢复。";
   }
   bridgeRenderSetting.addEventListener("change", () => {
     window.HuayuBridgeModels.setPreferences({enabled: bridgeRenderSetting.checked});
@@ -1994,6 +1999,10 @@
     syncBridgeRenderSettingControl();
     applyHuayuBridgeRenderSetting(currentVectorBasemap());
     if (!event.detail.saved) showToast("设置仅在本次打开中生效，浏览器未允许保存");
+  });
+  window.addEventListener("huayu-traffic-render-change", () => {
+    syncBridgeRenderSettingControl();
+    applyHuayuBridgeRenderSetting(currentVectorBasemap());
   });
   syncBridgeRenderSettingControl();
   window.addEventListener("huayu-render-settings-change", event => {
@@ -27125,7 +27134,7 @@
   }
 
   function bridgeModelsEnabled() {
-    return window.HuayuBridgeModels?.getPreferences().enabled === true;
+    return window.HuayuTraffic?.isEnabled() === true || window.HuayuBridgeModels?.getPreferences().enabled === true;
   }
 
   function huayuLiveBasemapMinimumZoom() {
@@ -35676,14 +35685,15 @@
         nonPassengerStationIds:(transitServiceRules.railOperatingRules||[]).flatMap(r=>r.nonPassengerStationIds),
         satellite:!["huayu","huayu-night"].includes(selectedBasemapId),signature:revisions.sort().join("|")};
     },
-    prepareTrafficCamera: (coordinate, zoom) => {
+    prepareTrafficCamera: (coordinate, zoom, options = {}) => {
       if (window.HuayuPersonalData?.isPickingBounds() || administrativeBoxPicking || mapPickTarget || currentView === "measure") {
         showToast("请先完成当前选点或范围操作，再启用车辆镜头"); return false;
       }
       const glMap=currentVectorBasemap();
       if(!glMap || !["huayu","huayu-night"].includes(selectedBasemapId))return false;
       const c=glMap.getCenter();
-      return enterVectorPerspectiveMode(Number.isFinite(zoom)?glMap.getPitch():55,glMap.getBearing(),{silent:true,center:coordinate || [c.lng,c.lat],zoom:Number.isFinite(zoom)?zoom:Math.max(coordinate ? 18 : 17,glMap.getZoom())});
+      const pitch=options.mode==="2d"?0:options.mode==="3d"?55:Number.isFinite(zoom)?glMap.getPitch():55;
+      return enterVectorPerspectiveMode(pitch,Number.isFinite(options.bearing)?options.bearing:glMap.getBearing(),{silent:true,center:coordinate || [c.lng,c.lat],zoom:Number.isFinite(zoom)?zoom:Math.max(coordinate ? 18 : 17,glMap.getZoom())});
     },
     applyPersonalDataSnapshot,
     prepareOverlayEditing: () => exitVectorPerspectiveMode({silent:true}),

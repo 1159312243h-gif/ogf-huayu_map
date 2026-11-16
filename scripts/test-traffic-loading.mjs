@@ -16,10 +16,10 @@ function context(){
   for(const key of ["cancel","regionStatus","regions","chosen","query","results"])ui[key]=new Element();
   const map={on(){},getBounds:()=>({getWest:()=>150,getSouth:()=>12,getEast:()=>151,getNorth:()=>13})};
   const c=vm.createContext({ui,enabled:true,map,regions:[boundary],generation:0,candidateGeneration:0,candidate:null,priorityWorker:null,
-    latest:null,previous:null,selected:null,trip:null,worker:null,network:[],roadStates:new Map(),cachedRegion:null,
+    latest:null,previous:null,selected:null,trip:null,worker:null,network:[],roadStates:new Map(),cachedRegion:null,tripRequest:0,tripPending:true,
     regionProgress:"",searchGeneration:0,searching:false,root:{HuayuAtlas:{getTrafficContext:()=>({map,center:[150,12]}),
       prepareTrafficCamera:(...args)=>{locations.push(args);return true;}}},
-    document:{createElement:()=>new Element()},stopFollowing(){},refreshUi(){},receive:e=>{c.latest=e.data;},
+    document:{createElement:()=>new Element()},cancelTripPick(){events.push("cancel-trip-pick");},stopFollowing(){},refreshUi(){},receive:e=>{c.latest=e.data;},
     ensureGraphics(){},sendViewport(){},scenario:()=>({}),isPaused:()=>false,rate:()=>1,count:()=>600,
     Worker:class{messages=[];terminated=false;constructor(){jobs.push(this);}postMessage(m){events.push(m.action);this.messages.push(m);}terminate(){this.terminated=true;}}
   });
@@ -36,6 +36,7 @@ const full={data:{generation:1,regional:true,demand:{pairs:2},bounds:[150,12,151
   assert.deepEqual(events.slice(0,2),["build-region","build-preview"],"full requests start before any preview reply");
   assert.equal(all.messages[0].previewPending,true);
   all.onmessage(full);assert.equal(c.worker,all);assert.ok(near.terminated);assert.ok(c.latest.regional);
+  assert.equal(c.tripPending,false);assert.equal(c.tripRequest,1,"full takeover invalidates old manual-trip replies");
   latePreview({data:{generation:1,preview:true,demand:{pairs:1}}});assert.equal(c.worker,all);assert.ok(c.latest.regional,"late preview cannot replace full city");
 }
 {

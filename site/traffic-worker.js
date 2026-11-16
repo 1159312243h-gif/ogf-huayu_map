@@ -1,12 +1,13 @@
 "use strict";
-importScripts("./traffic-core.js?v=8.0-traffic-structures-v1", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
-  "./traffic-regions.js?v=8.0-traffic-structures-v1", "./traffic-regional-sites.js?v=8.0-traffic-structures-v1", "./traffic-regional-core.js?v=8.0-traffic-structures-v1", "./traffic-protocol.js?v=8.0-traffic-loading-v1", "./traffic-surfaces.js?v=8.0-traffic-loading-v1");
+importScripts("./traffic-core.js?v=8.0-traffic-auto-render-v5", "./traffic-demand.js?v=8.0-traffic-boundaries-v1",
+  "./traffic-regions.js?v=8.0-traffic-structures-v1", "./traffic-regional-sites.js?v=8.0-traffic-structures-v1", "./traffic-regional-core.js?v=8.0-traffic-auto-render-v5", "./traffic-protocol.js?v=8.0-traffic-auto-render-v5", "./traffic-surfaces.js?v=8.0-traffic-auto-render-v5", "./traffic-trip.js?v=8.0-traffic-auto-render-v5");
 let simulation, timer, encoder, generation = 0, rate = 1, publishedRevision=-1, selectedKey="",publishedStats=-1;
 let loadingCapacity=null;
 function stop() {clearInterval(timer); timer = null;}
 function publish(roads=false) {
   if(!simulation)return;
   const data={generation,...simulation.snapshot(),preview:Boolean(simulation.preview)};
+  data.guidance=simulation.selectedGuidance?.()||null;
   const fresh=publishedRevision!==simulation.networkRevision;
   if(fresh){data.network=simulation.network();publishedRevision=simulation.networkRevision;}
   if(data.regional&&!fresh){for(const key of ["demand","edges","nodes","structures","sourceTimes","bounds","regionNames"])delete data[key];}
@@ -20,17 +21,29 @@ function publish(roads=false) {
 }
 function run() {
   stop();
-  if (!simulation || simulation.paused || !simulation.graph.edges.length || !simulation.demand.pairs.length) return;
+  if (!simulation || simulation.paused || !simulation.graph.edges.length || !simulation.demand.pairs.length&&!simulation.cars.some(c=>c.manual)) return;
   let ticks = 0;
   timer = setInterval(() => {let remaining=0.05*rate;while(remaining>1e-8){const step=Math.min(0.25,remaining);simulation.advance(step);remaining-=step;}
     if (++ticks % 2 === 0) publish(ticks%20===0);}, 50);
 }
 onmessage = async ({data}) => {
+  if(data.action==="start-trip"||data.action==="end-trip"){
+    if(!simulation||data.generation!==generation)return;
+    try{
+      let result;
+      if(data.action==="start-trip")result=HuayuTrafficTrips.start(simulation,data);
+      else {const ids=new Set(simulation.cars.filter(c=>c.manual).map(c=>c.id));simulation.cars=simulation.cars.filter(c=>!c.manual);
+        for(const [node,lock] of simulation.locks||[])if(ids.has(lock.car))simulation.locks.delete(node);
+        if(ids.has(simulation.selected))simulation.selected=null;result={ended:true};}
+      publish();postMessage({generation,tripRequest:data.request,tripResult:result});run();
+    }catch(error){postMessage({generation,tripRequest:data.request,tripError:String(error.message||error)});}
+    return;
+  }
   if(data.action==="load-slots"){if(data.generation===generation&&loadingCapacity){loadingCapacity.slots=2;loadingCapacity.wake?.();}return;}
   if(data.action==="bridge-surfaces"){
     if(!simulation||data.generation!==generation)return;
-    try{const geometry=HuayuTrafficSurfaces.geometry(simulation.graph,data.plans,data.bounds);
-      postMessage({generation,bridgeRequest:data.request,bridgeGeometry:geometry},[geometry.positions.buffer,geometry.colors.buffer,geometry.flow.buffer]);}
+    try{const geometry=HuayuTrafficSurfaces.geometry(simulation.graph,data.plans,data.bounds,data.origin);
+      postMessage({generation,bridgeRequest:data.request,bridgeGeometry:geometry},[geometry.positions.buffer,geometry.colors.buffer,geometry.surface.buffer,geometry.flow.buffer]);}
     catch{postMessage({generation,bridgeRequest:data.request,bridgeError:true});}return;
   }
   if(data.action==="lanes"){

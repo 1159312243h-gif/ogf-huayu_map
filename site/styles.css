@@ -4870,12 +4870,60 @@ button.popup-route:focus-visible .popup-route-arrow {
 }
 /* Visible even when the settings panel is minimized. */
 .traffic-stop-follow { position: absolute; z-index: 1100; right: 18px; bottom: 100px; box-shadow: 0 2px 12px #0003; }
+.traffic-follow-hud { position:absolute; z-index:1090; top:82px; right:72px; width:360px; max-width:calc(100% - 104px); padding:14px; border:1px solid #d4dfe9; border-radius:18px; background:#fbfdff; box-shadow:0 8px 30px #102b4430; color:#142c43; font-size:12px; }
+.traffic-follow-hud[hidden], .traffic-follow-marker[hidden] { display:none; }
+.traffic-follow-heading { display:flex; align-items:center; gap:12px; padding:12px; margin:-14px -14px 12px; border-radius:18px 18px 0 0; background:#142b44; color:white; }
+.traffic-follow-symbol { flex:0 0 36px; font-size:36px; text-align:center; font-weight:700; }
+.traffic-follow-heading>div:nth-child(2) { display:grid; gap:4px; min-width:0; flex:1; }
+.traffic-follow-kicker { font-size:11px; color:#c0d5ea; }
+#traffic-follow-road { font-size:18px; overflow-wrap:anywhere; }
+#traffic-follow-next { font-size:12px; color:#d2e4f5; overflow-wrap:anywhere; }
+.traffic-follow-speed { display:grid; text-align:center; flex:0 0 48px; }
+.traffic-follow-speed strong { font-size:26px; font-variant-numeric:tabular-nums; }
+.traffic-follow-speed span { font-size:10px; color:#b9cde0; }
+.traffic-follow-lane-heading { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:8px; }
+#traffic-follow-structure { color:#52697d; font-size:11px; }
+.traffic-follow-lane-strip { display:flex; overflow-x:auto; background:#22374b; border:1px solid #738698; border-radius:10px; min-height:57px; padding:4px; }
+.traffic-follow-lane-strip>span { display:grid; place-content:center; gap:3px; text-align:center; min-width:24px; flex:1; border-right:1px dashed #9aaab9; color:#a7b4c2; font-size:10px; }
+.traffic-follow-lane-strip>span:last-child { border-right:0; }
+.traffic-follow-lane-strip b { font-size:18px; }
+.traffic-follow-lane-strip>span.is-current { background:#1479ed; color:white; border-radius:6px; box-shadow:inset 0 0 0 1px #a7d6ff; }
+.traffic-follow-lane-strip[hidden], .traffic-follow-tunnel[hidden] { display:none; }
+.traffic-follow-tunnel { padding:8px; background:#eaf0f5; border:1px solid #c4d2de; border-radius:10px; }
+.traffic-follow-tunnel>div { display:flex; justify-content:space-between; gap:8px; color:#29465e; font-size:11px; }
+.traffic-follow-tunnel>div span, .traffic-follow-tunnel small { color:#53697b; font-size:10px; }
+.traffic-follow-tunnel svg { display:block; width:100%; max-height:124px; margin:4px 0; }
+.traffic-tunnel-road { fill:#414b53; stroke:#e8e8e4; stroke-width:1.5; }
+.traffic-tunnel-divider { stroke:#faf8ee; stroke-width:1; stroke-dasharray:6 6; }
+.traffic-tunnel-car { fill:#aab6bf; stroke:#e9f0f4; stroke-width:1; }
+.traffic-tunnel-car.is-selected { fill:#087dff; stroke:#fff; stroke-width:2; }
+.traffic-tunnel-halo { fill:#1686ef2b; stroke:#69b7ff; stroke-width:2; }
+.traffic-follow-hud p { margin:7px 0; font-size:11px; line-height:1.5; color:#53697b; }
+.traffic-follow-hud .traffic-follow-surface-note { color:#365d7d; }
+.traffic-follow-hud .traffic-follow-traffic { color:#20635a; font-weight:600; }
+.traffic-follow-hud .traffic-follow-traffic[data-state="slow"] { color:#a34824; }
+.traffic-follow-actions { display:flex; gap:6px; margin-top:9px; }
+.traffic-follow-actions button { border:1px solid #c6d7e5; border-radius:7px; color:#174e83; background:#f0f6fc; padding:7px 9px; cursor:pointer; font-size:12px; min-height:34px; }
+.traffic-follow-actions button:last-child { margin-left:auto; }
+.traffic-follow-marker { position:absolute; z-index:1080; pointer-events:none; transform:translate(-50%,-50%); width:38px; height:38px; border:3px solid white; border-radius:50%; background:#1181f42b; box-shadow:0 0 0 3px #1686ef,0 2px 14px #003c9a88; }
+.traffic-follow-marker span { position:absolute; bottom:48px; left:50%; transform:translateX(-50%); background:#0867ce; color:white; border:2px solid white; border-radius:7px; padding:5px 8px; white-space:nowrap; font-size:12px; font-weight:700; box-shadow:0 2px 8px #10294c40; }
+.traffic-follow-marker i { position:absolute; inset:7px; background:#097bec; clip-path:polygon(50% 0,100% 100%,50% 75%,0 100%); filter:drop-shadow(0 1px 1px white); }
+@media (max-width:680px) {
+  .traffic-follow-hud { top:78px; right:12px; width:calc(100% - 90px); max-width:360px; padding:11px; }
+  .traffic-follow-heading { margin:-11px -11px 10px; padding:10px; }
+  #traffic-follow-road { font-size:16px; }
+  .traffic-follow-lane-heading { flex-wrap:wrap; }
+  .traffic-follow-actions { gap:4px; }
+  .traffic-follow-actions button { padding:7px; font-size:11px; }
+}
 .traffic-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; }
 .traffic-legend span::before { content: ""; display: inline-block; width: 12px; height: 4px; margin-right: 4px; vertical-align: middle; background: #369c79; }
 .traffic-legend span:nth-child(2)::before { background: #d69a28; }
 .traffic-legend span:nth-child(3)::before { background: #d75343; }
 .traffic-legend span:nth-child(4)::before { background: #8793a3; }
 .traffic-basis summary { cursor: pointer; font-size: 13px; }
+#traffic-custom-trip input[type="text"] { min-width:0; width:100%; height:36px; padding:0 8px; color:var(--text); border:1px solid #d5dbe0; border-radius:4px; background:var(--surface); }
+canvas.traffic-picking { cursor:crosshair !important; }
 #traffic-summary, #traffic-vehicle { padding: 8px; background: var(--surface-muted, #eef2f0); border-radius: 6px; overflow-wrap: anywhere; }
 #traffic-time { min-width: 0; max-width: 100%; }
 .traffic-region-list { display: grid; gap: 6px; margin: 8px 0; }

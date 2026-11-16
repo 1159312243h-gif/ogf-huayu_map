@@ -322,6 +322,7 @@
       for (const c of ordered) {
         c.age += STEP;
         if(c.phase==="dwell") {
+          if(c.manual){if(this.time>=c.departAt)remove.add(c);continue;}
           if(this.time>=c.departAt) {
             const first=c.pair.back[0];
             const lane=this.chooseLane(first,0,c.id,c);
@@ -349,6 +350,8 @@
         if(c.v<0.5)c.queueSeconds+=STEP;
         if (c.s >= e.length - 0.001) {
           if (c.next === null) {
+            if(c.manual){c.phase="dwell";c.v=0;c.departAt=this.time+60;
+              for(const [id,l] of this.locks)if(l.car===c.id)this.locks.delete(id);c.release=null;continue;}
             this.completed++;
             if(c.returning||!c.pair){remove.add(c);this.returned++;}
             else {
@@ -395,11 +398,29 @@
       }
       return [...segments.values()];
     }
+    selectedGuidance() {
+      const c=this.cars.find(c=>c.id===this.selected);if(!c)return null;
+      const e=this.graph.edges[c.edge],next=this.graph.edges[c.route?.[c.index+1]],spec=e.laneSpec;
+      let turn="arrive";
+      if(next){let delta=sample(next.line,next.start).angle-sample(e.line,e.end).angle;
+        while(delta>Math.PI)delta-=2*Math.PI;while(delta< -Math.PI)delta+=2*Math.PI;
+        turn=delta>.45?"left":delta< -.45?"right":"straight";
+      }
+      const position=this.graph.regional?c.s/e.line.length*e.length:c.s;
+      return {id:c.id,road:e.name,lane:(c.lane||0)+1,lanes:e.lanes,totalLanes:spec.total,reverseLanes:e.lanes>1&&e.laneOffsets[0]>e.laneOffsets.at(-1),
+        oppositeLanes:e.bidirectional?(e.reverse?spec.forward:spec.backward):0,shared:spec.shared,bidirectional:e.bidirectional,
+        laneSource:spec.source,bridge:e.bridge,tunnel:e.tunnel,elevated:e.elevated,
+        traffic:this.roadSamples.get(e.id)||null,
+        remaining:c.phase==="edge"?Math.max(0,e.length-position):0,turn,
+        nextRoad:next?.name||null,nextLanes:next?.lanes||null,phase:c.phase};
+    }
     selectedRoute() {
       const c=this.cars.find(c=>c.id===this.selected);if(!c?.pair)return null;
       const origin=c.returning?c.pair.destination:c.pair.home,destination=c.returning?c.pair.home:c.pair.destination;
       return {id:c.id,returning:c.returning,origin:{name:origin.name,coordinate:origin.access},destination:{name:destination.name,coordinate:destination.access},
-        coordinates:c.route.flatMap(id=>this.graph.edges[id].line.points.map(this.project.lngLat))};
+        coordinates:c.route.flatMap((id,index)=>{const e=this.graph.edges[id];if(!c.manual)return e.line.points.map(this.project.lngLat);
+          const start=e.start+(index===0?c.manualStart:0),p=sample(e.line,start),end=sample(e.line,e.end);
+          return [[p.x,p.y],...e.line.points.filter((_,i)=>e.line.cumulative[i]>start&&e.line.cumulative[i]<e.end),[end.x,end.y]].map(this.project.lngLat);})};
     }
     snapshot() {
       const moving=this.cars.filter(c=>c.phase!=="dwell");
@@ -410,7 +431,7 @@
         vehicles: this.cars.map(c => {
           const e = this.graph.edges[c.edge], next=c.phase==="turn"?this.graph.edges[c.next]:null,
             p = c.phase === "turn" ? sample(c.turn, c.s) : sample(e.line, e.start + c.s, laneOffset(e,c.lane));
-          return {id: c.id,coordinate: this.project.lngLat([p.x,p.y]),angle:p.angle,speed:c.v*3.6,road:e.name,waiting:c.phase!=="dwell"&&c.v<0.5,
+          return {id: c.id,manual:Boolean(c.manual),coordinate: this.project.lngLat([p.x,p.y]),angle:p.angle,speed:c.v*3.6,road:e.name,waiting:c.phase!=="dwell"&&c.v<0.5,
             roadId:e.roadId,roadWidth:e.laneSpec.width,elevated:e.elevated,tunnel:e.tunnel,nextRoadId:next?.roadId,nextElevated:next?.elevated,nextTunnel:next?.tunnel,turnProgress:next?clamp(c.s/c.turn.length,0,1):0,
             lane:(c.lane||0)+1,lanes:e.lanes,laneSource:e.laneSpec.source,
             phase:c.phase,returning:c.returning,purpose:root.HuayuTrafficDemand.PURPOSES[c.pair?.destination.kind]||"行驶",

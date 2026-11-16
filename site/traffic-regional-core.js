@@ -306,6 +306,7 @@
         const add=Math.min(this.backlog[id],Math.max(0,this.storage[id]-this.stock[id]));this.stock[id]+=add;this.backlog[id]-=add;
       }
       if(Math.floor(this.time)!==Math.floor(this.time-dt))this.sampleRoads();
+      let finishedManual=false;
       for(let i=0;i<this.cars.length;i++){
         const c=this.cars[i];
         if(c.phase==="turn"){
@@ -319,11 +320,11 @@
             else {c.phase="edge";this.releaseSpot(c);}}
           continue;
         }
-        if(c.phase==="dwell"){if(this.time<c.departAt)continue;c.returning=true;c.route=c.pair.back;c.index=0;c.edge=c.route[0];c.lane=c.exitLane??c.id%edges[c.edge].lanes;c.s=0;c.phase="edge";
+        if(c.phase==="dwell"){if(c.manual){if(this.time>=c.departAt){c.finished=true;finishedManual=true;}continue;}if(this.time<c.departAt)continue;c.returning=true;c.route=c.pair.back;c.index=0;c.edge=c.route[0];c.lane=c.exitLane??c.id%edges[c.edge].lanes;c.s=0;c.phase="edge";
           if(c.spot){c.phase="unparking";c.maneuver={from:c.spot.point,to:c.exitPoint,s:0,length:Math.hypot(c.spot.point[0]-c.exitPoint[0],c.spot.point[1]-c.exitPoint[1])};continue;}}
         const e=edges[c.edge],state=this.roadSamples.get(e.id),ratio=state?.ratio??1;
         if(c.waitFor>0){c.waitFor=Math.max(0,c.waitFor-dt);c.v=0;c.queueSeconds+=dt;continue;}
-        const lot=!c.returning&&c.pair.destination.parking&&this.parking.get(c.pair.destination.parking.id);
+        const lot=!c.manual&&!c.returning&&c.pair.destination.parking&&this.parking.get(c.pair.destination.parking.id);
         if(c.index===c.route.length-1&&e.line.length-c.s<8&&lot&&(lot.renderable&&lot.spots.length?
           lot.displayEntries<1||lot.visual.size>=Math.floor(lot.occupied):lot.capacity-lot.occupied<0.5)){c.v=0;c.queueSeconds+=dt;continue;}
         c.v=Math.min(e.speed*clamp(ratio,0.04,1),c.v+1.5*dt);c.s+=c.v*dt;
@@ -332,11 +333,13 @@
             c.turn=C.turnPath(e,next,c.lane,c.targetLane);c.phase="turn";c.s=0;c.v=Math.min(c.v,5);
             // Queue delay comes from aggregate density/capacity, never invented signal timing.
             c.turnWait=Math.min(120,(1-ratio)*15);}
+          else if(c.manual){c.phase="dwell";c.s=e.line.length;c.v=0;c.departAt=this.time+60;}
           else if(!c.returning){if(lot?.renderable&&lot.spots.length){if(!this.startParking(c,lot)){c.s=e.line.length-1;c.v=0;c.queueSeconds+=dt;}}
             else {c.phase="dwell";c.v=0;c.departAt=this.time+D.DWELL[c.pair.destination.kind]*60;}}
           else this.cars[i]=this.create()||c;
         }
       }
+      if(finishedManual)this.cars=this.cars.filter(c=>!c.finished);
       const groups=new Map();
       for(const c of this.cars){c.hiddenSample=false;if(c.phase!=="edge")continue;const key=`${c.edge}:${c.lane||0}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(c);}
       for(const cars of groups.values()){cars.sort((a,b)=>b.s-a.s||a.id-b.id);let front=Infinity;
@@ -353,32 +356,63 @@
     setCount(n){this.viewBudget=clamp(Number(n)||600,24,1200);}
     setViewport(b){
       if(!Array.isArray(b)||b.length!==4||b.some(n=>!Number.isFinite(n))||b[2]-b[0]>0.12||b[3]-b[1]>0.12)return;
-      const project=C.projection(this.graph.center),within=p=>p[0]>=b[0]&&p[0]<=b[2]&&p[1]>=b[1]&&p[1]<=b[3],candidates=[];
-      this.cars=this.cars.filter(c=>{const keep=!c.focus||c.id===this.selected;if(!keep)this.releaseSpot(c);return keep;});
+      const project=this.project,lo=project.xy([b[0],b[1]]),hi=project.xy([b[2],b[3]]),within=p=>p[0]>=lo[0]&&p[0]<=hi[0]&&p[1]>=lo[1]&&p[1]<=hi[1],candidates=[],windows=new Map();
+      // Clip actual usable line segments, including roads whose two ends are off screen.
+      // Cache per edge across all OD routes; no new roads, trips or aggregate vehicles.
+      const window=e=>{
+        if(windows.has(e.id))return windows.get(e.id);
+        const spans=[];let length=0;
+        for(let i=1;i<e.line.points.length;i++){
+          const a=e.line.points[i-1],d=e.line.points[i].map((v,k)=>v-a[k]),base=e.line.cumulative[i-1],segment=e.line.cumulative[i]-base;
+          if(!segment)continue;
+          let t0=Math.max(0,(e.start-base)/segment),t1=Math.min(1,(e.end-base)/segment);
+          for(let k=0;k<2&&t0<t1;k++){
+            if(Math.abs(d[k])<1e-12){if(a[k]<lo[k]||a[k]>hi[k])t1=t0;}
+            else {const u=(lo[k]-a[k])/d[k],v=(hi[k]-a[k])/d[k];t0=Math.max(t0,Math.min(u,v));t1=Math.min(t1,Math.max(u,v));}
+          }
+          if(t1<=t0)continue;
+          const start=(base+t0*segment-e.start)*e.line.length/e.length,size=(t1-t0)*segment;
+          spans.push({start,begin:length,end:length+size});length+=size;
+        }
+        const result={spans,length,limit:Math.min(1200,Math.ceil(this.stock[e.id]*length/e.line.length))};windows.set(e.id,result);return result;
+      };
+      this.cars=this.cars.filter(c=>{
+        if(!c.focus||c.id===this.selected)return true;
+        const e=this.graph.edges[c.edge],p=c.phase==="turn"?C.sample(c.turn,c.s):c.spot?{x:c.spot.point[0],y:c.spot.point[1]}:C.sample(e.line,e.start+c.s/e.line.length*e.length,C.laneOffset(e,c.lane));
+        const keep=within([p.x,p.y]);if(!keep)this.releaseSpot(c);return keep;
+      });
       for(const pair of this.demand.pairs)for(const returning of [false,true]){
         const route=returning?pair.back:pair.outward,weight=returning?pair.returnHourly:pair.hourly;if(weight<0.01)continue;
         for(let index=0;index<route.length;index++){const e=this.graph.edges[route[index]];
-          if(!e.line.points.some(p=>within(project.lngLat(p))))continue;
-          candidates.push({pair,returning,route,index,edge:e.id,weight:weight*Math.min(e.line.length,500)});
+          const clipped=window(e);if(!clipped.length||!clipped.limit)continue;
+          candidates.push({pair,returning,route,index,edge:e.id,weight:weight*Math.min(clipped.length,500),clipped});
         }
       }
       let total=0;for(const c of candidates){total+=c.weight;c.cumulative=total;}
-      const occupied=new Map();
-      for(let i=0;i<1200&&total;i++){
+      const occupied=new Map(),inWindow=new Map();
+      for(const c of this.cars)if(c.phase==="edge"){
+        const key=`${c.edge}:${c.lane||0}`;if(!occupied.has(key))occupied.set(key,[]);occupied.get(key).push(c.s);
+        const e=this.graph.edges[c.edge],p=C.sample(e.line,e.start+c.s/e.line.length*e.length);
+        if(!c.manual&&within([p.x,p.y]))inWindow.set(c.edge,(inWindow.get(c.edge)||0)+1);
+      }
+      let focusCount=this.cars.filter(c=>c.focus).length;
+      for(let i=0;i<1200&&total&&focusCount<1200;i++){
         const pick=this.random()*total;let lo=0,hi=candidates.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(candidates[mid].cumulative<pick)lo=mid+1;else hi=mid;}
-        const q=candidates[lo],e=this.graph.edges[q.edge],s=this.random()*e.line.length,lane=i%e.lanes;
-        if(!within(project.lngLat([C.sample(e.line,s).x,C.sample(e.line,s).y])))continue;
-        const key=`${e.id}:${lane}`,positions=occupied.get(key)||[];if(positions.some(p=>Math.abs(p-s)<8))continue;positions.push(s);occupied.set(key,positions);
-        this.cars.push({...q,id:++this.serial,lane,s,v:0,phase:"edge",queueSeconds:0,waitFor:0,focus:true});
+        const q=candidates[lo],e=this.graph.edges[q.edge];if((inWindow.get(e.id)||0)>=q.clipped.limit)continue;
+        const pickS=this.random()*q.clipped.length,span=q.clipped.spans.find(s=>pickS<=s.end)||q.clipped.spans.at(-1);
+        const s=span.start+(pickS-span.begin)*e.line.length/e.length,lane=i%e.lanes;
+        const key=`${e.id}:${lane}`,positions=occupied.get(key)||[];if(positions.some(p=>Math.abs(p-s)<8*e.line.length/e.length))continue;positions.push(s);occupied.set(key,positions);
+        this.cars.push({pair:q.pair,returning:q.returning,route:q.route,index:q.index,edge:q.edge,id:++this.serial,lane,s,v:e.speed*clamp(this.roadSamples.get(e.id)?.ratio??1,.04,1),phase:"edge",queueSeconds:0,waitFor:0,focus:true});focusCount++;inWindow.set(e.id,(inWindow.get(e.id)||0)+1);
       }
     }
     network(){return C.Simulation.prototype.network.call({...this,project:C.projection(this.graph.center)});}
     selectedRoute(){return C.Simulation.prototype.selectedRoute.call({...this,graph:this.graph});}
+    selectedGuidance(){return C.Simulation.prototype.selectedGuidance.call(this);}
     snapshot(){const project=this.project,vehicles=this.cars.map(c=>{const e=this.graph.edges[c.edge],next=c.phase==="turn"?this.graph.edges[c.route[c.index+1]]:null;let p=c.phase==="turn"?C.sample(c.turn,c.s):C.sample(e.line,e.start+Math.min(c.s/e.line.length,1)*(e.end-e.start),C.laneOffset(e,c.lane));
       if(c.phase==="dwell"&&c.spot)p={x:c.spot.point[0],y:c.spot.point[1],angle:c.spot.angle};
       else if(c.phase==="parking"||c.phase==="unparking"){const m=c.maneuver,t=m.length?m.s/m.length:1;p={x:m.from[0]+(m.to[0]-m.from[0])*t,y:m.from[1]+(m.to[1]-m.from[1])*t,angle:Math.atan2(m.to[1]-m.from[1],m.to[0]-m.from[0])};}
       return {
-        id:c.id,coordinate:project.lngLat([p.x,p.y]),angle:p.angle,speed:c.v*3.6,road:e.name,elevated:e.elevated,hiddenSample:c.hiddenSample,waiting:c.waitFor>0||c.v<0.5,phase:c.phase,returning:c.returning,
+        id:c.id,manual:Boolean(c.manual),coordinate:project.lngLat([p.x,p.y]),angle:p.angle,speed:c.v*3.6,road:e.name,elevated:e.elevated,hiddenSample:c.hiddenSample,waiting:c.waitFor>0||c.v<0.5,phase:c.phase,returning:c.returning,
         roadId:e.roadId,roadWidth:e.laneSpec.width,tunnel:e.tunnel,nextRoadId:next?.roadId,nextElevated:next?.elevated,nextTunnel:next?.tunnel,turnProgress:next?clamp(c.s/c.turn.length,0,1):0,
         lane:(c.lane||0)+1,lanes:e.lanes,laneSource:e.laneSpec.source,
         purpose:D.PURPOSES[c.pair.destination.kind],origin:c.returning?c.pair.destination.name:c.pair.home.name,destination:c.returning?c.pair.home.name:c.pair.destination.name,

@@ -38,11 +38,21 @@
       point=[surface.origin[0]+(here.point[0]+here.offset[0]*scale)/surface.sx,surface.origin[1]+(here.point[1]+here.offset[1]*scale)/111320];}
     return {height,coordinate:point,onBridge:Boolean(here||next)};
   }
-  function geometry(graph,plans,bounds){
-    const origin=graph.center,merc=p=>[(p[0]+180)/360,(180-180/Math.PI*Math.log(Math.tan(Math.PI/4+p[1]*Math.PI/360)))/360],o=merc(origin);
-    const unit=p=>1/(40075016.68557849*Math.cos(p[1]*Math.PI/180)),scale=unit(origin),roads=new Map(),byRoad=new Map(),project=root.HuayuTrafficCore.projection(origin);
+  function geometry(graph,plans,bounds,sourceOrigin=graph.center){
+    const origin=sourceOrigin,merc=p=>[(p[0]+180)/360,(180-180/Math.PI*Math.log(Math.tan(Math.PI/4+p[1]*Math.PI/360)))/360],o=merc(origin);
+    const unit=p=>1/(40075016.68557849*Math.cos(p[1]*Math.PI/180)),scale=unit(origin),roads=new Map(),byRoad=new Map(),project=root.HuayuTrafficCore.projection(graph.center);
     for(const e of graph.edges){if(!roads.has(e.roadId)||!e.reverse)roads.set(e.roadId,e);if(!byRoad.has(e.roadId))byRoad.set(e.roadId,[]);byRoad.get(e.roadId).push(e);}
-    const marks=[],colors=[],flow=[],groups=[],spans=[];let limited=false;
+    // Three vertex colors are linear, whereas the native map's marking colors are sRGB.
+    const linear=hex=>hex.match(/../g).map(v=>{const c=parseInt(v,16)/255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4;});
+    const palette={edge:linear('f5f2e6'),divider:linear('faf8ee'),center:linear('f2cb61')};
+    const marks=[],colors=[],surface=[],flow=[],groups=[],spans=[];let limited=false;
+    const clip=(a,b,margin)=>{
+      let lo=0,hi=1;
+      for(let k=0;k<2;k++){const d=b[k]-a[k],min=bounds[k]-margin[k],max=bounds[k+2]+margin[k];
+        if(Math.abs(d)<1e-15){if(a[k]<min||a[k]>max)return null;continue;}
+        const t0=(min-a[k])/d,t1=(max-a[k])/d;lo=Math.max(lo,Math.min(t0,t1));hi=Math.min(hi,Math.max(t0,t1));if(hi<=lo)return null;}
+      return [lo,hi];
+    };
     for(const plan of plans){
       const path=plan.samples.map((s,i)=>{const m=merc(s.coordinate),ratio=unit(s.coordinate)/scale;
         return {x:(m[0]-o[0])/scale,y:-(m[1]-o[1])/scale,z:plan.heights[i]*ratio,ratio,s,width:plan.surfaceWidths?.[i]||s.width};});
@@ -50,34 +60,50 @@
         const n1=la?[-ay/la,ax/la]:[-by/lb,bx/lb],n2=lb?[-by/lb,bx/lb]:n1,nl=Math.hypot(n1[0]+n2[0],n1[1]+n2[1]),n=nl>.1?[(n1[0]+n2[0])/nl,(n1[1]+n2[1])/nl]:n2,miter=Math.min(1.7,1/Math.max(.2,n[0]*n2[0]+n[1]*n2[1]));
         return [p.x+n[0]*miter*offset*p.ratio,p.y+n[1]*miter*offset*p.ratio,p.z+lift*p.ratio];};
       for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i],id=String(a.s.roadId),e=roads.get(id);if(!e)continue;
-        if(Math.max(a.s.coordinate[0],b.s.coordinate[0])<bounds[0]||Math.min(a.s.coordinate[0],b.s.coordinate[0])>bounds[2]||Math.max(a.s.coordinate[1],b.s.coordinate[1])<bounds[1]||Math.min(a.s.coordinate[1],b.s.coordinate[1])>bounds[3])continue;
-        const center=[(bounds[0]+bounds[2])/2,(bounds[1]+bounds[3])/2],d=(a.s.coordinate[0]-center[0])**2+(a.s.coordinate[1]-center[1])**2;
-        spans.push({a,b,id,e,i,at,d});
+        if(![a.z,b.z,a.width,b.width].every(Number.isFinite))continue;
+        const margin=Math.max(a.width,b.width)/111320,range=clip(a.s.coordinate,b.s.coordinate,[margin/Math.max(.01,Math.cos(origin[1]*Math.PI/180)),margin]);if(!range)continue;
+        const center=[(bounds[0]+bounds[2])/2,(bounds[1]+bounds[3])/2];
+        // Small render spans keep a single coarse source segment from consuming the whole budget.
+        const steps=Math.min(1201,Math.max(1,Math.ceil((b.s.s-a.s.s)*(range[1]-range[0])/48)));
+        for(let j=0;j<steps;j++){const part=[mix(...range,j/steps),mix(...range,(j+1)/steps)],middle=(part[0]+part[1])/2,
+          d=(mix(a.s.coordinate[0],b.s.coordinate[0],middle)-center[0])**2+(mix(a.s.coordinate[1],b.s.coordinate[1],middle)-center[1])**2;
+          spans.push({a,b,id,e,i,at,d,range:part});}
       }
     }
     spans.sort((a,b)=>a.d-b.d);
     const quad=(out,a,b,c,d)=>out.push(...a,...b,...c,...a,...c,...d);
     let segments=0;
-    for(const {a,b,id,e,i,at} of spans){
+    for(const {a,b,id,e,i,at,range} of spans){
       const spec=e.laneSpec,offsets=[[-spec.width/2+.15,'edge'],[spec.width/2-.15,'edge']],own=spec.forwardOffsets,opposite=spec.backwardOffsets.map(v=>-v);
       for(const side of [own,opposite])for(let j=1;j<side.length;j++)offsets.push([(side[j-1]+side[j])/2,'divider']);
       if(e.bidirectional&&!spec.shared&&opposite.length){if(spec.middle){offsets.push([own[0]-Math.sign(own[0]-opposite[0])*spec.laneWidth/2,'center'],[opposite[0]+Math.sign(own[0]-opposite[0])*spec.laneWidth/2,'center']);}
         else offsets.push([(own[0]+opposite[0])/2,'center']);}
-      if(segments>=1200||(marks.length+flow.length)/3+6*(offsets.length+1)>80000){limited=true;break;}segments++;
+      // Cut dashes in metres, anchored to the full accepted path, not to a sample or viewport.
+      // The old whole-span skip could remove every divider on a long bridge.
+      const s0=a.s.s,s1=b.s.s,ds=s1-s0;if(!Number.isFinite(ds)||ds<=0)continue;
+      const from=mix(s0,s1,range[0]),to=mix(s0,s1,range[1]),dashes=[];
+      for(let s=Math.floor(from/6)*6;s<to;s+=6){const lo=Math.max(s,from),hi=Math.min(s+3,to);if(hi>lo)dashes.push([(lo-s0)/ds,(hi-s0)/ds]);}
+      const needed=12+offsets.reduce((n,[,kind])=>n+6*(kind==='divider'?dashes.length:1),0);
+      if(segments>=1200||(marks.length+flow.length+surface.length)/3+needed>80000){limited=true;break;}segments++;
+      const point=(t,offset,lift=.07)=>{const p=at(i-1,offset,lift),q=at(i,offset,lift);return p.map((v,k)=>mix(v,q[k],t));};
+      const stripe=(out,lo,hi,offset,half,lift)=>quad(out,point(lo,offset-half,lift),point(lo,offset+half,lift),point(hi,offset+half,lift),point(hi,offset-half,lift));
       const width=Math.min(a.width,b.width),flowWidth=Math.min(width*.35,3.2),start=flow.length/3;
-      quad(flow,at(i-1,-flowWidth/2,.055),at(i-1,flowWidth/2,.055),at(i,flowWidth/2,.055),at(i,-flowWidth/2,.055));
-      const p=project.xy([mix(a.s.coordinate[0],b.s.coordinate[0],.5),mix(a.s.coordinate[1],b.s.coordinate[1],.5)]);let nearest=null,best=Infinity;
+      stripe(surface,...range,0,Math.min(Math.max(0,width-.4),spec.width)/2,.035);
+      stripe(flow,...range,0,flowWidth/2,.055);
+      const middle=(range[0]+range[1])/2,p=project.xy([mix(a.s.coordinate[0],b.s.coordinate[0],middle),mix(a.s.coordinate[1],b.s.coordinate[1],middle)]);let nearest=null,best=Infinity;
       for(const edge of byRoad.get(id)||[])for(let k=1;k<edge.line.points.length;k++){const q=edge.line.points[k-1],r=edge.line.points[k],dx=r[0]-q[0],dy=r[1]-q[1],t=clamp(((p[0]-q[0])*dx+(p[1]-q[1])*dy)/(dx*dx+dy*dy||1),0,1),d=(p[0]-q[0]-t*dx)**2+(p[1]-q[1]-t*dy)**2;
         if(d<best){nearest=edge;best=d;}}
       groups.push({roadId:id,ids:(byRoad.get(id)||[]).filter(edge=>edge.segment===nearest?.segment).map(edge=>edge.id),start,count:6});
       const direction=a.s.roadId===b.s.roadId?Math.sign((b.s.sourceSegment-a.s.sourceSegment)||(b.s.fraction-a.s.fraction))||1:1;
       const fit=Math.min(1,Math.max(0,width-.4)/spec.width);
-      for(const [offset,kind] of offsets){if(kind==='divider'&&Math.floor((a.s.s+b.s.s)/8)%2)continue;
-        const center=-offset*fit*direction,half=kind==='center'?.075:.06,color=kind==='center'?[.89,.60,.12]:[.94,.92,.86];
-        quad(marks,at(i-1,center-half),at(i-1,center+half),at(i,center+half),at(i,center-half));for(let j=0;j<6;j++)colors.push(...color);
+      for(const [offset,kind] of offsets){
+        const center=-offset*fit*direction,half=kind==='center'?.075:.06,color=palette[kind];
+        for(const [lo,hi] of kind==='divider'?dashes:[range]){
+          stripe(marks,lo,hi,center,half);for(let j=0;j<6;j++)colors.push(...color);
+        }
       }
     }
-    return {positions:new Float32Array(marks),colors:new Float32Array(colors),flow:new Float32Array(flow),groups,segments,limited};
+    return {positions:new Float32Array(marks),colors:new Float32Array(colors),surface:new Float32Array(surface),flow:new Float32Array(flow),groups,segments,limited};
   }
   root.HuayuTrafficSurfaces=Object.freeze({index,locate,vehicle,geometry});
 })(globalThis);

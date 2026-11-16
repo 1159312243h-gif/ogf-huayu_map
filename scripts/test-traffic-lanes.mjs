@@ -3,7 +3,8 @@ import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 const ctx=vm.createContext({console});
 const readWorker=await readFile(new URL('../site/traffic-worker.js',import.meta.url),'utf8');
-for(const file of ["traffic-core.js","traffic-demand.js","traffic-protocol.js","traffic-surfaces.js"])vm.runInContext(await readFile(new URL(`../site/${file}`,import.meta.url),"utf8"),ctx);
+const readSimulation=await readFile(new URL('../site/traffic-simulation.js',import.meta.url),'utf8');
+for(const file of ["traffic-core.js","traffic-demand.js","traffic-protocol.js","traffic-surfaces.js","traffic-camera.js"])vm.runInContext(await readFile(new URL(`../site/${file}`,import.meta.url),"utf8"),ctx);
 const C=ctx.HuayuTrafficCore,plain=v=>JSON.parse(JSON.stringify(v));
 const xy=(x,y)=>[x/111320,y/111320];
 const road=(id,nodes,tags={})=>({type:"Feature",id,properties:{highway:"residential",roadNodes:nodes.map(n=>n[0]),...tags},geometry:{type:"LineString",coordinates:nodes.map(n=>xy(n[1],n[2]))}});
@@ -117,6 +118,72 @@ check("bridge surfaces follow accepted absolute deck heights and original road I
   packet=encoder.encode({vehicles:[{...v,roadId:'high',nextTunnel:true}]});assert.equal(packet.vehicleMeta,undefined);assert.equal(packet.roadSurfaces,undefined);
   decoded=decoder.decode(packet).vehicles[0];assert.equal(decoded.roadId,'high');assert.equal(decoded.nextTunnel,true);assert.equal(decoded.roadWidth,20);
 });
+check("coarse and split bridge spans preserve metre dash phase across views, deck slopes, direction and narrow widths",()=>{
+  const S=ctx.HuayuTrafficSurfaces,graph=g([road('bridge',line,{highway:'primary',bridge:'yes'})]);
+  const plan=(stations,reverse=false)=>({heights:stations.map(s=>5+s/200),surfaceWidths:stations.map(()=>10),samples:stations.map(s=>({
+    coordinate:xy(reverse?100-s:s-100,0),roadId:'bridge',width:10,s,sourceSegment:0,fraction:reverse?1-s/200:s/200}))});
+  const divider=mesh=>{
+    const result=[];
+    for(let i=0;i<mesh.positions.length;i+=18){
+      // Divider #faf8ee differs from the slightly darker edge line; vertex colors are linear.
+      if(Math.abs(mesh.colors[i]-.95597335)>.00001)continue;
+      const q=Array.from(mesh.positions.slice(i,i+18)),xs=q.filter((_,k)=>k%3===0),ys=q.filter((_,k)=>k%3===1);
+      if(ys.reduce((a,b)=>a+b,0)<0)continue;
+      result.push([Math.min(...xs),Math.max(...xs)]);
+    }return result;
+  };
+  for(const [stations,reverse,bounds] of [[[0,200],false,[-.002,-.001,.002,.001]],[[0,7,41,200],false,[-.002,-.001,.002,.001]],
+    [[0,200],false,[-10/111320,-.001,11/111320,.001]],[[0,200],true,[-.002,-.001,.002,.001]]]){
+    const mesh=S.geometry(graph,[plan(stations,reverse)],bounds),intervals=divider(mesh);assert.ok(intervals.length>8);
+    assert.ok(intervals.every(([a,b])=>b-a<=3.001),"no whole long-span stripe in place of metric dashes");
+    for(let x=-18.25;x<19;x+=.5){const s=reverse?100-x:x+100,painted=intervals.some(([lo,hi])=>x>lo&&x<hi);
+      assert.equal(painted,s%6<3,`dash phase at x=${x}, reverse=${reverse}, stations=${stations}`);}
+    for(let i=0;i<mesh.positions.length;i+=3){const x=mesh.positions[i],y=mesh.positions[i+1],z=mesh.positions[i+2];
+      assert.ok(Math.abs(y)<=5.001,"inferred lanes remain inside the accepted narrow deck");
+      assert.ok(Math.abs(z-(5+(reverse?100-x:x+100)/200+.07))<.0001,"every cut retains accepted sloping height");}
+    assert.ok(mesh.surface.length>0);
+    for(let i=0;i<mesh.surface.length;i+=3){const x=mesh.surface[i],y=mesh.surface[i+1],z=mesh.surface[i+2];
+      assert.ok(Math.abs(y)<=4.801,"pavement never widens the accepted bridge");
+      assert.ok(Math.abs(z-(5+(reverse?100-x:x+100)/200+.035))<.0001,"pavement stays on the same accepted deck slope");}
+    assert.ok([...mesh.positions].every(Number.isFinite));
+  }
+  const long={heights:[5,5],surfaceWidths:[72,72],samples:[0,40000].map(s=>({coordinate:xy(s-20000,0),roadId:'bridge',width:72,s,sourceSegment:0,fraction:s/40000}))};
+  const wide=g([road('bridge',[['a',-20000,0],['b',20000,0]],{lanes:'24',bridge:'yes'})],{regional:true});
+  const mesh=S.geometry(wide,[long],[-1,-1,1,1]);
+  assert.ok(mesh.limited);assert.ok(mesh.segments>0&&mesh.segments<=1200);
+  assert.ok((mesh.positions.length+mesh.flow.length+mesh.surface.length)/3<=80000,"pavement and dashed marks count toward the existing vertex cap");
+  assert.equal(mesh.positions.length,mesh.colors.length);
+  const splitGraph=g([road('bridge',line,{bridge:'yes',highway:'primary'}),road('junction',[['j',0,0],['north',0,300]])]);
+  const shifted=S.geometry(splitGraph,[plan([0,200])],[-.002,-.001,.002,.001],xy(500,400));
+  const xs=Array.from(shifted.surface).filter((_,i)=>i%3===0),ys=Array.from(shifted.surface).filter((_,i)=>i%3===1);
+  assert.ok(Math.abs(Math.min(...xs)+600)<.01&&Math.abs(Math.max(...xs)+400)<.01,"bridge vertices use the actual deck origin");
+  assert.ok(Math.abs((Math.min(...ys)+Math.max(...ys))/2+400)<.01);
+  assert.equal(new Set(shifted.groups.map(group=>group.ids.join(','))).size,2,"flow grouping stays in graph coordinates when the deck has a different origin");
+});
+check("continuous pitched rendering reuses car-centred bridge windows and invalidates only changed decks or workers",()=>{
+  const messages=[],controller={visible:true,result:{accepted:[]}},car={id:1,coordinate:[0,0]},timers=new Map();let now=0,cleared=0,indexed=0,serial=0;
+  const worker={postMessage:m=>messages.push(plain(m))};
+  const c=vm.createContext({map:{getBounds:()=>({getWest:()=>-179,getEast:()=>179,getSouth:()=>-80,getNorth:()=>80}),getCenter:()=>({lng:20,lat:30})},
+    worker,graphics:{},document:{hidden:false},performance:{now:()=>now},root:{HuayuBridgeModels:{get:()=>controller},HuayuTrafficCamera:ctx.HuayuTrafficCamera,HuayuTrafficSurfaces:{index:()=>{indexed++;return {};}}},
+    bridgeRequest:0,bridgeResult:null,bridgeWorker:null,bridgeIndex:null,bridgeBounds:null,bridgeAt:0,bridgeTimer:0,following:true,latest:{vehicles:[car]},selected:1,generation:4,
+    setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),
+    clearBridgeGraphics:()=>cleared++,refreshBridgeNote(){}});
+  vm.runInContext(readSimulation.match(/  function syncBridgeSurfaces\([^]*?\n  \}/u)[0],c);
+  c.syncBridgeSurfaces();assert.equal(messages.length,1);assert.equal(indexed,1);
+  assert.ok(messages[0].bounds.every(v=>Math.abs(v)<=.025001));
+  for(let i=0;i<300;i++){now+=16;c.syncBridgeSurfaces();}assert.equal(messages.length,1,"hundreds of changing render frames do not resend the same bounded geometry");
+  car.coordinate=[.01,0];now+=800;c.syncBridgeSurfaces();assert.equal(messages.length,2);
+  near((messages[1].bounds[0]+messages[1].bounds[2])/2,.01);
+  car.coordinate=[.02,0];now+=16;c.syncBridgeSurfaces();assert.equal(messages.length,2,"moving outside a buffer still respects the 750 ms gate");
+  now+=800;c.syncBridgeSurfaces();assert.equal(messages.length,3);assert.equal(indexed,1);
+  controller.result={accepted:[]};c.syncBridgeSurfaces();assert.equal(messages.length,4);assert.equal(indexed,2);
+  c.worker={postMessage:m=>messages.push(plain(m))};c.syncBridgeSurfaces();assert.equal(messages.length,5,"a new graph cannot reuse old road-state IDs");
+  car.coordinate=[.04,0];now+=16;c.syncBridgeSurfaces();assert.equal(messages.length,5);assert.equal(timers.size,1);
+  now+=800;const delayed=timers.values().next().value;timers.clear();delayed();
+  assert.equal(messages.length,6,"the paused camera finishes a deferred update without another render frame");assert.equal(timers.size,0);
+  const request=c.bridgeRequest;controller.visible=false;c.syncBridgeSurfaces();assert.equal(c.bridgeIndex,null);assert.equal(c.bridgeBounds,null);
+  assert.ok(c.bridgeRequest>request);assert.ok(cleared>=3,"hide or deck replacement removes unsafe stale heights");
+});
 check("the actual worker prepares bounded lanes while paused without downloading data or advancing traffic",()=>{
   const messages=[],w=vm.createContext({console,onmessage:null,importScripts:()=>{},HuayuTrafficCore:C,HuayuTrafficSurfaces:ctx.HuayuTrafficSurfaces,postMessage:m=>messages.push(plain(m)),
     setInterval:()=>assert.fail('no OD must not start a timer'),clearInterval:()=>{}});
@@ -127,6 +194,8 @@ check("the actual worker prepares bounded lanes while paused without downloading
   assert.equal(messages.at(-1).laneRequest,7);assert.equal(messages.at(-1).generation,4);assert.equal(messages.at(-1).laneGeometry.roads,1);
   assert.equal(messages.at(-1).vehicles,undefined);
   const count=messages.length;w.onmessage({data:{action:'lanes',generation:3,request:8,bounds:[-.001,-.001,.001,.001]}});assert.equal(messages.length,count);
+  w.onmessage({data:{action:'bridge-surfaces',generation:4,request:9,bounds:[-.001,-.001,.001,.001],plans:[{heights:[8,9],surfaceWidths:[9,9],samples:[0,200].map(s=>({coordinate:xy(s-100,0),roadId:'wide',width:9,s,sourceSegment:0,fraction:s/200}))}]}});
+  assert.equal(messages.at(-1).bridgeRequest,9);assert.ok(Object.keys(messages.at(-1).bridgeGeometry.surface).length>0);
   w.onmessage({data:{action:'pause',paused:true}});assert.equal(messages.at(-1).time,before);
 });
 console.log(JSON.stringify({status:'passed',cases}));
