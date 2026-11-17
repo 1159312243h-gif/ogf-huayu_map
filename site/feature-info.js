@@ -255,7 +255,18 @@
         $("search").hidden = false;
       }
     }
-    window.HuayuFeatureInfo = Object.freeze({search,clearSearch,setActive(value) {
+    window.HuayuFeatureInfo = Object.freeze({
+      prepareDraft(data) {
+        if(!currentUser()||!feature)throw Error("请先登录并选择具体物体");
+        if(busy||editing||$("title").value.trim()||$("content").value.trim()||$("source").value.trim()||$("property-rows").childElementCount)
+          throw Error("该物体已有草稿，请先处理原草稿");
+        if(!data.properties?.length&&(!data.title?.trim()||!data.content?.trim()))throw Error("请提供标题和简介，或至少一项属性");
+        atlas.openView("place",{preservePerspective:true});
+        $("title").value=data.title||"";$("content").value=data.content||"";$("source").value=data.sourceUrl||"";
+        for(const p of data.properties||[])addPropertyRow(p);
+        report(writeStatus,"助手准备的草稿尚未公开，请核对物体、内容和属性后发布。");renderForm();form.scrollIntoView({block:"nearest"});
+      },
+      search,clearSearch,setActive(value) {
       const wasActive = active; active = Boolean(value);
       if (!active) {readEpoch++; readController?.abort(); readController = null; $("refresh").disabled = false; $("more").disabled = false;}
       if (active && !wasActive && feature && !loaded) load();

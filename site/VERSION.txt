@@ -1,8 +1,9 @@
 华域地图 v9.0
 Released: 2026-11-17
 Cloudflare Pages project: ogf-atlas
-Build: 9.0-shared-data-v1
-Help: nine searchable topics, including shared feature properties and shared datasets.
+Build: 9.0-agent-user-v1
+Release build: map assistant with user-configurable AI interfaces; OpenAI-compatible, Anthropic and Gemini adapters, connection/tool tests and page-only credentials. Deployment status is verified separately.
+Help: ten searchable topics, including map agent interfaces, shared feature properties and shared datasets.
 
 Included in release 9.0 (9.0-shared-data-v1, 2026-11-17): Shared CSV/JSON/GeoJSON packages for features, cities and larger scopes, typed as POI, population, GDP, land price, travel demand, schedules or other. Preserve original files, provenance, units, dates and author/admin ownership in atomic D1 chunk storage. No application file/row/column/vertex/account/storage/rate quotas; actual hosting and device constraints still apply. Public reading, original/normalized downloads, server field statistics and numeric/categorical maps with SVG/PNG exports. Shared parsing is verified against the standalone Worker. Existing simulation, source tags, models, navigation and refresh schedules remain unchanged. Release deployment is verified separately.
 

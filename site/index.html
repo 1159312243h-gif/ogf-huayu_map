@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=9.0-shared-data-v1" />
+    <link rel="stylesheet" href="./styles.css?v=9.0-agent-user-v1" />
     <link rel="stylesheet" href="./brand-browser.css?v=2" />
   </head>
   <body>
@@ -24,6 +24,7 @@
         <div class="rail-actions">
           <button id="map-view-button" class="rail-button is-active" type="button" data-action="map-view" aria-expanded="false" aria-controls="map-view-menu"><i data-lucide="layers-3" aria-hidden="true"></i><span>视图</span></button>
           <button class="rail-button" type="button" data-action="search"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
+          <button class="rail-button" type="button" data-action="agent" aria-controls="agent-view"><i data-lucide="sparkles" aria-hidden="true"></i><span>助手</span></button>
           <button class="rail-button" type="button" data-action="brands" aria-controls="brands-view"><i data-lucide="store" aria-hidden="true"></i><span>品牌</span></button>
           <button class="rail-button" type="button" data-action="datasets" aria-controls="datasets-view"><i data-lucide="database" aria-hidden="true"></i><span>数据</span></button>
           <button class="rail-button" type="button" data-action="directions"><i data-lucide="route" aria-hidden="true"></i><span>导航</span></button>
@@ -377,6 +378,45 @@
               <button id="feature-export-button" class="primary-button boundary-full-button" type="button" disabled>下载整个清单</button>
               <p id="feature-export-status" class="view-status" aria-live="polite" hidden></p>
             </fieldset>
+        </section>
+
+        <section id="agent-view" class="panel-view map-agent" data-view="agent" data-export-private hidden>
+          <details id="agent-connection-section" open>
+            <summary>AI 接口设置</summary>
+            <label for="agent-source">使用方式<select id="agent-source"><option value="user">使用我自己的 AI 接口</option><option value="site" disabled>使用站点提供的接口（未配置）</option></select></label>
+            <form id="agent-connection-form" autocomplete="off" data-export-private>
+              <fieldset id="agent-connection-fields">
+                <label for="agent-provider">服务商预设<select id="agent-provider"></select></label>
+                <label for="agent-protocol">接口协议<select id="agent-protocol"><option value="openai">OpenAI 兼容（Chat Completions）</option><option value="anthropic">Anthropic（Messages）</option><option value="gemini">Gemini（GenerateContent）</option></select></label>
+                <label for="agent-base-url">API 地址<input id="agent-base-url" type="url" required maxlength="2048" placeholder="https://api.example.com/v1" aria-describedby="agent-connection-note" /></label>
+                <label for="agent-model">模型名称<input id="agent-model" type="text" required maxlength="200" placeholder="填写服务商提供的模型 ID" autocapitalize="off" spellcheck="false" /></label>
+                <label for="agent-api-key">API 密钥<input id="agent-api-key" type="password" required maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="只保留在当前页面" /></label>
+                <label class="agent-remember"><input id="agent-remember" type="checkbox" />在此浏览器记住服务商、地址和模型（不保存密钥）</label>
+                <div class="agent-controls"><button id="agent-config-apply" class="secondary-button" type="submit">应用配置</button><button id="agent-config-test" class="secondary-button" type="button">测试连接与工具调用</button></div>
+              </fieldset>
+            </form>
+            <button id="agent-config-clear" class="text-button" type="button">清除我的接口配置和密钥</button>
+            <p id="agent-connection-note" class="feature-info-meta">支持上述三种协议的公开 HTTPS 接口；地址可填 API 根路径。密钥仅在当前页面暂存，经本站转发到你填写的服务商，不存入账号、浏览器存储或共享数据。刷新、退出或换账号后需重新填写。测试会向所选服务发送一条简短工具调用请求，可能产生该服务的用量。</p>
+            <p id="agent-config-status" class="view-status" role="status"></p>
+          </details>
+          <p id="agent-service" class="view-status" role="status">正在检查对话服务…</p>
+          <p>用对话查地点、查看共享资料，或准备信息和数据包草稿。需要公开发布时，会打开原表单供你核对。</p>
+          <div class="agent-controls"><button id="agent-refresh" class="text-button" type="button">重试连接</button><button id="agent-clear" class="text-button" type="button">清空对话</button></div>
+          <div id="agent-messages" class="agent-messages" role="log" aria-label="地图助手对话" aria-live="polite"></div>
+          <form id="agent-form" data-export-private>
+            <label for="agent-input">向地图助手提问</label>
+            <textarea id="agent-input" maxlength="6000" rows="4" placeholder="例如：帮我找津川的医院；给选中的建筑准备一段简介"></textarea>
+            <div class="agent-controls"><button id="agent-send" class="primary-button" type="submit" disabled>发送</button><button id="agent-stop" class="secondary-button" type="button" disabled>停止</button></div>
+          </form>
+          <p id="agent-status" class="view-status" role="status"></p>
+          <details><summary>附加本机数据文件</summary>
+            <label for="agent-attach">CSV、JSON、GeoJSON</label><input id="agent-attach" type="file" accept=".csv,.json,.geojson" />
+            <p id="agent-file-name" class="feature-info-meta">尚未选择附件</p>
+            <p class="feature-info-meta">附件原文不自动发给模型，不自动发布。可转入数据页面补齐类型、范围、来源和许可，再校验与发布。</p>
+            <button id="agent-file-preview" class="secondary-button" type="button" disabled>带入数据上传表单</button>
+          </details>
+          <details open><summary>可使用的现有功能</summary><div id="agent-capabilities" class="agent-capabilities"></div></details>
+          <p class="feature-info-meta">对话只保留在当前页面；退出或切换账号会清空。接入模型后，你发送的文字和对话中查询到的资料会交给该模型服务处理。</p>
         </section>
 
         <section id="datasets-view" class="panel-view shared-datasets" data-view="datasets" hidden>
@@ -937,9 +977,10 @@
           <div class="help-search-field">
             <label for="help-search">搜索帮助</label>
             <div class="help-search-row"><input id="help-search" type="search" maxlength="100" placeholder="例如：共享词条、数据包、框选、车辆跟随" aria-describedby="help-search-status" /><button id="help-search-clear" class="text-button" type="button" hidden>清除</button></div>
-            <p id="help-search-status" class="view-status" role="status">共 9 组说明，可搜索或从目录进入。</p>
+            <p id="help-search-status" class="view-status" role="status">共 10 组说明，可搜索或从目录进入。</p>
           </div>
           <nav class="help-directory" aria-label="帮助目录">
+            <button type="button" data-help-target="help-agent">地图助手与对话</button>
             <button type="button" data-help-target="help-map">地图浏览与显示</button>
             <button type="button" data-help-target="help-search-measure">搜索、行政区与测量</button>
             <button type="button" data-help-target="help-travel">导航、车站与线路图</button>
@@ -951,6 +992,19 @@
             <button type="button" data-help-target="help-questions">常见问题与数据来源</button>
           </nav>
           <p id="help-no-results" class="help-empty" hidden>没有找到相关说明。试试“下载”“坐标”“线路”等关键词，或清除搜索查看全部。</p>
+
+          <details id="help-agent" class="help-topic" data-help-section>
+            <summary><span>地图助手<small>对话搜索、功能调用与上传草稿</small></span></summary>
+            <div class="help-topic-content">
+              <h3>对话和地图功能一起使用</h3>
+              <p>“助手”可通过统一功能清单查找地点、定位查询结果、读取地图选中物体、检索公开投稿与共享数据，并准备导航起终点。重名结果应先选择；结果保留来源和数量范围。导航仍在原页面开始计算，打开模拟、线路、品牌或下载页面不代表已经完成对应操作。</p>
+              <h3>补充信息与上传附件</h3>
+              <p>先定位具体 OGF 物体并登录，再让助手准备简介、名称和属性，核对原表单后发布。CSV、JSON、GeoJSON 附件只从你主动选择的本机文件读取，可带入共享数据表单；原文不自动发送给模型，不自动公开。既有草稿会保留，不静默覆盖。作者、管理员和原始数据规则与普通操作相同。</p>
+              <h3>模型连接和对话状态</h3>
+              <p>在“助手 → AI 接口设置”选择预设或自定义服务，填写协议、公开 HTTPS API 地址、准确的模型 ID 和自己的 API 密钥；支持 OpenAI 兼容、Claude Messages 及 Gemini GenerateContent。应用配置后可对话，连接测试会发送一条简短工具请求，可能产生所选服务商用量。地址与模型可按账号在本机记住，密钥仅当前页面暂存，经本站转发到所填服务商，不保存到账号或浏览器存储；刷新、退出或换账号后需重填。自备接口对话无需地图账号，上传和投稿继续登录后在原表单核对；可选站点服务沿用其登录要求。未配置时仍可使用下方功能入口和附件表单。可停止本轮或清空对话，退出／换账号清空对话、附件引用和 API 密钥，刷新页面不保留聊天记录。新功能发布时同步能力清单、工具、说明与回归检查，未接入的操作不会假装可用。</p>
+              <div class="help-actions"><button type="button" class="secondary-button" data-action="agent">打开地图助手</button></div>
+            </div>
+          </details>
 
           <details id="help-map" class="help-topic" data-help-section>
             <summary><span>地图浏览与显示<small>底图、图层、视角与地图选点</small></span></summary>
@@ -1302,7 +1356,10 @@
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=2"></script>
-    <script src="./app.js?v=9.0-shared-data-v1"></script>
+    <script src="./map-agent-contract.js?v=9.0-agent-user-v1"></script>
+    <script src="./map-agent-providers.js?v=9.0-agent-user-v1"></script>
+    <script src="./map-agent-tools.js?v=9.0-agent-user-v1"></script>
+    <script src="./app.js?v=9.0-agent-user-v1"></script>
     <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
@@ -1311,9 +1368,10 @@
     <script src="./brand-browser.js?v=5"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=9.0-shared-data-v1"></script>
-    <script src="./feature-info.js?v=9.0-shared-data-v1"></script>
+    <script src="./feature-info.js?v=9.0-agent-user-v1"></script>
     <script src="./shared-dataset-core.js?v=9.0-shared-data-v1"></script>
     <script src="./shared-dataset-theme.js?v=9.0-shared-data-v1"></script>
-    <script src="./shared-datasets.js?v=9.0-shared-data-v1"></script>
+    <script src="./shared-datasets.js?v=9.0-agent-user-v1"></script>
+    <script src="./map-agent.js?v=9.0-agent-user-v1"></script>
   </body>
 </html>

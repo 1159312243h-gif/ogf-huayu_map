@@ -9,3 +9,5 @@
 - 按规则文档选择与修改相关的现有检查。发布站点前运行 `npm run verify`、`npm run test:data-update`、`npm run data:update:check` 和 `npm run check:data`，遵循仓库既有清单及发布流程。纯文档修改检查链接和 `git diff --check` 即可，无需重建快照。
 - 如实说明校验、数据抓取时间和发布状态；本地完成不代表已上传 GitHub 或部署 Cloudflare。三小时更新由仓库工作流执行，不依赖 Codex 聊天运行。
 
+
+- 新增或调整面向用户的功能时，同步维护地图助手能力清单、真实处理器、帮助及回归检查；未接入的操作明确说明，不得只改提示词宣称支持。具体接入流程见 `docs/MAP_AGENT_ZH.md`。

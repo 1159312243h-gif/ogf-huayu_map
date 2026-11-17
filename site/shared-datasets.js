@@ -105,9 +105,10 @@
     }
     function artifact(item,data){return root.HuayuDownloadCenter.fileArtifact({id:`dataset-${item.id}-${item.revision}`,title:item.title,filename:`${item.title}.json`,
       kind:"table",blob:new Blob([JSON.stringify({metadata:item,data},null,2)],{type:"application/json"}),source:item.source,sourceTime:item.observedDate,warning:"用户共享资料；保留原作者、单位和统计口径"});}
-    async function open(id){
+    async function open(id,signal){
+      if(signal?.aborted)throw new DOMException("已取消","AbortError");
       themeReading?.abort();themeEpoch++;detailReading?.abort();detailReading=new AbortController();const epoch=++detailEpoch;$("list-status").textContent="正在读取完整数据包…";
-      try{const result=await request(`/api/datasets/${id}/data`,{signal:AbortSignal.any([detailReading.signal,AbortSignal.timeout(120000)])});if(epoch!==detailEpoch||!active)return;
+      try{const result=await request(`/api/datasets/${id}/data`,{signal:AbortSignal.any([detailReading.signal,AbortSignal.timeout(120000),...(signal?[signal]:[])])});if(epoch!==detailEpoch||!active||signal?.aborted)return;
         current=result.item;currentData=result.data;analysis=null;hideTheme();$("detail").hidden=false;$("detail-title").textContent=current.title;
         $("detail-meta").replaceChildren(el("p",`${tools.KINDS[current.kind]} · ${current.scope.label} · ${current.stats.rows} 条（${current.stats.located} 条有位置）`),
           el("p",`统计日期：${current.observedDate} · 单位：${current.unit||"未指定"} · 时段／口径：${current.period||"未提供"}`),el("p",`来源：${current.source} · 许可：${current.license}`),
@@ -122,8 +123,8 @@
         root.HuayuDownloadCenter.createActions($("downloads"),()=>artifact(item,data),{downloadLabel:"下载完整标准化数据"});
         $("downloads").append(button("下载上传原件",async()=>{try{const r=await fetch(`/api/datasets/${item.id}/download`,{cache:"no-store"});if(!r.ok)throw Error("原件读取失败");root.HuayuDownloadCenter.download(await r.blob(),item.filename);}catch(e){$("analysis-status").textContent=message(e);}}));
         table($("records"),data.records.slice(0,50).map(r=>r.properties),"记录预览（前50条）",data.columns.slice(0,10),item);
-        $("analysis-summary").replaceChildren();$("legend").replaceChildren();$("theme-downloads").replaceChildren();$("analysis-status").textContent="请选择字段并生成专题图。";$("list-status").textContent="完整数据包已读取。";
-      }catch(error){if(epoch===detailEpoch)$("list-status").textContent=message(error)+"；已有结果保留。";}
+        $("analysis-summary").replaceChildren();$("legend").replaceChildren();$("theme-downloads").replaceChildren();$("analysis-status").textContent="请选择字段并生成专题图。";$("list-status").textContent="完整数据包已读取。";return true;
+      }catch(error){if(epoch===detailEpoch&&!signal?.aborted)$("list-status").textContent=message(error)+"；已有结果保留。";}
     }
     async function analyze(){
       if(!current)return;themeReading?.abort();themeReading=new AbortController();const item=current,epoch=++themeEpoch;$("analysis-status").textContent="后台正在统计当前字段…";
@@ -181,12 +182,15 @@
       if($("kind").value==="demand")columns.push("origin_id","destination_id","start_time","end_time");
       root.HuayuDownloadCenter.download(new Blob(["\uFEFF",columns.join(","),"\r\n"],{type:"text/csv;charset=utf-8"}),`${tools.KINDS[$("kind").value]}模板.csv`);
     }
-    $("file").onchange=async()=>{const selected=$("file").files[0];cancelParser();file=null;content="";$("preview-result").replaceChildren();if(!selected)return;
-      const epoch=parseEpoch;try{
-        const ext=selected.name.split(".").at(-1).toLowerCase();if(!["csv","json","geojson"].includes(ext))throw Error("支持 CSV、JSON、GeoJSON；压缩包和表格请先转换");
-        const bytes=await selected.arrayBuffer(),decoded=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(bytes);if(epoch!==parseEpoch)return;
-        file=selected;content=decoded;format=ext;$("upload-status").textContent=`已选 ${selected.name}，请校验后发布。`;
-      }catch(error){if(epoch===parseEpoch)$("upload-status").textContent=message(error);}};
+    async function chooseFile(selected,signal) {
+      if(signal?.aborted)throw new DOMException("已取消","AbortError");
+      cancelParser();file=null;content="";$("preview-result").replaceChildren();if(!selected)return;
+      const epoch=parseEpoch;
+      const ext=selected.name.split(".").at(-1).toLowerCase();if(!["csv","json","geojson"].includes(ext))throw Error("支持 CSV、JSON、GeoJSON；压缩包和表格请先转换");
+      const bytes=await selected.arrayBuffer(),decoded=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(bytes);if(signal?.aborted)throw new DOMException("已取消","AbortError");if(epoch!==parseEpoch)return;
+      file=selected;content=decoded;format=ext;$("upload-status").textContent=`已选 ${selected.name}，请校验后发布。`;
+    }
+    $("file").onchange=()=>{const task=chooseFile($("file").files[0]),token=parseEpoch;task.catch(error=>{if(token===parseEpoch)$("upload-status").textContent=message(error);});};
     $("preview").onclick=()=>{if(!busy)parse().catch(error=>$("upload-status").textContent=message(error));};
     $("form").onsubmit=publish;$("edit-cancel").onclick=clearForm;
     $("use-selection").onclick=()=>{const c=atlas.getDatasetContext(),f=atlas.getSelectedFeature();
@@ -203,7 +207,30 @@
     root.addEventListener("huayu:account-changed",()=>{accountEpoch++;detailEpoch++;detailReading?.abort();themeReading?.abort();themeEpoch++;clearForm();renderList();});
     atlas.map.on("baselayerchange moveend",syncLayer);
     root.addEventListener("pagehide",()=>{reading?.abort();detailReading?.abort();detailEpoch++;cancelParser();hideTheme();});
-    root.HuayuSharedDatasets=Object.freeze({syncLayer,setActive(value){const next=Boolean(value);if(active===next)return;active=next;
+    root.HuayuSharedDatasets=Object.freeze({syncLayer,
+      async openFromAgent(id,signal) {
+        if(signal?.aborted)throw new DOMException("已取消","AbortError");
+        atlas.openView("datasets",{preservePerspective:true});
+        const opened=await open(id,signal);
+        if(signal?.aborted)throw new DOMException("已取消","AbortError");
+        if(!opened)throw Error("数据包未能完整读取，请在数据页面重试");
+      },
+      async prepareFromAgent(selected,meta,signal,preview=true) {
+        if(!user())throw Error("请先登录");
+        if(editing||file||$("title").value.trim())throw Error("数据页面已有草稿，请先发布或处理原草稿");
+        if(signal?.aborted)throw new DOMException("已取消","AbortError");
+        const account=accountEpoch;
+        atlas.openView("datasets",{preservePerspective:true});$("upload-section").open=true;
+        $("title").value=meta.title||selected.name;$("kind").value=meta.kind||"other";$("scope-label").value=meta.scopeLabel||"";
+        $("source").value=meta.source||"";$("unit").value=meta.unit||"";$("shared").checked=false;
+        const transfer=new DataTransfer();transfer.items.add(selected);$("file").files=transfer.files;
+        await chooseFile(selected,signal);
+        if(signal?.aborted||account!==accountEpoch)throw new DOMException("已取消","AbortError");
+        if(!preview)return null;
+        const cancel=()=>cancelParser();signal?.addEventListener("abort",cancel,{once:true});
+        try{return await parse();}finally{signal?.removeEventListener("abort",cancel);}
+      },
+      setActive(value){const next=Boolean(value);if(active===next)return;active=next;
       if(active){auth();if(!loaded)loadList();}else{reading?.abort();detailReading?.abort();themeReading?.abort();readEpoch++;detailEpoch++;themeEpoch++;editEpoch++;cancelParser();}}});
     clearForm();root.HuayuSharedDatasets.setActive(atlas.getCurrentView()==="datasets"&&!document.getElementById("tool-panel").classList.contains("is-hidden"));
     if(new URLSearchParams(location.search).get("panel")==="datasets")atlas.openView("datasets",{preservePerspective:true});

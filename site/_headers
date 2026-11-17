@@ -139,3 +139,6 @@
 
 /railway-connections.json
   Cache-Control: public, max-age=300, must-revalidate
+
+/map-agent*.js
+  Cache-Control: public, max-age=0, must-revalidate

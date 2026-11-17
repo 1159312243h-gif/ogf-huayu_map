@@ -79,7 +79,7 @@ const server = createServer(async (incoming, outgoing) => {
       signal: controller.signal,
     });
     const pending = [];
-    const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}) }, {
+    const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}), ...Object.fromEntries(["MAP_AGENT_API_KEY","MAP_AGENT_MODEL","MAP_AGENT_BASE_URL","MAP_AGENT_ALLOW_GUESTS","MAP_AGENT_PROTOCOL"].filter(key=>process.env[key]).map(key=>[key,process.env[key]])) }, {
       waitUntil(promise) { pending.push(Promise.resolve(promise)); },
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));

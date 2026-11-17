@@ -1,0 +1,11 @@
+import {readFile,writeFile} from "node:fs/promises";
+import assert from "node:assert/strict";
+const contract=await readFile(new URL("../site/map-agent-contract.js",import.meta.url),"utf8");
+const server=await readFile(new URL("../site/map-agent-server.js",import.meta.url),"utf8");
+const providers=await readFile(new URL("../site/map-agent-providers.js",import.meta.url),"utf8");
+const factory=contract.slice(contract.indexOf("function createMapAgentContract()"),contract.indexOf("globalThis.HuayuAgentContract="));
+const adapters=providers.slice(providers.indexOf("function createMapAgentProviders()"),providers.indexOf("globalThis.HuayuAgentProviders="));
+const block="// BEGIN MAP AGENT\n"+factory+"\n"+adapters+"\n"+server+"\n// END MAP AGENT";
+const url=new URL("../site/_worker.js",import.meta.url),worker=await readFile(url,"utf8"),start="// BEGIN MAP AGENT",end="// END MAP AGENT";
+if(process.argv.includes("--check"))assert.ok(worker.includes(block),"地图助手清单或服务端与独立 Worker 不一致，请运行 sync-map-agent.mjs");
+else await writeFile(url,worker.includes(start)?worker.slice(0,worker.indexOf(start))+block+worker.slice(worker.indexOf(end)+end.length):worker.replace("async function handlePersonalApi(",block+"\n\nasync function handlePersonalApi("));

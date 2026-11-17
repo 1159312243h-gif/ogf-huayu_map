@@ -15401,6 +15401,7 @@
       else hideMapViewMenu();
       return;
     }
+    if (action === "agent") { showView("agent",{preservePerspective:true}); return; }
     if (action === "settings") {
       cancelMapPick();
       hideMapViewMenu();
@@ -15484,7 +15485,7 @@
     }
     if (!options.preservePerspective) exitVectorPerspectiveMode({ silent: true });
     if (currentView === "measure" && view !== "measure") setMeasurementActive(false);
-    if (view !== "place" && view !== "datasets") {
+    if (view !== "place" && view !== "datasets" && view !== "agent") {
       clearRoadSearchHighlight();
       clearSelectedPlaceFeature();
     }
@@ -15494,6 +15495,7 @@
     const headers = {
       search: ["OGF NOMINATIM", "地名搜索", "结果直接显示在当前地图"],
       brands: ["OPEN GEOFICTION", "品牌与门店", "目录浏览、门店定位与更新"],
+      agent: ["华域地图", "地图助手", "对话搜索、功能调用与共享草稿"],
       datasets: ["共享数据", "数据与专题图", "上传、查询、后台统计及专题展示"],
       directions: ["OGF OSRM", "道路导航", "起终点、路线与步骤均在本页"],
       measure: ["地图量算", "测量", "距离、周长与面积"],
@@ -35974,6 +35976,25 @@
     findAdministrativeCities: findTransitAtlasCities,
     selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),
     useSavedRoutePoint,
+    searchForAgent: async query => {
+      const coordinate=parseCoordinates(query);
+      if(coordinate)return [{name:"坐标位置",lat:coordinate.lat,lon:coordinate.lng}];
+      const kind=pointOfInterestTypeSearch(query);
+      if(kind){const nearby=await searchViewportPointsOfInterest(kind);if(nearby.length)return nearby.slice(0,8);}
+      return searchPlacesWithAdministrativeFuzzy(query,8);
+    },
+    selectAgentPlace: result => setSelectedPlace({lat:Number(result.lat),lng:Number(result.lon??result.lng),
+      label:primaryPlaceName(result),zoom:17},{move:true,popup:true,featureResult:result,preservePerspective:true}),
+    prepareAgentNavigation: (origin,destination,mode) => {
+      const point=r=>({lat:Number(r.lat),lng:Number(r.lon??r.lng),label:primaryPlaceName(r)});
+      showView("directions");setRouteMode(mode);setRoutePoint("origin",point(origin));setRoutePoint("destination",point(destination));
+    },
+    openAgentPanel: panel => {
+      if(!window.HuayuAgentContract.panels.some(p=>p.id===panel))throw Error("未知地图功能");
+      if(panel==="map-view"){showMapViewMenu();return;}
+      if(panel===currentView){showView(panel,{preservePerspective:true});return;}
+      runAction(panel);
+    },
     openView: showView,
     applyAccountDefault,
     refreshSavedPlaces,

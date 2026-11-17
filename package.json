@@ -15,6 +15,8 @@
     "brands:update": "node scripts/update-brand-catalog.mjs",
     "brands:check": "node scripts/update-brand-catalog.mjs --check",
     "test:personal-data": "node scripts/test-personal-data.mjs",
+    "test:map-agent": "node scripts/test-map-agent.mjs",
+    "agent:sync": "node scripts/sync-map-agent.mjs",
     "test:feature-info": "node scripts/test-feature-info.mjs",
     "test:shared-datasets": "node scripts/test-shared-datasets.mjs",
     "test:sunlight": "node scripts/test-sunlight.mjs && node scripts/test-sunlight-shadows.mjs",
