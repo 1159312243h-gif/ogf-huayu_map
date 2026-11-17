@@ -1,6 +1,14 @@
-华域地图 v8.0
-Released: 2026-11-16
+华域地图 v9.0
+Released: 2026-11-17
 Cloudflare Pages project: ogf-atlas
+Build: 9.0-shared-data-v1
+Help: nine searchable topics, including shared feature properties and shared datasets.
+
+Included in release 9.0 (9.0-shared-data-v1, 2026-11-17): Shared CSV/JSON/GeoJSON packages for features, cities and larger scopes, typed as POI, population, GDP, land price, travel demand, schedules or other. Preserve original files, provenance, units, dates and author/admin ownership in atomic D1 chunk storage. No application file/row/column/vertex/account/storage/rate quotas; actual hosting and device constraints still apply. Public reading, original/normalized downloads, server field statistics and numeric/categorical maps with SVG/PNG exports. Shared parsing is verified against the standalone Worker. Existing simulation, source tags, models, navigation and refresh schedules remain unchanged. Release deployment is verified separately.
+
+Included in release 9.0: Shared feature properties (2026-11-17): Add named shared key/value attributes, including building names, alongside authored introductions. Original OGF values and shared contributions remain separate and searchable. Property-only posts, author/admin permissions, atomic property replacement, conflict protection and migration of existing notes are supported. Map geometry, rendering, navigation and source tags are unchanged. Deployment status is verified separately.
+
+Included in release 9.0: Shared feature information (2026-11-17): Public, multi-author information on exact OGF feature identities. Authenticated authors manage their own posts; administrators can edit/delete all posts while retaining authorship. Includes source links, revision conflict checks, bounded pagination/search and idempotent D1 migration. Does not change OGF data, map rendering, navigation or update schedules. Deployment status is verified separately.
 
 Release build 8.0-auto-structure-lanes-v1 (2026-11-16): Automatically display accepted near-view bridge lanes in overhead and 3D simulation views. Reuse complete simulation road topology while basemap tiles load. Automatically show a separate, collapsible, directional lane diagram for visible tunnels without requiring a followed vehicle. Keep underground geometry off the ground, source/estimate labels, budgets, prior settings and all simulation calculations. Included in release build 8.0-auto-structure-lanes-v1; deployment status is verified separately.
 

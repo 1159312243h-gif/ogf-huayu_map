@@ -301,8 +301,9 @@
       renderAccount();
       updateUploadAvailability();
       atlas.refreshSavedPlaces();
-      if (renderedUserId !== (user?.id || null)) {
-        renderedUserId = user?.id || null;
+      const identity = user ? JSON.stringify([user.id,user.role,user.displayName]) : null;
+      if (renderedUserId !== identity) {
+        renderedUserId = identity;
         window.dispatchEvent(new CustomEvent("huayu:account-changed"));
       }
     }
@@ -804,7 +805,7 @@
     });
     elements.deleteAccount.addEventListener("click", async () => {
       const password = window.prompt("请输入当前密码以删除账号：");
-      if (!password || !window.confirm("永久删除账号、收藏、搜索记录和全部贴图？此操作无法撤销。")) return;
+      if (!password || !window.confirm("永久删除账号、收藏、搜索记录、全部贴图和你发布的共享信息？此操作无法撤销。")) return;
       try {
         await api("/api/account", { method: "DELETE", body: { password } });
         user = null;
@@ -859,6 +860,8 @@
 
     window.HuayuPersonalData = Object.freeze({
       isAuthenticated: () => Boolean(user),
+      getCurrentUser: () => user ? {...user} : null,
+      refreshSession: restoreSession,
       retrySync: () => flushSync().catch(() => {}),
       isPickingBounds: () => pickingBounds,
       setOverlayViewActive: active => boundsEditor.setVisible(Boolean(active && user)),

@@ -37,6 +37,12 @@
 /overlay-bounds.js
   Cache-Control: public, max-age=0, must-revalidate
 
+/feature-info.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/shared-dataset*.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /map-help.js
   Cache-Control: public, max-age=0, must-revalidate
 

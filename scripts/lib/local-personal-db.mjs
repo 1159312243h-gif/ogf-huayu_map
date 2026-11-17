@@ -1,10 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 // Execute the production SQL against SQLite, with the small asynchronous D1 API.
 export async function createLocalPersonalDatabase(filename = ":memory:") {
   const sqlite = new DatabaseSync(filename);
-  sqlite.exec(await readFile(new URL("../../migrations/0001_personal_data.sql", import.meta.url), "utf8"));
+  const migrations = new URL("../../migrations/", import.meta.url);
+  for (const file of (await readdir(migrations)).filter(name => /^\d+_.*\.sql$/u.test(name)).sort()) {
+    sqlite.exec(await readFile(new URL(file, migrations), "utf8"));
+  }
   function prepare(sql, values = []) {
     // D1 accepts ArrayBuffer blobs; Node SQLite requires an ArrayBuffer view.
     values = values.map(value => value instanceof ArrayBuffer ? new Uint8Array(value) : value);

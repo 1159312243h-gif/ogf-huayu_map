@@ -708,6 +708,7 @@
   let hoveredAdministrativeDivisionLayer = null;
   let hoveredAdministrativeDivisionHitLayer = null;
   let selectedPlaceFeature = null;
+  let featureInfoSelection = null;
   let selectedObjectEntry = null, featurePickSequence = 0, featurePickController = null;
   let featureRangeResult = null, featureRangeController = null, featureRangeSequence = 0;
   const featureDownloadQueue = new Map();
@@ -2411,6 +2412,7 @@
   async function runPlaceSearch(query) {
     const requestId = ++searchRequestId;
     window.HuayuBrandBrowser?.clearSearch();
+    window.HuayuFeatureInfo?.clearSearch();
     elements.searchResults.replaceChildren();
     placeSearchResultLayer.clearLayers();
     setStatus(elements.searchStatus, `正在搜索“${query}”…`);
@@ -2436,6 +2438,7 @@
     }
 
     window.HuayuBrandBrowser?.search(query);
+    window.HuayuFeatureInfo?.search(query);
 
     // The top search box is also a line finder. Keep place search as the
     // fallback, but resolve line-like queries against the same national
@@ -2931,6 +2934,7 @@
   }
 
   function showSelectedPlaceFeature(result) {
+    setFeatureInfoSelection(result);
     const geometry = selectedPlaceFeatureGeometry(result);
     if (!geometry) return false;
     clearSelectedPlaceFeature();
@@ -3083,7 +3087,7 @@
             label: primaryPlaceName(result) || label.split(",")[0],
             roadLengthMeters,
             roadSegmentCount,
-          }, { move: true, popup: true });
+          }, { move: true, popup: true, featureResult:result });
           showRoadSearchHighlight(roadResults, primaryPlaceName(result) || label.split(",")[0], true);
           updateSelectedRoadDescription(roadLengthMeters, roadSegmentCount);
           return;
@@ -3110,7 +3114,7 @@
           boundaryLabel: boundaryResult ? primaryPlaceName(boundaryResult) : place.label,
           boundaryMeta: boundaryResult,
           boundaryCenter: centerResult,
-          featureResult: !boundary && featureGeometry ? result : null,
+          featureResult: !boundary ? result : null,
           fitBoundary: Boolean(boundary),
         });
         if (boundary) return;
@@ -15439,6 +15443,10 @@
       showView("brands");
       return;
     }
+    if (action === "datasets") {
+      showView("datasets",{preservePerspective:true});
+      return;
+    }
     if (action === "directions") {
       showView("directions");
       return;
@@ -15476,7 +15484,7 @@
     }
     if (!options.preservePerspective) exitVectorPerspectiveMode({ silent: true });
     if (currentView === "measure" && view !== "measure") setMeasurementActive(false);
-    if (view !== "place") {
+    if (view !== "place" && view !== "datasets") {
       clearRoadSearchHighlight();
       clearSelectedPlaceFeature();
     }
@@ -15486,6 +15494,7 @@
     const headers = {
       search: ["OGF NOMINATIM", "地名搜索", "结果直接显示在当前地图"],
       brands: ["OPEN GEOFICTION", "品牌与门店", "目录浏览、门店定位与更新"],
+      datasets: ["共享数据", "数据与专题图", "上传、查询、后台统计及专题展示"],
       directions: ["OGF OSRM", "道路导航", "起终点、路线与步骤均在本页"],
       measure: ["地图量算", "测量", "距离、周长与面积"],
       transit: ["OGF OVERPASS", "公共交通", "公交、地铁、电车与铁路"],
@@ -15536,6 +15545,10 @@
     window.HuayuPersonalData?.setOverlayViewActive?.(view === "overlays");
     const panelVisible = !elements.panel.classList.contains("is-hidden");
     window.HuayuBrandBrowser?.setActive(view === "brands" && panelVisible
+      && !elements.panel.classList.contains("is-minimized"));
+    window.HuayuFeatureInfo?.setActive(view === "place" && panelVisible
+      && !elements.panel.classList.contains("is-minimized"));
+    window.HuayuSharedDatasets?.setActive(view === "datasets" && panelVisible
       && !elements.panel.classList.contains("is-minimized"));
     const administrativeSearchView = panelVisible
       && view === "place"
@@ -15844,7 +15857,19 @@
       });
   }
 
+  function setFeatureInfoSelection(result) {
+    const type = result?.osm_type, id = Number(result?.osm_id);
+    const tags = {...(result?.extratags || result?.tags || {})};
+    if (result?.name && !result.huayu_object && !result.huayu_shared_result && !tags.name) tags.name = result.name;
+    featureInfoSelection = ["node","way","relation"].includes(type) && Number.isSafeInteger(id) && id > 0
+      ? {type,id,label:primaryPlaceName(result) || selectedPlace.label,
+        lat:selectedPlace.lat,lng:selectedPlace.lng,originalTags:tags,
+        originalTagsKnown:Boolean(result.extratags || result.tags || result.huayu_object)} : null;
+    window.dispatchEvent(new CustomEvent("huayu:feature-selected"));
+  }
+
   function setSelectedPlace(place, options = {}) {
+    setFeatureInfoSelection(null);
     featurePickSequence += 1;
     featurePickController?.abort();
     selectedObjectEntry = options.featureResult?.osm_id ? {result:options.featureResult} : null;
@@ -15880,7 +15905,7 @@
     placeMarker.on("click", handleMapObjectClick);
 
     elements.locationHeading.textContent = selectedPlace.label;
-    elements.locationDescription.textContent = `坐标 ${coordinatesText}。地点信息来自 OpenGeofiction，所有操作均留在当前页面。`;
+    elements.locationDescription.textContent = `坐标 ${coordinatesText}。地点信息来自 OpenGeofiction，可查看属性、收藏或补充共享信息。`;
     if (selectedPlace.roadLengthMeters) {
       updateSelectedRoadDescription(selectedPlace.roadLengthMeters, selectedPlace.roadSegmentCount);
     }
@@ -15901,6 +15926,7 @@
       writeHash(selectedPlace);
     }
     if (options.popup) placeMarker.openPopup();
+    setFeatureInfoSelection(options.boundaryMeta || options.featureResult);
   }
 
   async function fetchMapFeatureData(parameters, signal) {
@@ -16293,6 +16319,7 @@
       elements.searchInput.value = label;
       elements.featureAddSelected.disabled = !result.osm_id;
       selectedObjectEntry = {result};
+      setFeatureInfoSelection(result);
       updatePlaceHeader();
       if (isRoadSearchResult(result)) {
         const roadResults = await loadRoadSearchResults(result);
@@ -17156,6 +17183,7 @@
       levelCatalog: saved?.levelCatalog || null,
       areaSquareMeters,
     };
+    setFeatureInfoSelection(metadata);
     if (saved) administrativeExportSelections.set(selectionKey, selectedAdministrativeBoundary);
     if (selectedAdministrativeBoundary.divisions.length) {
       const collection = {
@@ -20053,6 +20081,9 @@
     panel.scrollTop = minimized ? 0 : (expandedPanelScroll.get(panel) || 0);
     if (panel === elements.panel && currentView === "brands") {
       window.HuayuBrandBrowser?.setActive(!minimized && !panel.classList.contains("is-hidden"));
+    }
+    if (panel === elements.panel && currentView === "datasets") {
+      window.HuayuSharedDatasets?.setActive(!minimized && !panel.classList.contains("is-hidden"));
     }
   }
 
@@ -33048,6 +33079,7 @@
     elements.vectorCameraReset.disabled = !vectorPerspectiveActive;
     elements.vectorPerspectivePreset.classList.toggle("is-active", vectorPerspectiveActive);
     elements.vectorPerspectivePreset.setAttribute("aria-pressed", String(vectorPerspectiveActive));
+    window.HuayuSharedDatasets?.syncLayer();
   }
 
   function setMaplibrePerspectiveInteraction(glMap, enabled) {
@@ -33830,6 +33862,7 @@
   }
 
   function clearActiveMapFeatureSelection() {
+    setFeatureInfoSelection(null);
     featurePickSequence++;featurePickController?.abort();selectedObjectEntry=null;
     elements.featureAddSelected.disabled=true;elements.featureCandidates.hidden=true;elements.featurePickStatus.hidden=true;
     map.closePopup();
@@ -35929,6 +35962,14 @@
     saveFavorites,
     placeKey,
     getSelectedPlace: () => ({...selectedPlace}),
+    getSelectedFeature: () => featureInfoSelection ? {...featureInfoSelection,originalTags:{...featureInfoSelection.originalTags}} : null,
+    getDatasetContext: () => ({map,vector:vectorPerspectiveActive?vectorPerspectiveMap:null,perspective:vectorPerspectiveActive,
+      featureScope:featureInfoSelection?{kind:"feature",label:featureInfoSelection.label,target:{type:featureInfoSelection.type,id:featureInfoSelection.id},
+        ...(selectedPlaceFeature?.geometry?{geometry:selectedPlaceFeature.geometry}:featureInfoSelection.type==="node"?{geometry:{type:"Point",coordinates:[featureInfoSelection.lng,featureInfoSelection.lat]}}:{})}:null,
+      scope:selectedAdministrativeBoundary?{kind:"region",label:selectedAdministrativeBoundary.label,
+        target:{type:"relation",id:Number(selectedAdministrativeBoundary.osmId)},geometry:selectedAdministrativeBoundary.geometry}:null}),
+    selectSharedFeature: feature => setSelectedPlace({lat:feature.lat,lng:feature.lng,label:feature.label,zoom:17},
+      {move:true,popup:true,featureResult:{huayu_shared_result:true,osm_type:feature.type,osm_id:feature.id,name:feature.label,lat:feature.lat,lon:feature.lng}}),
     getBrandMarkerLayer: () => brandLocationLayer,
     findAdministrativeCities: findTransitAtlasCities,
     selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),

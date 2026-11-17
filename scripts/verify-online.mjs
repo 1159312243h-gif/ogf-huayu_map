@@ -41,6 +41,20 @@ async function verify() {
   assert.equal(authResponse.status, 401, "生产账号服务未完成密码哈希或 D1 用户查询");
   assert.equal(auth.error, "invalid_credentials", "生产账号服务返回了异常登录结果");
 
+  const infoResponse = await fetch(`${baseUrl}/api/feature-info?type=relation&id=28652&limit=1`, {
+    signal: AbortSignal.timeout(30000),
+  });
+  const info = await infoResponse.json();
+  assert.equal(infoResponse.status,200,"生产共享词条数据库迁移未生效");
+  assert.ok(Array.isArray(info.items) && Number.isSafeInteger(info.total) && info.total >= 0,
+    "生产共享词条公开读取返回异常");
+  assert.equal(infoResponse.headers.get("Cache-Control"),"no-store","共享词条不可使用公共缓存");
+  const datasetsResponse=await fetch(`${baseUrl}/api/datasets?limit=1`,{signal:AbortSignal.timeout(30000)});
+  const datasets=await datasetsResponse.json();
+  assert.equal(datasetsResponse.status,200,"生产共享数据包迁移未生效");
+  assert.ok(Array.isArray(datasets.items),"共享数据包公开目录异常");
+  assert.equal(datasetsResponse.headers.get("Cache-Control"),"no-store","共享数据包不可使用公共缓存");
+
   const buildingResponse = await fetch(`${baseUrl}${release.buildingProbe}?verify=${encodeURIComponent(cacheKey)}`, {
     signal: AbortSignal.timeout(60000),
   });
@@ -100,6 +114,8 @@ async function verify() {
     url: baseUrl,
     release: release.releaseVersion,
     personalAuth: "PBKDF2/D1",
+    sharedFeatureInfo: "D1/public-read",
+    sharedDatasets: "D1/public-read-and-analysis",
     buildingElements: building.elements.length,
     buildingCache: buildingResponse.headers.get("x-ogf-building-cache"),
     liveBasemapElements: basemap.elements.length,

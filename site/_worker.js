@@ -1553,17 +1553,456 @@ async function handleAdminApi(request, environment, url) {
   return null;
 }
 
+// Shared annotations are separate from OGF tags and private account data.
+function featureInfoIdentity(type, value) {
+  const text = String(value ?? "");
+  const id = Number(text);
+  return ["node", "way", "relation"].includes(type) && /^[1-9]\d{0,15}$/u.test(text)
+    && Number.isSafeInteger(id) ? {type, id} : null;
+}
+
+function featureInfoFields(body, allowed) {
+  if (!body || typeof body !== "object" || Array.isArray(body)
+    || Object.keys(body).some(key => !allowed.includes(key))) {
+    throw Object.assign(new Error("invalid_contribution_fields"), {status:400});
+  }
+}
+
+function featureInfoText(value, maximum, required = true) {
+  if (typeof value !== "string") throw Object.assign(new Error("invalid_contribution_text"), {status:400});
+  const text = value.trim();
+  if ((required && !text) || [...text].length > maximum || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(text)) {
+    throw Object.assign(new Error("invalid_contribution_text"), {status:400});
+  }
+  return text;
+}
+
+function featureInfoProperties(value) {
+  if (!Array.isArray(value) || value.length > 32) {
+    throw Object.assign(new Error("invalid_contribution_properties"), {status:400});
+  }
+  const seen = new Set();
+  return value.map(property => {
+    featureInfoFields(property,["key","value"]);
+    const key = featureInfoText(property.key,80), text = featureInfoText(property.value,512);
+    if (!/^[\p{L}\p{N}][\p{L}\p{N}_:.-]*$/u.test(key) || seen.has(key)) {
+      throw Object.assign(new Error("invalid_contribution_properties"), {status:400});
+    }
+    seen.add(key);
+    return {key,value:text};
+  });
+}
+
+function featureInfoContent(body, previousProperties = []) {
+  const properties = body.properties === undefined ? previousProperties : featureInfoProperties(body.properties);
+  const title = featureInfoText(body.title ?? "",80,!properties.length) || "属性补充";
+  const content = featureInfoText(body.content ?? "",5000,!properties.length);
+  const sourceUrl = featureInfoText(body.sourceUrl ?? "", 2048, false);
+  if (sourceUrl) {
+    let url;
+    try { url = new URL(sourceUrl); } catch {}
+    if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      throw Object.assign(new Error("invalid_contribution_source"), {status:400});
+    }
+  }
+  return {title, content, sourceUrl, properties};
+}
+
+const FEATURE_INFO_SELECT = `SELECT c.*, u.username, u.display_name,
+  editor.username AS editor_username, editor.display_name AS editor_name,
+  (SELECT json_group_array(json_object('key', property_key, 'value', property_value))
+    FROM (SELECT property_key, property_value FROM feature_contribution_properties
+      WHERE contribution_id = c.id ORDER BY position)) AS properties_json
+  FROM feature_contributions c JOIN users u ON u.id = c.user_id
+  LEFT JOIN users editor ON editor.id = c.edited_by`;
+
+function publicFeatureInfo(row) {
+  return {id:row.id, feature:{type:row.feature_type, id:row.feature_id, label:row.feature_name, lat:row.lat, lng:row.lng},
+    author:{id:row.user_id, username:row.username, displayName:row.display_name},
+    title:row.title, content:row.content, sourceUrl:row.source_url, revision:row.revision,
+    properties:JSON.parse(row.properties_json || "[]"),
+    createdAt:row.created_at, updatedAt:row.updated_at,
+    editedBy:row.editor_username ? {username:row.editor_username, displayName:row.editor_name} : null};
+}
+
+async function handleFeatureInfoApi(request, environment, url) {
+  const path = url.pathname;
+  if (path !== "/api/feature-info" && path !== "/api/feature-info/search"
+    && !path.startsWith("/api/feature-info/")) return null;
+  if (path === "/api/feature-info/search") {
+    if (request.method !== "GET") return personalJson({error:"method_not_allowed"}, 405, {Allow:"GET"});
+    const query = featureInfoText(url.searchParams.get("q"), 100);
+    const rows = await environment.DB.prepare(`SELECT c.feature_type, c.feature_id, c.feature_name, c.lat, c.lng,
+      COUNT(*) AS matching_count, MAX(c.updated_at) AS updated_at,
+      (SELECT group_concat(property_value, '／') FROM (SELECT DISTINCT p.property_value
+        FROM feature_contribution_properties p JOIN feature_contributions n ON n.id = p.contribution_id
+        WHERE n.feature_type = c.feature_type AND n.feature_id = c.feature_id
+        AND p.property_key IN ('name', 'name:zh') ORDER BY p.property_value LIMIT 3)) AS shared_names
+      FROM feature_contributions c
+      WHERE instr(lower(c.feature_name || char(10) || c.title || char(10) || c.content), lower(?)) > 0
+        OR EXISTS (SELECT 1 FROM feature_contribution_properties p WHERE p.contribution_id = c.id
+          AND instr(lower(p.property_key || char(10) || p.property_value), lower(?)) > 0)
+      GROUP BY c.feature_type, c.feature_id ORDER BY updated_at DESC, c.feature_type, c.feature_id LIMIT 13`).bind(query,query).all();
+    return personalJson({items:rows.results.slice(0,12).map(row => ({type:row.feature_type, id:row.feature_id,
+      label:row.feature_name, sharedNames:row.shared_names || "", lat:row.lat, lng:row.lng, matchingCount:row.matching_count})), hasMore:rows.results.length > 12});
+  }
+  if (path === "/api/feature-info" && request.method === "GET") {
+    const feature = featureInfoIdentity(url.searchParams.get("type"), url.searchParams.get("id"));
+    if (!feature) return personalJson({error:"invalid_feature_identity"},400);
+    const limit = Number(url.searchParams.get("limit") || 20), cursor = url.searchParams.get("after");
+    const parts = cursor?.match(/^(\d{1,16}):([a-zA-Z0-9_-]{1,80})$/u);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (cursor && !parts)) return personalJson({error:"invalid_page"},400);
+    const rows = await environment.DB.prepare(`${FEATURE_INFO_SELECT}
+      WHERE c.feature_type = ? AND c.feature_id = ?
+      ${parts ? "AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?))" : ""}
+      ORDER BY c.created_at, c.id LIMIT ?`).bind(feature.type, feature.id,
+      ...(parts ? [Number(parts[1]),Number(parts[1]),parts[2]] : []), limit+1).all();
+    const page = rows.results.slice(0,limit), last = page.at(-1);
+    const total = await environment.DB.prepare("SELECT COUNT(*) AS count FROM feature_contributions WHERE feature_type = ? AND feature_id = ?")
+      .bind(feature.type,feature.id).first("count");
+    return personalJson({items:page.map(publicFeatureInfo), total,
+      nextCursor:rows.results.length > limit && last ? `${last.created_at}:${last.id}` : null});
+  }
+  const match = path.match(/^\/api\/feature-info\/([a-zA-Z0-9_-]{1,80})$/u);
+  if (!(path === "/api/feature-info" && request.method === "POST")
+    && !(match && ["PATCH","DELETE"].includes(request.method))) {
+    return personalJson({error:"method_not_allowed"},405,{Allow:match ? "PATCH, DELETE" : "GET, POST"});
+  }
+  const user = await requirePersonalUser(request, environment);
+  const body = await readJsonBody(request, 32*1024), now = Date.now();
+  if (path === "/api/feature-info") {
+    featureInfoFields(body,["feature","title","content","sourceUrl","properties"]);
+    featureInfoFields(body.feature,["type","id","label","lat","lng"]);
+    const feature = featureInfoIdentity(body.feature.type,body.feature.id);
+    const label = featureInfoText(body.feature.label,200), {lat,lng} = body.feature;
+    if (!feature || typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)
+      || Math.abs(lat) > 85 || Math.abs(lng) > 180) return personalJson({error:"invalid_feature_identity"},400);
+    const {title,content,sourceUrl,properties} = featureInfoContent(body), id = crypto.randomUUID();
+    // One atomic statement enforces per-account limits even for concurrent requests.
+    const insert = environment.DB.prepare(`INSERT INTO feature_contributions
+      (id,feature_type,feature_id,feature_name,lat,lng,user_id,title,content,source_url,created_at,updated_at,edited_by)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE
+      (SELECT COUNT(*) FROM feature_contributions WHERE user_id = ?) < 1000 AND
+      (SELECT COUNT(*) FROM feature_contributions WHERE user_id = ? AND feature_type = ? AND feature_id = ?) < 20 AND
+      (SELECT COUNT(*) FROM feature_contributions WHERE user_id = ? AND created_at > ?) < 5`)
+      .bind(id,feature.type,feature.id,label,lat,lng,user.id,title,content,sourceUrl,now,now,user.id,
+        user.id,user.id,feature.type,feature.id,user.id,now-60000);
+    const [result] = await environment.DB.batch([insert,...properties.map((property,position) => environment.DB.prepare(
+      `INSERT INTO feature_contribution_properties (contribution_id,property_key,property_value,position)
+       SELECT id,?,?,? FROM feature_contributions WHERE id = ?`).bind(property.key,property.value,position,id))]);
+    if (!result.meta.changes) return personalJson({error:"contribution_limit"},429,{"Retry-After":"60"});
+    const row = await environment.DB.prepare(`${FEATURE_INFO_SELECT} WHERE c.id = ?`).bind(id).first();
+    return personalJson({item:publicFeatureInfo(row)},201);
+  }
+  featureInfoFields(body,request.method === "DELETE" ? ["revision"] : ["revision","title","content","sourceUrl","properties"]);
+  if (!Number.isSafeInteger(body.revision) || body.revision < 1) return personalJson({error:"invalid_revision"},400);
+  const row = await environment.DB.prepare(`${FEATURE_INFO_SELECT} WHERE c.id = ?`).bind(match[1]).first();
+  if (!row) return personalJson({error:"contribution_not_found"},404);
+  const admin = publicUser(user,environment).role === "admin";
+  if (row.user_id !== user.id && !admin) return personalJson({error:"contribution_forbidden"},403);
+  let result;
+  if (request.method === "DELETE") {
+    result = await environment.DB.prepare("DELETE FROM feature_contributions WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)")
+      .bind(row.id,body.revision,user.id,admin ? 1 : 0).run();
+  } else {
+    const {title,content,sourceUrl,properties} = featureInfoContent(body,JSON.parse(row.properties_json || "[]"));
+    const update = environment.DB.prepare(`UPDATE feature_contributions SET title = ?, content = ?, source_url = ?,
+      updated_at = ?, edited_by = ?, revision = revision + 1 WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)`)
+      .bind(title,content,sourceUrl,now,user.id,row.id,body.revision,user.id,admin ? 1 : 0);
+    // Every statement uses the same pre-update revision and permission guard.
+    // D1 executes the batch transactionally, including property removal/replacement.
+    const guard = "SELECT id FROM feature_contributions WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)";
+    const statements = body.properties === undefined ? [] : [environment.DB.prepare(
+      `DELETE FROM feature_contribution_properties WHERE contribution_id IN (${guard})`)
+      .bind(row.id,body.revision,user.id,admin ? 1 : 0),
+      ...properties.map((property,position) => environment.DB.prepare(
+        `INSERT INTO feature_contribution_properties (contribution_id,property_key,property_value,position)
+         SELECT id,?,?,? FROM feature_contributions WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)`)
+        .bind(property.key,property.value,position,row.id,body.revision,user.id,admin ? 1 : 0))];
+    result = (await environment.DB.batch([...statements,update])).at(-1);
+  }
+  if (!result.meta.changes) return personalJson({error:"contribution_conflict"},409);
+  if (request.method === "DELETE") return personalJson({ok:true});
+  const updated = await environment.DB.prepare(`${FEATURE_INFO_SELECT} WHERE c.id = ?`).bind(row.id).first();
+  return personalJson({item:publicFeatureInfo(updated)});
+}
+
+const DATASET_SELECT = `SELECT d.*, u.username, u.display_name, e.username AS editor_username,
+  e.display_name AS editor_name FROM shared_datasets d JOIN users u ON u.id = d.user_id
+  LEFT JOIN users e ON e.id = d.edited_by`;
+
+function datasetMetadata(body) {
+  featureInfoFields(body,["title","kind","description","scope","source","sourceUrl","observedDate","unit","period","license"]);
+  const t=createSharedDatasetTools(), value={title:t.text(body.title,120,true),kind:body.kind,
+    description:t.text(body.description||"",2000),scope:t.scope(body.scope),source:t.text(body.source,500,true),
+    sourceUrl:t.text(body.sourceUrl||"",2048),observedDate:t.text(body.observedDate,10,true),
+    unit:t.text(body.unit||"",80),period:t.text(body.period||"",80),license:t.text(body.license,200,true)};
+  if(!Object.hasOwn(t.KINDS,value.kind))throw Object.assign(new Error("数据分类无效"),{status:400});
+  if(!/^\d{4}-\d{2}-\d{2}$/u.test(value.observedDate)||!Number.isFinite(Date.parse(value.observedDate))
+    ||new Date(value.observedDate).toISOString().slice(0,10)!==value.observedDate)throw Object.assign(new Error("统计日期无效"),{status:400});
+  if(["population","gdp","land_price","demand","schedule"].includes(value.kind)&&!value.unit)throw Object.assign(new Error("请填写指标单位"),{status:400});
+  if(value.sourceUrl){let u;try{u=new URL(value.sourceUrl);}catch{}
+    if(!u||!["http:","https:"].includes(u.protocol)||u.username||u.password)throw Object.assign(new Error("来源链接仅支持 HTTP／HTTPS"),{status:400});}
+  return value;
+}
+function publicDataset(row) {
+  return {id:row.id,title:row.title,kind:row.kind,description:row.description,scope:JSON.parse(row.scope_json),
+    source:row.source,sourceUrl:row.source_url,observedDate:row.observed_date,unit:row.unit,period:row.period,license:row.license,
+    filename:row.filename,format:row.format,sha256:row.sha256,byteSize:row.byte_size,stats:JSON.parse(row.stats_json),
+    fields:JSON.parse(row.fields_json),revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at,
+    author:{id:row.user_id,username:row.username,displayName:row.display_name},
+    editedBy:row.editor_username?{username:row.editor_username,displayName:row.editor_name}:null};
+}
+async function datasetBytes(environment,id,kind) {
+  const result=await environment.DB.prepare("SELECT position,data FROM shared_dataset_chunks WHERE dataset_id = ? AND kind = ? ORDER BY position").bind(id,kind).all();
+  const chunks=result.results.map(row=>d1BlobBytes(row.data));
+  if(!chunks.length||chunks.some((v,i)=>!v||result.results[i].position!==i))throw Error("Shared dataset chunks missing");
+  const size=chunks.reduce((n,v)=>n+v.length,0);
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;
+}
+async function readDatasetBody(request) {
+  const reader=request.body?.getReader();if(!reader)throw Object.assign(Error("invalid_json"),{status:400});
+  const chunks=[];let size=0;
+  try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;
+    chunks.push(value);}}
+  finally{reader.releaseLock();}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  try{return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));}
+  catch{throw Object.assign(Error("invalid_json"),{status:400});}
+}
+async function handleDatasetApi(request,environment,url) {
+  const path=url.pathname;if(path!=="/api/datasets"&&!path.startsWith("/api/datasets/"))return null;
+  if(path==="/api/datasets"&&request.method==="GET"){
+    const q=(url.searchParams.get("q")||"").trim(),kind=url.searchParams.get("kind")||"",after=url.searchParams.get("after")||"";
+    const limit=Number(url.searchParams.get("limit")||20),cursor=after.match(/^(\d{1,16}):([a-zA-Z0-9_-]{1,80})$/u);
+    if(q.length>200||kind&&!Object.hasOwn(createSharedDatasetTools().KINDS,kind)||!Number.isInteger(limit)||limit<1||limit>50||after&&!cursor)return personalJson({error:"查询或分页参数无效"},400);
+    const rows=await environment.DB.prepare(`${DATASET_SELECT} WHERE
+      (? = '' OR d.kind = ?) AND (? = '' OR instr(lower(d.title || char(10) || d.description || char(10) || d.scope_json || char(10) || d.source),lower(?)) > 0)
+      ${cursor?"AND (d.created_at < ? OR (d.created_at = ? AND d.id < ?))":""}
+      ORDER BY d.created_at DESC,d.id DESC LIMIT ?`).bind(kind,kind,q,q,...(cursor?[Number(cursor[1]),Number(cursor[1]),cursor[2]]:[]),limit+1).all();
+    const page=rows.results.slice(0,limit),last=page.at(-1);
+    return personalJson({items:page.map(row=>{const item=publicDataset(row);delete item.scope.geometry;return item;}),nextCursor:rows.results.length>limit&&last?`${last.created_at}:${last.id}`:null});
+  }
+  if(["/api/datasets","/api/datasets/validate"].includes(path)&&request.method==="POST"){
+    const user=await requirePersonalUser(request,environment),body=await readDatasetBody(request);
+    featureInfoFields(body,["metadata","format","filename","content","fields","shared"]);
+    if(body.shared!==true)return personalJson({error:"请确认数据包公开共享"},400);
+    const metadata=datasetMetadata(body.metadata),tools=createSharedDatasetTools(),filename=tools.text(body.filename,180,true);
+    const data=tools.normalize(body.content,body.format,{kind:metadata.kind,scope:metadata.scope,fields:body.fields});
+    if(path.endsWith("/validate"))return personalJson({stats:data.stats,columns:data.columns,numericColumns:data.numericColumns,preview:data.records.slice(0,20)});
+    const id=crypto.randomUUID(),now=Date.now(),raw=textEncoder.encode(body.content),normalized=textEncoder.encode(JSON.stringify(data)),storageBytes=raw.length+normalized.length;
+    const hash=await sha256Hex(body.content);
+    const insert=environment.DB.prepare(`INSERT INTO shared_datasets
+      (id,user_id,title,kind,description,scope_json,source,source_url,observed_date,unit,period,license,filename,format,sha256,
+       byte_size,storage_bytes,stats_json,fields_json,created_at,updated_at,edited_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id,user.id,metadata.title,metadata.kind,metadata.description,JSON.stringify(metadata.scope),metadata.source,metadata.sourceUrl,
+        metadata.observedDate,metadata.unit,metadata.period,metadata.license,filename,body.format,hash,raw.length,storageBytes,
+        JSON.stringify({...data.stats,columns:data.columns,numericColumns:data.numericColumns}),JSON.stringify(body.fields||{}),now,now,user.id);
+    const statements=[insert];
+    for(const [kind,bytes] of [["original",raw],["normalized",normalized]])for(let offset=0,position=0;offset<bytes.length;offset+=512*1024,position++){
+      statements.push(environment.DB.prepare(`INSERT INTO shared_dataset_chunks(dataset_id,kind,position,data)
+        SELECT id,?,?,? FROM shared_datasets WHERE id = ?`).bind(kind,position,bytes.slice(offset,offset+512*1024),id));
+    }
+    const [result]=await environment.DB.batch(statements);
+    if(!result.meta.changes)throw Error("Shared dataset was not saved");
+    return personalJson({item:publicDataset(await environment.DB.prepare(`${DATASET_SELECT} WHERE d.id = ?`).bind(id).first())},201);
+  }
+  const match=path.match(/^\/api\/datasets\/([a-zA-Z0-9_-]{1,80})(?:\/(data|download|analysis))?$/u);
+  if(!match)return personalJson({error:"not_found"},404);
+  const row=await environment.DB.prepare(`${DATASET_SELECT} WHERE d.id = ?`).bind(match[1]).first();
+  if(!row)return personalJson({error:"数据包不存在或已删除"},404);
+  if(request.method==="GET"){
+    const item=publicDataset(row);
+    if(match[2]==="download"){
+      const bytes=await datasetBytes(environment,row.id,"original");
+      if(bytes.length!==row.byte_size||bytesToHex(await crypto.subtle.digest("SHA-256",bytes))!==row.sha256)throw Error("Shared dataset original integrity failure");
+      return new Response(bytes,{headers:{"Content-Type":"application/octet-stream",
+        "Content-Disposition":`attachment; filename="dataset-${row.id}.${row.format}"`,"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+    }
+    if(match[2]){
+      const data=JSON.parse(new TextDecoder().decode(await datasetBytes(environment,row.id,"normalized")));
+      if(match[2]==="analysis"){
+        const field=url.searchParams.get("field")||"value",mode=url.searchParams.get("mode")||"numeric",tools=createSharedDatasetTools();
+        const explicitUnit=tools.text(url.searchParams.get("unit")||"",80);
+        const unit=mode==="category"?"":explicitUnit||(field==="value"||data.primaryColumns?.includes(field)?item.unit:"");
+        return personalJson({item,analysis:{...tools.analyze(data,{field,mode}),unit,unitSource:explicitUnit?"view":unit?"dataset":"unspecified"}});
+      }
+      return personalJson({item,data});
+    }return personalJson({item});
+  }
+  if(match[2]||!["PATCH","DELETE"].includes(request.method))return personalJson({error:"method_not_allowed"},405);
+  const user=await requirePersonalUser(request,environment),body=await readDatasetBody(request);
+  featureInfoFields(body,request.method==="DELETE"?["revision"]:["revision","metadata"]);
+  const admin=publicUser(user,environment).role==="admin";
+  if(row.user_id!==user.id&&!admin)return personalJson({error:"只能管理自己上传的数据包"},403);
+  if(!Number.isSafeInteger(body.revision)||body.revision<1)return personalJson({error:"invalid_revision"},400);
+  let result;
+  if(request.method==="DELETE")result=await environment.DB.prepare("DELETE FROM shared_datasets WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)").bind(row.id,body.revision,user.id,admin?1:0).run();
+  else {
+    const m=datasetMetadata(body.metadata);
+    if(m.kind!==row.kind||JSON.stringify(m.scope)!==row.scope_json)return personalJson({error:"修改分类、范围或文件请发布新的数据包，保留原数据口径"},400);
+    result=await environment.DB.prepare(`UPDATE shared_datasets SET title = ?, description = ?,source = ?,source_url = ?,observed_date = ?,unit = ?,period = ?,license = ?,updated_at = ?,edited_by = ?,revision = revision + 1
+      WHERE id = ? AND revision = ? AND (user_id = ? OR ? = 1)`).bind(m.title,m.description,m.source,m.sourceUrl,m.observedDate,m.unit,m.period,m.license,Date.now(),user.id,row.id,body.revision,user.id,admin?1:0).run();
+  }
+  if(!result.meta.changes)return personalJson({error:"数据包已被更新，请刷新后重试"},409);
+  return request.method==="DELETE"?personalJson({ok:true}):personalJson({item:publicDataset(await environment.DB.prepare(`${DATASET_SELECT} WHERE d.id = ?`).bind(row.id).first())});
+}
+
+// BEGIN SHARED DATASET CORE
+function createSharedDatasetTools() {
+  "use strict";
+  const KINDS = Object.freeze({poi:"POI／设施",population:"人口",gdp:"GDP",land_price:"地价",demand:"通行需求",schedule:"车次安排",other:"其他数据"});
+  const fail = message => {throw Object.assign(new Error(message), {status:400});};
+  const plain = v => v && typeof v === "object" && !Array.isArray(v);
+  const own = (o,k) => Object.prototype.hasOwnProperty.call(o,k);
+  function text(value, max=200, required=false) {
+    if (typeof value !== "string") fail("文字字段格式无效");
+    const v=value.trim();
+    if ((required&&!v)||[...v].length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(v)) fail("文字字段为空、过长或含控制字符");
+    return v;
+  }
+  function numeric(v) {
+    if(typeof v==="number")return Number.isFinite(v)?v:null;
+    if(typeof v!=="string"||!v.trim())return null;
+    const s=v.trim();
+    if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(s))return null;
+    const n=Number(s);return Number.isFinite(n)?n:null;
+  }
+  function identity(type,id) {
+    if(!["node","way","relation"].includes(type)||!/^\d{1,16}$/u.test(String(id))||!Number.isSafeInteger(Number(id))||Number(id)<=0)fail("要素类型或编号无效");
+    return {type,id:Number(id)};
+  }
+  function csv(input) {
+    const rows=[];let row=[],cell="",quoted=false,ended=false;
+    for(let i=0;i<input.length;i++) {
+      const c=input[i];
+      if(quoted){if(c==='"'){if(input[i+1]==='"'){cell+='"';i++;}else {quoted=false;ended=true;}}else cell+=c;continue;}
+      if(c==='"'){if(cell||ended)fail("CSV 引号位置无效");quoted=true;continue;}
+      if(c===","||c==="\n"||c==="\r") {
+        row.push(cell);cell="";ended=false;
+        if(c!==","){if(c==="\r"&&input[i+1]==="\n")i++;if(row.some(x=>x.trim()))rows.push(row);row=[];}
+      } else {if(ended&&c!==" "&&c!=="\t")fail("CSV 引号后存在多余字符");if(!ended)cell+=c;}
+    }
+    if(quoted)fail("CSV 引号未闭合");
+    row.push(cell);if(row.some(x=>x.trim()))rows.push(row);
+    const headers=rows.shift()?.map(v=>text(v,80,true));
+    if(!headers?.length||new Set(headers).size!==headers.length)fail("CSV 表头为空或重复");
+    return rows.map((values,i)=>{if(values.length!==headers.length)fail(`CSV 第 ${i+2} 行列数与表头不同`);return Object.fromEntries(headers.map((k,j)=>[k,values[j]]));});
+  }
+  function geometry(value,budget={vertices:0}) {
+    if(value===null||value===undefined)return null;
+    if(!plain(value)||!own(value,"coordinates"))fail("几何格式无效");
+    const point=p=>{if(!Array.isArray(p)||p.length<2||p.length>3||p.some(n=>typeof n!=="number"||!Number.isFinite(n))||Math.abs(p[0])>180||Math.abs(p[1])>85)fail("坐标须为 WGS84 经度、纬度（纬度 ±85°）");budget.vertices++;return p.slice(0,2);};
+    const line=(r,min)=>{if(!Array.isArray(r)||r.length<min)fail("几何顶点不足");return r.map(point);};
+    const ring=r=>{const p=line(r,4);if(p[0][0]!==p.at(-1)[0]||p[0][1]!==p.at(-1)[1])fail("多边形环必须闭合");return p;};
+    const poly=p=>{if(!Array.isArray(p)||!p.length)fail("多边形缺少外环");return p.map(ring);};
+    let coordinates;
+    switch(value.type){
+      case "Point":coordinates=point(value.coordinates);break;
+      case "MultiPoint":coordinates=line(value.coordinates,1);break;
+      case "LineString":coordinates=line(value.coordinates,2);break;
+      case "MultiLineString":if(!Array.isArray(value.coordinates)||!value.coordinates.length)fail("线集合为空");coordinates=value.coordinates.map(r=>line(r,2));break;
+      case "Polygon":coordinates=poly(value.coordinates);break;
+      case "MultiPolygon":if(!Array.isArray(value.coordinates)||!value.coordinates.length)fail("面集合为空");coordinates=value.coordinates.map(poly);break;
+      default:fail("仅支持点、线、面及其多部件 GeoJSON 几何");
+    }
+    return {type:value.type,coordinates};
+  }
+  function scope(value) {
+    if(!plain(value)||!["feature","region","large"].includes(value.kind))fail("请选择单要素、区域或更大范围");
+    const result={kind:value.kind,label:text(value.label,200,true)};
+    if(value.target)result.target=identity(value.target.type,value.target.id);
+    if(value.geometry){result.geometry=geometry(value.geometry);if(value.kind!=="feature"&&!["Polygon","MultiPolygon"].includes(result.geometry.type))fail("区域范围须为真实面几何");}
+    return result;
+  }
+  function normalize(input,format,options={}) {
+    if(typeof input!=="string")fail("文件须为 UTF-8 文本");
+    const s=input.replace(/^\uFEFF/u,"");let data;
+    if(format==="csv")data=csv(s);
+    else if(["json","geojson"].includes(format)){try{data=JSON.parse(s);}catch{fail("JSON 无法解析");}
+      if(data?.crs)fail("请先转换为 WGS84 经纬度，不能导入其他坐标系");
+      if(data?.type==="FeatureCollection")data=data.features;
+      else if(data?.type==="Feature")data=[data];
+      else if(plain(data)&&Array.isArray(data.records))data=data.records;
+    } else fail("支持 CSV、JSON、GeoJSON 文件");
+    if(!Array.isArray(data)||!data.length)fail("数据包须含至少一条记录");
+    const area=options.scope?scope(options.scope):null,budget={vertices:0},columns=new Set(),primaryColumns=new Set(),numericColumns=new Map(),bounds=[Infinity,Infinity,-Infinity,-Infinity];
+    const find=(p,aliases)=>aliases.find(k=>own(p,k));
+    const fields=options.fields||{};
+    for(const k of Object.keys(fields))if(!["lng","lat","name","value","type","id"].includes(k))fail("字段映射无效");
+    for(const v of Object.values(fields))if(typeof v!=="string"||v.length>80)fail("字段映射无效");
+    const records=data.map((raw,i)=>{
+      if(!plain(raw))fail(`第 ${i+1} 条记录须为对象`);
+      const p=raw.type==="Feature"?raw.properties:raw;
+      if(!plain(p))fail(`第 ${i+1} 条记录缺少属性`);
+      const props=Object.create(null);
+      for(const [key,v] of Object.entries(p)) {
+        if(key==="geometry"&&raw.type!=="Feature")continue;
+        text(key,80,true);if(["__proto__","constructor","prototype"].includes(key))fail("属性名含保留字段");
+        if(v!==null&&!["string","number","boolean"].includes(typeof v)||typeof v==="number"&&!Number.isFinite(v))fail(`第 ${i+1} 条属性仅支持文字、数字、布尔或空值`);
+        if(typeof v==="string")text(v,2048);
+        props[key]=v;columns.add(key);
+      }
+      const get=(role,aliases)=>fields[role]?fields[role]:find(props,aliases);
+      const x=get("lng",["longitude","lon","lng","经度"]),y=get("lat",["latitude","lat","纬度"]);
+      let g=geometry(raw.geometry,budget);
+      const hasX=x&&props[x]!==null&&props[x]!=="",hasY=y&&props[y]!==null&&props[y]!=="";
+      if(!g&&(hasX||hasY)){
+        const a=numeric(props[x]),b=numeric(props[y]);if(a===null||b===null)fail(`第 ${i+1} 条经纬度缺失或不是数字`);g=geometry({type:"Point",coordinates:[a,b]},budget);
+      }
+      const typeKey=get("type",["osm_type","要素类型"]),idKey=get("id",["osm_id","要素编号"]);
+      let target=null;
+      if(typeKey||idKey){if(props[typeKey]!==""||props[idKey]!=="")target=identity(props[typeKey],props[idKey]);}
+      if(!target&&data.length===1&&area?.target)target=area.target;
+      if(!g&&data.length===1&&area?.geometry)g=geometry(area.geometry,budget);
+      const nameKey=get("name",["name","名称","地区","站名"]),valueKey=get("value",({population:["population","人口","value","值"],gdp:["gdp","GDP","value","值"],land_price:["land_price","地价","value","值"],demand:["trips","demand","通行需求","value","值"],schedule:["frequency","车次","value","值"]})[options.kind]||["value","值"]);
+      const value=valueKey?numeric(props[valueKey]):null;
+      if(valueKey&&own(props,valueKey))primaryColumns.add(valueKey);
+      if(valueKey&&props[valueKey]!==null&&props[valueKey]!==""&&value===null)fail(`第 ${i+1} 条指标不是有效数字，请用单位栏填写单位`);
+      if(value!==null&&["population","gdp","land_price","demand","schedule"].includes(options.kind)&&value<0)fail(`第 ${i+1} 条指标不能为负数`);
+      for(const [k,v] of Object.entries(props)){const n=numeric(v);if(n!==null){const stat=numericColumns.get(k)||{count:0,sum:0,min:Infinity,max:-Infinity};stat.count++;stat.sum+=n;stat.min=Math.min(stat.min,n);stat.max=Math.max(stat.max,n);if(!Number.isFinite(stat.sum))fail("指标合计超出可计算范围");numericColumns.set(k,stat);}}
+      const visit=c=>{if(typeof c[0]==="number"){bounds[0]=Math.min(bounds[0],c[0]);bounds[1]=Math.min(bounds[1],c[1]);bounds[2]=Math.max(bounds[2],c[0]);bounds[3]=Math.max(bounds[3],c[1]);}else for(const p of c)visit(p);};if(g)visit(g.coordinates);
+      return {properties:props,geometry:g,target,name:String(nameKey?props[nameKey]??"":target?`${target.type}:${target.id}`:`记录 ${i+1}`),value};
+    });
+    const result={schema:"huayu-shared-dataset-v1",records,columns:[...columns],primaryColumns:[...primaryColumns],numericColumns:Object.fromEntries(numericColumns),
+      stats:{rows:records.length,located:records.filter(r=>r.geometry).length,linked:records.filter(r=>r.target).length,vertices:budget.vertices,bounds:bounds.every(Number.isFinite)?bounds:null}};
+    return result;
+  }
+  function analyze(data,{field="value",mode="numeric"}={}) {
+    if(!["numeric","category"].includes(mode))fail("专题图类型无效");
+    if(field!=="value"&&!data.columns.includes(field))fail("专题字段不存在");
+    let missing=0,unlocated=0;const values=[],features=[],categories=new Map();
+    for(let i=0;i<data.records.length;i++){
+      const r=data.records[i],raw=field==="value"?r.value:r.properties[field],v=mode==="numeric"?numeric(raw):raw==null||raw===""?null:String(raw);
+      if(v===null){missing++;continue;}if(mode==="numeric")values.push(v);else categories.set(v,(categories.get(v)||0)+1);
+      if(!r.geometry){unlocated++;continue;}
+      features.push({type:"Feature",id:i,geometry:r.geometry,properties:{record:i,name:r.name,value:v}});
+    }
+    values.sort((a,b)=>a-b);const groups=[...categories].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+    const stops=values.length?[0,.25,.5,.75,1].map(q=>values[Math.floor((values.length-1)*q)]):[];
+    const sum=values.reduce((a,b)=>a+b,0);if(!Number.isFinite(sum))fail("指标合计超出可计算范围");
+    return {field,mode,rows:data.records.length,missing,unlocated,plotted:features.length,count:mode==="numeric"?values.length:groups.reduce((n,g)=>n+g[1],0),
+      sum:values.length?sum:null,min:values[0]??null,max:values.at(-1)??null,mean:values.length?sum/values.length:null,stops,
+      categories:groups.slice(0,12),categoryCount:groups.length,geojson:{type:"FeatureCollection",features}};
+  }
+  return Object.freeze({KINDS,text,numeric,identity,geometry,scope,normalize,analyze});
+}
+// END SHARED DATASET CORE
+
 async function handlePersonalApi(request, environment) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/auth/") && url.pathname !== "/api/account"
     && !url.pathname.startsWith("/api/personal/") && !url.pathname.startsWith("/api/overlays")
-    && !url.pathname.startsWith("/api/admin/")) return null;
+    && !url.pathname.startsWith("/api/admin/") && !url.pathname.startsWith("/api/feature-info") && !url.pathname.startsWith("/api/datasets")) return null;
   if (!personalBindingsAvailable(environment)) {
     return personalJson({ error: "personal_data_service_not_configured" }, 503);
   }
   if (!sameOriginMutation(request)) return personalJson({ error: "cross_origin_request_blocked" }, 403);
   try {
-    return await handleAuthApi(request, environment, url)
+    return await handleDatasetApi(request, environment, url)
+      || await handleFeatureInfoApi(request, environment, url)
+      || await handleAuthApi(request, environment, url)
       || await handleAccountApi(request, environment, url)
       || await handlePersonalDataApi(request, environment, url)
       || await handleOverlayApi(request, environment, url)

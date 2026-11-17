@@ -37,13 +37,16 @@ async function ensureDatabase() {
 }
 
 async function applyMigration(databaseId) {
-  const sql = await fs.readFile(path.join(root, "migrations", "0001_personal_data.sql"), "utf8");
-  const statements = sql.split(";").map((statement) => statement.trim()).filter(Boolean);
-  for (const statement of statements) {
-    await cloudflare(`/d1/database/${databaseId}/query`, {
-      method: "POST",
-      body: JSON.stringify({ sql: statement }),
-    });
+  const directory = path.join(root, "migrations");
+  for (const file of (await fs.readdir(directory)).filter(name => /^\d+_.*\.sql$/u.test(name)).sort()) {
+    const sql = await fs.readFile(path.join(directory, file), "utf8");
+    const statements = sql.split(";").map(statement => statement.trim()).filter(Boolean);
+    for (const statement of statements) {
+      await cloudflare(`/d1/database/${databaseId}/query`, {
+        method: "POST",
+        body: JSON.stringify({ sql: statement }),
+      });
+    }
   }
 }
 

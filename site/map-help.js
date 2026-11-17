@@ -44,4 +44,5 @@
       target.querySelector("summary").focus({preventScroll:true});
     });
   });
+  filter();
 })();

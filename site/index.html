@@ -12,11 +12,11 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=8.0-auto-structure-lanes-v1" />
+    <link rel="stylesheet" href="./styles.css?v=9.0-shared-data-v1" />
     <link rel="stylesheet" href="./brand-browser.css?v=2" />
   </head>
   <body>
-    <main class="app-shell" data-app-version="8.0">
+    <main class="app-shell" data-app-version="9.0">
       <div id="map" class="map" aria-label="华域地图交互地图"></div>
 
       <nav class="side-rail" aria-label="地图主导航">
@@ -25,6 +25,7 @@
           <button id="map-view-button" class="rail-button is-active" type="button" data-action="map-view" aria-expanded="false" aria-controls="map-view-menu"><i data-lucide="layers-3" aria-hidden="true"></i><span>视图</span></button>
           <button class="rail-button" type="button" data-action="search"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
           <button class="rail-button" type="button" data-action="brands" aria-controls="brands-view"><i data-lucide="store" aria-hidden="true"></i><span>品牌</span></button>
+          <button class="rail-button" type="button" data-action="datasets" aria-controls="datasets-view"><i data-lucide="database" aria-hidden="true"></i><span>数据</span></button>
           <button class="rail-button" type="button" data-action="directions"><i data-lucide="route" aria-hidden="true"></i><span>导航</span></button>
           <button class="rail-button" type="button" data-action="transit"><i data-lucide="train-front" aria-hidden="true"></i><span>线路</span></button>
           <button class="rail-button" type="button" data-action="simulation" aria-controls="simulation-view"><i data-lucide="car-front" aria-hidden="true"></i><span>模拟</span></button>
@@ -187,6 +188,37 @@
             <dl id="feature-properties" class="feature-property-list"></dl>
             <div id="feature-export-actions"></div>
           </section>
+          <section id="feature-info" class="panel-section feature-info" aria-labelledby="feature-info-heading" hidden>
+            <div class="section-heading"><h2 id="feature-info-heading">共享词条信息</h2><button id="feature-info-refresh" class="text-button" type="button">刷新</button></div>
+            <p id="feature-info-target" class="feature-info-meta"></p>
+            <p class="feature-info-meta">大家可阅读。登录后可补充简介、建筑名称和属性值；仅作者和管理员可修改或删除。用户补充会在详情及共享词条搜索中展示，与 OGF 原始标签分列。</p>
+            <p id="feature-info-status" class="view-status" role="status"></p>
+            <div id="feature-info-list"></div>
+            <button id="feature-info-more" class="text-button" type="button" hidden>加载更多投稿</button>
+            <button id="feature-info-login" class="secondary-button" type="button">登录后补充信息</button>
+            <form id="feature-info-form" class="feature-info-form" hidden data-export-private>
+              <h3 id="feature-info-form-heading">补充信息</h3>
+              <p id="feature-info-public" class="feature-info-meta">提交的文字、署名和来源将公开展示，请勿填写私人地址、电话或其他不希望公开的内容。</p>
+              <fieldset class="feature-info-properties-editor">
+                <legend>补充属性</legend>
+                <p class="feature-info-meta">可只填属性，也可同时写简介。每次最多 32 项；属性名最多 80 字，值最多 512 字，整次提交最多 32 KiB。修改或移除只影响本条投稿。</p>
+                <div class="feature-info-actions"><button id="feature-info-add-name" class="text-button" type="button">给建筑／要素加名字</button><button id="feature-info-add-property" class="text-button" type="button">添加属性</button></div>
+                <div id="feature-info-property-rows"></div>
+                <datalist id="feature-info-property-keys">
+                  <option value="name">名称</option><option value="name:zh">中文名称</option><option value="alt_name">别名</option>
+                  <option value="building">建筑用途</option><option value="building:levels">地上层数</option><option value="height">高度（米）</option>
+                  <option value="building:colour">墙体颜色</option><option value="roof:shape">屋顶形状</option><option value="roof:colour">屋顶颜色</option>
+                  <option value="operator">运营者</option><option value="brand">品牌</option><option value="opening_hours">开放时间</option>
+                  <option value="website">网站</option><option value="addr:street">街道</option><option value="addr:housenumber">门牌号</option>
+                </datalist>
+              </fieldset>
+              <label for="feature-info-title">标题（最多 80 字，只有属性时可留空）<input id="feature-info-title" name="title" maxlength="80" /></label>
+              <label for="feature-info-content">简介或相关信息（最多 5000 字，只有属性时可留空）<textarea id="feature-info-content" name="content" rows="5" maxlength="5000" aria-describedby="feature-info-public"></textarea></label>
+              <label for="feature-info-source">来源链接（可选，仅 HTTP／HTTPS）<input id="feature-info-source" name="sourceUrl" type="url" maxlength="2048" placeholder="https://…" /></label>
+              <div class="feature-info-actions"><button id="feature-info-submit" class="primary-button" type="submit">发布信息</button><button id="feature-info-cancel" class="text-button" type="button" hidden>取消编辑</button></div>
+              <p id="feature-info-write-status" class="view-status" role="status"></p>
+            </form>
+          </section>
           <section id="boundary-export-section" class="panel-section boundary-export-section" aria-labelledby="boundary-export-heading" hidden>
             <div class="boundary-export-heading">
               <div>
@@ -347,6 +379,55 @@
             </fieldset>
         </section>
 
+        <section id="datasets-view" class="panel-view shared-datasets" data-view="datasets" hidden>
+          <p>共享数据包可供大家查询、下载、后台统计和生成专题图。每份保留作者、来源、单位及统计日期；同地区不同来源分别保存。</p>
+          <details id="dataset-upload-section">
+            <summary>上传共享数据包</summary>
+            <p id="dataset-auth-note" class="view-status" role="status">登录后可上传；游客可查看和下载。</p>
+            <form id="dataset-form" data-export-private>
+              <label>数据包名称<input id="dataset-title" required maxlength="120" placeholder="例如：津川各区人口 · 2026" /></label>
+              <label>数据类型<select id="dataset-kind"><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排</option><option value="other">其他数据</option></select></label>
+              <div class="dataset-two-columns"><label>范围类型<select id="dataset-scope-kind"><option value="feature">单个要素</option><option value="region" selected>区域／城市</option><option value="large">省／国家／更大范围</option></select></label><label>范围名称<input id="dataset-scope-label" required maxlength="200" placeholder="填写实际覆盖范围" /></label></div>
+              <button id="dataset-use-selection" class="text-button" type="button">关联当前已选行政区／要素</button>
+              <p id="dataset-scope-note" class="feature-info-meta">范围名称只作说明；空间定位以文件几何／坐标为准。可先在地图选中行政区，再关联真实范围。</p>
+              <label>文件（UTF-8 CSV、JSON、GeoJSON）<input id="dataset-file" type="file" accept=".csv,.json,.geojson,text/csv,application/json,application/geo+json" required /></label>
+              <p class="feature-info-meta">不设应用层文件大小、记录数、列数或顶点数上限。GeoJSON 保留完整点线面与孔洞；JSON 支持对象数组或 records 数组。CSV 经纬度列默认识别 longitude／latitude、lon／lat、经度／纬度。可用 osm_type + osm_id 关联原要素；缺少位置的记录仍保存，但不会凭名称猜位置。</p>
+              <div id="dataset-template-actions" class="feature-info-actions"><button id="dataset-template" class="text-button" type="button">下载本类型 CSV 模板</button></div>
+              <details><summary>自定义列映射（留空自动识别）</summary><div class="dataset-two-columns">
+                <label>经度列<input id="dataset-field-lng" list="dataset-columns" maxlength="80" /></label><label>纬度列<input id="dataset-field-lat" list="dataset-columns" maxlength="80" /></label>
+                <label>名称列<input id="dataset-field-name" list="dataset-columns" maxlength="80" /></label><label>指标数值列<input id="dataset-field-value" list="dataset-columns" maxlength="80" /></label>
+                <label>要素类型列<input id="dataset-field-type" list="dataset-columns" maxlength="80" /></label><label>要素编号列<input id="dataset-field-id" list="dataset-columns" maxlength="80" /></label>
+              </div></details><datalist id="dataset-columns"></datalist>
+              <div class="dataset-two-columns"><label>统计日期<input id="dataset-date" type="date" required /></label><label>指标单位<input id="dataset-unit" maxlength="80" placeholder="例如：人、亿元、元/平方米、次/小时" /></label></div>
+              <label>统计时段／口径<input id="dataset-period" maxlength="80" placeholder="例如：2026全年、工作日08:00–09:00" /></label>
+              <label>数据来源<input id="dataset-source" required maxlength="500" placeholder="机构、调查、模型估算等" /></label>
+              <label>来源链接（可选）<input id="dataset-source-url" type="url" maxlength="2048" placeholder="https://…" /></label>
+              <label>共享许可／使用说明<input id="dataset-license" required maxlength="200" placeholder="例如：CC BY 4.0，使用时注明来源" /></label>
+              <label>简介<textarea id="dataset-description" rows="3" maxlength="2000"></textarea></label>
+              <label class="boundary-toggle-option"><input id="dataset-shared" type="checkbox" required /><span>公开共享本数据包、作者署名、来源及统计资料，供大家下载与计算使用</span></label>
+              <p class="feature-info-meta">不设应用层上传数量、账号容量或发布频率配额。实际传输与保存仍受托管平台和设备能力影响；失败时保留草稿，不截断文件或发布半包。</p>
+              <div class="feature-info-actions"><button id="dataset-preview" class="secondary-button" type="button">校验与预览</button><button id="dataset-publish" class="primary-button" type="submit">发布共享数据包</button><button id="dataset-edit-cancel" class="text-button" type="button" hidden>取消编辑资料</button></div>
+              <p id="dataset-upload-status" class="view-status" role="status"></p>
+              <div id="dataset-preview-result"></div>
+            </form>
+          </details>
+          <div class="section-heading"><h2>共享数据目录</h2><button id="dataset-refresh" class="text-button" type="button">刷新</button></div>
+          <label>搜索名称、范围或来源<input id="dataset-query" type="search" maxlength="200" /></label>
+          <label>分类<select id="dataset-filter"><option value="">全部类型</option><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排</option><option value="other">其他数据</option></select></label>
+          <button id="dataset-search" class="secondary-button" type="button">查询共享数据</button>
+          <p id="dataset-list-status" class="view-status" role="status"></p><div id="dataset-list"></div><button id="dataset-more" class="text-button" type="button" hidden>加载更多数据包</button>
+          <section id="dataset-detail" hidden aria-labelledby="dataset-detail-title">
+            <h2 id="dataset-detail-title"></h2><div id="dataset-detail-meta"></div><div id="dataset-downloads"></div>
+            <div class="dataset-two-columns"><label>专题字段<select id="dataset-theme-field"></select></label><label>表现方式<select id="dataset-theme-mode"><option value="numeric">数值分级设色／比例点</option><option value="category">类别分布</option></select></label></div>
+            <label>本次专题的字段单位<input id="dataset-theme-unit" maxlength="80" placeholder="主指标沿用原单位；其他字段请填写相应单位" /></label>
+            <p class="feature-info-meta">更换字段不会把人口单位套给 GDP 或坐标。手填单位仅作用于本次专题，不修改共享包资料。</p>
+            <div class="feature-info-actions"><button id="dataset-show-theme" class="primary-button" type="button">计算并显示专题图</button><button id="dataset-hide-theme" class="text-button" type="button">隐藏专题图</button><button id="dataset-fit-theme" class="text-button" type="button">查看专题范围</button></div>
+            <p id="dataset-analysis-status" class="view-status" role="status"></p><div id="dataset-legend" class="dataset-legend"></div><div id="dataset-analysis-summary"></div><div id="dataset-theme-downloads"></div>
+            <p class="feature-info-meta">专题值来自当前选择的数据包，不改变 OGF 原始标签或其他图层。数值分级按记录分位数；记录算术和未扣除上下级、重复范围，不代表行政总量。车次、GDP、地价等保留各自口径，不自动换算为汽车流量或替换既有模拟参数。</p>
+            <div id="dataset-records"></div>
+          </section>
+        </section>
+
         <section id="simulation-view" class="panel-view" data-view="simulation" hidden>
           <fieldset class="render-settings-section" id="traffic-settings">
             <legend>出行需求与路况 · 实验</legend>
@@ -463,6 +544,7 @@
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>地名搜索 · OGF Nominatim</span></div>
           <p id="search-status" class="view-status" aria-live="polite">在上方输入地名，结果会直接显示在这里。</p>
           <div id="brand-search-matches" class="brand-search-matches" aria-live="polite" hidden></div>
+          <div id="feature-info-search" class="feature-info-search" aria-live="polite" hidden></div>
           <div id="search-results" class="result-list" aria-live="polite"></div>
         </section>
 
@@ -851,17 +933,19 @@
 
         <section id="help-view" class="panel-view help-view" data-view="help" hidden>
           <div class="source-note"><i data-lucide="book-open" aria-hidden="true"></i><span>使用帮助 · 按场景查找功能</span></div>
-          <p class="help-intro">从找地点、规划出行，到下载地图和上传贴图。相关操作放在同一组，展开后可查看步骤或直接前往功能。</p>
+          <p class="help-intro">9.0 使用指南：从找地点、规划出行，到下载地图、补充共享词条和上传共享数据。相关操作放在同一组，展开后可查看步骤或直接前往功能。</p>
           <div class="help-search-field">
             <label for="help-search">搜索帮助</label>
-            <div class="help-search-row"><input id="help-search" type="search" maxlength="100" placeholder="例如：框选、收藏、规划线路" aria-describedby="help-search-status" /><button id="help-search-clear" class="text-button" type="button" hidden>清除</button></div>
-            <p id="help-search-status" class="view-status" role="status">共 7 组说明，可搜索或从目录进入。</p>
+            <div class="help-search-row"><input id="help-search" type="search" maxlength="100" placeholder="例如：共享词条、数据包、框选、车辆跟随" aria-describedby="help-search-status" /><button id="help-search-clear" class="text-button" type="button" hidden>清除</button></div>
+            <p id="help-search-status" class="view-status" role="status">共 9 组说明，可搜索或从目录进入。</p>
           </div>
           <nav class="help-directory" aria-label="帮助目录">
             <button type="button" data-help-target="help-map">地图浏览与显示</button>
             <button type="button" data-help-target="help-search-measure">搜索、行政区与测量</button>
             <button type="button" data-help-target="help-travel">导航、车站与线路图</button>
             <button type="button" data-help-target="help-ranges">范围、下载与贴图</button>
+            <button type="button" data-help-target="help-feature-info">共享词条与属性</button>
+            <button type="button" data-help-target="help-datasets">共享数据包与专题图</button>
             <button type="button" data-help-target="help-personal">收藏、个人地点与账号</button>
             <button type="button" data-help-target="help-render">渲染设置与模型</button>
             <button type="button" data-help-target="help-questions">常见问题与数据来源</button>
@@ -948,6 +1032,39 @@
               </ul>
               <p>经度范围 ±180°、纬度范围 ±85°；西小于东、南小于北，单轴跨度不超过 30°。支持 PNG、JPEG、WebP，原图不超过 16 MiB；系统压缩后保存。每账号最多 20 张、合计 10 MiB。保存后可定位、显示／隐藏、重命名、调透明度或删除；贴图仅当前账号可见，上传失败可保留草稿重试。范围编辑在上传前完成。</p>
               <div class="help-actions"><button class="secondary-button" type="button" data-action="download">前往下载</button><button class="secondary-button" type="button" data-action="overlays">前往贴图</button></div>
+            </div>
+          </details>
+
+          <details id="help-feature-info" class="help-topic" data-help-section>
+            <summary><span>共享词条与属性<small>多人简介、建筑名称、补充属性与管理权限</small></span></summary>
+            <div class="help-topic-content">
+              <h3>先选物体，再补充共享资料</h3>
+              <p>先在地图点选具体物体，或搜索地点后打开详情，在“共享词条信息”查看投稿。若只选中坐标，请先从候选中选择原始点、线或关系；词条依靠 OGF 类型与编号关联，避免同名对象混淆。所有人可阅读，登录后可新增。私人收藏和个人贴图仍只对自己的账号可见。</p>
+              <h3>简介、名字与自定义属性</h3>
+              <p>登录后可添加标题、简介和可选来源链接，文字与署名公开。点击“给建筑／要素加名字”填写 <code>name</code>，或“添加属性”填写用途 <code>building</code>、层数 <code>building:levels</code>、高度、颜色、品牌、开放时间及自定义属性名。只有属性时可不填标题和简介。表格分列 OGF 原值和用户补充值；尚未读取原始标签时会明确标注。顶部搜索可找到简介、建筑名称、属性名和属性值，打开后阅读全部作者的内容。</p>
+              <h3>编辑权限与保存</h3>
+              <p>普通用户只能编辑、删除自己发布的信息；管理员可管理全部投稿，保留原作者并记录最后编辑者。每条正文最多 5000 字、标题最多 80 字；属性最多 32 项，同一条内属性名不能重复，属性名最多 80 字、值最多 512 字，整次提交最多 32 KiB。每人同一要素最多 20 条、总计最多 1000 条，每分钟最多发布 5 条。刷新读取最新内容，分页按需加载。保存失败保留表单，内容冲突时先刷新并核对。删除账号会删除自己的投稿。</p>
+              <h3>共享属性与原始地图标签</h3>
+              <p>不同作者的同名属性分别保留，不自动覆盖。此处加名字、颜色或高度用于共享详情和检索，不会直接改变 OGF 原始标签、地图注记、三维模型或导航；修改原始地图可使用地图右侧的 OGF 编辑入口。人口表、POI、GDP、地价、通行需求、车次等成批资料请使用相邻的“共享数据包与专题图”。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="search">搜索要素</button><button class="secondary-button" type="button" data-action="account">登录与账号管理</button><button class="secondary-button" type="button" data-action="datasets">上传共享数据包</button></div>
+            </div>
+          </details>
+
+          <details id="help-datasets" class="help-topic" data-help-section>
+            <summary><span>共享数据包与专题图<small>区域数据、来源口径、后台统计与下载</small></span></summary>
+            <div class="help-topic-content">
+              <h3>上传一个要素、一座城市或更大范围的数据</h3>
+              <p>打开“数据 → 上传共享数据包”。登录后选择 POI、人口、GDP、地价、通行需求、车次安排或其他类型，填写范围名称、统计日期、单位、时段／口径、来源和许可，选择 UTF-8 CSV、JSON 或 GeoJSON。CSV 模板按数据类型提供；车次模板包含线路、车站、到发时间和开行日，通行需求模板包含起终点与时段。应用不设文件大小、记录数、属性列数、几何顶点数或范围资料容量上限；大范围数据完整校验与保存，不截断。暂不接受 ZIP、Excel 或其他二进制格式，请先转换。</p>
+              <h3>位置、范围与字段</h3>
+              <p>CSV 默认识别 longitude／latitude、lon／lat 或经度／纬度，使用 WGS84 经纬度。支持自定义名称、坐标、指标及 OGF 类型／编号列映射。GeoJSON 保留点线面、多部件和孔洞，环须闭合；JSON 可为对象数组或带 records 的对象，属性值支持文字、数字、布尔及空值。范围名称只是覆盖说明，不用名称猜位置。可先搜索并选择真实行政区或原要素，再用“关联当前已选行政区／要素”；只有单条汇总记录缺少几何时才使用关联的原始几何，多行数据不会都被放到行政中心。较大范围可直接使用 GeoJSON 几何。</p>
+              <h3>校验、发布及共享权限</h3>
+              <p>“校验与预览”在本机后台检查格式、指标、坐标和记录数量，显示前20条；尚未发布。勾选公开共享并发布后，原文件、标准化记录、作者、来源和日期一起保存，游客也能查看、下载和计算。文件含私人信息时请先自行移除。每人可编辑自己数据包的说明或删除自己的包；管理员可管理全部并保留原作者。更换文件、分类或范围另发新包，不覆盖别人的数据。不设应用层数据包数量、账号容量、全站容量或发布频率配额；实际传输、计算与存储仍受托管平台和设备能力影响，失败不发布半包。保存失败保留草稿，退出或换账号清除草稿。删除账号同时删除该账号的共享数据包。</p>
+              <h3>查询、后台统计与专题图</h3>
+              <p>目录可按类型及名称／范围／来源查找。打开一份数据包，选择主指标或任意原始字段，以数值分位数设色和比例点、或按类别配色显示在地图；主指标沿用包的单位，其他字段可填写本次专题单位，不把人口单位套给GDP或坐标。俯视及倾斜视角使用同一原几何，收起菜单后专题图继续显示，可手动隐藏。数字零参与统计，缺失值不当零；缺指标或缺位置分别列出，未定位记录仍保留供下载。后台计算有效记录数、算术和、最小值、最大值、平均值及类别数量；算术和不扣除上下级、重复地区和交叠范围，不当作行政总量，不自动换算单位或判定哪位作者的数据更权威。</p>
+              <p>数据包通过统一公开结构接口供后台任务读取。本期已接入的是标准化、统计与专题图计算；GDP、地价、OD和车次原表均可保存、查询、下载和按字段制图，尚不自动校准交通模拟、代替真实运行时刻表或修改 OGF。地图模型、导航、人口守恒及原更新周期继续沿用。</p>
+              <h3>下载原件、数据和专题图</h3>
+              <p>可下载上传原件或包含完整标准化记录及来源资料的 JSON；预览表与统计表可导出 CSV。专题图支持独立 SVG 和1600×1000 PNG，保留来源、日期、单位及许可，未附主地图底图；标准化数据和 SVG 可加入既有下载清单。表格导出仅包含当前实际显示行，完整记录使用数据包下载。格式与 API 说明见维护文档“共享数据包”。</p>
+              <div class="help-actions"><button class="secondary-button" type="button" data-action="datasets">打开共享数据</button></div>
             </div>
           </details>
 
@@ -1185,14 +1302,18 @@
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=2"></script>
-    <script src="./app.js?v=8.0-auto-structure-lanes-v1"></script>
+    <script src="./app.js?v=9.0-shared-data-v1"></script>
     <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-simulation.js?v=8.0-auto-structure-lanes-v1"></script>
-    <script src="./map-help.js?v=7.1-help-center-v1"></script>
+    <script src="./map-help.js?v=9.0-shared-data-v1"></script>
     <script src="./brand-browser.js?v=5"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
-    <script src="./personal-data.js?v=7.1-overlay-bounds-v1"></script>
+    <script src="./personal-data.js?v=9.0-shared-data-v1"></script>
+    <script src="./feature-info.js?v=9.0-shared-data-v1"></script>
+    <script src="./shared-dataset-core.js?v=9.0-shared-data-v1"></script>
+    <script src="./shared-dataset-theme.js?v=9.0-shared-data-v1"></script>
+    <script src="./shared-datasets.js?v=9.0-shared-data-v1"></script>
   </body>
 </html>
