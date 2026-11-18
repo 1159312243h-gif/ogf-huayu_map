@@ -64,6 +64,16 @@
         guard(ctx);const result=await options.datasets().prepareFromAgent(file,args,ctx.signal);guard(ctx);
         return {status:"draft",handoff:true,message:"附件已带入数据页面并完成预览，尚未发布。请补齐来源与口径后勾选共享并发布。",stats:result?.stats};
       },
+      get_brand_profile:async({name},ctx)=>{
+        const data=await json("/api/brand-management/brand?name="+encodeURIComponent(name),ctx);
+        return {name:data.name,source:"用户共享品牌资料",profile:data.profile?{description:data.profile.description,website:data.profile.website,updatedAt:data.profile.updatedAt,editedBy:data.profile.editedBy}:null,
+          managers:(data.managers||[]).map(p=>({username:p.username,displayName:p.displayName}))};
+      },
+      prepare_brand_management:async(args,ctx)=>{
+        if(!options.personal()?.isAuthenticated())throw Error("请先登录，再准备品牌管理申请");
+        guard(ctx);const result=await options.brands().prepareFromAgent(args,ctx);guard(ctx);
+        return {status:"draft",handoff:true,name:result.name,message:"管理申请草稿已填入品牌原表单，请核对后提交；尚未申请或获得权限。"};
+      },
       open_panel:async({panel},ctx)=>{guard(ctx);atlas.openAgentPanel(panel);return {status:"opened",handoff:true,message:"已打开"+contract.panels.find(p=>p.id===panel).title+"；可在该页继续操作。"};}
     };
     for(const tool of contract.tools)if(typeof handlers[tool.name]!=="function")throw Error("助手功能缺少处理器："+tool.name);

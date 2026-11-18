@@ -159,13 +159,23 @@
     }
     return value;
   }
+  // BEGIN BRAND PLACE LABEL
+  function placeLabel(tags, identity = {}) {
+    const clean = value => typeof value === "string" ? value.trim() : "";
+    const name = clean(tags["name:zh"]) || clean(tags.name), branch = clean(tags.branch);
+    if (identity.kind === "transit") return name || clean(identity.name) || "未命名车站";
+    const brand = clean(tags.brand) || (identity.kind === "brand" ? clean(identity.name) : "");
+    const base = (branch && brand ? brand : name || brand || clean(tags.operator) || clean(identity.name)) || branch || "未命名设施";
+    return branch && normalize(base) !== normalize(branch) ? base + " · " + branch : base;
+  }
+  // END BRAND PLACE LABEL
   function place(element) {
     const lat = element?.lat ?? element?.center?.lat, lng = element?.lon ?? element?.center?.lon;
     if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)
       || Math.abs(lat) > 85 || Math.abs(lng) > 180) return null;
     const tags = element.tags || {};
-    return {lat, lng, zoom: 17, label: [tags["name:zh"] || tags.name || tags.brand || tags.operator || "未命名设施", tags.branch]
-      .filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(" · "),
+    const identity = element.brandMatch?.source === "name" ? {kind: "brand", name: element.brandMatch.name} : {};
+    return {lat, lng, zoom: 17, label: placeLabel(tags, identity),
       sourceKey: `${element.type}/${element.id}`};
   }
   // Successful complete snapshots alone enter the bounded cache. Failed/late requests never replace them.
@@ -198,6 +208,6 @@
       },
     };
   }
-  root.HuayuBrandData = Object.freeze({REFRESH_MS, normalize, matches, aggregate, validateCatalog, place, createStore,
+  root.HuayuBrandData = Object.freeze({REFRESH_MS, normalize, matches, aggregate, validateCatalog, placeLabel, place, createStore,
     namedFacility, namedFacilityQuery, nameQueryPattern, createMatcher, recognizeBrands, filterEntries});
 })(globalThis);

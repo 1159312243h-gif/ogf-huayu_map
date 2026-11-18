@@ -1,0 +1,122 @@
+import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
+import {spawnSync} from "node:child_process";
+import {deflateSync} from "node:zlib";
+import worker from "../site/_worker.js";
+import {createLocalPersonalDatabase} from "./lib/local-personal-db.mjs";
+const DB=await createLocalPersonalDatabase(),env={DB,ADMIN_USERNAMES:"bm_admin"},base="https://brands.test",password="brand-management-regression";
+async function request(path,method="GET",body,cookie="",bindings=env,headers={}) {
+  const response=await worker.fetch(new Request(base+path,{method,headers:{Origin:base,Cookie:cookie,"Content-Type":"application/json",...headers},...(body===undefined?{}:{body:JSON.stringify(body)})}),bindings,{});
+  return {status:response.status,body:await response.json(),cookie:response.headers.get("Set-Cookie")?.split(";")[0]||cookie,headers:response.headers};
+}
+const path="/api/brand-management/",apply=(name,cookie,extra={})=>request(path+"applications","POST",{name,statement:"参与品牌资料维护，有对应品牌设计及运营背景。",sourceUrl:"https://example.org/brand",...extra},cookie);
+const decide=(item,action,cookie,note="管理审核处理")=>request(path+"applications/"+item.id,"PATCH",{action,revision:item.revision,note},cookie);
+const crc=bytes=>{let n=0xffffffff;for(const b of bytes){n^=b;for(let i=0;i<8;i++)n=n&1?0xedb88320^(n>>>1):n>>>1;}return (n^0xffffffff)>>>0;};
+function chunk(type,data){const name=Buffer.from(type),b=Buffer.alloc(data.length+12);b.writeUInt32BE(data.length);name.copy(b,4);data.copy(b,8);b.writeUInt32BE(crc(Buffer.concat([name,data])),8+data.length);return b;}
+const head=Buffer.alloc(13);head.writeUInt32BE(1,0);head.writeUInt32BE(1,4);head[8]=8;head[9]=6;
+const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",head),chunk("IDAT",deflateSync(Buffer.from([0,255,255,255,255]))),chunk("IEND",Buffer.alloc(0))]);
+const logo=name=>({kind:"brand",name,aliases:[],source:"本人设计，公开地图标识",sourceUrl:"https://example.org/logo",rightsConfirmed:true,image:"data:image/png;base64,"+png.toString("base64")});
+const checks=[];
+try{
+  const accounts=await Promise.all(["bm_alice","bm_bob","bm_charlie","bm_daisy","bm_admin"].map(username=>request("/api/auth/register","POST",{username,password})));
+  for(const account of accounts)assert.equal(account.status,201);
+  const [alice,bob,charlie,daisy,admin]=accounts;
+  assert.equal(alice.body.user.role,"user");assert.equal(admin.body.user.role,"admin");
+  assert.equal((await apply("aniM","")).status,401);
+  assert.equal((await request(path+"applications","POST",{name:"aniM",statement:"依据",userId:admin.body.user.id},alice.cookie)).status,400);
+  assert.equal((await request(path+"applications","POST",{name:"aniM",statement:"依据"},alice.cookie,env,{Origin:"https://evil.test"})).status,403);
+  assert.equal((await request(path+"applications?scope=admin","GET",undefined,alice.cookie)).status,403);
+  assert.equal((await request(path+"applications","POST",{name:"aniM",statement:"依据",sourceUrl:"javascript:alert(1)"},alice.cookie)).status,400);
+  const original=await request("/api/brand-logos","POST",logo("aniM"),charlie.cookie);assert.equal(original.status,201);
+  const first=await apply("ＡＮＩＭ",alice.cookie);
+  assert.equal(first.status,201);assert.equal(first.body.item.status,"approved");assert.equal(first.body.item.decisionSource,"auto");assert.equal(first.body.item.name,"aniM");
+  const second=await apply("aniM",bob.cookie);assert.equal(second.status,201);assert.equal(second.body.item.status,"pending");
+  assert.equal((await apply("aniM",alice.cookie)).status,409);
+  assert.equal((await request(path+"session","GET",undefined,bob.cookie)).body.grants.length,0);
+  assert.equal((await request("/api/auth/session","GET",undefined,alice.cookie)).body.user.role,"user","a brand grant never promotes the account to site administrator");
+  const inbox=await request(path+"applications?scope=admin","GET",undefined,admin.cookie);
+  assert.equal(inbox.body.total,2);assert.deepEqual(new Set(inbox.body.items.map(i=>i.applicant.username)),new Set(["bm_alice","bm_bob"]));
+  const mine=await request(path+"applications","GET",undefined,bob.cookie);assert.equal(mine.body.total,1);assert.equal(mine.body.items[0].applicant.id,bob.body.user.id);
+  const publicBrand=await request(path+"brand?name=aniM");
+  assert.equal(publicBrand.body.managers[0].id,alice.body.user.id);assert.equal(publicBrand.body.application,null);assert.equal(publicBrand.body.canEdit,false);
+  assert.ok(!JSON.stringify(publicBrand.body).includes("参与品牌资料维护"));
+  assert.equal((await request(path+"applications/"+first.body.item.id+"/events","GET",undefined,bob.cookie)).status,403);
+  checks.push("first-claim-auto-approval-and-multiple-applicant-review","private-applications-public-managers-and-admin-inbox");
+  let profile=await request(path+"brand?name=aniM","GET",undefined,alice.cookie);assert.equal(profile.body.canEdit,true);
+  const profileEdit={name:"aniM",description:"品牌公开简介 <script>text only</script>",website:"https://example.org/anim",revision:profile.body.profile.revision};
+  assert.equal((await request(path+"brand","PATCH",profileEdit,bob.cookie)).status,403);
+  assert.equal((await request(path+"brand","PATCH",profileEdit,alice.cookie)).status,200);
+  assert.equal((await request(path+"brand","PATCH",profileEdit,alice.cookie)).status,409);
+  assert.equal((await request(path+"brand?name=aniM")).body.profile.description,profileEdit.description);
+  assert.equal((await request(path+"brand","PATCH",{...profileEdit,name:"其他品牌"},alice.cookie)).status,403);
+  const patch={revision:original.body.item.revision,aliases:[],source:"品牌管理者修订",sourceUrl:"",rightsConfirmed:true};
+  assert.equal((await request("/api/brand-logos/"+original.body.item.id,"PATCH",patch,bob.cookie)).status,403);
+  const managerEdit=await request("/api/brand-logos/"+original.body.item.id,"PATCH",patch,alice.cookie);
+  assert.equal(managerEdit.status,200);assert.equal(managerEdit.body.item.author.id,charlie.body.user.id,"brand edits preserve the original uploader");
+  const unrelated=await request("/api/brand-logos","POST",logo("ToDays"),charlie.cookie);
+  assert.equal((await request("/api/brand-logos/"+unrelated.body.item.id,"PATCH",{...patch,revision:1},alice.cookie)).status,403);
+  checks.push("scoped-profile-and-logo-maintenance-preserves-authors-and-version-conflicts");
+  assert.equal((await decide(second.body.item,"approve",alice.cookie)).status,403);
+  const approved=await decide(second.body.item,"approve",admin.cookie);assert.equal(approved.status,200);
+  assert.equal((await decide(second.body.item,"approve",admin.cookie)).status,409);
+  assert.equal((await request(path+"brand?name=aniM")).body.managers.length,2);
+  const banned=await decide(first.body.item,"ban",admin.cookie,"不合规管理，暂停该品牌权限");
+  assert.equal(banned.status,200);assert.equal(banned.body.item.status,"banned");
+  assert.equal((await apply("aniM",alice.cookie,{revision:banned.body.item.revision})).status,403);
+  profile=await request(path+"brand?name=aniM","GET",undefined,alice.cookie);assert.equal(profile.body.canEdit,false);assert.equal(profile.body.banned,true);
+  assert.equal((await request(path+"brand","PATCH",{...profileEdit,revision:profile.body.profile.revision},alice.cookie)).status,403);
+  assert.equal((await request("/api/brand-logos/"+original.body.item.id,"PATCH",{...patch,revision:2},alice.cookie)).status,403);
+  const unblock=await decide(banned.body.item,"unban",admin.cookie);assert.equal(unblock.status,200);
+  assert.equal((await request(path+"session","GET",undefined,alice.cookie)).body.grants.length,0,"unbanning does not silently grant ownership");
+  const again=await apply("aniM",alice.cookie,{revision:unblock.body.item.revision});assert.equal(again.body.item.status,"pending");
+  const withdrawn=await decide(again.body.item,"withdraw",alice.cookie);assert.equal(withdrawn.body.item.status,"withdrawn");
+  checks.push("administrator-approval-revocation-brand-ban-unban-and-reapplication");
+  const race=await Promise.all([apply("并发首次品牌",charlie.cookie),apply("并发首次品牌",daisy.cookie)]);
+  assert.deepEqual(race.map(r=>r.body.item.status).sort(),["approved","pending"],"concurrent first claims never auto-approve both users");
+  const rejected=await decide(race.find(r=>r.body.item.status==="pending").body.item,"reject",admin.cookie,"需补充说明");assert.equal(rejected.body.item.status,"rejected");
+  checks.push("concurrent-first-claim-serialized-in-one-transaction");
+  // Failure after the application write must roll back status, grant, profile and history together.
+  const rollbackEnv={...env,DB:{...DB,batch:statements=>DB.batch([...statements.slice(0,2),DB.prepare("INSERT INTO brand_manager_bans(brand_key,user_id,reason,created_at) VALUES(?,?,NULL,?)").bind("brand:rollback",alice.body.user.id,Date.now()),...statements.slice(2)])}};
+  assert.equal((await apply("完整回滚品牌",alice.cookie,{})).status,201);
+  const rollback=await request(path+"applications","POST",{name:"失败回滚品牌",statement:"事务失败验收"},alice.cookie,rollbackEnv);assert.equal(rollback.status,503);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM brand_manager_applications WHERE brand_key=?").bind("brand:失败回滚品牌").first()).n,0);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM brand_profiles WHERE brand_key=?").bind("brand:失败回滚品牌").first()).n,0);
+  checks.push("failed-transaction-never-leaves-half-an-application-or-grant");
+  // A grant revoked after the permission read is still checked by the logo UPDATE.
+  let interposed=false;
+  const lateEnv={...env,DB:{...DB,prepare(sql){
+    const prepared=DB.prepare(sql);
+    if(!sql.startsWith("UPDATE brand_logos SET"))return prepared;
+    return {bind(...values){const bound=prepared.bind(...values);return {...bound,async run(){
+      if(!interposed){interposed=true;assert.equal((await decide(approved.body.item,"revoke",admin.cookie)).status,200);}
+      return bound.run();
+    }};}};
+  }}};
+  const late=await request("/api/brand-logos/"+original.body.item.id,"PATCH",{...patch,revision:2,source:"不应写入"},bob.cookie,lateEnv);
+  assert.equal(late.status,409);assert.notEqual((await DB.prepare("SELECT source FROM brand_logos WHERE id=?").bind(original.body.item.id).first()).source,"不应写入");
+  const owned=await request("/api/brand-logos","POST",logo("自有标识品牌"),alice.cookie),ownApplication=await apply("自有标识品牌",alice.cookie);
+  assert.equal((await decide(ownApplication.body.item,"ban",admin.cookie)).status,200);
+  assert.equal((await request("/api/brand-logos/"+owned.body.item.id,"DELETE",{revision:1},alice.cookie)).status,403,"original upload ownership cannot bypass a brand ban");
+  await request("/api/brand-logos/"+owned.body.item.id,"DELETE",{revision:1},admin.cookie);
+  assert.equal((await request("/api/brand-logos","POST",logo("自有标识品牌"),alice.cookie)).status,403);
+  checks.push("concurrent-revocation-checked-at-write-and-uploader-cannot-bypass-ban");
+  for(let i=0;i<22;i++)assert.equal((await apply("分页品牌"+i,daisy.cookie)).status,201);
+  const firstPage=await request(path+"applications","GET",undefined,daisy.cookie);
+  assert.equal(firstPage.body.items.length,20);assert.equal(firstPage.body.nextOffset,20);
+  const nextPage=await request(path+"applications?offset=20","GET",undefined,daisy.cookie);
+  assert.equal(new Set([...firstPage.body.items,...nextPage.body.items].map(i=>i.id)).size,firstPage.body.total);
+  const events=await request(path+"applications/"+first.body.item.id+"/events","GET",undefined,admin.cookie);assert.ok(events.body.items.some(e=>e.status==="banned"));assert.ok(events.body.items.some(e=>e.decisionSource==="auto"));
+  checks.push("paginated-records-and-private-decision-history");
+  // The migration can run repeatedly without removing existing account or brand data.
+  for(const sql of (await readFile("migrations/0006_brand_management.sql","utf8")).split(";").map(s=>s.trim()).filter(Boolean))await DB.prepare(sql).run();
+  assert.equal((await request(path+"brand?name=aniM")).body.profile.description,profileEdit.description);
+  await DB.prepare("DELETE FROM users WHERE id=?").bind(daisy.body.user.id).run();
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM brand_manager_applications WHERE user_id=?").bind(daisy.body.user.id).first()).n,0);
+  assert.equal((await DB.prepare("SELECT COUNT(*) AS n FROM brand_manager_grants WHERE user_id=?").bind(daisy.body.user.id).first()).n,0);
+  assert.equal((await request(path+"brand?name=aniM","GET",undefined,"",{})).status,503);
+  assert.equal((await request("/api/brand-logos","GET",undefined,"",{})).status,200);
+  checks.push("idempotent-migration-account-cascade-and-unavailable-service-fallback");
+  for(const file of ["site/brand-management-server.js","site/brand-management.js"])assert.equal(spawnSync(process.execPath,["--check",file],{encoding:"utf8"}).status,0,file);
+  assert.equal(spawnSync(process.execPath,["scripts/sync-brand-management.mjs","--check"],{encoding:"utf8"}).status,0);
+  console.log(JSON.stringify({status:"passed",checks}));
+}finally{DB.close();}

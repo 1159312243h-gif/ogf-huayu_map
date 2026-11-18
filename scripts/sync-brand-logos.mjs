@@ -1,0 +1,15 @@
+import {readFile,writeFile} from "node:fs/promises";
+import assert from "node:assert/strict";
+const base=new URL("../",import.meta.url),coreUrl=new URL("site/brand-logo-core.js",base),originalCore=await readFile(coreUrl,"utf8"),server=await readFile(new URL("site/brand-logo-server.js",base),"utf8");
+const data=await readFile(new URL("site/brand-data.js",base),"utf8"),startLabel="  // BEGIN BRAND PLACE LABEL",endLabel="  // END BRAND PLACE LABEL";
+assert.ok(data.includes(startLabel)&&data.includes(endLabel)&&originalCore.includes(startLabel)&&originalCore.includes(endLabel),"品牌显示名共享算法标记缺失");
+const label=data.slice(data.indexOf(startLabel),data.indexOf(endLabel)+endLabel.length).replace(/\r\n/g,"\n");
+const core=originalCore.slice(0,originalCore.indexOf(startLabel))+label+originalCore.slice(originalCore.indexOf(endLabel)+endLabel.length);
+if(process.argv.includes("--check"))assert.equal(originalCore,core,"品牌显示名算法不一致，请运行 sync-brand-logos.mjs");
+else if(core!==originalCore)await writeFile(coreUrl,core);
+const builtins=JSON.parse(await readFile(new URL("site/brand-logos.json",base),"utf8")).items;
+const factory=core.slice(0,core.indexOf("globalThis.HuayuBrandLogoCore="));
+const block="// BEGIN BRAND LOGOS\n"+factory+"\n"+server+"\nconst brandLogoApi=createBrandLogoServer({core:createBrandLogoCore(),builtins:"+JSON.stringify(builtins)+",json:personalJson,readJson:readJsonBody,requireUser:requirePersonalUser,publicUser,sameOrigin:sameOriginMutation,brandManagement:brandManagementApi});\n// END BRAND LOGOS";
+const url=new URL("site/_worker.js",base),worker=await readFile(url,"utf8"),start="// BEGIN BRAND LOGOS",end="// END BRAND LOGOS";
+if(process.argv.includes("--check"))assert.ok(worker.includes(block),"品牌 logo Worker 与共享模块不一致，请运行 sync-brand-logos.mjs");
+else await writeFile(url,worker.includes(start)?worker.slice(0,worker.indexOf(start))+block+worker.slice(worker.indexOf(end)+end.length):worker.replace("async function handlePersonalApi(",block+"\n\nasync function handlePersonalApi("));

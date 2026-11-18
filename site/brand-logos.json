@@ -1,0 +1,86 @@
+{
+  "schema": "huayu-brand-logos-v1",
+  "sourceUpdatedAt": "2026-10-27T15:35:26.802Z",
+  "items": [
+    {
+      "id": "builtin-0",
+      "key": "brand:anim",
+      "kind": "brand",
+      "name": "aniM",
+      "aliases": [],
+      "source": "OGF 商号索引 · 品牌标识版权归原权利人",
+      "sourceUrl": "https://palewod.github.io/ogf-brand-index/",
+      "imageUrl": "/brand-logos/logo-8e1d3c06f609.webp?v=fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f",
+      "builtin": true,
+      "updatedAt": "2026-10-26T05:15:54.235Z",
+      "revision": 1,
+      "sha256": "fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f",
+      "categories": [
+        [
+          "shop=anime",
+          17
+        ]
+      ]
+    },
+    {
+      "id": "builtin-1",
+      "key": "brand:todays",
+      "kind": "brand",
+      "name": "ToDays",
+      "aliases": [],
+      "source": "OGF 商号索引 · 品牌标识版权归原权利人",
+      "sourceUrl": "https://palewod.github.io/ogf-brand-index/",
+      "imageUrl": "/brand-logos/logo-e632ebfe248a.webp?v=62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53",
+      "builtin": true,
+      "updatedAt": "2026-10-26T05:12:21.426Z",
+      "revision": 1,
+      "sha256": "62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53",
+      "categories": [
+        [
+          "shop=convenience",
+          86
+        ]
+      ]
+    },
+    {
+      "id": "builtin-2",
+      "key": "brand:高全达通",
+      "kind": "brand",
+      "name": "高全达通",
+      "aliases": [],
+      "source": "OGF 商号索引 · 品牌标识版权归原权利人",
+      "sourceUrl": "https://palewod.github.io/ogf-brand-index/",
+      "imageUrl": "/brand-logos/logo-d66eede2363d.webp?v=b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0",
+      "builtin": true,
+      "updatedAt": "2026-10-26T05:14:26.822Z",
+      "revision": 1,
+      "sha256": "b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0",
+      "categories": [
+        [
+          "amenity=post_office",
+          5
+        ]
+      ]
+    },
+    {
+      "id": "builtin-3",
+      "key": "brand:高阳银行",
+      "kind": "brand",
+      "name": "高阳银行",
+      "aliases": [],
+      "source": "OGF 商号索引 · 品牌标识版权归原权利人",
+      "sourceUrl": "https://palewod.github.io/ogf-brand-index/",
+      "imageUrl": "/brand-logos/logo-738230fb8235.webp?v=52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638",
+      "builtin": true,
+      "updatedAt": "2026-10-27T15:35:26.802Z",
+      "revision": 1,
+      "sha256": "52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638",
+      "categories": [
+        [
+          "amenity=bank",
+          16
+        ]
+      ]
+    }
+  ]
+}

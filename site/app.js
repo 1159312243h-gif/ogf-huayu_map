@@ -1723,6 +1723,11 @@
     popupAnchor: [0, -37],
   });
 
+  function selectBrandLogoPlace(p) {
+    setSelectedPlace({lat:p.lat,lng:p.lon,label:p.label,zoom:17},{move:false,popup:true,preservePerspective:true,
+      featureResult:{osm_type:p.type,osm_id:p.id,name:p.name,lat:p.lat,lon:p.lon,extratags:p.tags}});
+  }
+
   function handleMapObjectClick(event) {
     if (window.HuayuPersonalData?.isPickingBounds()) return;
     if (administrativeBoxPicking) {
@@ -1756,6 +1761,8 @@
     }
     if (currentView !== "download" && window.HuayuTraffic?.pick(event.latlng)) return;
     if (!mapFeatureSelectionEnabled) return;
+    if (event.logoPlace) {selectBrandLogoPlace(event.logoPlace);return;}
+    if (window.HuayuBrandLogos?.pick(point)) return;
 
     setSelectedPlace({ ...point, zoom: map.getZoom(), label: "地图选点" }, {
       move: false,
@@ -11614,6 +11621,8 @@
   }
 
   function createTransitStopIcon(stop, visibleRoutes, displayIsRail) {
+    const logo=displayIsRail&&window.HuayuBrandLogos?.transitEntry(stop,visibleRoutes);
+    if(logo){const node=window.HuayuBrandLogos.image(logo);return window.L.divIcon({className:"transit-stop-div-icon",html:node,iconSize:[24,24],iconAnchor:[12,12]});}
     if (!displayIsRail) {
       return window.L.divIcon({
         className: "transit-stop-div-icon",
@@ -33082,6 +33091,7 @@
     elements.vectorPerspectivePreset.classList.toggle("is-active", vectorPerspectiveActive);
     elements.vectorPerspectivePreset.setAttribute("aria-pressed", String(vectorPerspectiveActive));
     window.HuayuSharedDatasets?.syncLayer();
+    window.HuayuBrandLogos?.sync();
   }
 
   function setMaplibrePerspectiveInteraction(glMap, enabled) {
@@ -33296,7 +33306,7 @@
       const routeColors = markerRoutes.filter((route) => route.type !== "bus").map((route) => route.color);
       const color = routeColors[0] || markerRoutes[0]?.color || (displayIsBus ? "#1676a3" : "#7651a3");
       const mainline = Boolean(stop.isMainline || markerRoutes.some((route) => transitLayerCategory(route) === "railway"));
-      const icon = ensureVectorTransitStopIcon(glMap, routeColors.length ? routeColors : [color], {
+      const icon = window.HuayuBrandLogos?.transitIcon(glMap,stop,markerRoutes) || ensureVectorTransitStopIcon(glMap, routeColors.length ? routeColors : [color], {
         busOnly: displayIsBus && !displayIsRail,
         mainline,
       });
@@ -35972,6 +35982,21 @@
         target:{type:"relation",id:Number(selectedAdministrativeBoundary.osmId)},geometry:selectedAdministrativeBoundary.geometry}:null}),
     selectSharedFeature: feature => setSelectedPlace({lat:feature.lat,lng:feature.lng,label:feature.label,zoom:17},
       {move:true,popup:true,featureResult:{huayu_shared_result:true,osm_type:feature.type,osm_id:feature.id,name:feature.label,lat:feature.lat,lon:feature.lng}}),
+    getBrandLogoContext: () => {
+      const vector=currentVectorBasemap();
+      return {vector,bounds:vector?vector.getBounds():map.getBounds(),zoom:vector?vector.getZoom():map.getZoom()-1,
+        night:selectedBasemapId==="huayu-night",satellite:selectedBasemapId==="huayu-satellite",labels:satelliteAnnotationsEnabled,
+        transit:mapViewMode==="transit"};
+    },
+    canSelectBrandLogo: () => mapFeatureSelectionEnabled&&!mapPickTarget&&!administrativeBoxPicking&&currentView!=="measure"&&!window.HuayuPersonalData?.isPickingBounds(),
+    selectBrandLogoPlace,
+    handleBrandLogoClick: p => handleMapObjectClick({latlng:{lat:p.lat,lng:p.lon},logoPlace:p}),
+    refreshBrandLogoTransit: () => {
+      if(!transitNetworkData)return;
+      const n=getTransitDisplayNetwork(transitNetworkData);n.stopAppearances=new WeakMap();
+      vectorTransitViewCache=null;vectorTransitOverlaySignature="";
+      if(mapViewMode==="transit")scheduleTransitNetworkRender({force:true,immediate:false});
+    },
     getBrandMarkerLayer: () => brandLocationLayer,
     findAdministrativeCities: findTransitAtlasCities,
     selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),

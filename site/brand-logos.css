@@ -1,0 +1,20 @@
+
+.brand-logo-section {margin:14px 0;padding:12px;border:1px solid #cddcda;border-radius:10px;background:var(--surface,#fff);}
+.brand-logo-section summary{cursor:pointer;font-weight:650;}
+.brand-logo-section label{display:grid;gap:5px;margin:10px 0;}
+.brand-logo-section .brand-live-option{display:flex;align-items:flex-start;gap:7px;}
+.brand-logo-section input:not([type=checkbox]),.brand-logo-section select,.brand-logo-section textarea{width:100%;min-width:0;max-width:100%;box-sizing:border-box;}
+.brand-logo-section input[type=checkbox]{width:auto;flex-shrink:0;}
+.brand-logo-thumbnail{width:32px;height:32px;object-fit:contain;background:#fff;border-radius:5px;vertical-align:middle;margin-right:6px;}
+.logo-library-card .brand-logo-thumbnail{float:left;width:40px;height:40px;}
+.logo-upload-preview{width:96px;height:96px;object-fit:contain;border:1px solid #b7caca;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 / 12px 12px;}
+.brand-logo-map-marker{background:transparent;border:0;}
+.brand-logo-map-marker>span{display:flex;align-items:center;flex-direction:column;}
+.brand-logo-map-marker img{width:30px;height:30px;object-fit:contain;background:white;border-radius:5px;}
+.brand-logo-map-marker span span{white-space:nowrap;font-size:11px;color:#263238;text-shadow:0 1px white,1px 0 white,-1px 0 white;}
+.transit-stop-div-icon .brand-logo-thumbnail{width:24px;height:24px;margin:0;box-shadow:0 0 0 2px white;border-radius:4px;}
+
+.brand-management-card textarea{width:100%;box-sizing:border-box;resize:vertical;}
+.brand-management-card p,.brand-managed-public{overflow-wrap:anywhere;}
+.brand-managed-public{padding:10px 0;}
+.brand-managed-public:empty{display:none;}

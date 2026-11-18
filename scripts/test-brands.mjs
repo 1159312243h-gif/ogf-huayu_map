@@ -233,7 +233,7 @@ try {
 const browserSource = await readFile(new URL("../site/brand-browser.js", import.meta.url), "utf8");
 function brandPage({ready, visible = true, panel = ""}) {
   class Element extends EventTarget {
-    value = ""; textContent = ""; children = []; hidden = false; disabled = false;
+    value = ""; textContent = ""; children = []; hidden = false; disabled = false; dataset = {};
     classList = {contains: () => false};
     replaceChildren(...children) {this.children = children;}
     append(...children) {this.children.push(...children);}

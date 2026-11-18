@@ -27,6 +27,10 @@
     "data:update:resume": "node scripts/update-all-data.mjs --resume",
     "data:update:check": "node scripts/update-all-data.mjs --check",
     "test:data-update": "node scripts/test-data-updater.mjs",
-    "test:terrain-preload": "node scripts/test-terrain-preload.mjs && node scripts/test-terrain-context.mjs"
+    "test:terrain-preload": "node scripts/test-terrain-preload.mjs && node scripts/test-terrain-context.mjs",
+    "test:brand-logos": "node scripts/test-brand-logos.mjs",
+    "logos:sync": "node scripts/sync-brand-logos.mjs",
+    "test:brand-management": "node scripts/test-brand-management.mjs",
+    "brand-management:sync": "node scripts/sync-brand-management.mjs"
   }
 }

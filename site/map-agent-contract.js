@@ -22,7 +22,9 @@ function createMapAgentContract() {
     ["open_dataset","打开公开数据包的完整详情，可在既有数据页面生成专题图和下载。",object({id:string(80)},["id"]),"view"],
     ["prepare_feature_info","为确定 ref 的 OGF 物体准备简介或属性草稿，须登录。打开原表单由用户核对并发布；不会直接公开、修改或删除任何投稿。",object({ref:string(40),title:string(80),content:string(5000),sourceUrl:string(2048),properties:{type:"array",maxItems:32,items:object({key:string(80),value:string(512)},["key","value"])}},["ref"]),"draft"],
     ["prepare_dataset","将用户主动选择的本机附件带入既有数据上传表单并校验预览，须登录。只能用附件，不能伪造文件；范围来源等不得猜测。发布仍由用户在原表单确认。",object({title:string(120),kind:enumOf(kinds),scopeLabel:string(200),source:string(200),unit:string(80)},["title","kind","scopeLabel"]),"draft"],
-    ["open_panel","打开当前版本已有功能页面；这里只打开入口，不代表已完成模拟、下载、修改或上传。",object({panel:enumOf(panels.map(p=>p.id))},["panel"]),"view"]
+    ["get_brand_profile","查询品牌公开简介、官网和已登记管理者。不读取私人申请说明或审核记录，不代表品牌官方认证。",object({name:string(160)},["name"]),"read"],
+    ["prepare_brand_management","登录后在品牌原表单准备管理申请草稿，不自动提交。首位申请通常自动通过；同品牌已有其他申请或管理者时待管理员审核。保留原草稿，管理员可按品牌撤销或禁止权限；本工具不能审批、撤权或上传 logo。",object({name:string(160),statement:string(2000),sourceUrl:string(2048)},["name"]),"draft"],
+    ["open_panel","打开当前版本已有功能页面；品牌标注优先显示品牌 · 分店，无分店标签保留实际名称；品牌页可上传共享品牌／地铁 logo，须由用户选择图片并确认发布；刷新 logo 可重读当前地点，读取失败会保留完整缓存。本工具不确认尚未完成的联网或绘制。本工具只打开入口，不代表已完成模拟、下载、修改或上传。",object({panel:enumOf(panels.map(p=>p.id))},["panel"]),"view"]
   ];
   const tools=defs.map(([name,description,parameters,effect])=>({name,description,parameters,effect}));
   function validate(schema,value,path="参数") {

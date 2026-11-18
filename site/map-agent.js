@@ -4,7 +4,7 @@
     const atlas=root.HuayuAtlas,$=id=>document.getElementById("agent-"+id),contract=root.HuayuAgentContract;
     let file=null,messages=[],status=null,busy=false,epoch=0,controller=null;
     const runtime=root.HuayuAgentTools.create({atlas,getFile:()=>file,personal:()=>root.HuayuPersonalData,
-      features:()=>root.HuayuFeatureInfo,datasets:()=>root.HuayuSharedDatasets});
+      features:()=>root.HuayuFeatureInfo,datasets:()=>root.HuayuSharedDatasets,brands:()=>root.HuayuBrandManagement});
     const element=(tag,text,cls)=>{const el=document.createElement(tag);el.textContent=text||"";if(cls)el.className=cls;return el;};
     const button=(text,fn)=>{const b=element("button",text,"text-button");b.type="button";b.onclick=fn;return b;};
     function note(text){$("status").textContent=text;}

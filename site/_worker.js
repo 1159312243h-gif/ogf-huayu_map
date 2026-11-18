@@ -2014,7 +2014,9 @@ function createMapAgentContract() {
     ["open_dataset","打开公开数据包的完整详情，可在既有数据页面生成专题图和下载。",object({id:string(80)},["id"]),"view"],
     ["prepare_feature_info","为确定 ref 的 OGF 物体准备简介或属性草稿，须登录。打开原表单由用户核对并发布；不会直接公开、修改或删除任何投稿。",object({ref:string(40),title:string(80),content:string(5000),sourceUrl:string(2048),properties:{type:"array",maxItems:32,items:object({key:string(80),value:string(512)},["key","value"])}},["ref"]),"draft"],
     ["prepare_dataset","将用户主动选择的本机附件带入既有数据上传表单并校验预览，须登录。只能用附件，不能伪造文件；范围来源等不得猜测。发布仍由用户在原表单确认。",object({title:string(120),kind:enumOf(kinds),scopeLabel:string(200),source:string(200),unit:string(80)},["title","kind","scopeLabel"]),"draft"],
-    ["open_panel","打开当前版本已有功能页面；这里只打开入口，不代表已完成模拟、下载、修改或上传。",object({panel:enumOf(panels.map(p=>p.id))},["panel"]),"view"]
+    ["get_brand_profile","查询品牌公开简介、官网和已登记管理者。不读取私人申请说明或审核记录，不代表品牌官方认证。",object({name:string(160)},["name"]),"read"],
+    ["prepare_brand_management","登录后在品牌原表单准备管理申请草稿，不自动提交。首位申请通常自动通过；同品牌已有其他申请或管理者时待管理员审核。保留原草稿，管理员可按品牌撤销或禁止权限；本工具不能审批、撤权或上传 logo。",object({name:string(160),statement:string(2000),sourceUrl:string(2048)},["name"]),"draft"],
+    ["open_panel","打开当前版本已有功能页面；品牌标注优先显示品牌 · 分店，无分店标签保留实际名称；品牌页可上传共享品牌／地铁 logo，须由用户选择图片并确认发布；刷新 logo 可重读当前地点，读取失败会保留完整缓存。本工具不确认尚未完成的联网或绘制。本工具只打开入口，不代表已完成模拟、下载、修改或上传。",object({panel:enumOf(panels.map(p=>p.id))},["panel"]),"view"]
   ];
   const tools=defs.map(([name,description,parameters,effect])=>({name,description,parameters,effect}));
   function validate(schema,value,path="参数") {
@@ -2247,6 +2249,497 @@ function createMapAgentServer(deps) {
 }
 
 // END MAP AGENT
+
+// BEGIN BRAND MANAGEMENT
+// Standalone Worker factory; account roles remain unchanged.
+function createBrandManagementServer(deps) {
+  const {core,builtins,json,readJson,requireUser,currentUser,publicUser,sameOrigin}=deps;
+  const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
+  const admin=(user,env)=>publicUser(user,env).role==="admin";
+  function text(value,max,required=false) {
+    if(typeof value!=="string"||value.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)||required&&!value.trim())fail("brand_management_text_invalid");
+    return value.trim();
+  }
+  function link(value) {
+    const result=text(value||"",2048);
+    if(result){let parsed;try{parsed=new URL(result);}catch{fail("brand_management_url_invalid");}
+      if(!["http:","https:"].includes(parsed.protocol)||parsed.username||parsed.password)fail("brand_management_url_invalid");}
+    return result;
+  }
+  function identity(value) {
+    const name=text(value,160,true);if(/[\r\n\t]/u.test(name))fail("brand_management_text_invalid");
+    const matching=builtins.filter(e=>e.kind==="brand"&&[e.name,...e.aliases||[]].some(v=>core.normalize(v)===core.normalize(name)));
+    if(matching.length>1)fail("brand_management_ambiguous");
+    return matching[0]?{key:matching[0].key,name:matching[0].name}:{key:"brand:"+core.normalize(name),name};
+  }
+  const select="SELECT a.*,u.username,u.display_name,r.username AS reviewer_username FROM brand_manager_applications a JOIN users u ON u.id=a.user_id LEFT JOIN users r ON r.id=a.reviewed_by";
+  const application=row=>row?{id:row.id,key:row.brand_key,name:row.brand_name,
+    applicant:{id:row.user_id,username:row.username,displayName:row.display_name},
+    statement:row.statement,sourceUrl:row.source_url,status:row.status,decisionSource:row.decision_source,
+    reviewNote:row.review_note,reviewer:row.reviewer_username||null,createdAt:row.created_at,updatedAt:row.updated_at,revision:row.revision}:null;
+  const missing=error=>/no such table/iu.test(String(error.message));
+  async function permission(env,user,key) {
+    if(!env.DB||!user)return {available:false,managed:false,banned:false};
+    try{
+      const [grant,ban]=await Promise.all([
+        env.DB.prepare("SELECT user_id FROM brand_manager_grants WHERE brand_key=? AND user_id=?").bind(key,user.id).first(),
+        env.DB.prepare("SELECT user_id FROM brand_manager_bans WHERE brand_key=? AND user_id=?").bind(key,user.id).first()
+      ]);
+      return {available:true,managed:Boolean(grant)&&!ban,banned:Boolean(ban)};
+    }catch(error){if(missing(error))return {available:false,managed:false,banned:false};throw error;}
+  }
+  function event(env,id,token,actor,now) {
+    return env.DB.prepare("INSERT INTO brand_management_events(id,application_id,status,decision_source,note,actor_id,created_at) SELECT ?,id,status,decision_source,review_note,?,? FROM brand_manager_applications WHERE id=? AND decision_token=?")
+      .bind(crypto.randomUUID(),actor,now,id,token);
+  }
+  function grant(env,id,token,actor,now) {
+    return env.DB.prepare("INSERT INTO brand_manager_grants(brand_key,brand_name,user_id,application_id,granted_by,granted_at) SELECT brand_key,brand_name,user_id,id,?,? FROM brand_manager_applications WHERE id=? AND decision_token=? AND status='approved' ON CONFLICT(brand_key,user_id) DO UPDATE SET application_id=excluded.application_id,granted_by=excluded.granted_by,granted_at=excluded.granted_at")
+      .bind(actor,now,id,token);
+  }
+  function createProfile(env,id,token,actor,now) {
+    return env.DB.prepare("INSERT INTO brand_profiles(brand_key,brand_name,edited_by,updated_at) SELECT brand_key,brand_name,?,? FROM brand_manager_applications WHERE id=? AND decision_token=? AND status='approved' ON CONFLICT(brand_key) DO NOTHING")
+      .bind(actor,now,id,token);
+  }
+  async function apply(env,user,body) {
+    core.fields(body,["name","statement","sourceUrl","revision"]);
+    const brand=identity(body.name),statement=text(body.statement,2000,true),sourceUrl=link(body.sourceUrl),now=Date.now(),token=crypto.randomUUID();
+    const ban=await env.DB.prepare("SELECT reason FROM brand_manager_bans WHERE brand_key=? AND user_id=?").bind(brand.key,user.id).first();
+    if(ban)fail("brand_management_banned",403);
+    const previous=await env.DB.prepare("SELECT * FROM brand_manager_applications WHERE brand_key=? AND user_id=?").bind(brand.key,user.id).first();
+    if(previous&&["pending","approved"].includes(previous.status))fail("brand_management_already_applied",409);
+    if(previous&&body.revision!==previous.revision)fail("brand_management_revision_conflict",409);
+    const id=previous?.id||crypto.randomUUID();
+    const result=await env.DB.batch([
+      env.DB.prepare("INSERT INTO brand_manager_applications(id,brand_key,brand_name,user_id,statement,source_url,status,decision_source,decision_token,created_at,updated_at) SELECT ?,?,?,?,?,?,'pending','applicant',?,?,? WHERE NOT EXISTS(SELECT 1 FROM brand_manager_bans WHERE brand_key=? AND user_id=?) ON CONFLICT(brand_key,user_id) DO UPDATE SET statement=excluded.statement,source_url=excluded.source_url,status='pending',decision_source='applicant',review_note='',reviewed_by=NULL,decision_token=excluded.decision_token,updated_at=excluded.updated_at,revision=brand_manager_applications.revision+1 WHERE brand_manager_applications.revision=? AND brand_manager_applications.status IN ('rejected','withdrawn','revoked')")
+        .bind(id,brand.key,brand.name,user.id,statement,sourceUrl,token,now,now,brand.key,user.id,previous?.revision||0),
+      // All first-claim decisions execute inside the same serialized D1 transaction.
+      env.DB.prepare("UPDATE brand_manager_applications SET status='approved',decision_source='auto',revision=revision+1 WHERE id=? AND decision_token=? AND status='pending' AND NOT EXISTS(SELECT 1 FROM brand_manager_grants g WHERE g.brand_key=brand_manager_applications.brand_key) AND NOT EXISTS(SELECT 1 FROM brand_manager_applications other WHERE other.brand_key=brand_manager_applications.brand_key AND other.id<>brand_manager_applications.id AND other.status IN ('pending','approved'))")
+        .bind(id,token),
+      grant(env,id,token,null,now),createProfile(env,id,token,user.id,now),event(env,id,token,user.id,now)
+    ]);
+    if(!result[0].meta.changes)fail("brand_management_revision_conflict",409);
+    return json({item:application(await env.DB.prepare(select+" WHERE a.id=?").bind(id).first())},201);
+  }
+  async function decide(env,user,id,body) {
+    core.fields(body,["action","revision","note"]);
+    if(!Number.isSafeInteger(body.revision)||body.revision<1)fail("invalid_revision");
+    const row=await env.DB.prepare(select+" WHERE a.id=?").bind(id).first();
+    if(!row)fail("brand_management_not_found",404);
+    const isAdmin=admin(user,env),action=body.action;
+    if(action==="withdraw"){if(row.user_id!==user.id)fail("brand_management_forbidden",403);}
+    else if(!isAdmin)fail("administrator_required",403);
+    const transitions={withdraw:["pending"],approve:["pending","rejected","revoked"],reject:["pending"],revoke:["approved"],ban:["pending","approved","rejected","withdrawn","revoked"],unban:["banned"]};
+    if(!transitions[action]?.includes(row.status))fail("brand_management_transition_invalid",409);
+    const status={withdraw:"withdrawn",approve:"approved",reject:"rejected",revoke:"revoked",ban:"banned",unban:"revoked"}[action];
+    const note=text(body.note||"",1000,["ban","reject"].includes(action)),now=Date.now(),token=crypto.randomUUID();
+    const statements=[
+      env.DB.prepare("UPDATE brand_manager_applications SET status=?,decision_source=?,review_note=?,reviewed_by=?,decision_token=?,updated_at=?,revision=revision+1 WHERE id=? AND revision=? AND status=?")
+        .bind(status,action==="withdraw"?"applicant":"admin",note,action==="withdraw"?null:user.id,token,now,id,body.revision,row.status),
+      env.DB.prepare("DELETE FROM brand_manager_grants WHERE application_id=? AND EXISTS(SELECT 1 FROM brand_manager_applications WHERE id=? AND decision_token=? AND status<>'approved')").bind(id,id,token)
+    ];
+    if(action==="approve"){
+      const blocked=await env.DB.prepare("SELECT user_id FROM brand_manager_bans WHERE brand_key=? AND user_id=?").bind(row.brand_key,row.user_id).first();
+      if(blocked)fail("brand_management_banned",403);
+      statements.push(grant(env,id,token,user.id,now),createProfile(env,id,token,user.id,now));
+    }
+    if(action==="ban")statements.push(env.DB.prepare("INSERT INTO brand_manager_bans(brand_key,user_id,reason,banned_by,created_at) SELECT brand_key,user_id,?,?,? FROM brand_manager_applications WHERE id=? AND decision_token=? ON CONFLICT(brand_key,user_id) DO UPDATE SET reason=excluded.reason,banned_by=excluded.banned_by,created_at=excluded.created_at").bind(note,user.id,now,id,token));
+    if(action==="unban")statements.push(env.DB.prepare("DELETE FROM brand_manager_bans WHERE brand_key=? AND user_id=? AND EXISTS(SELECT 1 FROM brand_manager_applications WHERE id=? AND decision_token=?)").bind(row.brand_key,row.user_id,id,token));
+    statements.push(event(env,id,token,user.id,now));
+    const result=await env.DB.batch(statements);
+    if(!result[0].meta.changes)fail("brand_management_revision_conflict",409);
+    return json({item:application(await env.DB.prepare(select+" WHERE a.id=?").bind(id).first())});
+  }
+  async function readBrand(request,env,url) {
+    const brand=identity(url.searchParams.get("name")),user=await currentUser(request,env);
+    const [profile,managers,access,own]=await Promise.all([
+      env.DB.prepare("SELECT p.*,u.username,u.display_name FROM brand_profiles p LEFT JOIN users u ON u.id=p.edited_by WHERE p.brand_key=?").bind(brand.key).first(),
+      env.DB.prepare("SELECT u.id,u.username,u.display_name FROM brand_manager_grants g JOIN users u ON u.id=g.user_id WHERE g.brand_key=? AND u.disabled=0 ORDER BY g.granted_at,u.id").bind(brand.key).all(),
+      permission(env,user,brand.key),
+      user?env.DB.prepare(select+" WHERE a.brand_key=? AND a.user_id=?").bind(brand.key,user.id).first():null
+    ]);
+    return json({key:brand.key,name:profile?.brand_name||brand.name,
+      profile:profile?{description:profile.description,website:profile.website,revision:profile.revision,updatedAt:profile.updated_at,editedBy:profile.username||null}:null,
+      managers:managers.results.map(u=>({id:u.id,username:u.username,displayName:u.display_name})),
+      canEdit:Boolean(profile&&user&&(admin(user,env)||access.managed)),banned:access.banned,application:application(own)});
+  }
+  async function saveProfile(env,user,body) {
+    core.fields(body,["name","description","website","revision"]);
+    const brand=identity(body.name),description=text(body.description,5000),website=link(body.website);
+    if(!Number.isSafeInteger(body.revision)||body.revision<1)fail("invalid_revision");
+    const access=await permission(env,user,brand.key),isAdmin=admin(user,env);
+    if(!isAdmin&&!access.managed)fail(access.banned?"brand_management_banned":"brand_management_forbidden",403);
+    const result=await env.DB.prepare("UPDATE brand_profiles SET description=?,website=?,edited_by=?,updated_at=?,revision=revision+1 WHERE brand_key=? AND revision=? AND (?=1 OR (EXISTS(SELECT 1 FROM brand_manager_grants WHERE brand_key=brand_profiles.brand_key AND user_id=?) AND NOT EXISTS(SELECT 1 FROM brand_manager_bans WHERE brand_key=brand_profiles.brand_key AND user_id=?)))")
+      .bind(description,website,user.id,Date.now(),brand.key,body.revision,isAdmin?1:0,user.id,user.id).run();
+    if(!result.meta.changes)fail("brand_management_revision_conflict",409);
+    return json({ok:true});
+  }
+  async function list(env,user,url) {
+    const scope=url.searchParams.get("scope")||"mine",status=url.searchParams.get("status")||"all",offset=Number(url.searchParams.get("offset")||0);
+    if(!["mine","admin"].includes(scope)||!["all","pending","approved","rejected","revoked","banned","withdrawn"].includes(status)||!Number.isSafeInteger(offset)||offset<0)fail("brand_management_query_invalid");
+    if(scope==="admin"&&!admin(user,env))fail("administrator_required",403);
+    const clauses=[],values=[];if(scope==="mine"){clauses.push("a.user_id=?");values.push(user.id);}if(status!=="all"){clauses.push("a.status=?");values.push(status);}
+    const where=clauses.length?" WHERE "+clauses.join(" AND "):"";
+    const [rows,count]=await Promise.all([
+      env.DB.prepare(select+where+" ORDER BY a.updated_at DESC,a.id LIMIT 21 OFFSET ?").bind(...values,offset).all(),
+      env.DB.prepare("SELECT COUNT(*) AS total FROM brand_manager_applications a"+where).bind(...values).first()
+    ]);
+    return json({items:rows.results.slice(0,20).map(application),offset,total:count.total,nextOffset:rows.results.length>20?offset+20:null});
+  }
+  return {permission,async handle(request,env) {
+    const url=new URL(request.url),path=url.pathname;
+    if(!path.startsWith("/api/brand-management/"))return null;
+    try{
+      if(!sameOrigin(request))fail("cross_origin_request_blocked",403);
+      if(!env.DB)fail("brand_management_unavailable",503);
+      if(path==="/api/brand-management/brand"&&request.method==="GET")return await readBrand(request,env,url);
+      const user=await requireUser(request,env);
+      if(path==="/api/brand-management/session"&&request.method==="GET"){
+        const [grants,bans]=await Promise.all([
+          env.DB.prepare("SELECT brand_key,brand_name FROM brand_manager_grants WHERE user_id=?").bind(user.id).all(),
+          env.DB.prepare("SELECT brand_key FROM brand_manager_bans WHERE user_id=?").bind(user.id).all()
+        ]);
+        return json({userId:user.id,grants:grants.results.map(r=>({key:r.brand_key,name:r.brand_name})),bans:bans.results.map(r=>r.brand_key)});
+      }
+      if(path==="/api/brand-management/applications"){
+        if(request.method==="GET")return await list(env,user,url);
+        if(request.method==="POST")return await apply(env,user,await readJson(request,16384));
+      }
+      if(path==="/api/brand-management/brand"&&request.method==="PATCH")return await saveProfile(env,user,await readJson(request,32768));
+      const match=path.match(/^\/api\/brand-management\/applications\/([a-zA-Z0-9_-]{1,80})(\/events)?$/u);
+      if(match&&match[2]&&request.method==="GET"){
+        const owner=await env.DB.prepare("SELECT user_id FROM brand_manager_applications WHERE id=?").bind(match[1]).first();
+        if(!owner)fail("brand_management_not_found",404);
+        if(owner.user_id!==user.id&&!admin(user,env))fail("brand_management_forbidden",403);
+        const rows=await env.DB.prepare("SELECT e.status,e.decision_source,e.note,e.created_at,u.username FROM brand_management_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.application_id=? ORDER BY e.created_at,e.id").bind(match[1]).all();
+        return json({items:rows.results.map(r=>({status:r.status,decisionSource:r.decision_source,note:r.note,createdAt:r.created_at,actor:r.username||null}))});
+      }
+      if(match&&!match[2]&&request.method==="PATCH")return await decide(env,user,match[1],await readJson(request,8192));
+      fail("not_found",404);
+    }catch(error){return json({error:error.status?error.message:"brand_management_unavailable"},error.status||503);}
+  }};
+}
+
+const brandManagementApi=createBrandManagementServer({core:createBrandLogoCore(),builtins:[{"id":"builtin-0","key":"brand:anim","kind":"brand","name":"aniM","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-8e1d3c06f609.webp?v=fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f","builtin":true,"updatedAt":"2026-10-26T05:15:54.235Z","revision":1,"sha256":"fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f","categories":[["shop=anime",17]]},{"id":"builtin-1","key":"brand:todays","kind":"brand","name":"ToDays","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-e632ebfe248a.webp?v=62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53","builtin":true,"updatedAt":"2026-10-26T05:12:21.426Z","revision":1,"sha256":"62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53","categories":[["shop=convenience",86]]},{"id":"builtin-2","key":"brand:高全达通","kind":"brand","name":"高全达通","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-d66eede2363d.webp?v=b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0","builtin":true,"updatedAt":"2026-10-26T05:14:26.822Z","revision":1,"sha256":"b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0","categories":[["amenity=post_office",5]]},{"id":"builtin-3","key":"brand:高阳银行","kind":"brand","name":"高阳银行","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-738230fb8235.webp?v=52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638","builtin":true,"updatedAt":"2026-10-27T15:35:26.802Z","revision":1,"sha256":"52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638","categories":[["amenity=bank",16]]}],json:personalJson,readJson:readJsonBody,requireUser:requirePersonalUser,currentUser:currentPersonalUser,publicUser,sameOrigin:sameOriginMutation});
+// END BRAND MANAGEMENT
+
+// BEGIN BRAND LOGOS
+// Shared logo identity, map matching and bounded source queries.
+function createBrandLogoCore() {
+  "use strict";
+  const normalize=v=>String(v||"").normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/\s+/gu," ").trim();
+  const fail=message=>{throw Object.assign(Error(message),{status:400});};
+  function fields(v,allowed){if(!v||typeof v!=="object"||Array.isArray(v)||Object.keys(v).some(k=>!allowed.includes(k)))fail("logo_fields_invalid");}
+  function text(v,n,required=false){if(typeof v!=="string"||v.length>n||/[\u0000-\u001f\u007f]/u.test(v)||required&&!v.trim())fail("logo_text_invalid");return v.trim();}
+  function metadata(v) {
+    const kind=v.kind;if(!["brand","operator","transit"].includes(kind))fail("logo_kind_invalid");
+    const name=text(v.name,160,true),aliases=v.aliases||[];
+    if(!Array.isArray(aliases)||aliases.length>20)fail("logo_aliases_invalid");
+    const clean=[...new Map(aliases.map(a=>{const s=text(a,160,true);return [normalize(s),s];})).values()].filter(a=>normalize(a)!==normalize(name));
+    const source=text(v.source||"",500,true),sourceUrl=text(v.sourceUrl||"",2048);
+    if(sourceUrl){let u;try{u=new URL(sourceUrl);}catch{return fail("logo_source_invalid");}if(u.protocol!=="https:"||u.username||u.password)fail("logo_source_invalid");}
+    if(v.rightsConfirmed!==true)fail("logo_rights_required");
+    return {kind,name,key:kind+":"+normalize(name),aliases:clean,source,sourceUrl};
+  }
+  const facilities={shop:null,craft:null,office:"^(company|insurance|estate_agent|travel_agent|financial|telecommunication|it|lawyer|accountant|educational_institution|employment_agency)$",
+    amenity:"^(bank|atm|bureau_de_change|cafe|restaurant|fast_food|ice_cream|bar|pub|food_court|pharmacy|fuel|charging_station|post_office|car_rental|car_sharing|bicycle_rental|veterinary|cinema|theatre|casino|internet_cafe)$",
+    tourism:"^(hotel|motel|hostel|guest_house|apartment)$",healthcare:"^(hospital|clinic|dentist|pharmacy|physiotherapist|optometrist)$",
+    leisure:"^(fitness_centre|sports_centre|bowling_alley|amusement_arcade)$"};
+  const facility=t=>Object.entries(facilities).some(([key,pattern])=>typeof t[key]==="string"&&t[key].trim()
+    && !/^(no|vacant|disused|abandoned|construction|proposed)$/iu.test(t[key])&&(!pattern||new RegExp(pattern,"u").test(t[key])));
+  const compatible=(entry,t)=>!entry.categories?.length||entry.categories.some(([category])=>Object.keys(facilities).some(k=>category===k+"="+t[k])
+    ||["amenity=bank","amenity=atm"].includes(category)&&["bank","atm"].includes(t.amenity));
+  const station=t=>/^(station|halt|subway_entrance|tram_stop)$/u.test(t.railway)||t.public_transport==="station"||t.subway==="yes";
+  function matcher(entries) {
+    const indices=new Map();
+    for(const e of entries)for(const v of [e.name,...e.aliases||[]]){
+      const key=e.kind+":"+normalize(v);if(!indices.has(key))indices.set(key,[]);
+      indices.get(key).push(e);
+    }
+    const lookup=(kind,v)=>{const a=indices.get(kind+":"+normalize(v));return a?.length===1?a[0]:null;};
+    const choose=(kind,values)=>{const a=[...new Set(values.filter(Boolean).map(v=>lookup(kind,v)).filter(Boolean))];return a.length===1?a[0]:null;};
+    function match(tags) {
+      if(station(tags)){const a=choose("transit",[tags.network,tags["network:zh"],tags["network:en"],tags.operator,tags["operator:zh"]]);if(a)return a;}
+      if(tags.brand)return lookup("brand",tags.brand);
+      const tagged=choose("brand",Object.entries(tags).filter(([k])=>/^brand:[a-z]{2,3}$/u.test(k)).map(([,v])=>v));if(tagged)return tagged;
+      if(tags.operator){const a=lookup("operator",tags.operator);if(a)return a;}
+      if(!facility(tags))return null;
+      const names=Object.entries(tags).filter(([k])=>/^(name(:.*)?|official_name|short_name|alt_name)$/u.test(k))
+        .flatMap(([k,v])=>k==="alt_name"?String(v).split(";"):[v]),hits=new Set();
+      for(const value of names){const full=normalize(value);
+        for(let i=full.length;i>=1;i--){const a=lookup("brand",full.slice(0,i));if(!a||!compatible(a,tags))continue;const s=full.slice(i);
+          if(!s||i>=2&&(/^[\s（(·-]/u.test(s)||/^[\p{L}\p{N} ·-]{1,64}(店|支行|分行|营业部|营业厅|营业处|支局|分校|分院)$/u.test(s))){hits.add(a);break;}
+        }}
+      return hits.size===1?[...hits][0]:null;
+    }
+    return {match,transit(stop,routes=[]){
+      const values=[stop.logoTags||stop.tags||stop,...routes.filter(r=>["subway","light_rail","monorail","tram"].includes(r.type))];
+      if(!routes.some(r=>["subway","light_rail","monorail","tram"].includes(r.type))&&!stop.isSubway)return null;
+      const hits=new Set(values.map(t=>choose("transit",[t.network,t.operator,t["network:zh"],t["network:en"],t.tags?.network,t.tags?.operator])).filter(Boolean));
+      return hits.size===1?[...hits][0]:null;
+    }};
+  }
+  const escape=v=>String(v).replace(/[.*+?^$()|[\]\\{}]/gu,"\\$&");
+  function query(entries,bounds) {
+    if(!Array.isArray(bounds)||bounds.length!==4||bounds.some(v=>!Number.isFinite(v))||bounds[0]>=bounds[2]||bounds[1]>=bounds[3]
+      ||bounds[0]<-180||bounds[2]>180||bounds[1]<-85||bounds[3]>85||bounds[2]-bounds[0]>.8||bounds[3]-bounds[1]>.8)fail("logo_bounds_invalid");
+    if(entries.length>1000)fail("logo_catalog_too_large");
+    const bbox=[bounds[1],bounds[0],bounds[3],bounds[2]].map(v=>v.toFixed(6)).join(","),sel=[];
+    for(const kind of ["brand","operator","transit"]){
+      const names=entries.filter(e=>e.kind===kind).flatMap(e=>[e.name,...e.aliases||[]]);if(!names.length)continue;
+      const exact="^("+[...new Set(names)].map(escape).join("|")+")$", pattern=JSON.stringify(exact);
+      if(kind==="brand"){
+        sel.push('nwr[~"^brand(:[a-z]{2,3})?$"~'+pattern+',i]('+bbox+');');
+        const namePattern=JSON.stringify("^("+[...new Set(names)].map(escape).join("|")+")($|[[:space:]（(·-]|.*(店|支行|分行|营业部|营业厅|营业处|支局|分校|分院)$)");
+        for(const key of Object.keys(facilities))
+          sel.push('nwr[!"brand"]["'+key+'"][~"^(name(:.*)?|official_name|short_name|alt_name)$"~'+namePattern+',i]('+bbox+');');
+      }else{
+        for(const key of kind==="operator"?["operator"]:["network","operator"]){
+          const filter='[~"^'+key+'(:[a-z]{2,3})?$"~'+pattern+',i]';
+          sel.push('nwr'+filter+(kind==="transit"?'[~"^(railway|public_transport|subway)$"~"^(station|halt|subway_entrance|tram_stop|yes)$"]':"")+'('+bbox+');');
+          if(kind==="transit")sel.push('rel["route"~"^(subway|light_rail|monorail|tram)$"]'+filter+'('+bbox+')->.lr;nwr(r.lr:"stop")('+bbox+');nwr(r.lr:"platform")('+bbox+');.lr;');
+        }
+      }
+    }
+    return "[out:json][timeout:25][maxsize:8388608];("+sel.join("")+");out body center;out count;";
+  }
+  // Generated from brand-data.js by scripts/sync-brand-logos.mjs.
+  // BEGIN BRAND PLACE LABEL
+  function placeLabel(tags, identity = {}) {
+    const clean = value => typeof value === "string" ? value.trim() : "";
+    const name = clean(tags["name:zh"]) || clean(tags.name), branch = clean(tags.branch);
+    if (identity.kind === "transit") return name || clean(identity.name) || "未命名车站";
+    const brand = clean(tags.brand) || (identity.kind === "brand" ? clean(identity.name) : "");
+    const base = (branch && brand ? brand : name || brand || clean(tags.operator) || clean(identity.name)) || branch || "未命名设施";
+    return branch && normalize(base) !== normalize(branch) ? base + " · " + branch : base;
+  }
+  // END BRAND PLACE LABEL
+  function markers(elements,entries) {
+    const match=matcher(entries),inherited=new Map(),out=[],seen=new Set();
+    for(const rel of elements.filter(e=>e.type==="relation"&&/^(subway|light_rail|monorail|tram)$/u.test(e.tags?.route))){
+      const logo=match.match({...rel.tags,railway:"station"});if(!logo)continue;
+      for(const m of rel.members||[]){const id=m.type+"/"+m.ref;if(!inherited.has(id))inherited.set(id,new Set());inherited.get(id).add(logo);}
+    }
+    for(const e of elements){
+      if(!["node","way","relation"].includes(e.type)||!Number.isSafeInteger(e.id)||e.id<=0)continue;
+      const id=e.type+"/"+e.id,t=e.tags||{},rel=inherited.get(id);
+      let logo=match.match(t);if(!logo&&rel?.size===1)logo=[...rel][0];
+      if(!logo||e.tags?.route||logo.kind==="transit"&&!station(t)&&!rel)continue;
+      const lat=e.lat??e.center?.lat,lon=e.lon??e.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>85||Math.abs(lon)>180||seen.has(id))continue;
+      if(logo.kind==="transit"&&(t.public_transport==="platform"||t.public_transport==="stop_position"||t.railway==="platform"))continue;
+      seen.add(id);const name=t["name:zh"]||t.name||logo.name,label=placeLabel(t,logo);
+      out.push({type:e.type,id:e.id,lat,lon,name,label,logoKey:logo.key,kind:logo.kind,tags:t});
+    }
+    return out;
+  }
+  // Suppress only accepted nearby source points with the same displayed name.
+  // A same-name feature elsewhere or with another explicit brand stays visible.
+  function suppressionExpression(places){
+    const groups=new Map();
+    for(const p of places){
+      if(!p.name||!Number.isFinite(p.lat)||!Number.isFinite(p.lon))continue;
+      if(!groups.has(p.name))groups.set(p.name,[]);
+      const dy=8/111320,dx=dy/Math.max(.087,Math.cos(p.lat*Math.PI/180));
+      const w=p.lon-dx,e=p.lon+dx,b=p.lat-dy,t=p.lat+dy;
+      groups.get(p.name).push([[[w,b],[e,b],[e,t],[w,t],[w,b]]]);
+    }
+    if(!groups.size)return true;
+    return ["match",["coalesce",["get","name:zh"],["get","name"],""],...Array.from(groups,([name,coordinates])=>
+      [name,["!",["within",{type:"MultiPolygon",coordinates}]]]).flat(),true];
+  }
+  function filterExpression(f){
+    if(!Array.isArray(f))return f;
+    const [op,key,...values]=f,property=k=>k==="$type"?["geometry-type"]:k==="$id"?["id"]:["get",k];
+    if(["all","any","none"].includes(op)){const v=values.length?[key,...values]:key===undefined?[]:[key];return op==="none"?["!",["any",...v.map(filterExpression)]]:[op,...v.map(filterExpression)];}
+    if(["==","!=",">",">=","<","<="].includes(op)&&typeof key==="string")return [op,property(key),...values];
+    if(["in","!in"].includes(op)&&typeof key==="string"){const v=["in",property(key),["literal",values]];return op==="!in"?["!",v]:v;}
+    if(op==="!has")return ["!",["has",key]];
+    return f;
+  }
+  return Object.freeze({normalize,fields,metadata,matcher,query,placeLabel,markers,filterExpression,suppressionExpression});
+}
+
+// Embedded alongside the shared core in the standalone Pages Worker.
+function createBrandLogoServer(deps) {
+  const {core,builtins,json,readJson,requireUser,publicUser,sameOrigin,brandManagement}=deps;
+  const cache=new Map(),pending=new Map(),retryAfter=new Map();
+  let generation=0;
+  function invalidatePlaces(){generation++;cache.clear();retryAfter.clear();}
+  const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
+  const select="SELECT l.id,l.kind,l.name,l.name_key,l.aliases_json,l.source,l.source_url,l.user_id,l.image_hash,l.created_at,l.updated_at,l.revision,u.username,u.display_name FROM brand_logos l JOIN users u ON u.id=l.user_id";
+  const item=r=>({id:r.id,key:r.name_key,kind:r.kind,name:r.name,aliases:JSON.parse(r.aliases_json),source:r.source,sourceUrl:r.source_url,
+    author:{id:r.user_id,username:r.username,displayName:r.display_name},revision:r.revision,updatedAt:r.updated_at,
+    imageUrl:"/api/brand-logos/"+r.id+"/image?v="+r.image_hash,builtin:false});
+  async function catalog(env){
+    let rows=[],available=Boolean(env.DB);
+    if(available)try{const data=await env.DB.prepare(select+" ORDER BY l.updated_at DESC LIMIT 1001").all();if(data.results.length>1000)fail("logo_catalog_too_large",503);rows=data.results.map(r=>({...item(r),categories:builtins.find(e=>e.key===r.name_key)?.categories||[]}));}catch(e){if(e.message==="logo_catalog_too_large")throw e;available=false;}
+    const merged=new Map(builtins.map(e=>[e.key,e]));rows.forEach(e=>merged.set(e.key,e));
+    return {items:[...merged.values()],sharedAvailable:available};
+  }
+  const crcTable=Array.from({length:256},(_,n)=>{for(let k=0;k<8;k++)n=n&1?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
+  const crc=bytes=>{let n=0xffffffff;for(const b of bytes)n=crcTable[(n^b)&255]^(n>>>8);return (n^0xffffffff)>>>0;};
+  async function png(data){
+    if(typeof data!=="string"||data.length>180000||!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u.test(data))fail("logo_png_invalid");
+    let bytes;try{bytes=Uint8Array.from(atob(data.slice(22)),c=>c.charCodeAt(0));}catch{return fail("logo_png_invalid");}
+    if(bytes.length>128*1024||bytes.length<45||![137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v))fail("logo_png_invalid");
+    const view=new DataView(bytes.buffer),keep=[bytes.slice(0,8)],compressed=[];let at=8,width,height,channels,ended=false;
+    while(at<bytes.length){
+      if(at+12>bytes.length)fail("logo_png_invalid");const n=view.getUint32(at),end=at+12+n;if(end>bytes.length)fail("logo_png_invalid");
+      const kind=String.fromCharCode(...bytes.slice(at+4,at+8));if(crc(bytes.subarray(at+4,at+8+n))!==view.getUint32(at+8+n))fail("logo_png_invalid");
+      if(at===8&&kind!=="IHDR")fail("logo_png_invalid");
+      if(kind==="IHDR"){
+        if(width||n!==13)fail("logo_png_invalid");width=view.getUint32(at+8);height=view.getUint32(at+12);channels=bytes[at+17]===6?4:bytes[at+17]===2?3:0;
+        if(width<1||height<1||width>256||height>256||bytes[at+16]!==8||!channels||bytes[at+18]||bytes[at+19]||bytes[at+20])fail("logo_png_invalid");
+      }else if(kind==="IDAT")compressed.push(bytes.slice(at+8,at+8+n));
+      else if(kind==="IEND"){if(n||end!==bytes.length)fail("logo_png_invalid");ended=true;}
+      else if(!/^[a-z]/u.test(kind))fail("logo_png_invalid");
+      if(["IHDR","IDAT","IEND"].includes(kind))keep.push(bytes.slice(at,end));at=end;
+    }
+    if(!ended||!compressed.length)fail("logo_png_invalid");
+    let decoded=0;try{
+      const reader=new Blob(compressed).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+      while(true){const {value,done}=await reader.read();if(done)break;decoded+=value.length;if(decoded>(width*channels+1)*height){await reader.cancel();fail("logo_png_invalid");}}
+    }catch{return fail("logo_png_invalid");}
+    if(decoded!==(width*channels+1)*height)fail("logo_png_invalid");
+    const blob=new Uint8Array(await new Blob(keep).arrayBuffer()),digest=await crypto.subtle.digest("SHA-256",blob);
+    return {bytes:blob,hash:Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,"0")).join("")};
+  }
+  function pause(ms,signal){
+    return new Promise((resolve,reject)=>{
+      signal.throwIfAborted();
+      const abort=()=>{clearTimeout(timer);reject(signal.reason);};
+      const timer=setTimeout(()=>{signal.removeEventListener("abort",abort);resolve();},ms);
+      signal.addEventListener("abort",abort,{once:true});
+    });
+  }
+  async function sourcePlaces(query,entries,signal){
+    const upstream="https://overpass.opengeofiction.net/api/interpreter";
+    for(let attempt=0;attempt<3;attempt++){
+      signal.throwIfAborted();
+      const method=attempt>0&&encodeURIComponent(query).length<14000?"GET":"POST";
+      try{
+        const response=await fetch(upstream+(method==="GET"?"?data="+encodeURIComponent(query):""),{method,
+          headers:{Accept:"application/json",...(method==="POST"?{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"}:{})},
+          ...(method==="POST"?{body:"data="+encodeURIComponent(query)}:{}),
+          signal:AbortSignal.any([signal,AbortSignal.timeout(27000)]),credentials:"omit",redirect:"error"});
+        if(!response.ok){
+          await response.body?.cancel();
+          throw Object.assign(Error("logo_places_unavailable"),{status:502,retryable:[408,425,429,500,502,503,504].includes(response.status)});
+        }
+        const reader=response.body.getReader(),parts=[];let bytes=0;
+        try{while(true){const {value,done}=await reader.read();if(done)break;bytes+=value.length;if(bytes>8*1024*1024)fail("logo_places_too_large",413);parts.push(value);}}
+        finally{await reader.cancel().catch(()=>{});}
+        let data;try{data=JSON.parse(await new Blob(parts).text());}catch{return fail("logo_places_incomplete",502);}
+        const count=data.elements?.filter(e=>e.type==="count"),elements=data.elements?.filter(e=>e.type!=="count"),total=Number(count?.[0]?.tags?.total);
+        if(data.remark||count?.length!==1||!Number.isSafeInteger(total)||total<0||total!==elements.length
+          ||elements.some(e=>!["node","way","relation"].includes(e.type)||!Number.isSafeInteger(e.id)||e.id<=0||!e.tags)
+          ||new Set(elements.map(e=>e.type+"/"+e.id)).size!==elements.length)fail("logo_places_incomplete",502);
+        if(total>3000)fail("logo_places_too_large",413);
+        return {items:core.markers(elements,entries),fetchedAt:Date.now(),dbTimestamp:data.osm3s?.timestamp_osm_base||null,stale:false};
+      }catch(e){
+        signal.throwIfAborted();
+        if(attempt===2||e.status&&!e.retryable)throw e;
+        await pause([800,2000][attempt],signal);
+      }
+    }
+  }
+  async function joinSource(task,signal){
+    signal.throwIfAborted();task.users++;
+    let abort;
+    try{return await Promise.race([task.promise,new Promise((_,reject)=>{
+      abort=()=>reject(signal.reason);signal.addEventListener("abort",abort,{once:true});
+    })]);}
+    finally{signal.removeEventListener("abort",abort);if(--task.users===0&&!task.done)task.controller.abort();}
+  }
+  async function places(request,env,url){
+    const entries=(await catalog(env)).items,bounds=(url.searchParams.get("bounds")||"").split(",").map(Number);
+    const query=core.query(entries,bounds),key=query,previous=cache.get(key),now=Date.now(),force=url.searchParams.get("refresh")==="1";
+    request.signal.throwIfAborted();
+    if(!force&&previous&&now-previous.fetchedAt<120000)return json(previous);
+    const fallback=()=>previous&&now-previous.fetchedAt<=3*3600000
+      ?json({...previous,stale:true,retryAfterMs:30000,error:"logo_places_unavailable"})
+      :json({error:"logo_places_unavailable",retryAfterMs:30000},503);
+    if(!force&&(retryAfter.get(key)||0)>now)return fallback();
+    let task=pending.get(key);
+    if(task?.controller.signal.aborted){pending.delete(key);task=null;}
+    if(!task){
+      if(pending.size>=2)return json({error:"logo_places_busy",retryAfterMs:3000},503);
+      task={controller:new AbortController(),users:0,done:false};const currentGeneration=generation;
+      task.promise=sourcePlaces(query,entries,AbortSignal.any([task.controller.signal,AbortSignal.timeout(85000)]))
+        .then(result=>{
+          if(currentGeneration===generation&&!task.controller.signal.aborted){
+            cache.delete(key);cache.set(key,result);while(cache.size>8)cache.delete(cache.keys().next().value);retryAfter.delete(key);
+          }
+          return result;
+        }).finally(()=>{task.done=true;if(pending.get(key)===task)pending.delete(key);});
+      task.promise.catch(()=>{});pending.set(key,task);
+    }
+    try{return json(await joinSource(task,request.signal));}
+    catch(e){
+      if(request.signal.aborted)return json({error:"logo_places_cancelled"},499);
+      if(!e.status||e.retryable){
+        retryAfter.set(key,Date.now()+30000);while(retryAfter.size>8)retryAfter.delete(retryAfter.keys().next().value);
+        return fallback();
+      }
+      throw e;
+    }
+  }
+  return {png,catalog,async handle(request,env){
+    const url=new URL(request.url),path=url.pathname;
+    if(path!=="/api/brand-logo-places"&&!path.startsWith("/api/brand-logos"))return null;
+    try{
+      if(!sameOrigin(request))fail("cross_origin_request_blocked",403);
+      if(path==="/api/brand-logo-places"){if(request.method!=="GET")fail("method_not_allowed",405);return await places(request,env,url);}
+      if(path==="/api/brand-logos"&&request.method==="GET")return json(await catalog(env));
+      const image=path.match(/^\/api\/brand-logos\/([a-zA-Z0-9_-]{1,80})\/image$/u);
+      if(image&&request.method==="GET"){
+        if(!env.DB)fail("logo_not_found",404);
+        const row=await env.DB.prepare("SELECT image_data,image_hash FROM brand_logos WHERE id=?").bind(image[1]).first();
+        if(!row||url.searchParams.get("v")!==row.image_hash)fail("logo_not_found",404);
+        return new Response(row.image_data,{headers:{"Content-Type":"image/png","X-Content-Type-Options":"nosniff","Content-Security-Policy":"default-src 'none'","Cache-Control":"public, max-age=31536000, immutable"}});
+      }
+      if(!env.DB)fail("personal_data_service_not_configured",503);
+      const user=await requireUser(request,env),body=await readJson(request,196608),now=Date.now();
+      const id=path.match(/^\/api\/brand-logos\/([a-zA-Z0-9_-]{1,80})$/u)?.[1];
+      if(path==="/api/brand-logos"&&request.method==="POST"){
+        core.fields(body,["kind","name","aliases","source","sourceUrl","rightsConfirmed","image"]);
+        const m=core.metadata(body),image=await png(body.image),id=crypto.randomUUID();
+        const access=m.kind==="brand"&&brandManagement?await brandManagement.permission(env,user,m.key):null,admin=publicUser(user,env).role==="admin";
+        if(access?.banned&&!admin)fail("logo_forbidden",403);
+        const duplicate=await env.DB.prepare("SELECT id FROM brand_logos WHERE name_key=?").bind(m.key).first();
+        if(duplicate)fail("logo_already_exists",409);
+        try{const guarded=m.kind==="brand"&&access?.available;
+          const result=await env.DB.prepare("INSERT INTO brand_logos(id,kind,name,name_key,aliases_json,source,source_url,user_id,edited_by,image_data,image_hash,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?"+(guarded?" WHERE (?=1 OR NOT EXISTS(SELECT 1 FROM brand_manager_bans WHERE brand_key=? AND user_id=?))":""))
+            .bind(id,m.kind,m.name,m.key,JSON.stringify(m.aliases),m.source,m.sourceUrl,user.id,user.id,image.bytes.buffer,image.hash,now,now,...(guarded?[admin?1:0,m.key,user.id]:[])).run();
+          if(!result.meta.changes)fail("logo_forbidden",403);
+        }
+        catch(e){if(String(e.message).includes("UNIQUE"))fail("logo_already_exists",409);throw e;}
+        invalidatePlaces();return json({item:item(await env.DB.prepare(select+" WHERE l.id=?").bind(id).first())},201);
+      }
+      if(!id||!["PATCH","DELETE"].includes(request.method))fail("not_found",404);
+      core.fields(body,request.method==="DELETE"?["revision"]:["revision","aliases","source","sourceUrl","rightsConfirmed","image"]);
+      const row=await env.DB.prepare(select+" WHERE l.id=?").bind(id).first();if(!row)fail("logo_not_found",404);
+      const admin=publicUser(user,env).role==="admin",access=row.kind==="brand"&&brandManagement?await brandManagement.permission(env,user,row.name_key):null;
+      if(!admin&&(access?.banned||row.user_id!==user.id&&!access?.managed))fail("logo_forbidden",403);
+      // Recheck brand grants and bans inside the write, so concurrent revocation cannot authorize a late update.
+      const guarded=row.kind==="brand"&&access?.available;
+      const guard=guarded?"(?=1 OR (NOT EXISTS(SELECT 1 FROM brand_manager_bans WHERE brand_key=brand_logos.name_key AND user_id=?) AND (user_id=? OR EXISTS(SELECT 1 FROM brand_manager_grants WHERE brand_key=brand_logos.name_key AND user_id=?))))":"(user_id=? OR ?=1)";
+      const guardValues=guarded?[admin?1:0,user.id,user.id,user.id]:[user.id,admin?1:0];
+      if(!Number.isSafeInteger(body.revision)||body.revision<1)fail("invalid_revision");
+      let result;
+      if(request.method==="DELETE")result=await env.DB.prepare("DELETE FROM brand_logos WHERE id=? AND revision=? AND "+guard).bind(id,body.revision,...guardValues).run();
+      else {
+        const m=core.metadata({...body,kind:row.kind,name:row.name}),image=body.image?await png(body.image):null;
+        result=await env.DB.prepare("UPDATE brand_logos SET aliases_json=?,source=?,source_url=?,image_data=COALESCE(?,image_data),image_hash=COALESCE(?,image_hash),updated_at=?,edited_by=?,revision=revision+1 WHERE id=? AND revision=? AND "+guard)
+          .bind(JSON.stringify(m.aliases),m.source,m.sourceUrl,image?.bytes.buffer||null,image?.hash||null,now,user.id,id,body.revision,...guardValues).run();
+      }
+      if(!result.meta.changes)fail("logo_revision_conflict",409);
+      invalidatePlaces();return json(request.method==="DELETE"?{ok:true}:{item:item(await env.DB.prepare(select+" WHERE l.id=?").bind(id).first())});
+    }catch(e){return json({error:e.status?e.message:"logo_service_unavailable",...(e.retryable===false?{retryable:false}:{})},e.status||503);}
+  }};
+}
+
+const brandLogoApi=createBrandLogoServer({core:createBrandLogoCore(),builtins:[{"id":"builtin-0","key":"brand:anim","kind":"brand","name":"aniM","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-8e1d3c06f609.webp?v=fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f","builtin":true,"updatedAt":"2026-10-26T05:15:54.235Z","revision":1,"sha256":"fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f","categories":[["shop=anime",17]]},{"id":"builtin-1","key":"brand:todays","kind":"brand","name":"ToDays","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-e632ebfe248a.webp?v=62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53","builtin":true,"updatedAt":"2026-10-26T05:12:21.426Z","revision":1,"sha256":"62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53","categories":[["shop=convenience",86]]},{"id":"builtin-2","key":"brand:高全达通","kind":"brand","name":"高全达通","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-d66eede2363d.webp?v=b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0","builtin":true,"updatedAt":"2026-10-26T05:14:26.822Z","revision":1,"sha256":"b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0","categories":[["amenity=post_office",5]]},{"id":"builtin-3","key":"brand:高阳银行","kind":"brand","name":"高阳银行","aliases":[],"source":"OGF 商号索引 · 品牌标识版权归原权利人","sourceUrl":"https://palewod.github.io/ogf-brand-index/","imageUrl":"/brand-logos/logo-738230fb8235.webp?v=52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638","builtin":true,"updatedAt":"2026-10-27T15:35:26.802Z","revision":1,"sha256":"52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638","categories":[["amenity=bank",16]]}],json:personalJson,readJson:readJsonBody,requireUser:requirePersonalUser,publicUser,sameOrigin:sameOriginMutation,brandManagement:brandManagementApi});
+// END BRAND LOGOS
 
 async function handlePersonalApi(request, environment) {
   const url = new URL(request.url);
@@ -2554,6 +3047,8 @@ export {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/brand-management/")) return brandManagementApi.handle(request,environment);
+    if (url.pathname.startsWith("/api/brand-logos") || url.pathname === "/api/brand-logo-places") return brandLogoApi.handle(request,environment);
     if (url.pathname.startsWith("/api/agent/")) return createMapAgentServer({contract:createMapAgentContract(),providers:createMapAgentProviders(),json:personalJson,readJson:readJsonBody,sameOrigin:sameOriginMutation,requireUser:requirePersonalUser,bindingsAvailable:personalBindingsAvailable}).handle(request,environment);
     if (url.pathname === "/api/traffic-region") return fetchTrafficRegion(request, context);
     const personalResponse = await handlePersonalApi(request, environment);

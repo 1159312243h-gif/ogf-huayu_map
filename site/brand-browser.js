@@ -70,6 +70,7 @@
   }
   function catalogCard(entry, kind) {
     const card = button("", () => openEntry(entry, kind), "brand-card");
+    const logo=window.HuayuBrandLogos?.getEntry(kind,entry.name);if(logo)card.append(window.HuayuBrandLogos.image(logo));
     card.append(text("strong", entry.name), text("small", `${kind === "brand" ? entry.candidate ? "店名候选" : "品牌" : "运营者"} · ${entry.count.toLocaleString()} 个地图要素`),
       ...(kind === "brand" ? [text("small", countsLabel(entry))] : []),
       text("small", entry.categories.slice(0, 2).map(([key]) => categoryLabel(key)).join(" / ")));
@@ -159,7 +160,7 @@
     });
     sorted.slice(0, locationLimit).forEach(element => {
       const place = data.place(element), tags = element.tags || {}, card = text("article", "", "brand-card");
-      card.append(text("strong", place?.label || tags.name || selected.name),
+      card.append(text("strong", place?.label || data.placeLabel(tags, selected.candidate ? {} : selected)),
         text("small", [tags["addr:city"], tags["addr:street"], tags["addr:housenumber"], tags.branch].filter(Boolean).join(" · ")),
         text("small", `${element.type}/${element.id}${place ? ` · ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}` : " · 未提供可定位坐标"}`));
       if (selected.kind === "brand") {
@@ -167,6 +168,7 @@
         card.append(text("small", match?.source === "tag" ? `标签标注：brand=${tags.brand}` : match?.source === "name"
           ? `名称识别：${match.field}=${match.value} → ${match.name}` : `待确认店名：${match?.field || "name"}=${match?.value || tags.name || ""}`));
       }
+      const logo=window.HuayuBrandLogos?.getEntry(selected.kind,selected.name);if(logo)card.prepend(window.HuayuBrandLogos.image(logo));
       const actions = text("div", "", "brand-card-actions");
       if (place) actions.append(button("定位 / 收藏", () => showPlace(element)), button("从这里出发", () => showPlace(element, "origin")), button("到这里", () => showPlace(element, "destination")));
       const source = text("a", "原始要素"); source.href = `https://opengeofiction.net/${element.type}/${element.id}`;
@@ -289,6 +291,10 @@
     fitOnLoad = true; el("brand-browse").hidden = true;
     fields.detail.hidden = false; fields["catalog-list"].hidden = true; fields.more.hidden = true;
     fields["detail-name"].textContent = entry.name;
+    fields["detail-name"].append(button("上传 logo",()=>window.HuayuBrandLogos?.prepareForBrand(entry.name,kind)));
+    if(kind==="brand")fields["detail-name"].append(button("品牌资料 / 申请管理",()=>window.HuayuBrandManagement?.selectBrand(entry.name)));
+    const profile=document.getElementById("brand-profile-public");if(profile){profile.replaceChildren();profile.hidden=true;profile.dataset.brandName=kind==="brand"?entry.name:"";}
+    if(kind==="brand")window.HuayuBrandManagement?.selectBrand(entry.name,false);
     fields["detail-summary"].textContent = `${entry.candidate ? "待确认店名；尚未证明属于连锁品牌" : kind === "brand" ? "品牌；支持原始标签及商业设施名称识别" : "运营者；原始 operator 标签完全匹配"}${entry.count ? ` · 目录快照 ${entry.count} 个地图要素` : ""}。点、线、面可能指向同一场所，数量不等于营业门店总数。`;
     fields["branch-query"].value = "";
     if (discovery?.city) fields.scope.value = "city";
@@ -313,6 +319,7 @@
   function setActive(next) {
     if (active === next) return;
     active = next;
+    window.HuayuBrandManagement?.setActive(next);
     if (active) {
       checkCatalog();
       if (selected) {renderLocations(); loadLocations();}
@@ -487,6 +494,7 @@
   window.addEventListener("pageshow", () => setActive(atlas.getCurrentView() === "brands"
     && !el("tool-panel").classList.contains("is-hidden")
     && !el("tool-panel").classList.contains("is-minimized")));
+  window.addEventListener("huayu:brand-logos-changed",()=>{if(active){renderCatalog();if(selected)renderLocations();}});
   window.HuayuBrandBrowser = Object.freeze({setActive, search, clearSearch});
   if (new URLSearchParams(window.location.search).get("panel") === "brands") atlas.openView("brands");
   setActive(atlas.getCurrentView() === "brands" && !el("tool-panel").classList.contains("is-hidden")

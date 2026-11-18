@@ -132,7 +132,15 @@ try {
     request(attributeRoute,"PATCH",{properties:[{key:"name",value:"过期修改"}],revision:2},admin.cookie),
   ]);
   assert.deepEqual(propertyEdits.map(row=>row.status).sort(),[200,409]);
-  assert.deepEqual((await request(endpoint)).body.items.find(item=>item.id===attributeId).properties,replacement,"冲突请求不能删除或覆盖已经保存的属性");
+  // Authentication can finish in either order; only the accepted transaction owns the saved values.
+  const acceptedIndex=propertyEdits.findIndex(row=>row.status===200);
+  const acceptedProperties=[replacement,[{key:"name",value:"过期修改"}]][acceptedIndex];
+  assert.equal(propertyEdits[1-acceptedIndex].body.error,"contribution_conflict");
+  assert.equal(propertyEdits[acceptedIndex].body.item.revision,3);
+  assert.deepEqual((await request(endpoint)).body.items.find(item=>item.id===attributeId).properties,acceptedProperties,"冲突请求不能删除或覆盖已经保存的属性");
+  const staleProperties=await request(attributeRoute,"PATCH",{properties:[{key:"name",value:"确定过期的修改"}],revision:2},admin.cookie);
+  assert.equal(staleProperties.status,409,"已保存后再到达的旧版本必须拒绝");
+  assert.deepEqual((await request(endpoint)).body.items.find(item=>item.id===attributeId).properties,acceptedProperties,"确定过期请求不得删除或替换胜出事务的属性");
   assert.deepEqual((await request(endpoint)).body.items.find(item=>item.id===authorProperty.body.item.id).properties,[{key:"name",value:"另一位作者的名称"}],"同键不同作者的属性不能相互覆盖");
   for (const invalid of [null,{},[{key:"name",value:""}],[{key:"bad key",value:"x"}],
     [{key:"__proto__",value:"x"}],[{key:"name",value:"x",authorId:a.body.user.id}],
@@ -144,7 +152,7 @@ try {
   assert.equal((await request(attributeRoute,"PATCH",{properties:[],revision:3},admin.cookie)).status,400,"不能把整条投稿改成空内容");
   const cleared = await request(attributeRoute,"PATCH",{title:"保留简介",content:"只移除本条投稿的属性",properties:[],revision:3},admin.cookie);
   assert.equal(cleared.status,200);assert.deepEqual(cleared.body.item.properties,[]);
-  assert.equal((await request(`/api/feature-info/search?q=${encodeURIComponent("新图书馆名称")}`)).body.items.length,0);
+  assert.equal((await request(`/api/feature-info/search?q=${encodeURIComponent(acceptedProperties[0].value)}`)).body.items.length,0);
   // Inject a failing SQLite trigger to verify both the text and properties roll back together.
   const rollbackDB = await createLocalPersonalDatabase();
   try {
