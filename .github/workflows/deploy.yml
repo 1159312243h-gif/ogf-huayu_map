@@ -55,6 +55,15 @@ jobs:
       - name: Configure personal data storage
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         run: node scripts/configure-cloudflare-personal-data.mjs
+      - name: Refresh and validate public updater verification keys
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: |
+          node scripts/update-updater-keys.mjs
+          npm run manifest:update
+          npm run verify
+          npm run test:data-update
+          npm run data:update:check
+          npm run check:data
       - uses: cloudflare/wrangler-action@v3
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         with:

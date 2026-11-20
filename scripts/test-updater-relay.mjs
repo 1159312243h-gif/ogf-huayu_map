@@ -59,3 +59,29 @@ try{
  }finally{if(previousRelay===undefined)delete process.env.OGF_UPDATER_RELAY;else process.env.OGF_UPDATER_RELAY=previousRelay;}
  console.log(JSON.stringify({status:'passed',checks:['actual routed GitHub RSA identity verification','immutable repository and main workflow scope','no anonymous arbitrary source queries','unchanged gzip bytes and source timestamps','bounded streams, concurrency and cancellation','client token memory reuse and pinned credential routes'],keyCalls,sourceCalls}));
 }finally{globalThis.fetch=nativeFetch;}
+
+// Production edge fallback still verifies the exact signed job, using only a fresh deployment trust asset.
+const {validateUpdaterKeys}=await import('./update-updater-keys.mjs');
+const bundle={source:'https://token.actions.githubusercontent.com/.well-known/jwks',fetchedAt:new Date().toISOString(),keys:[jwk]};
+assert.equal((await validateUpdaterKeys(bundle)).keys.length,1);
+for(const bad of [{...bundle,source:'https://other.test/keys'},{...bundle,fetchedAt:'2000-01-01T00:00:00Z'},
+ {...bundle,keys:[{...jwk,d:'private'}]},{...bundle,keys:[jwk,jwk]}])await assert.rejects(validateUpdaterKeys(bad));
+try{
+ let freshSourceCalls=0;
+ globalThis.fetch=async(url,init)=>{
+  if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')throw new TypeError('fetch failed');
+  assert.equal(url,source);freshSourceCalls++;return new Response(raw);
+ };
+ const fallbackWorker=(await import('../site/_worker.js?fresh-jwks-fallback')).default;
+ const environment={ASSETS:{fetch:async req=>{assert.equal(new URL(req.url).pathname,'/updater-jwks.json');return new Response(JSON.stringify(bundle));}}};
+ const good=await fallbackWorker.fetch(request(await jwt({sub:'repo:1159312243h-gif@249743200/ogf-huayu_map@1390670617:ref:refs/heads/main'})),environment,{});
+ assert.equal(good.status,200);await good.body.cancel();assert.equal(freshSourceCalls,1);
+ const invalid=await fallbackWorker.fetch(request(valid.slice(0,valid.lastIndexOf('.')+1)+Buffer.alloc(256).toString('base64url')),environment,{});
+ assert.equal(invalid.status,403);assert.equal(freshSourceCalls,1,'bundled public keys cannot sign or bypass an identity');
+ let n=0;for(const bad of [{...bundle,source:'https://other.test'},{...bundle,fetchedAt:'2000-01-01T00:00:00Z'},{...bundle,keys:[jwk,jwk]}]){
+  const isolated=(await import('../site/_worker.js?bad-jwks-fallback-'+n++)).default;
+  assert.equal((await isolated.fetch(request(),{ASSETS:{fetch:async()=>new Response(JSON.stringify(bad))}},{})).status,503);
+ }
+ assert.equal(freshSourceCalls,1);
+ console.log('Updater public-key fallback passed: actual Worker signatures, official source, seven-day expiry, no private keys or arbitrary trust and source requests remain protected.');
+}finally{globalThis.fetch=nativeFetch;}

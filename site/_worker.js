@@ -3054,7 +3054,7 @@ function updaterJwtPart(part){
   if(!/^[A-Za-z0-9_-]+$/u.test(part))throw Error("invalid_identity");
   return Uint8Array.from(atob(part.replaceAll("-","+").replaceAll("_","/")),c=>c.charCodeAt(0));
 }
-async function updaterIdentity(token){
+async function updaterIdentity(token,environment){
   if(token.length>16000)throw Error("invalid_identity");
   const pieces=token.split(".");if(pieces.length!==3)throw Error("invalid_identity");
   const header=JSON.parse(new TextDecoder().decode(updaterJwtPart(pieces[0])));
@@ -3076,13 +3076,29 @@ async function updaterIdentity(token){
     if(!updaterRelayKeys.pending&&Date.now()-updaterRelayKeys.attemptAt>=30000){
       updaterRelayKeys.attemptAt=Date.now();
       updaterRelayKeys.pending=(async()=>{
-        const response=await fetch("https://token.actions.githubusercontent.com/.well-known/jwks",{redirect:"error",signal:AbortSignal.timeout(15000)});
-        if(!response.ok)throw Error("identity_service_http_"+response.status);
-        let payload;try{payload=JSON.parse(await updaterBoundedText(response.body,65536));}catch{throw Error("identity_service_body_invalid");}const keys=new Map();
-        if(!Array.isArray(payload.keys)||payload.keys.length>16)throw Error("identity_service_keys_invalid");
-        for(const jwk of payload.keys){if(jwk.kty!=="RSA"||jwk.alg&&jwk.alg!=="RS256"||jwk.use&&jwk.use!=="sig")continue;
-          try{keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}catch{throw Error("identity_service_import_failed");}}
-        updaterRelayKeys.keys=keys;updaterRelayKeys.at=Date.now();
+        const source="https://token.actions.githubusercontent.com/.well-known/jwks";
+        let payload,bundled=false;
+        try{
+          const response=await fetch(source,{redirect:"error",signal:AbortSignal.timeout(15000)});
+          if(!response.ok)throw Error("identity_service_http_"+response.status);
+          payload=JSON.parse(await updaterBoundedText(response.body,65536));
+          if(!Array.isArray(payload.keys)||!payload.keys.length||payload.keys.length>16)throw Error("identity_service_keys_invalid");
+        }catch{
+          const saved=await environment?.ASSETS?.fetch(new Request("https://ogf-atlas.pages.dev/updater-jwks.json"));
+          if(!saved?.ok)throw Error("identity_service_fetch_failed");
+          try{payload=JSON.parse(await updaterBoundedText(saved.body,65536));}catch{throw Error("identity_service_body_invalid");}
+          const fetched=Date.parse(payload.fetchedAt);
+          if(payload.source!==source||!Number.isFinite(fetched)||fetched>Date.now()+60000||Date.now()-fetched>7*86400000
+            ||!Array.isArray(payload.keys)||!payload.keys.length||payload.keys.length>16)throw Error("identity_service_bundle_expired");
+          bundled=true;
+        }
+        const keys=new Map();
+        for(const jwk of payload.keys){
+          if(jwk.kty!=="RSA"||jwk.alg&&jwk.alg!=="RS256"||jwk.use&&jwk.use!=="sig"||typeof jwk.kid!=="string"||keys.has(jwk.kid)||jwk.d||jwk.p||jwk.q)throw Error("identity_service_keys_invalid");
+          try{keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}catch{throw Error("identity_service_import_failed");}
+        }
+        updaterRelayKeys.keys=keys;
+        updaterRelayKeys.at=bundled?Math.min(Date.now(),Date.parse(payload.fetchedAt)+7*86400000-3600000):Date.now();
       })().catch(error=>{throw Error(/^identity_service_[a-z_0-9]+$/u.test(error.message)?error.message:"identity_service_fetch_failed");}).finally(()=>{updaterRelayKeys.pending=null;});
     }
     if(updaterRelayKeys.pending)await updaterRelayKeys.pending;
@@ -3092,12 +3108,12 @@ async function updaterIdentity(token){
   if(!key)throw Error("identity_key_unknown");
   if(!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,updaterJwtPart(pieces[2]),new TextEncoder().encode(pieces[0]+"."+pieces[1])))throw Error("identity_signature_invalid");
 }
-async function fetchUpdaterSource(request){
+async function fetchUpdaterSource(request,environment){
   const reply=(error,status)=>new Response(JSON.stringify({error}),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
   if(request.method!=="POST")return reply("method_not_allowed",405);
   const auth=request.headers.get("Authorization")||"";
   if(!auth.startsWith("Bearer "))return reply("job_identity_required",401);
-  try{await updaterIdentity(auth.slice(7));}catch(error){
+  try{await updaterIdentity(auth.slice(7),environment);}catch(error){
     const reason=/^(?:identity_[a-z_0-9]+(?::[a-z_,]+)?|invalid_identity)$/u.test(error?.message||"")?error.message:"invalid_identity";
     return new Response(JSON.stringify({error:"job_identity_rejected",reason}),{status:reason.startsWith("identity_service_")?503:403,
       headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
@@ -3147,7 +3163,7 @@ export {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/data-update/source") return fetchUpdaterSource(request);
+    if (url.pathname === "/api/data-update/source") return fetchUpdaterSource(request,environment);
     if (url.pathname.startsWith("/api/brand-management/")) return brandManagementApi.handle(request,environment);
     if (url.pathname.startsWith("/api/brand-logos") || url.pathname === "/api/brand-logo-places") return brandLogoApi.handle(request,environment);
     if (url.pathname.startsWith("/api/agent/")) return createMapAgentServer({contract:createMapAgentContract(),providers:createMapAgentProviders(),json:personalJson,readJson:readJsonBody,sameOrigin:sameOriginMutation,requireUser:requirePersonalUser,bindingsAvailable:personalBindingsAvailable}).handle(request,environment);
