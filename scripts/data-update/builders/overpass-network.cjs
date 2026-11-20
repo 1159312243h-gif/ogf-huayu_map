@@ -17,7 +17,7 @@ async function fetchWithRetry(input,init={},options={}){
     let response,retryAfter;
     try{
       response=await fetcher(input,init);
-      if(![429,502,503,504].includes(response.status)||attempt>=delays.length)return response;
+      if(!(options.retryStatuses||[429,502,503,504]).includes(response.status)||attempt>=delays.length)return response;
       const header=response.headers.get('retry-after');
       retryAfter=header===null?0:(Number.isFinite(Number(header))?Number(header)*1000:Date.parse(header)-Date.now());
       await response.body?.cancel().catch(()=>{});

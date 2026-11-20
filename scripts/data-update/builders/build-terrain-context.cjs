@@ -1,4 +1,6 @@
-const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
+const {fetchWithRetry} = require("./overpass-network.cjs");
+// Preserve this builder's existing Retry-After window and HTTP attempt budget.
+const fetch = (url, options) => fetchWithRetry(url, options, {retryStatuses: []});
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const {createHash} = require("node:crypto");
@@ -58,7 +60,7 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
     return nearby.some(({contains})=>points.some(contains));
   };
   await fs.mkdir(cacheDirectory,{recursive:true});
-  const queryElements = async query => {
+  const queryElements = async (query, splitTimeout = false) => {
     const key=createHash("sha256").update(query).digest("hex");
     const target=path.join(cacheDirectory,`context-${key}.json`);
     if (resume) {
@@ -67,8 +69,10 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       } catch {}
     }
     for (let attempt=0;attempt<3;attempt++) {
+      try {
       const response=await request("https://overpass.opengeofiction.net/api/interpreter",{
-        method:"POST",body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(150000)});
+        method:"POST",body:new URLSearchParams({data:splitTimeout?query.replace("[timeout:90]","[timeout:35]"):query}),
+        signal:AbortSignal.timeout(splitTimeout?90000:150000)});
       if (response.status===429 && attempt<2) {
         const retryAfter=response.headers.get("retry-after") || "";
         const requestedDelay=/^\s*\d+\s*$/u.test(retryAfter) ? Number(retryAfter)*1000
@@ -83,11 +87,19 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       if (!response.ok) throw Error(`Terrain context: HTTP ${response.status}`);
       const payload=await response.json();
       if (payload.remark || !Array.isArray(payload.elements)) {
+        if (splitTimeout && /timed out|timeout|out of memory/iu.test(payload.remark || "")) throw Error(payload.remark);
         if (attempt<2) continue;
         throw Error(payload.remark || "Invalid terrain context response");
       }
       await fs.writeFile(target,JSON.stringify({query,elements:payload.elements}));
       return payload.elements;
+      } catch(error) {
+        const retryable=error?.name==="TimeoutError" || error instanceof TypeError && error.message==="fetch failed";
+        if (!retryable || splitTimeout || attempt===2) throw error;
+        const delay=10000*(attempt+1);
+        console.log(`Terrain context transport timeout: retry in ${delay/1000}s`);
+        await wait(delay);
+      }
     }
   };
   const inventory=new Map();
@@ -99,7 +111,29 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       '["building"]','["leisure"~"^(garden|park|pitch|swimming_pool)$"]'];
     const query=`[out:json][timeout:90];(${filters.flatMap(filter=>[
       `way${filter}(${bbox});`,`rel["type"="multipolygon"]${filter}(${bbox});`]).join("")});out tags bb;`;
-    const items=await queryElements(query);
+    const readInventory = async (bounds, depth = 0) => {
+      const area = String(bounds.south)+","+bounds.west+","+bounds.north+","+bounds.east;
+      const boundedQuery=query.replaceAll(bbox,area);
+      try {return await queryElements(boundedQuery,true);}
+      catch(error) {
+        const timeout=error?.name==="TimeoutError" || /timed out|timeout|out of memory/iu.test(error?.message||"");
+        if (!timeout || depth>=8) throw error;
+        const midX=(bounds.west+bounds.east)/2,midY=(bounds.south+bounds.north)/2;
+        console.log("Terrain context split "+slice.id+" depth "+(depth+1));
+        const parts=[];
+        for(const part of [
+          {west:bounds.west,east:midX,south:bounds.south,north:midY},
+          {west:midX,east:bounds.east,south:bounds.south,north:midY},
+          {west:bounds.west,east:midX,south:midY,north:bounds.north},
+          {west:midX,east:bounds.east,south:midY,north:bounds.north},
+        ])parts.push(...await readInventory(part,depth+1));
+        const complete=[...new Map(parts.map(item=>[item.type+":"+item.id,item])).values()];
+        const combinedKey=createHash("sha256").update(boundedQuery).digest("hex");
+        await fs.writeFile(path.join(cacheDirectory,`context-${combinedKey}.json`),JSON.stringify({query:boundedQuery,elements:complete}));
+        return complete;
+      }
+    };
+    const items=await readInventory(b);
     for (const item of items) if (selected(item)) inventory.set(`${item.type}:${item.id}`,item);
     console.log(`Terrain context inventory ${slice.id}: ${inventory.size} mapped features`);
   }

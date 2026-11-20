@@ -38,3 +38,16 @@ const workflow=await readFile(new URL('../.github/workflows/brand-refresh.yml',i
 assert.match(workflow,/id: brands\s+continue-on-error: true/);assert.match(workflow,/id: admins\s+continue-on-error: true/);
 assert.match(workflow,/always\(\) && !cancelled\(\) && needs.refresh.outputs.changed/);assert.match(workflow,/Report any incomplete refresh/);
 console.log(JSON.stringify({status:'passed',checks:['bounded network recovery preserves requests','permanent errors and cancellation','Retry-After and response cleanup','independent catalog publication with visible failures','administrative expiry, failure recovery and bounded cache']}));
+
+const vm=await import('node:vm');
+const app=await readFile(new URL('../site/app.js',import.meta.url),'utf8');let centreReads=0;
+const boundary={osmId:1,selectionKey:'one',feature:{properties:{osm_id:1}}},features=[{properties:{osm_id:2}}];
+const checks=new QueryCache({ttl:100,now:()=>now});
+const centreContext=vm.createContext({selectedAdministrativeBoundary:boundary,administrativeDeclaredCenterChecks:checks,
+  applyCachedAdministrativeCenters(){},renderAdministrativeCenterMarkers(){},renderAdministrativeExportSelections(){},
+  administrativeExportSelections:new Map(),administrativeExportCenters:()=>[],elements:{boundaryLevelStatus:{}},setStatus(){},
+  administrativeDeclaredCentersQueryBody:()=>'',fetchAdministrativeExportPayload:async()=>{centreReads++;return {elements:[]};},resolveAdministrativeFeatureCenters(){}});
+vm.runInContext(app.match(/  async function supplementAdministrativeCenters\([^]*?\n  \}/u)[0],centreContext);
+await centreContext.supplementAdministrativeCenters(boundary,features,1,0);await centreContext.supplementAdministrativeCenters(boundary,features,1,0);assert.equal(centreReads,1);
+now+=100;await centreContext.supplementAdministrativeCenters(boundary,features,1,0);assert.equal(centreReads,2,'completed centre checks must expire along with their cached metadata');
+console.log('Administrative centre handler passed: same-region completed checks expire and actually query the source again.');

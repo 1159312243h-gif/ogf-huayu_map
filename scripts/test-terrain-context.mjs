@@ -83,3 +83,37 @@ for (const [status,headers] of [[429,{"Retry-After":"600"}],[403,{}]]) {
   assert.equal(requests,1,"access denial and waits beyond the retry budget fail without another request");
 }
 console.log("Terrain context passed: complete geometries, resume, bounded 429 backoff, Retry-After and failed-response preservation.");
+
+for(const phase of ['connect','body']){
+ let calls=0,bodyFailures=0;const waits=[];
+ assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'timeout-'+phase),
+  wait:async ms=>waits.push(ms),fetch:async(...args)=>{
+   calls++;if(phase==='connect' && calls===1)throw new DOMException('temporary timeout','TimeoutError');
+   if(phase==='body' && !args[1].body.get('data').includes('out tags bb;') && bodyFailures++===0)
+    return {ok:true,status:200,json:async()=>{throw new DOMException('temporary body timeout','TimeoutError');}};
+   return fetch(...args);
+  }}),context,'a transient '+phase+' timeout must recover the same complete context');
+ assert.deepEqual(waits,phase==='connect'?[]:[10000]);
+}
+let timeouts=0;const timeoutCache=path.join(directory,'timeouts-exhausted'),timeoutWaits=[];
+await assert.rejects(buildTerrainContext({...options,cacheDirectory:timeoutCache,wait:async ms=>timeoutWaits.push(ms),
+ fetch:async()=>{timeouts++;throw new DOMException('persistent timeout','TimeoutError');}}),{name:'TimeoutError'});
+assert.equal(timeouts,9);assert.deepEqual(timeoutWaits,[]);assert.deepEqual(await fs.readdir(timeoutCache),[]);
+console.log('Terrain context transport passed: connect/body timeout recovery, fresh bounded attempts and no failed cache writes.');
+
+const nativeFetch=globalThis.fetch;let defaultCalls=0;const defaultWaits=[];
+try{
+ globalThis.fetch=async(...args)=>++defaultCalls===1?new Response('busy',{status:429,headers:{'Retry-After':'90'}}):fetch(...args);
+ assert.deepEqual(await buildTerrainContext({...options,fetch:undefined,cacheDirectory:path.join(directory,'default-transport-rate-limit'),wait:async ms=>defaultWaits.push(ms)}),context);
+ assert.deepEqual(defaultWaits,[90000],'the shared transport must preserve the context builder HTTP retry window');
+}finally{globalThis.fetch=nativeFetch;}
+
+let splitRequests=0;
+assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'inventory-split'),wait:async()=>{},fetch:async(...args)=>{
+ const q=args[1].body.get('data');if(q.includes('out tags bb;')){splitRequests++;if(q.includes('(0,0,1,1)'))throw new DOMException('large inventory timeout','TimeoutError');}
+ return fetch(...args);
+}}),context,'four complete child inventories must preserve the same full river, lake, building and garden geometries');
+assert.equal(splitRequests,5);let depthRequests=0;
+await assert.rejects(buildTerrainContext({...options,cacheDirectory:path.join(directory,'inventory-split-limit'),wait:async()=>{},fetch:async()=>{depthRequests++;throw new DOMException('persistent timeout','TimeoutError');}}),{name:'TimeoutError'});
+assert.equal(depthRequests,9,'spatial fallback has a fixed depth and keeps a persistent outage fatal');
+console.log('Terrain context split passed: complete quadrants, identity union, original geometries and finite failure depth.');

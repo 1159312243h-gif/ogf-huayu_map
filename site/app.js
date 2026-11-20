@@ -726,7 +726,7 @@
   const administrativeExportCenterCache = new window.HuayuAdministrativeCatalog.QueryCache({max:512});
   const roadSearchCache = new Map();
   const pointOfInterestViewportCache = new Map();
-  const administrativeDeclaredCenterChecks = new Set();
+  const administrativeDeclaredCenterChecks = new window.HuayuAdministrativeCatalog.QueryCache({max:512});
   const administrativeExportSelections = new Map();
   let administrativeExportBox = null;
   let administrativeExportPolygon = null;
@@ -17749,7 +17749,7 @@
       }
       return;
     }
-    ids.forEach((id) => administrativeDeclaredCenterChecks.add(id));
+    ids.forEach((id) => administrativeDeclaredCenterChecks.set(id, true));
     try {
       const query = `[out:json][timeout:35];rel(id:${ids.join(",")})->.admins;${administrativeDeclaredCentersQueryBody()}`;
       const payload = await fetchAdministrativeExportPayload(query, 45000);
