@@ -1,4 +1,4 @@
-const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
+const {requestTerrainElements} = require("./terrain-request.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const vm = require("node:vm");
@@ -284,23 +284,9 @@ async function buildTerrainPreload(options = {}) {
       catch {}
     }
   }
-  const requestElements = async (query, label, timeout = 55000) => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const response = await (options.fetch || fetch)("https://overpass.opengeofiction.net/api/interpreter", {
-        method: "POST", body: new URLSearchParams({data: query}), signal: AbortSignal.timeout(timeout),
-      });
-      if (response.status === 429 && attempt < 2) {
-        const delay = Math.min(60000, Math.max(30000, Number(response.headers.get("Retry-After")) * 1000 || 0));
-        console.log(`Terrain rate limit ${label}: retry in ${delay / 1000}s`);
-        await (options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(delay);
-        continue;
-      }
-      if (!response.ok) throw new Error(`Terrain ${label}: HTTP ${response.status}`);
-      const payload = await response.json();
-      if (payload.remark || !Array.isArray(payload.elements)) throw new Error(payload.remark || "invalid data");
-      return payload.elements;
-    }
-  };
+  const requestElements = (query, label, timeout = 55000) => requestTerrainElements(query, label, {
+    fetch: options.fetch, wait: options.sleep, timeout,
+  });
   const fetchGeometry = async (items, label) => {
     if (!items.length) return [];
     const query = `[out:json][timeout:120];(` + ["node", "way", "relation"].map((type) => {

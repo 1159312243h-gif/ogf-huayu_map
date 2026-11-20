@@ -12,7 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
 const stateRoot = path.join(root, ".data-update");
 const builderSource = path.join(root, "scripts", "data-update", "builders");
-const datasetNames = [
+export const datasetNames = [
   "transit-preload.json",
   "transit-relations.json",
   "railway-routing.json",
@@ -391,6 +391,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     pipelineHash.update(name);
     pipelineHash.update(await fs.readFile(path.join(runDirectory, "work", name)));
   }
+  for (const name of ["app.js", "_worker.js"]) pipelineHash.update(await fs.readFile(path.join(stagedSite, name)));
   pipelineHash.update(await fs.readFile(fileURLToPath(import.meta.url)));
   pipelineHash.update(await fs.readFile(path.join(root, "scripts", "test-transit-display.mjs")));
   pipelineHash.update(await fs.readFile(path.join(stagedSite, "app.js")));
@@ -574,6 +575,8 @@ async function main() {
     if (previousReport) {
       stagedSite = path.join(runDirectory, "outputs", "ogf-atlas");
       await fs.cp(builderSource, path.join(runDirectory, "work"), { recursive: true, force: true });
+      // Reclassify cached source geometry with the current published rules.
+      for (const name of ["app.js", "_worker.js"]) await fs.copyFile(path.join(site, name), path.join(stagedSite, name));
       const originalBaseline = await loadDatasets(path.join(runDirectory, "baseline"));
       for (const name of datasetNames) {
         assert.equal(semanticHash(baselineDatasets[name]), semanticHash(originalBaseline[name]),

@@ -220,3 +220,32 @@ await staging.refresh();
 assert.ok(staging.ready);assert.ok(map.terrain,'the completed latest mesh must then take over normally');
 staging.dispose();
 console.log('Perspective terrain passed: shared elevations/contours, clearings, DEM precision, one material, model bases, cache reuse and lifecycle.');
+
+{
+  const {cacheTerrainSourceLookups} = context.HuayuTerrainPerspective;
+  const handlers = new Map(), tiles = new Map(); let reads = 0;
+  const manager = {getSourceTile(tile, fallback) {reads++; return tiles.get(tile.key + ':' + Boolean(fallback));}};
+  const original = manager.getSourceTile;
+  const fixture = {terrain:{tileManager:manager},
+    on(event,handler) {if(!handlers.has(event))handlers.set(event,new Set());handlers.get(event).add(handler);},
+    off(event,handler) {handlers.get(event)?.delete(handler);}};
+  const fire = event => {for(const handler of handlers.get(event)||[])handler();};
+  const a={dem:{height:27}}, b={dem:{height:63}}, identity={key:0};
+  tiles.set('0:true',a); tiles.set('0:false',b);
+  const dispose=cacheTerrainSourceLookups(fixture);
+  for(let i=0;i<500;i++){assert.equal(manager.getSourceTile(identity,true),a);assert.equal(manager.getSourceTile(identity,false),b);}
+  assert.equal(reads,2,'parent lookup runs once per tile and fallback flag within a task');
+  a.dem.height=29;assert.equal(manager.getSourceTile(identity,true).dem.height,29,'retain the live DEM object');
+  assert.equal(manager.getSourceTile({key:1},true),undefined);
+  tiles.set('1:true',b);fire('sourcedata');
+  assert.equal(manager.getSourceTile({key:1},true),b,'a previously absent tile appears as soon as it loads');
+  tiles.set('0:true',b);fire('styledata');assert.equal(manager.getSourceTile(identity,true),b);
+  tiles.set('0:true',a);fire('terrain');assert.equal(manager.getSourceTile(identity,true),a);
+  tiles.set('0:true',b);fire('render');assert.equal(manager.getSourceTile(identity,true),b);
+  tiles.set('0:true',a);await Promise.resolve();
+  assert.equal(manager.getSourceTile(identity,true),a,'no lookup survives its synchronous task');
+  assert.equal(original.call(manager,identity,true),manager.getSourceTile(identity,true));
+  dispose();assert.equal(manager.getSourceTile,original);assert.ok([...handlers.values()].every(set=>!set.size));
+  assert.equal(cacheTerrainSourceLookups({terrain:null}),null,'missing native hook keeps the original engine path');
+}
+console.log('Terrain lookup cache passed: live DEM identity, exact parent fallback, immediate invalidation, task expiry and disposal.');

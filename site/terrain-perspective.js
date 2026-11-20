@@ -461,6 +461,37 @@
       queue.push(job); drain();
     };
   }
+  // Reuse only source-tile identity during one synchronous terrain pass.
+  // Height interpolation, textures, matrices and GPU state remain native.
+  function cacheTerrainSourceLookups(map) {
+    const manager = map.terrain?.tileManager, original = manager?.getSourceTile;
+    if (typeof original !== "function") return null;
+    const caches = [new Map(), new Map()];
+    let pending = false, alive = true;
+    const clear = () => {for (const cache of caches) cache.clear();};
+    const wrapped = function (tile, fallback) {
+      if (!alive || this !== manager || tile?.key == null) return original.apply(this, arguments);
+      if (!pending) {
+        pending = true;
+        const reset = () => {pending = false; clear();};
+        if (root.queueMicrotask) root.queueMicrotask(reset); else Promise.resolve().then(reset);
+      }
+      const cache = caches[Number(Boolean(fallback))], key = tile.key;
+      if (cache.has(key)) return cache.get(key);
+      const value = original.apply(this, arguments);
+      if (cache.size >= 4096) cache.clear();
+      cache.set(key, value);
+      return value;
+    };
+    manager.getSourceTile = wrapped;
+    const events = ["sourcedata", "terrain", "styledata", "render"];
+    for (const event of events) map.on(event, clear);
+    return () => {
+      alive = false; clear();
+      if (manager.getSourceTile === wrapped) manager.getSourceTile = original;
+      for (const event of events) map.off(event, clear);
+    };
+  }
   let sequence = 0;
   class Controller {
     constructor(map, material, options) {
@@ -659,6 +690,7 @@
         this.map.addLayer({id: this.material.id, type: "raster", source: this.source,
           paint: {"raster-opacity": 1, "raster-fade-duration": 0}}, before);
         this.map.setTerrain({source: this.dem, exaggeration: 1});
+        this.lookupCache?.(); this.lookupCache = cacheTerrainSourceLookups(this.map);
         this.options.onChange?.();
       } else {
         this.map.getSource(this.dem).setTiles(tiles("elevation"));
@@ -677,6 +709,7 @@
       this.enabled = enabled;
       if (enabled) {this.signature = null; return this.refresh();}
       clearTimeout(this.timer);
+      this.lookupCache?.(); this.lookupCache = null;
       this.stageAbort?.abort(); this.stageAbort = null; this.ready = false;
       if (!this.map.getSource(this.dem)) return;
       this.map.setTerrain(null);
@@ -693,5 +726,5 @@
       this.pending.clear(); this.records.clear();
     }
   }
-  root.HuayuTerrainPerspective = {Controller, tileBounds, surfaceMask, surfaceCandidates, contextCandidates, tileSources, rasterize, colorize, encodeDem, shade};
+  root.HuayuTerrainPerspective = {Controller, cacheTerrainSourceLookups, tileBounds, surfaceMask, surfaceCandidates, contextCandidates, tileSources, rasterize, colorize, encodeDem, shade};
 })(typeof window === "undefined" ? globalThis : window);

@@ -35,6 +35,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Restore bounded failed-update checkpoints
+        uses: actions/cache/restore@v4
+        with:
+          path: .data-update/runs/run-*
+          key: ogf-complete-update-v1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ogf-complete-update-v1-${{ github.ref_name }}-
       - name: Recover verified repair files uploaded to the repository root
         shell: bash
         run: |
@@ -87,9 +93,10 @@ jobs:
           OGF_UPDATER_RELAY: "1"
         run: node scripts/probe-updater-relay.mjs
       - name: Rebuild and validate all generated data
+        id: rebuild
         env:
           OGF_UPDATER_RELAY: "1"
-        run: npm run data:update
+        run: node scripts/run-scheduled-data-update.mjs
       - name: Validate refreshed data
         run: |
           npm run test:data-update
@@ -129,6 +136,12 @@ jobs:
           git push origin HEAD:main
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Save failed complete-update checkpoints
+        if: failure() && steps.rebuild.outcome == 'failure'
+        uses: actions/cache/save@v4
+        with:
+          path: .data-update/runs/run-*
+          key: ogf-complete-update-v1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload update diagnostics
         if: always()
         uses: actions/upload-artifact@v4
