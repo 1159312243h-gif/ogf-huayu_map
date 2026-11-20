@@ -8,7 +8,7 @@ for(let attempt=0;attempt<30;attempt++){
   const response=await network.fetchWithRetry('https://overpass.opengeofiction.net/api/interpreter',{method:'POST',body:new URLSearchParams({data:'[out:json][timeout:10];rel(28652);out count;'}),signal:AbortSignal.timeout(45000)},{fetcher});
   if(!response.ok){
     let reason;try{reason=(await response.json()).reason;}catch{}
-    if(typeof reason==='string'&&/^identity_[a-z_]+(?::[a-z_,]+)?$/u.test(reason)){
+    if(typeof reason==='string'&&/^identity_[a-z_0-9]+(?::[a-z_,]+)?$/u.test(reason)){
       const error=Error('HTTP '+response.status+' '+reason);error.permanent=response.status===403;throw error;
     }
     throw Error('HTTP '+response.status);

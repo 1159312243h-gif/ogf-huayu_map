@@ -3077,13 +3077,13 @@ async function updaterIdentity(token){
       updaterRelayKeys.attemptAt=Date.now();
       updaterRelayKeys.pending=(async()=>{
         const response=await fetch("https://token.actions.githubusercontent.com/.well-known/jwks",{redirect:"error",signal:AbortSignal.timeout(15000)});
-        if(!response.ok)throw Error("identity_service_unavailable");
-        const payload=JSON.parse(await updaterBoundedText(response.body,65536)),keys=new Map();
-        if(!Array.isArray(payload.keys)||payload.keys.length>16)throw Error("identity_service_unavailable");
+        if(!response.ok)throw Error("identity_service_http_"+response.status);
+        let payload;try{payload=JSON.parse(await updaterBoundedText(response.body,65536));}catch{throw Error("identity_service_body_invalid");}const keys=new Map();
+        if(!Array.isArray(payload.keys)||payload.keys.length>16)throw Error("identity_service_keys_invalid");
         for(const jwk of payload.keys){if(jwk.kty!=="RSA"||jwk.alg&&jwk.alg!=="RS256"||jwk.use&&jwk.use!=="sig")continue;
-          keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}
+          try{keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}catch{throw Error("identity_service_import_failed");}}
         updaterRelayKeys.keys=keys;updaterRelayKeys.at=Date.now();
-      })().catch(()=>{throw Error("identity_service_unavailable");}).finally(()=>{updaterRelayKeys.pending=null;});
+      })().catch(error=>{throw Error(/^identity_service_[a-z_0-9]+$/u.test(error.message)?error.message:"identity_service_fetch_failed");}).finally(()=>{updaterRelayKeys.pending=null;});
     }
     if(updaterRelayKeys.pending)await updaterRelayKeys.pending;
     if(Date.now()-updaterRelayKeys.at>3600000)throw Error("identity_service_unavailable");
@@ -3098,8 +3098,8 @@ async function fetchUpdaterSource(request){
   const auth=request.headers.get("Authorization")||"";
   if(!auth.startsWith("Bearer "))return reply("job_identity_required",401);
   try{await updaterIdentity(auth.slice(7));}catch(error){
-    const reason=/^(?:identity_[a-z_]+(?::[a-z_,]+)?|invalid_identity)$/u.test(error?.message||"")?error.message:"invalid_identity";
-    return new Response(JSON.stringify({error:"job_identity_rejected",reason}),{status:reason==="identity_service_unavailable"?503:403,
+    const reason=/^(?:identity_[a-z_0-9]+(?::[a-z_,]+)?|invalid_identity)$/u.test(error?.message||"")?error.message:"invalid_identity";
+    return new Response(JSON.stringify({error:"job_identity_rejected",reason}),{status:reason.startsWith("identity_service_")?503:403,
       headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
   }
   let query;
