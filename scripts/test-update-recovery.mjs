@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import network from './data-update/builders/overpass-network.cjs';
+import '../site/admin-catalog.js';
+const {fetchWithRetry}=network;
+const endpoint='https://overpass.opengeofiction.net/api/interpreter';
+const init={method:'POST',body:new URLSearchParams({data:'[out:json];rel(28652);out tags;'}),signal:new AbortController().signal};
+let attempts=0;const sleeps=[];
+const response=await fetchWithRetry(endpoint,init,{fetcher:async(url,options)=>{
+  assert.equal(url,endpoint);assert.equal(options,init);
+  if(++attempts<3)throw new TypeError('fetch failed',{cause:{code:'UND_ERR_CONNECT_TIMEOUT'}});
+  return new Response('{"complete":true}');
+},sleep:async ms=>sleeps.push(ms),warn:()=>{}});
+assert.deepEqual(await response.json(),{complete:true});assert.equal(attempts,3);assert.deepEqual(sleeps,[10000,30000]);
+attempts=0;
+await assert.rejects(fetchWithRetry(endpoint,init,{fetcher:async()=>{attempts++;throw new TypeError('fetch failed');},sleep:async()=>{},warn:()=>{}}),/fetch failed/);
+assert.equal(attempts,3,'persistent outages must fail with a bounded attempt count');
+for(const code of [400,401,403,404,410]){
+ attempts=0;assert.equal((await fetchWithRetry(endpoint,init,{fetcher:async()=>{attempts++;return new Response('invalid',{status:code});}})).status,code);assert.equal(attempts,1);
+}
+let cancelled=0;attempts=0;sleeps.length=0;
+await fetchWithRetry(endpoint,init,{fetcher:async()=>++attempts===1?new Response(new ReadableStream({cancel(){cancelled++;}}),{status:429,headers:{'Retry-After':'45'}}):new Response('complete'),sleep:async ms=>sleeps.push(ms),warn:()=>{}});
+assert.deepEqual(sleeps,[45000]);assert.equal(cancelled,1);
+attempts=0;await assert.rejects(fetchWithRetry(endpoint,init,{fetcher:async()=>{attempts++;return new Response('busy',{status:429,headers:{'Retry-After':'180'}});},sleep:async()=>{throw Error('must not wait beyond budget');},warn:()=>{}}),/retry window/);assert.equal(attempts,1);
+const controller=new AbortController();attempts=0;
+await assert.rejects(fetchWithRetry(endpoint,{signal:controller.signal},{fetcher:async()=>{attempts++;controller.abort();throw new TypeError('fetch failed');},sleep:async()=>{throw Error('cancel must not retry');},warn:()=>{}}));assert.equal(attempts,1);
+attempts=0;await assert.rejects(fetchWithRetry('https://opengeofiction.net/api/0.6/way/1/full.json',init,{fetcher:async()=>{attempts++;throw new TypeError('fetch failed');},sleep:async()=>{throw Error('unrelated endpoint must retain original behavior');}}));assert.equal(attempts,1);
+attempts=0;const incomplete=await fetchWithRetry(endpoint,init,{fetcher:async()=>{attempts++;return new Response('{"remark":"runtime error: Query timed out","elements":[]}');}});assert.ok((await incomplete.json()).remark);assert.equal(attempts,1,'incomplete bodies remain subject to original completeness validation');
+const {QueryCache}=globalThis.HuayuAdministrativeCatalog;
+let now=0;const cache=new QueryCache({ttl:100,max:2,now:()=>now});
+let resolve;const pending=new Promise(r=>{resolve=r;});cache.set('a',pending);now=500;assert.equal(cache.get('a'),pending,'one slow query is shared until it settles');resolve({name:'old'});await pending;
+now=599;assert.equal(await cache.get('a'),await pending);now=600;assert.equal(cache.get('a'),undefined,'reading must not renew cache age');
+const failure=Promise.reject(Error('offline'));cache.set('a',failure);await failure.catch(()=>{});assert.equal(cache.has('a'),false,'failed queries must be retryable');
+cache.set('empty',Promise.resolve(null));await Promise.resolve();assert.equal(cache.has('empty'),false);
+let rejectOld;const old=new Promise((_,reject)=>{rejectOld=reject;});cache.set('a',old);const newer=Promise.resolve({name:'new'});cache.set('a',newer);rejectOld(Error('late failure'));await old.catch(()=>{});assert.equal(cache.get('a'),newer,'late failures must not remove a newer complete read');
+cache.set('b',{name:'B'});cache.set('c',{name:'C'});assert.equal(cache.size,2);assert.equal(cache.has('a'),false);now+=100;assert.equal(cache.has('c'),false);
+const workflow=await readFile(new URL('../.github/workflows/brand-refresh.yml',import.meta.url),'utf8');
+assert.match(workflow,/id: brands\s+continue-on-error: true/);assert.match(workflow,/id: admins\s+continue-on-error: true/);
+assert.match(workflow,/always\(\) && !cancelled\(\) && needs.refresh.outputs.changed/);assert.match(workflow,/Report any incomplete refresh/);
+console.log(JSON.stringify({status:'passed',checks:['bounded network recovery preserves requests','permanent errors and cancellation','Retry-After and response cleanup','independent catalog publication with visible failures','administrative expiry, failure recovery and bounded cache']}));

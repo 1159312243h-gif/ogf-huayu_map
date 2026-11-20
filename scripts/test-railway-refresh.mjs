@@ -46,7 +46,7 @@ const run = path.join(directory, "builder");
 for (const folder of ["work", "outputs/ogf-atlas", "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19"]) {
   fs.mkdirSync(path.join(run, folder), {recursive: true});
 }
-for (const name of ["build-railway-routing.cjs", "refresh-railway-ways.cjs", "restore-v215-railway-stations.cjs", "remap-compact-route-indexes.cjs"]) {
+for (const name of ["overpass-network.cjs", "build-railway-routing.cjs", "refresh-railway-ways.cjs", "restore-v215-railway-stations.cjs", "remap-compact-route-indexes.cjs"]) {
   fs.copyFileSync(path.join(root, "scripts/data-update/builders", name), path.join(run, "work", name));
 }
 const write = (name, data) => fs.writeFileSync(path.join(run, name), JSON.stringify(data));

@@ -27,9 +27,15 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/test-brands.mjs
-      - run: node scripts/update-brand-catalog.mjs
+      - name: Refresh brand catalog independently
+        id: brands
+        continue-on-error: true
+        run: node scripts/update-brand-catalog.mjs
       - run: node scripts/test-admin-catalog.mjs
-      - run: node scripts/update-admin-catalog.mjs
+      - name: Refresh administrative catalog independently
+        id: admins
+        continue-on-error: true
+        run: node scripts/update-admin-catalog.mjs
       - run: npm run manifest:update
       - name: Validate the complete site before publishing
         run: |
@@ -39,6 +45,7 @@ jobs:
           npm run check:data
       - name: Commit validated catalog
         id: commit
+        if: steps.brands.outcome == 'success' || steps.admins.outcome == 'success'
         shell: bash
         run: |
           git fetch origin main
@@ -58,9 +65,15 @@ jobs:
           git push origin HEAD:main
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Report any incomplete refresh
+        if: steps.brands.outcome != 'success' || steps.admins.outcome != 'success'
+        run: |
+          echo "::error::A catalog refresh failed. Independently completed and validated catalogs were committed; the failed catalog retains its previous source time."
+          exit 1
+
   deploy:
     needs: refresh
-    if: needs.refresh.outputs.changed == 'true'
+    if: always() && !cancelled() && needs.refresh.outputs.changed == 'true'
     runs-on: ubuntu-latest
     environment: production
     concurrency:

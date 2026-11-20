@@ -1,3 +1,4 @@
+const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const vm = require("node:vm");

@@ -719,11 +719,11 @@
     if (!artifact?.id || !(artifact.blob instanceof Blob)) return;
     if (!addFeatureDownloadEntries([{artifact, id: artifact.id, addedAt: new Date().toISOString()}])) event.preventDefault();
   });
-  const administrativeBoundaryCache = new Map();
-  const administrativeCenterCache = new Map();
-  const administrativeLevelCache = new Map();
-  const administrativeDivisionCache = new Map();
-  const administrativeExportCenterCache = new Map();
+  const administrativeBoundaryCache = new window.HuayuAdministrativeCatalog.QueryCache();
+  const administrativeCenterCache = new window.HuayuAdministrativeCatalog.QueryCache();
+  const administrativeLevelCache = new window.HuayuAdministrativeCatalog.QueryCache();
+  const administrativeDivisionCache = new window.HuayuAdministrativeCatalog.QueryCache();
+  const administrativeExportCenterCache = new window.HuayuAdministrativeCatalog.QueryCache({max:512});
   const roadSearchCache = new Map();
   const pointOfInterestViewportCache = new Map();
   const administrativeDeclaredCenterChecks = new Set();
@@ -18502,13 +18502,14 @@
       .sort((a, b) => a - b);
   }
 
-  async function loadAdministrativeLevelCatalog() {
+  async function loadAdministrativeLevelCatalog(event) {
     const boundary = selectedAdministrativeBoundary;
     if (!boundary?.osmId) return;
     const boundaryId = boundary.osmId;
     elements.boundaryLevelsButton.disabled = true;
     setStatus(elements.boundaryLevelStatus, "正在读取下级行政层级…");
     try {
+      if (event?.type === "click") administrativeLevelCache.delete(boundaryId);
       let promise = administrativeLevelCache.get(boundaryId);
       if (!promise) {
         const query = `[out:json][timeout:35];rel(${boundaryId})->.root;.root out tags center;.root map_to_area->.scope;rel(area.scope)["boundary"="administrative"]["admin_level"];out tags center;`;
@@ -18577,16 +18578,16 @@
     elements.boundaryLoadButton.disabled = true;
   }
 
-  async function loadSelectedAdministrativeDivisions() {
+  async function loadSelectedAdministrativeDivisions(event) {
     const boundary = selectedAdministrativeBoundary;
     const levels = selectedAdministrativeLevels();
     if (!boundary?.osmId || !levels.length) return;
     const boundaryId = boundary.osmId;
     const cacheKey = `${boundaryId}:${levels.join(",")}`;
     elements.boundaryLoadButton.disabled = true;
-    renderAdministrativeDivisionAreaTable([]);
     setStatus(elements.boundaryLevelStatus, "正在加载所选层级的真实行政边界…");
     try {
+      if (event?.type === "click") administrativeDivisionCache.delete(cacheKey);
       let promise = administrativeDivisionCache.get(cacheKey);
       if (!promise) {
         const pattern = `^(${levels.join("|")})$`;
@@ -18599,6 +18600,12 @@
       }
       const features = await promise;
       if (selectedAdministrativeBoundary?.osmId !== boundaryId) return;
+      if (event?.type === "click") for (const feature of [boundary.feature, ...features]) {
+        const id = Number(feature.properties.osm_id);
+        administrativeExportCenterCache.delete(id);
+        administrativeDeclaredCenterChecks.delete(id);
+        delete feature.properties.center_checked;
+      }
       resetAdministrativeDivisionHover();
       placeSubdivisionHaloLayer.clearLayers();
       placeSubdivisionLayer.clearLayers();
@@ -20722,7 +20729,7 @@
     return `[out:json][timeout:20];rel["boundary"="administrative"]["admin_level"="${level}"](${bbox})->.adminRelations;(`
       + (group === "road" ? `node["place"="state"](${bbox});` : "")
       + `.adminRelations;node(r.adminRelations:"label");node(r.adminRelations:"admin_centre");`
-      + `node(r.adminRelations:"admin_center"););out body center;`;
+      + `node(r.adminRelations:"admin_center"););out body center;out count;`;
   }
 
   function applyHuayuAdministrativeLabels(glMap, state) {
@@ -20776,16 +20783,30 @@
     const statusKey = group === "province" ? "huayuAdminProvinceStatus" : "huayuAdminRoadStatus";
     if (mapElement) mapElement.dataset[statusKey] = "loading";
     try {
-      const payload = await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 25000);
+      const payload = await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 25000, {cache:"no-store"});
       if (requestId !== state[requestIdKey] || !isHuayuBasemapSelected()) return;
+      const counts = payload?.elements?.filter(element => element.type === "count");
+      const elements = payload?.elements?.filter(element => element.type !== "count");
+      if (payload?.remark || counts?.length !== 1 || !/^\d+$/u.test(String(counts[0].tags?.total ?? ""))
+        || Number(counts[0].tags.total) !== elements?.length
+        || elements.some(element => !["node", "relation"].includes(element.type) || !Number.isSafeInteger(element.id) || element.id <= 0)
+        || new Set(elements.map(element => element.type + ":" + element.id)).size !== elements.length
+        || !Number.isFinite(Date.parse(payload.osm3s?.timestamp_osm_base))) throw Error("行政标注响应不完整");
       state[queryBoundsKey] = queryBounds;
-      state[elementsKey] = Array.isArray(payload.elements) ? payload.elements : [];
+      state[elementsKey] = elements;
+      state[group + "FetchedAt"] = Date.now();
+      state[group + "SourceTime"] = payload.osm3s.timestamp_osm_base;
+      state[group + "RetryAt"] = 0;
       state[pendingBoundsKey] = null;
       applyHuayuAdministrativeLabels(glMap, state);
-      if (mapElement) mapElement.dataset[statusKey] = `ready:${state[elementsKey].length}`;
+      if (mapElement) {
+        mapElement.dataset[statusKey] = `ready:${state[elementsKey].length}`;
+        mapElement.dataset[statusKey + "SourceTime"] = state[group + "SourceTime"];
+      }
     } catch (error) {
       if (requestId === state[requestIdKey]) {
         state[pendingBoundsKey] = null;
+        state[group + "RetryAt"] = Date.now() + 30000;
         if (mapElement) mapElement.dataset[statusKey] = `failed:${error?.message || error}`;
       }
       // The vector-tile labels remain available when a live supplement is offline.
@@ -20794,7 +20815,7 @@
 
   function refreshHuayuAdministrativeLabels(glMap) {
     const state = huayuAdminLabelStates.get(glMap);
-    if (!state || !isHuayuBasemapSelected() || !ensureHuayuAdministrativeLabelLayer(glMap)) return;
+    if (!state || document.hidden || !isHuayuBasemapSelected() || !ensureHuayuAdministrativeLabelLayer(glMap)) return;
     const zoom = glMap.getZoom();
     const visibleBounds = huayuAdministrativeQueryBounds(glMap);
     if (!visibleBounds || zoom < 4.25 || zoom >= 7) {
@@ -20808,16 +20829,18 @@
     applyHuayuAdministrativeLabels(glMap, state);
     const queryBounds = paddedHuayuAdministrativeBounds(visibleBounds);
     const bbox = `${queryBounds.south.toFixed(6)},${queryBounds.west.toFixed(6)},${queryBounds.north.toFixed(6)},${queryBounds.east.toFixed(6)}`;
-    const roadCovered = huayuAdministrativeBoundsContain(state.roadQueryBounds, visibleBounds)
+    const roadCovered = (Date.now() - (state.roadFetchedAt || 0) < 5 * 60 * 1000
+      && huayuAdministrativeBoundsContain(state.roadQueryBounds, visibleBounds))
       || huayuAdministrativeBoundsContain(state.roadPendingBounds, visibleBounds);
-    if (!roadCovered) {
+    if (!roadCovered && Date.now() >= (state.roadRetryAt || 0)) {
       const roadQuery = huayuAdministrativeLabelQuery("road", bbox);
       loadHuayuAdministrativeLabelGroup(glMap, state, "road", queryBounds, roadQuery);
     }
     if (zoom >= 5.5) {
-      const provinceCovered = huayuAdministrativeBoundsContain(state.provinceQueryBounds, visibleBounds)
+      const provinceCovered = (Date.now() - (state.provinceFetchedAt || 0) < 5 * 60 * 1000
+        && huayuAdministrativeBoundsContain(state.provinceQueryBounds, visibleBounds))
         || huayuAdministrativeBoundsContain(state.provincePendingBounds, visibleBounds);
-      if (!provinceCovered) {
+      if (!provinceCovered && Date.now() >= (state.provinceRetryAt || 0)) {
         const provinceQuery = huayuAdministrativeLabelQuery("province", bbox);
         loadHuayuAdministrativeLabelGroup(glMap, state, "province", queryBounds, provinceQuery);
       }
@@ -20848,6 +20871,9 @@
     state.onMoveEnd = () => scheduleHuayuAdministrativeLabels(glMap);
     huayuAdminLabelStates.set(glMap, state);
     glMap.on("moveend", state.onMoveEnd);
+    state.recheckTimer = window.setInterval(() => {
+      if (!document.hidden && isHuayuBasemapSelected()) scheduleHuayuAdministrativeLabels(glMap, 0);
+    }, 30000);
     scheduleHuayuAdministrativeLabels(glMap, 0);
   }
 
@@ -20855,6 +20881,7 @@
     const state = glMap && huayuAdminLabelStates.get(glMap);
     if (!state) return;
     window.clearTimeout(state.timer);
+    window.clearInterval(state.recheckTimer);
     state.roadRequestId += 1;
     state.provinceRequestId += 1;
     glMap.off("moveend", state.onMoveEnd);

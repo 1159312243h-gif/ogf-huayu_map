@@ -34,7 +34,7 @@ assert.deepEqual(Array.from(context.huayuAdministrativeLabelCoordinate(both,new 
 for(const group of ["road","province"]){
   const query=context.huayuAdministrativeLabelQuery(group,"7,147,14,154");
   assert.ok(query.includes('node(r.adminRelations:"label")')&&query.includes('node(r.adminRelations:"admin_centre")')
-    &&query.endsWith("out body center;"),"label members must be fetched even outside viewport bounds");
+    &&query.endsWith("out body center;out count;"),"label members must be fetched even outside viewport bounds");
 }
 console.log("Administrative labels passed: designated anchors, priority, missing nodes, fallback and no duplicate city labels.");
 const layerContext=vm.createContext({HUAYU_ADMIN_LABEL_SOURCE:"labels",HUAYU_ADMIN_PROVINCE_LABEL_LAYER:"provinces",
@@ -77,3 +77,47 @@ for (const file of ["huayu-style.json", "huayu-night-style.json"]) {
     "city borders keep higher visual priority than township borders");
 }
 console.log("Administrative boundaries passed: city/county hierarchy and upper-level borders retained at close scales.");
+
+// Exercise real label refresh handlers in one unchanged viewport, including complete deletions.
+let now=1000000,upstream,nextCalls=0;
+const labels=vm.createContext({Date:class extends Date{static now(){return now;}},URLSearchParams,
+  document:{hidden:false,getElementById:()=>mapElement},OVERPASS_URL:'https://overpass.opengeofiction.net/api/interpreter',
+  fetchJson:async()=>{nextCalls++;return upstream;},isHuayuBasemapSelected:()=>true,
+  applyHuayuAdministrativeLabels:()=>{},ensureHuayuAdministrativeLabelLayer:()=>true,
+  huayuAdminLabelStates:new WeakMap(),HUAYU_ADMIN_LABEL_SOURCE:'labels'});
+for(const name of ['loadHuayuAdministrativeLabelGroup','huayuAdministrativeBoundsContain','huayuAdministrativeLabelQuery',
+  'refreshHuayuAdministrativeLabels','activateHuayuAdministrativeLabels','deactivateHuayuAdministrativeLabels']){
+ const source=app.match(new RegExp('  (?:async )?function '+name+'\\([^]*?\\n  \\}','u'))?.[0];assert.ok(source,name);vm.runInContext(source,labels);
+}
+const state={roadRequestId:0,provinceRequestId:0,roadElements:[city],roadFetchedAt:now-300001,
+  provinceElements:[capital],provinceFetchedAt:now-300001};
+const bounds={south:7,west:147,north:14,east:154};
+upstream={osm3s:{timestamp_osm_base:'2026-11-20T06:00:00Z'},elements:[{...province,tags:{...province.tags,name:'新省名'}},{type:'count',tags:{total:'1'}}]};
+await labels.loadHuayuAdministrativeLabelGroup({},state,'province',bounds,'query');
+assert.equal(state.provinceElements[0].tags.name,'新省名');assert.equal(state.provinceFetchedAt,now);assert.equal(state.provinceSourceTime,upstream.osm3s.timestamp_osm_base);
+const complete=state.provinceElements,sourceTime=state.provinceSourceTime;
+for(const invalid of [{...upstream,remark:'runtime error: Query timed out'},
+  {...upstream,elements:[province,{type:'count',tags:{total:'2'}}]},
+  {...upstream,osm3s:{}}, {...upstream,elements:[province,province,{type:'count',tags:{total:'2'}}]}]){
+ upstream=invalid;await labels.loadHuayuAdministrativeLabelGroup({},state,'province',bounds,'query');
+ assert.equal(state.provinceElements,complete);assert.equal(state.provinceSourceTime,sourceTime);assert.equal(state.provinceRetryAt,now+30000);
+}
+upstream={osm3s:{timestamp_osm_base:sourceTime},elements:[{type:'count',tags:{total:'0'}}]};
+await labels.loadHuayuAdministrativeLabelGroup({},state,'province',bounds,'query');assert.equal(state.provinceElements.length,0,'complete empty source removes obsolete live labels');
+const map={getZoom:()=>6,getSource:()=>({setData(){}}),on(){},off(){}};
+labels.huayuAdministrativeQueryBounds=()=>bounds;labels.paddedHuayuAdministrativeBounds=x=>x;
+labels.huayuAdminLabelStates.set(map,state);let groups=[];
+labels.loadHuayuAdministrativeLabelGroup=(_map,s,group,b)=>{groups.push(group);s[group+'PendingBounds']=b;};
+state.roadQueryBounds=bounds;state.provinceQueryBounds=bounds;state.roadFetchedAt=now;state.provinceFetchedAt=now;
+labels.refreshHuayuAdministrativeLabels(map);assert.equal(groups.length,0,'fresh in-range labels do not refetch');
+now+=300000;labels.refreshHuayuAdministrativeLabels(map);assert.deepEqual(groups,['road','province'],'both groups refresh without moving the map');
+labels.refreshHuayuAdministrativeLabels(map);assert.equal(groups.length,2,'one in-flight refresh is shared');
+state.roadPendingBounds=null;state.provincePendingBounds=null;state.roadRetryAt=now+30000;state.provinceRetryAt=now+30000;
+labels.refreshHuayuAdministrativeLabels(map);assert.equal(groups.length,2,'offline retries stay bounded');
+now+=30000;labels.document.hidden=true;labels.refreshHuayuAdministrativeLabels(map);assert.equal(groups.length,2,'background pages do not poll');
+const timers=new Map();let timer=0;
+labels.window={setInterval:callback=>{timers.set(++timer,callback);return timer;},clearInterval:id=>timers.delete(id),clearTimeout(){}};
+labels.scheduleHuayuAdministrativeLabels=()=>{};const another={on(){},off(){}};
+labels.activateHuayuAdministrativeLabels(another);assert.equal(timers.size,1);labels.activateHuayuAdministrativeLabels(another);assert.equal(timers.size,1);
+labels.deactivateHuayuAdministrativeLabels(another);assert.equal(timers.size,0,'leaving the map removes the periodic check');
+console.log('Administrative refresh passed: same-view expiry, source timestamps, complete replacement/deletion, incomplete-response retention, bounded recovery, background suspension and timer cleanup.');

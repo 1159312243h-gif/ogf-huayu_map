@@ -1,3 +1,4 @@
+const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
 const { readFile, writeFile } = require("node:fs/promises");
 
 const target = "work/huaxia-country-boundary.json";

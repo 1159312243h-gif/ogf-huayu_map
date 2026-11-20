@@ -1,3 +1,4 @@
+const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
 const { mkdir, readFile, writeFile } = require("node:fs/promises");
 
 const endpoint = "https://overpass.opengeofiction.net/api/interpreter";

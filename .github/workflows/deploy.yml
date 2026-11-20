@@ -20,8 +20,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.checked.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
+        id: checked
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -41,6 +46,8 @@ jobs:
         run: echo "::warning::Cloudflare deployment skipped. Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the production environment."
       - uses: actions/checkout@v4
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
       - uses: actions/setup-node@v4
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         with:

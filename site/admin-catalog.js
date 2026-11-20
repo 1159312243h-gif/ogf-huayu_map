@@ -31,6 +31,26 @@
     if(previous&&result.total<validate(previous).total*.6)throw Error("行政区数量异常缩减，保留完整旧清单");
     return result;
   }
+  // Keep concurrent reads shared, but never retain failed or expired administrative lookups forever.
+  class QueryCache extends Map{
+    constructor({ttl=5*60*1000,max=64,now=()=>Date.now()}={}){super();this.ttl=ttl;this.max=max;this.now=now;}
+    get(key){
+      const entry=super.get(key);if(!entry)return undefined;
+      if(entry.expiresAt!==null&&entry.expiresAt<=this.now()){super.delete(key);return undefined;}
+      super.delete(key);super.set(key,entry);return entry.value;
+    }
+    has(key){return this.get(key)!==undefined;}
+    set(key,value){
+      const entry={value,expiresAt:value?.then?null:this.now()+this.ttl};
+      super.delete(key);super.set(key,entry);
+      while(this.size>this.max)super.delete(this.keys().next().value);
+      if(value?.then)Promise.resolve(value).then(result=>{
+        if(super.get(key)!==entry)return;
+        if(result==null)super.delete(key);else entry.expiresAt=this.now()+this.ttl;
+      },()=>{if(super.get(key)===entry)super.delete(key);});
+      return this;
+    }
+  }
   class Loader{
     constructor({fetcher=root.fetch?.bind(root),storage,now=()=>Date.now()}={}){
       this.fetcher=fetcher;this.now=now;this.current=null;this.pending=null;this.pendingLive=false;this.listeners=new Set();
@@ -84,5 +104,5 @@
       return this.refresh();
     }
   }
-  root.HuayuAdministrativeCatalog=Object.freeze({RELATION,TTL,KEY,query,validate,build,Loader});
+  root.HuayuAdministrativeCatalog=Object.freeze({RELATION,TTL,KEY,query,validate,build,QueryCache,Loader});
 })(globalThis);

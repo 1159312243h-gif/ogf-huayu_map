@@ -167,15 +167,25 @@
     });
   }
 
+  function tileFreshness(headers, now = Date.now()) {
+    const original = headers.get("cache-control") || "";
+    const match = original.match(/(?:^|[,\s])max-age\s*=\s*(\d+)/iu);
+    const seconds = /no-cache|no-store/iu.test(original) ? 0 : Math.min(300, match ? Number(match[1]) : 300);
+    const maximum = now + seconds * 1000;
+    const expires = Date.parse(headers.get("expires"));
+    return {cacheControl: "public, max-age=" + seconds + ", must-revalidate",
+      expires: new Date(Number.isFinite(expires) ? Math.min(expires, maximum) : maximum).toUTCString()};
+  }
+
   function install(library) {
     if (installed) return;
     library.addProtocol("huayu-buildings", async (params, controller) => {
-      const response = await fetch(params.url.slice(PREFIX.length), {signal:controller.signal});
+      const response = await fetch(params.url.slice(PREFIX.length), {signal:controller.signal, cache:"no-cache"});
       if (!response.ok) throw Error(`Vector tile HTTP ${response.status}`);
       const original = await response.arrayBuffer();
       const data = await processTile(original, controller.signal);
       if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      return {data, cacheControl:response.headers.get("cache-control"), expires:response.headers.get("expires")};
+      return {data, ...tileFreshness(response.headers)};
     });
     installed = true;
   }
@@ -193,5 +203,5 @@
       root.postMessage({id:data.id, buffer}, [buffer]);
     };
   }
-  root.HuayuBuildingTiles = {VERSION, normalizeTile, install, request};
+  root.HuayuBuildingTiles = {VERSION, normalizeTile, tileFreshness, install, request};
 })(typeof window !== "undefined" ? window : globalThis);

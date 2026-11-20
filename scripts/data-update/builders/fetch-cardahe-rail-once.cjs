@@ -1,3 +1,4 @@
+const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
 const fs = require("node:fs");
 
 const countryArea = 3600305055;

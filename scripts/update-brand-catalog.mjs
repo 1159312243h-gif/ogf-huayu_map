@@ -2,6 +2,8 @@ import {readFile, writeFile, rename, unlink} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import "../site/brand-data.js";
+import overpassNetwork from "./data-update/builders/overpass-network.cjs";
+const {fetchWithRetry: fetch} = overpassNetwork;
 
 const {aggregate, validateCatalog, namedFacility, namedFacilityQuery, recognizeBrands} = globalThis.HuayuBrandData;
 const endpoint = "https://overpass.opengeofiction.net/api/interpreter";

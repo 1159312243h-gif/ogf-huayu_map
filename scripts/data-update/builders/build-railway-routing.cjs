@@ -1,3 +1,4 @@
+const {fetchWithRetry: fetch} = require("./overpass-network.cjs");
 const fs = require("node:fs");
 const {gzipSync} = require("node:zlib");
 const {createHash} = require("node:crypto");

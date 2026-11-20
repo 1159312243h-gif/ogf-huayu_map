@@ -134,7 +134,10 @@ api.install(library);api.install(library);assert.equal(installed,1);
 const url="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app/data/openmaptiles/14/15152/7518.pbf";
 const controller=new AbortController(),result=await protocol(api.request(url,"Tile"),controller);
 assert.equal(networkUrl,url);assert.equal(requestSignal,controller.signal);
-assert.equal(result.cacheControl,"public, max-age=300","preserve original cache freshness headers");
+assert.equal(result.cacheControl,"public, max-age=300, must-revalidate","cap long-lived basemap caching without extending shorter upstream freshness");
+assert.equal(api.tileFreshness(new Headers({"cache-control":"public, max-age=14400"}),0).cacheControl,"public, max-age=300, must-revalidate");
+assert.equal(api.tileFreshness(new Headers({"cache-control":"public, max-age=60"}),0).cacheControl,"public, max-age=60, must-revalidate");
+assert.equal(api.tileFreshness(new Headers({"cache-control":"no-store"}),0).cacheControl,"public, max-age=0, must-revalidate");
 assert.equal(read(result.data).layers.building.length,3,"production protocol must actually use worker normalization");
 for(const [candidate,type] of [[url,"Glyphs"],["https://other.test/data/openmaptiles/1.pbf","Tile"],
   [url.replace("/data/openmaptiles/14/15152/7518.pbf","/fonts/Noto/0-255.pbf"),"Tile"]])
