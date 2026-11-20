@@ -17,7 +17,7 @@ const run=req=>worker.fetch(req,{ASSETS:{fetch:async()=>new Response(null,{statu
 try{
  globalThis.fetch=async(url,init)=>{
   if(url==='https://token.actions.githubusercontent.com/.well-known/jwks'){keyCalls++;assert.equal(init.redirect,'error');return new Response(JSON.stringify({keys:[jwk]}));}
-  assert.equal(url,source,'the maintenance route cannot select another upstream');sourceCalls++;assert.equal(init.body.get('data'),query);assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');assert.equal(new Headers(init.headers).has('authorization'),false);
+  assert.equal(new URL(url).origin+new URL(url).pathname,source,'the maintenance route cannot select another upstream');sourceCalls++;assert.equal(init.method==='POST'?init.body.get('data'):new URL(url).searchParams.get('data'),query);assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');assert.equal(new Headers(init.headers).has('authorization'),false);
   if(mode==='rate')return new Response(null,{status:429,headers:{'Retry-After':'90'}});
   if(mode==='hold')return new Response(new ReadableStream({pull(){return new Promise(()=>{});}}));
   if(mode==='oversize'){let n=0;return new Response(new ReadableStream({pull(c){if(n++<65)c.enqueue(new Uint8Array(1024*1024));else c.close();}}));}
@@ -70,7 +70,7 @@ try{
  let freshSourceCalls=0;
  globalThis.fetch=async(url,init)=>{
   if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')throw new TypeError('fetch failed');
-  assert.equal(url,source);freshSourceCalls++;return new Response(raw);
+  assert.equal(new URL(url).origin+new URL(url).pathname,source);freshSourceCalls++;return new Response(raw);
  };
  const fallbackWorker=(await import('../site/_worker.js?fresh-jwks-fallback')).default;
  const environment={ASSETS:{fetch:async req=>{assert.equal(new URL(req.url).pathname,'/updater-jwks.json');return new Response(JSON.stringify(bundle));}}};
@@ -84,4 +84,20 @@ try{
  }
  assert.equal(freshSourceCalls,1);
  console.log('Updater public-key fallback passed: actual Worker signatures, official source, seven-day expiry, no private keys or arbitrary trust and source requests remain protected.');
+}finally{globalThis.fetch=nativeFetch;}
+
+try{
+ let posts=0,gets=0;
+ globalThis.fetch=async(url,init)=>{
+  if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')return new Response(JSON.stringify({keys:[jwk]}));
+  assert.equal(new Headers(init.headers).has('authorization'),false);assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');
+  if(init.method==='GET'){gets++;assert.equal(new URL(url).origin+new URL(url).pathname,source);assert.equal(new URL(url).searchParams.get('data'),query);throw new TypeError('fetch failed');}
+  posts++;assert.equal(init.method,'POST');assert.ok(init.body.get('data').startsWith(query));if(init.body.get('data').length>14000)throw new TypeError('fetch failed');return new Response(raw);
+ };
+ const recovered=await worker.fetch(request(),{ASSETS:{fetch:async()=>new Response(null,{status:404})}},{});
+ assert.equal(recovered.status,200);assert.equal(recovered.headers.get('x-huayu-source-method'),'POST');
+ assert.equal(await new Response(recovered.body.pipeThrough(new DecompressionStream('gzip'))).text(),raw);assert.equal(posts,1);assert.equal(gets,1);
+ const tooLong=query+' '.repeat(15000);const longResponse=await worker.fetch(request(valid,{query:tooLong}),{},{});
+ assert.equal(longResponse.status,502);assert.equal(posts,2);assert.equal(gets,1,'long queries cannot be forced into URLs');
+ console.log('Updater method recovery passed: GET-first identical short read-only query, pinned origin, unchanged bytes, no forwarded identity and long-query bound.');
 }finally{globalThis.fetch=nativeFetch;}

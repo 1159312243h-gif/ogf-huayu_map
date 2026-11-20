@@ -3129,8 +3129,17 @@ async function fetchUpdaterSource(request,environment){
   const onAbort=()=>{abort();finish();};
   request.signal.addEventListener("abort",onAbort,{once:true});timer=setTimeout(onAbort,240000);if(request.signal.aborted)onAbort();
   try{
-    const response=await fetch("https://overpass.opengeofiction.net/api/interpreter",{method:"POST",redirect:"error",credentials:"omit",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","Accept":"application/json"},body:new URLSearchParams({data:query}),signal:controller.signal});
+    const source="https://overpass.opengeofiction.net/api/interpreter";
+    const encoded=new URLSearchParams({data:query}).toString(),short=encoded.length<=14000;
+    let response,sourceMethod=short?"GET":"POST";
+    const read=method=>fetch(source+(method==="GET"?"?"+encoded:""),{method,redirect:"error",credentials:"omit",
+      headers:{Accept:"application/json",...(method==="POST"?{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"}:{})},
+      ...(method==="POST"?{body:new URLSearchParams({data:query})}:{}),signal:controller.signal});
+    try{response=await read(sourceMethod);}
+    catch(error){
+      if(controller.signal.aborted||!short)throw error;
+      sourceMethod="POST";response=await read(sourceMethod);
+    }
     if(!response.ok){await response.body?.cancel().catch(()=>{});finish();return new Response(null,{status:response.status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"10"}});}
     if(!response.body)throw Error("empty_source");
     const reader=response.body.getReader();let bytes=0;
@@ -3138,7 +3147,7 @@ async function fetchUpdaterSource(request,environment){
       bytes+=value.length;if(bytes>64*1024*1024)throw Error("source_response_too_large");output.enqueue(value);
     }catch(error){abort();finish();output.error(error);}},async cancel(){abort();finish();await reader.cancel().catch(()=>{});}});
     return new Response(stream.pipeThrough(new CompressionStream("gzip")),{headers:{"Content-Type":"application/json; charset=UTF-8","Content-Encoding":"gzip",
-      "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc"},encodeBody:"manual"});
+      "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc","x-huayu-source-method":sourceMethod},encodeBody:"manual"});
   }catch{abort();finish();return reply("source_unavailable",502);}
 }
 
