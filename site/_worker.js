@@ -3064,7 +3064,8 @@ async function updaterIdentity(token){
   const scope=[
     ["issuer",claims.iss==="https://token.actions.githubusercontent.com"],["audience",claims.aud===UPDATER_AUDIENCE],
     ["repository",claims.repository===UPDATER_REPOSITORY],["repository_id",String(claims.repository_id)==="1390670617"],
-    ["ref",claims.ref==="refs/heads/main"],["subject",claims.sub==="repo:"+UPDATER_REPOSITORY+":ref:refs/heads/main"],
+    ["ref",claims.ref==="refs/heads/main"],["subject",["repo:"+UPDATER_REPOSITORY+":ref:refs/heads/main",
+      "repo:1159312243h-gif@249743200/ogf-huayu_map@1390670617:ref:refs/heads/main"].includes(claims.sub)],
     ["workflow",workflows.includes(claims.workflow_ref)],["event",["push","schedule","workflow_dispatch"].includes(claims.event_name)],
   ].filter(([,valid])=>!valid).map(([name])=>name);
   if(scope.length)throw Error("identity_scope_invalid:"+scope.join(","));

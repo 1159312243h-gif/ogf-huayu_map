@@ -31,6 +31,11 @@ try{
  const unknown=await jwt({}, {kid:'unknown-key'});
  const r=await run(request());assert.equal(r.status,200);assert.equal(r.headers.get('x-huayu-source-route'),'github-oidc');assert.equal(r.headers.get('cache-control'),'no-store, no-transform');
  assert.equal(await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text(),raw,'compression must preserve every original byte and source time');
+ const immutableSubject='repo:1159312243h-gif@249743200/ogf-huayu_map@1390670617:ref:refs/heads/main';
+ const immutableResponse=await run(request(await jwt({sub:immutableSubject})));assert.equal(immutableResponse.status,200);await immutableResponse.body.cancel();
+ for(const sub of [immutableSubject.replace('@249743200/','@1/'),immutableSubject.replace('@1390670617:', '@1:'),
+   immutableSubject.replace('refs/heads/main','refs/heads/other'),immutableSubject.replace('ogf-huayu_map@','other@')])
+  assert.equal((await run(request(await jwt({sub})))).status,403,'other immutable identities must remain rejected');
  const beforeUnknown=keyCalls;for(let i=0;i<5;i++)assert.equal((await run(request(unknown))).status,403);assert.equal(keyCalls,beforeUnknown,'unknown key storms must share the key refresh cooldown');
  assert.equal((await run(request(valid,{query,upstream:'https://other.test'}))).status,400);assert.equal((await run(request(valid,{query:'invalid'}))).status,400);
  mode='rate';const rate=await run(request());assert.equal(rate.status,429);assert.equal(rate.headers.get('retry-after'),'90');
