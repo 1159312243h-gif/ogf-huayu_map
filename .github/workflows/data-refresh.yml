@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: ogf-atlas-transit-data-refresh
@@ -81,7 +82,13 @@ jobs:
           npm run verify
           npm run test:data-update
           npm run data:update:check
+      - name: Check authenticated updater source route
+        env:
+          OGF_UPDATER_RELAY: "1"
+        run: node scripts/probe-updater-relay.mjs
       - name: Rebuild and validate all generated data
+        env:
+          OGF_UPDATER_RELAY: "1"
         run: npm run data:update
       - name: Validate refreshed data
         run: |

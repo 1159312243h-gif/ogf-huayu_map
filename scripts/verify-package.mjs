@@ -14,7 +14,7 @@ const release = JSON.parse(await fs.readFile(path.join(root, "release.json"), "u
 // handles work. Keep the exact checks and show their original diagnostics.
 function runCheck(args) {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, args, {stdio:"inherit"});
+    const child = spawn(process.execPath, args, {stdio:"inherit", env:{...process.env,OGF_UPDATER_RELAY:"0"}});
     child.on("error", error => resolve({status:null, stderr:String(error)}));
     child.on("close", status => resolve({status, stderr:status ? `exit ${status}; see diagnostics above` : ""}));
   });

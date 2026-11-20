@@ -1,5 +1,7 @@
 // Retry read-only queries to the official OGF service; validation stays with each caller.
 const {setTimeout:pause}=require('node:timers/promises');
+const {createRelayFetcher}=require("./updater-relay.cjs");
+let relayFetcher;
 const ORIGIN='https://overpass.opengeofiction.net';
 function transient(error){
   if(error?.name==='AbortError'||error?.name==='TimeoutError')return false;
@@ -7,9 +9,9 @@ function transient(error){
     || error instanceof TypeError && error.message==='fetch failed';
 }
 async function fetchWithRetry(input,init={},options={}){
-  const fetcher=options.fetcher||globalThis.fetch;
   const url=new URL(typeof input==='string'||input instanceof URL?input:input.url);
-  if(url.origin!==ORIGIN||url.pathname!=='/api/interpreter')return fetcher(input,init);
+  if(url.origin!==ORIGIN||url.pathname!=='/api/interpreter')return (options.fetcher||globalThis.fetch)(input,init);
+  const fetcher=options.fetcher||(process.env.OGF_UPDATER_RELAY==="1"?(relayFetcher||=createRelayFetcher()):globalThis.fetch);
   const sleep=options.sleep||((ms,signal)=>pause(ms,undefined,{signal}));
   const delays=options.delays||[10000,30000];
   for(let attempt=0;;attempt++){

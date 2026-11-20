@@ -3037,7 +3037,88 @@ async function fetchBrandData(request) {
   }
 }
 
+
+// Private maintenance transport. GitHub signs short-lived job identity; no stored relay key.
+const updaterRelayKeys={at:0,attemptAt:-Infinity,keys:new Map(),pending:null};
+let updaterRelayActive=0;
+const UPDATER_AUDIENCE="https://ogf-atlas.pages.dev/data-update";
+const UPDATER_REPOSITORY="1159312243h-gif/ogf-huayu_map";
+async function updaterBoundedText(stream,limit){
+  if(!stream)throw Error("empty_body");
+  const reader=stream.getReader(),chunks=[];let size=0;
+  try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error("body_too_large");chunks.push(value);}}
+  finally{await reader.cancel().catch(()=>{});}
+  const bytes=new Uint8Array(size);let at=0;for(const c of chunks){bytes.set(c,at);at+=c.length;}return new TextDecoder().decode(bytes);
+}
+function updaterJwtPart(part){
+  if(!/^[A-Za-z0-9_-]+$/u.test(part))throw Error("invalid_identity");
+  return Uint8Array.from(atob(part.replaceAll("-","+").replaceAll("_","/")),c=>c.charCodeAt(0));
+}
+async function updaterIdentity(token){
+  if(token.length>16000)throw Error("invalid_identity");
+  const pieces=token.split(".");if(pieces.length!==3)throw Error("invalid_identity");
+  const header=JSON.parse(new TextDecoder().decode(updaterJwtPart(pieces[0])));
+  const claims=JSON.parse(new TextDecoder().decode(updaterJwtPart(pieces[1]))),now=Date.now()/1000;
+  const workflows=["data-refresh.yml","brand-refresh.yml"].map(name=>UPDATER_REPOSITORY+"/.github/workflows/"+name+"@refs/heads/main");
+  if(header.alg!=="RS256"||typeof header.kid!=="string"||header.kid.length>200||header.jku||header.jwk
+    ||claims.iss!=="https://token.actions.githubusercontent.com"||claims.aud!==UPDATER_AUDIENCE
+    ||claims.repository!==UPDATER_REPOSITORY||String(claims.repository_id)!=="1390670617"
+    ||claims.ref!=="refs/heads/main"||claims.sub!=="repo:"+UPDATER_REPOSITORY+":ref:refs/heads/main"
+    ||!workflows.includes(claims.workflow_ref)||!["push","schedule","workflow_dispatch"].includes(claims.event_name)||!Number.isFinite(claims.exp)||claims.exp<=now||claims.exp>now+900
+    ||!Number.isFinite(claims.iat)||claims.iat>now+30||claims.iat<now-900
+    ||claims.nbf!==undefined&&(!Number.isFinite(claims.nbf)||claims.nbf>now+30))throw Error("invalid_identity");
+  let key=updaterRelayKeys.keys.get(header.kid);
+  if(!key||Date.now()-updaterRelayKeys.at>3600000){
+    if(!updaterRelayKeys.pending&&Date.now()-updaterRelayKeys.attemptAt>=30000){
+      updaterRelayKeys.attemptAt=Date.now();
+      updaterRelayKeys.pending=(async()=>{
+        const response=await fetch("https://token.actions.githubusercontent.com/.well-known/jwks",{redirect:"error",signal:AbortSignal.timeout(15000)});
+        if(!response.ok)throw Error("identity_service_unavailable");
+        const payload=JSON.parse(await updaterBoundedText(response.body,65536)),keys=new Map();
+        if(!Array.isArray(payload.keys)||payload.keys.length>16)throw Error("identity_service_unavailable");
+        for(const jwk of payload.keys){if(jwk.kty!=="RSA"||jwk.alg&&jwk.alg!=="RS256"||jwk.use&&jwk.use!=="sig")continue;
+          keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}
+        updaterRelayKeys.keys=keys;updaterRelayKeys.at=Date.now();
+      })().finally(()=>{updaterRelayKeys.pending=null;});
+    }
+    if(updaterRelayKeys.pending)await updaterRelayKeys.pending;
+    if(Date.now()-updaterRelayKeys.at>3600000)throw Error("identity_service_unavailable");
+    key=updaterRelayKeys.keys.get(header.kid);
+  }
+  if(!key||!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,updaterJwtPart(pieces[2]),new TextEncoder().encode(pieces[0]+"."+pieces[1])))throw Error("invalid_identity");
+}
+async function fetchUpdaterSource(request){
+  const reply=(error,status)=>new Response(JSON.stringify({error}),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
+  if(request.method!=="POST")return reply("method_not_allowed",405);
+  const auth=request.headers.get("Authorization")||"";
+  if(!auth.startsWith("Bearer "))return reply("job_identity_required",401);
+  try{await updaterIdentity(auth.slice(7));}catch{return reply("job_identity_rejected",403);}
+  let query;
+  try{const input=JSON.parse(await updaterBoundedText(request.body,256*1024));query=input.query;
+    if(typeof query!=="string"||!query.trimStart().startsWith("[out:json]")||query.length>128*1024||Object.keys(input).some(k=>k!=="query"))throw Error();
+  }catch{return reply("invalid_source_query",400);}
+  if(updaterRelayActive>=2)return new Response(null,{status:429,headers:{"Retry-After":"10","Cache-Control":"no-store"}});
+  updaterRelayActive++;let finished=false;const controller=new AbortController();
+  let timer;const abort=()=>controller.abort();
+  const finish=()=>{if(finished)return;finished=true;updaterRelayActive--;clearTimeout(timer);request.signal.removeEventListener("abort",onAbort);};
+  const onAbort=()=>{abort();finish();};
+  request.signal.addEventListener("abort",onAbort,{once:true});timer=setTimeout(onAbort,240000);if(request.signal.aborted)onAbort();
+  try{
+    const response=await fetch("https://overpass.opengeofiction.net/api/interpreter",{method:"POST",redirect:"error",credentials:"omit",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","Accept":"application/json"},body:new URLSearchParams({data:query}),signal:controller.signal});
+    if(!response.ok){await response.body?.cancel().catch(()=>{});finish();return new Response(null,{status:response.status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"10"}});}
+    if(!response.body)throw Error("empty_source");
+    const reader=response.body.getReader();let bytes=0;
+    const stream=new ReadableStream({async pull(output){try{const {value,done}=await reader.read();if(done){finish();output.close();return;}
+      bytes+=value.length;if(bytes>64*1024*1024)throw Error("source_response_too_large");output.enqueue(value);
+    }catch(error){abort();finish();output.error(error);}},async cancel(){abort();finish();await reader.cancel().catch(()=>{});}});
+    return new Response(stream.pipeThrough(new CompressionStream("gzip")),{headers:{"Content-Type":"application/json; charset=UTF-8","Content-Encoding":"gzip",
+      "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc"},encodeBody:"manual"});
+  }catch{abort();finish();return reply("source_unavailable",502);}
+}
+
 export {
+  fetchUpdaterSource,
   fetchTrafficRegion,
   trafficRegionQueries,
   coastlineQuery,
@@ -3057,6 +3138,7 @@ export {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
+    if (url.pathname === "/api/data-update/source") return fetchUpdaterSource(request);
     if (url.pathname.startsWith("/api/brand-management/")) return brandManagementApi.handle(request,environment);
     if (url.pathname.startsWith("/api/brand-logos") || url.pathname === "/api/brand-logo-places") return brandLogoApi.handle(request,environment);
     if (url.pathname.startsWith("/api/agent/")) return createMapAgentServer({contract:createMapAgentContract(),providers:createMapAgentProviders(),json:personalJson,readJson:readJsonBody,sameOrigin:sameOriginMutation,requireUser:requirePersonalUser,bindingsAvailable:personalBindingsAvailable}).handle(request,environment);

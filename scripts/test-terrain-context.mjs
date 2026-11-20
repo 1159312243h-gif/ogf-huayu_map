@@ -101,12 +101,13 @@ await assert.rejects(buildTerrainContext({...options,cacheDirectory:timeoutCache
 assert.equal(timeouts,9);assert.deepEqual(timeoutWaits,[]);assert.deepEqual(await fs.readdir(timeoutCache),[]);
 console.log('Terrain context transport passed: connect/body timeout recovery, fresh bounded attempts and no failed cache writes.');
 
+const relaySetting=process.env.OGF_UPDATER_RELAY;delete process.env.OGF_UPDATER_RELAY;
 const nativeFetch=globalThis.fetch;let defaultCalls=0;const defaultWaits=[];
 try{
  globalThis.fetch=async(...args)=>++defaultCalls===1?new Response('busy',{status:429,headers:{'Retry-After':'90'}}):fetch(...args);
  assert.deepEqual(await buildTerrainContext({...options,fetch:undefined,cacheDirectory:path.join(directory,'default-transport-rate-limit'),wait:async ms=>defaultWaits.push(ms)}),context);
  assert.deepEqual(defaultWaits,[90000],'the shared transport must preserve the context builder HTTP retry window');
-}finally{globalThis.fetch=nativeFetch;}
+}finally{globalThis.fetch=nativeFetch;if(relaySetting!==undefined)process.env.OGF_UPDATER_RELAY=relaySetting;}
 
 let splitRequests=0;
 assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'inventory-split'),wait:async()=>{},fetch:async(...args)=>{

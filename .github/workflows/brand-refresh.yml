@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 # Share the data writer lock with national updates. Their three-hour schedule is unchanged.
 concurrency:
@@ -27,14 +28,22 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/test-brands.mjs
+      - name: Check authenticated updater source route
+        env:
+          OGF_UPDATER_RELAY: "1"
+        run: node scripts/probe-updater-relay.mjs
       - name: Refresh brand catalog independently
         id: brands
         continue-on-error: true
+        env:
+          OGF_UPDATER_RELAY: "1"
         run: node scripts/update-brand-catalog.mjs
       - run: node scripts/test-admin-catalog.mjs
       - name: Refresh administrative catalog independently
         id: admins
         continue-on-error: true
+        env:
+          OGF_UPDATER_RELAY: "1"
         run: node scripts/update-admin-catalog.mjs
       - run: npm run manifest:update
       - name: Validate the complete site before publishing

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./test-refresh-route-indexes.mjs";
 import "./test-update-recovery.mjs";
+import "./test-updater-relay.mjs";
 import "./test-railway-refresh.mjs";
 import { compareCounts, semanticHash, validateDataset, validateAll, readDatasetFile } from "./update-all-data.mjs";
 

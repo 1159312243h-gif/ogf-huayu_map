@@ -46,7 +46,7 @@ const run = path.join(directory, "builder");
 for (const folder of ["work", "outputs/ogf-atlas", "work/history-feeder-compare/ogf-atlas-v2.1.5-2026-09-19"]) {
   fs.mkdirSync(path.join(run, folder), {recursive: true});
 }
-for (const name of ["overpass-network.cjs", "build-railway-routing.cjs", "refresh-railway-ways.cjs", "restore-v215-railway-stations.cjs", "remap-compact-route-indexes.cjs"]) {
+for (const name of ["updater-relay.cjs", "overpass-network.cjs", "build-railway-routing.cjs", "refresh-railway-ways.cjs", "restore-v215-railway-stations.cjs", "remap-compact-route-indexes.cjs"]) {
   fs.copyFileSync(path.join(root, "scripts/data-update/builders", name), path.join(run, "work", name));
 }
 const write = (name, data) => fs.writeFileSync(path.join(run, name), JSON.stringify(data));
@@ -65,7 +65,7 @@ write("mock-response.json", response([way(8002, {railway: "rail", service: "sidi
 fs.writeFileSync(path.join(run, "mock-fetch.cjs"), `const fs=require('node:fs');
 global.fetch=async url=>url.includes('overpass')?{ok:true,json:async()=>JSON.parse(fs.readFileSync('mock-response.json'))}:{ok:false,status:410};`);
 const execute = script => spawnSync(process.execPath, ["--require", "./mock-fetch.cjs", `work/${script}`],
-  {cwd: run, encoding: "utf8", windowsHide: true});
+  {cwd: run, encoding: "utf8", windowsHide: true, env:{...process.env,OGF_UPDATER_RELAY:"0"}});
 for (let iteration = 0; iteration < 2; iteration++) {
   for (const script of ["build-railway-routing.cjs", "restore-v215-railway-stations.cjs"]) {
     const result = execute(script);
