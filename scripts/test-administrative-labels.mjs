@@ -39,6 +39,7 @@ for(const group of ["road","province"]){
 console.log("Administrative labels passed: designated anchors, priority, missing nodes, fallback and no duplicate city labels.");
 const layerContext=vm.createContext({HUAYU_ADMIN_LABEL_SOURCE:"labels",HUAYU_ADMIN_PROVINCE_LABEL_LAYER:"provinces",
   HUAYU_ADMIN_ROAD_LABEL_LAYER:"roads",huayuOverlayPalette:()=>({adminProvince:"#123456",adminRoad:"#123456",textHalo:"#ffffff"})});
+vm.runInContext(app.match(/  function huayuStyleLayers\([^]*?\n  \}/u)[0],layerContext);
 vm.runInContext(app.match(/  function ensureHuayuAdministrativeLabelLayer\([^]*?\n  \}/u)[0],layerContext);
 const sources=new Map(),layers=new Map();
 assert.equal(layerContext.ensureHuayuAdministrativeLabelLayer({isStyleLoaded:()=>false,
@@ -46,6 +47,14 @@ assert.equal(layerContext.ensureHuayuAdministrativeLabelLayer({isStyleLoaded:()=
   getLayer:id=>layers.get(id),addLayer:layer=>layers.set(layer.id,layer)}),true,
   "remote tiles still loading must not prevent administrative label initialization");
 assert.equal(layers.size,2);
+
+let serialized=0;
+const hotMap={getLayersOrder:()=>['place-country'],getLayer:id=>layers.get(id)||(id==='place-country'?{id,type:'symbol'}:null),
+ getStyle:()=>{serialized++;throw Error('full live geometry must not be serialized on a label check');},
+ getSource:id=>sources.get(id),addSource:(id,source)=>sources.set(id,source),addLayer:layer=>layers.set(layer.id,layer)};
+for(let i=0;i<100;i++)assert.equal(layerContext.ensureHuayuAdministrativeLabelLayer(hotMap),true);
+assert.equal(serialized,0,'periodic administrative label checks must not clone map data');
+
 
 // Verify the published basemaps at both overview and close scales. The city
 // boundary must be visible and distinguishable, with no duplicate local line.

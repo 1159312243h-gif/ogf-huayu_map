@@ -3079,7 +3079,7 @@ async function updaterIdentity(token,environment){
         const source="https://token.actions.githubusercontent.com/.well-known/jwks";
         let payload,bundled=false;
         try{
-          const response=await fetch(source,{redirect:"error",signal:AbortSignal.timeout(15000)});
+          const response=await fetch(source,{redirect:"manual",signal:AbortSignal.timeout(15000)});
           if(!response.ok)throw Error("identity_service_http_"+response.status);
           payload=JSON.parse(await updaterBoundedText(response.body,65536));
           if(!Array.isArray(payload.keys)||!payload.keys.length||payload.keys.length>16)throw Error("identity_service_keys_invalid");
@@ -3132,7 +3132,7 @@ async function fetchUpdaterSource(request,environment){
     const source="https://overpass.opengeofiction.net/api/interpreter";
     const encoded=new URLSearchParams({data:query}).toString(),short=encoded.length<=14000;
     let response,sourceMethod=short?"GET":"POST";
-    const read=method=>fetch(source+(method==="GET"?"?"+encoded:""),{method,redirect:"error",credentials:"omit",
+    const read=method=>fetch(source+(method==="GET"?"?"+encoded:""),{method,redirect:"manual",credentials:"omit",
       headers:{Accept:"application/json",...(method==="POST"?{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"}:{})},
       ...(method==="POST"?{body:new URLSearchParams({data:query})}:{}),signal:controller.signal});
     try{response=await read(sourceMethod);}
@@ -3140,6 +3140,7 @@ async function fetchUpdaterSource(request,environment){
       if(controller.signal.aborted||!short)throw error;
       sourceMethod="POST";response=await read(sourceMethod);
     }
+    if(response.status>=300&&response.status<400){await response.body?.cancel().catch(()=>{});finish();return reply("source_redirect_rejected",502);}
     if(!response.ok){await response.body?.cancel().catch(()=>{});finish();return new Response(null,{status:response.status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"10"}});}
     if(!response.body)throw Error("empty_source");
     const reader=response.body.getReader();let bytes=0;

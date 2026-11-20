@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "include": [
+    "/api/*",
+    "/terrain-preload.json.gz",
+    "/terrain-preload-chunks/*",
+    "/terrain-render-cache/*"
+  ],
+  "exclude": []
+}

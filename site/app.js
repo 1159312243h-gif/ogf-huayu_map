@@ -20622,7 +20622,8 @@
   function ensureHuayuAdministrativeLabelLayer(glMap) {
     // The style definition is ready before every remote tile has arrived.
     // Pending terrain/basemap tiles must not suppress the label supplement.
-    if (!glMap?.getStyle?.()?.layers) return false;
+    const styleLayers = huayuStyleLayers(glMap);
+    if (!styleLayers.length) return false;
     const palette = huayuOverlayPalette(glMap);
     if (!glMap.getSource(HUAYU_ADMIN_LABEL_SOURCE)) {
       glMap.addSource(HUAYU_ADMIN_LABEL_SOURCE, {
@@ -20630,7 +20631,7 @@
         data: { type: "FeatureCollection", features: [] },
       });
     }
-    const countryLabelLayerId = glMap.getStyle().layers
+    const countryLabelLayerId = styleLayers
       .find((layer) => String(layer.id || "").startsWith("place-country"))?.id;
     if (!glMap.getLayer(HUAYU_ADMIN_PROVINCE_LABEL_LAYER)) {
       glMap.addLayer({

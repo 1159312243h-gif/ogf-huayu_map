@@ -16,8 +16,8 @@ function request(token=valid,body={query},signal){return new Request('https://og
 const run=req=>worker.fetch(req,{ASSETS:{fetch:async()=>new Response(null,{status:404})}},{waitUntil(){}});
 try{
  globalThis.fetch=async(url,init)=>{
-  if(url==='https://token.actions.githubusercontent.com/.well-known/jwks'){keyCalls++;assert.equal(init.redirect,'error');return new Response(JSON.stringify({keys:[jwk]}));}
-  assert.equal(new URL(url).origin+new URL(url).pathname,source,'the maintenance route cannot select another upstream');sourceCalls++;assert.equal(init.method==='POST'?init.body.get('data'):new URL(url).searchParams.get('data'),query);assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');assert.equal(new Headers(init.headers).has('authorization'),false);
+  if(url==='https://token.actions.githubusercontent.com/.well-known/jwks'){keyCalls++;assert.equal(init.redirect,'manual');return new Response(JSON.stringify({keys:[jwk]}));}
+  assert.equal(new URL(url).origin+new URL(url).pathname,source,'the maintenance route cannot select another upstream');sourceCalls++;assert.equal(init.method==='POST'?init.body.get('data'):new URL(url).searchParams.get('data'),query);assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');assert.equal(new Headers(init.headers).has('authorization'),false);
   if(mode==='rate')return new Response(null,{status:429,headers:{'Retry-After':'90'}});
   if(mode==='hold')return new Response(new ReadableStream({pull(){return new Promise(()=>{});}}));
   if(mode==='oversize'){let n=0;return new Response(new ReadableStream({pull(c){if(n++<65)c.enqueue(new Uint8Array(1024*1024));else c.close();}}));}
@@ -90,7 +90,7 @@ try{
  let posts=0,gets=0;
  globalThis.fetch=async(url,init)=>{
   if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')return new Response(JSON.stringify({keys:[jwk]}));
-  assert.equal(new Headers(init.headers).has('authorization'),false);assert.equal(init.redirect,'error');assert.equal(init.credentials,'omit');
+  assert.equal(new Headers(init.headers).has('authorization'),false);assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');
   if(init.method==='GET'){gets++;assert.equal(new URL(url).origin+new URL(url).pathname,source);assert.equal(new URL(url).searchParams.get('data'),query);throw new TypeError('fetch failed');}
   posts++;assert.equal(init.method,'POST');assert.ok(init.body.get('data').startsWith(query));if(init.body.get('data').length>14000)throw new TypeError('fetch failed');return new Response(raw);
  };
@@ -100,4 +100,20 @@ try{
  const tooLong=query+' '.repeat(15000);const longResponse=await worker.fetch(request(valid,{query:tooLong}),{},{});
  assert.equal(longResponse.status,502);assert.equal(posts,2);assert.equal(gets,1,'long queries cannot be forced into URLs');
  console.log('Updater method recovery passed: GET-first identical short read-only query, pinned origin, unchanged bytes, no forwarded identity and long-query bound.');
+}finally{globalThis.fetch=nativeFetch;}
+
+// Model the actual workerd restriction: redirect:error is rejected before any network request.
+try{
+ let followed=0,redirectSource=false;
+ globalThis.fetch=async(url,init)=>{
+  if(init.redirect==='error')throw new TypeError('Invalid redirect value, must be follow or manual');
+  assert.equal(init.redirect,'manual');
+  if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')return new Response(JSON.stringify({keys:[jwk]}));
+  assert.equal(new URL(url).origin+new URL(url).pathname,source);followed++;
+  return redirectSource?new Response(null,{status:302,headers:{Location:'https://untrusted.test/query'}}):new Response(raw);
+ };
+ const actualRuntime=(await import('../site/_worker.js?workerd-redirect-contract')).default;
+ const recovered=await actualRuntime.fetch(request(),{},{});assert.equal(recovered.status,200);await recovered.body.cancel();
+ redirectSource=true;const rejected=await actualRuntime.fetch(request(),{},{});assert.equal(rejected.status,502);assert.equal(rejected.headers.has('Location'),false);assert.equal((await rejected.json()).error,'source_redirect_rejected');assert.equal(followed,2);
+ console.log('Cloudflare runtime passed: supported manual redirect mode, actual signed source read and explicit redirect refusal without forwarding credentials.');
 }finally{globalThis.fetch=nativeFetch;}

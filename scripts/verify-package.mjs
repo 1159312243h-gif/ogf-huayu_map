@@ -45,7 +45,7 @@ for (const file of files) {
   assert.equal(actual, manifest.get(relative), `文件校验失败：${relative}`);
 }
 
-for (const required of ["updater-jwks.json","transit-station-data.js","transit-template-core.js","transit-templates.js","transit-templates.css","transit-template-references.json","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
+for (const required of ["_routes.json","updater-jwks.json","transit-station-data.js","transit-template-core.js","transit-templates.js","transit-templates.css","transit-template-references.json","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js", "building-tiles.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
@@ -107,6 +107,8 @@ assert.ok(app.includes("HUAXIA_COUNTRY_RELATION_ID = 28652")
   "华夏行政区清单必须以国家关系为根并导出真实行政关系");
 const styles = await fs.readFile(path.join(site, "styles.css"), "utf8");
 const worker = await fs.readFile(path.join(site, "_worker.js"), "utf8");
+const staticDeliveryTest = await runCheck([path.join(root,"scripts","test-static-delivery.mjs")]);
+assert.equal(staticDeliveryTest.status, 0, `静态CDN与压缩地形路由回归失败：${staticDeliveryTest.stderr}`);
 const headers = await fs.readFile(path.join(site, "_headers"), "utf8");
 const transitPreload = JSON.parse(await fs.readFile(path.join(site, "transit-preload.json"), "utf8"));
 const transitServices = JSON.parse(await fs.readFile(path.join(site, "transit-services.json"), "utf8"));

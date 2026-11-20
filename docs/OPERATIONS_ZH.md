@@ -189,3 +189,5 @@ npm run verify:online
 定时新鲜度审计通过已部署的Pages实时底图接口做可用性探测，避免将GitHub执行器的直连故障误当作线上Worker故障。命令行未设置LIVE_BASEMAP_PROBE_ORIGIN时仍可探测本机Worker实现；可用性通过与数据实际新鲜度分别判断。
 
 GitHub OIDC的subject可能包含固定用户／仓库编号。本站仅接受本仓库main的两种精确格式。Cloudflare无法直连GitHub公钥时，回退到每次部署前从官方HTTPS获取的公开updater-jwks.json；最长七天后拒绝使用，所有生产部署路径先刷新公钥并运行四项检查。文件仅有公开RSA材料及获取时间，不能用于签发任务身份。
+
+已核实Cloudflare workerd不实现redirect:error；使用该值会在联网前直接抛TypeError。维护Worker应使用manual并自行拒绝3xx；Node测试需同时覆盖这一实际运行时限制，避免将参数错误误报成上游不可达。
