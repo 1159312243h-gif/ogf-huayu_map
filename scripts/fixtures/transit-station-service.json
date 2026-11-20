@@ -1,0 +1,630 @@
+{
+  "source": "https://overpass.opengeofiction.net/api/interpreter",
+  "sourceTime": "2026-11-18T14:01:51Z",
+  "purpose": "Actual OGF ancestor service and campus loop recognition, captured 2026-11-18; not a full stop-order snapshot.",
+  "elements": [
+    {
+      "type": "relation",
+      "id": 398767,
+      "members": [
+        {
+          "type": "relation",
+          "ref": 398766,
+          "role": ""
+        },
+        {
+          "type": "relation",
+          "ref": 398764,
+          "role": ""
+        },
+        {
+          "type": "relation",
+          "ref": 498453,
+          "role": ""
+        },
+        {
+          "type": "relation",
+          "ref": 550297,
+          "role": ""
+        },
+        {
+          "type": "relation",
+          "ref": 550908,
+          "role": ""
+        }
+      ],
+      "tags": {
+        "name": "华夏公交",
+        "type": "collection"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 491367,
+      "members": [
+        {
+          "type": "node",
+          "ref": 409062657,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062658,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062659,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404648,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062660,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062661,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404647,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404646,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408923747,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062665,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062671,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408923310,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062672,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404662,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062673,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062675,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 39030835,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 38374850,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059246,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259034,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059798,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059800,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39210281,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259023,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 38450479,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39210254,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39047662,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39047663,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39210245,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39032879,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259013,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39038955,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39038954,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39038956,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014333,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030838,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259021,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030837,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030836,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014327,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014328,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059250,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059252,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 38374852,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030839,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39032904,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014334,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "name": "临川大学6号工医小循环",
+        "network": "临川大学校园巴士",
+        "operator": "临川大学",
+        "ref": "6",
+        "route": "bus",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 491368,
+      "members": [
+        {
+          "type": "node",
+          "ref": 409062676,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062678,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408923310,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062672,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062671,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062679,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062657,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062658,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062659,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404662,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062673,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404663,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062680,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 408404664,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 409062682,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 39030839,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030838,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259021,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030837,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39030836,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014327,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39014328,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 38374849,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259034,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059798,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059800,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39210281,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259023,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059799,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39059809,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259031,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 38374848,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39259048,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39102402,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39102403,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 39102401,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "name": "临川大学7号医文小循环",
+        "network": "临川大学校园巴士",
+        "operator": "临川大学",
+        "ref": "7",
+        "route": "bus",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 549596,
+      "members": [
+        {
+          "type": "relation",
+          "ref": 490534,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491246,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491370,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491366,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491301,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491369,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491248,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491302,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491297,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491305,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491298,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491299,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491300,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491368,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491367,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 491247,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "fare:description": "校内人员免费；校外人员1元",
+        "name": "临川大学校园巴士线路",
+        "network": "津川公交",
+        "opening_hours": "Mo-Su 07:00-22:00",
+        "operator": "临川大学",
+        "price": "1",
+        "route_master": "bus",
+        "type": "collection"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 550297,
+      "members": [
+        {
+          "type": "way",
+          "ref": 38269661,
+          "role": "center"
+        },
+        {
+          "type": "way",
+          "ref": 42625230,
+          "role": "center"
+        },
+        {
+          "type": "way",
+          "ref": 42625231,
+          "role": "center"
+        },
+        {
+          "type": "relation",
+          "ref": 550292,
+          "role": "company"
+        },
+        {
+          "type": "relation",
+          "ref": 549596,
+          "role": "company"
+        },
+        {
+          "type": "relation",
+          "ref": 550296,
+          "role": "company"
+        },
+        {
+          "type": "relation",
+          "ref": 550932,
+          "role": "company"
+        }
+      ],
+      "tags": {
+        "name": "津川公交",
+        "network": "华夏公交",
+        "opening_hours": "Mo-Su 00:00-23:59",
+        "operator": "津川公共交通集团",
+        "route_master": "bus",
+        "type": "collection"
+      }
+    }
+  ]
+}

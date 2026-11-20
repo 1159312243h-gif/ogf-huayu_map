@@ -1,0 +1,467 @@
+{
+  "checkedAt": "2026-11-19",
+  "note": "已核对多地区实物照片，提炼六种公交站牌结构；不是全国完整图集，也不是各地官方同款复刻。新闻年份只表示该次报道。以下地铁生成器与实物新闻分列；未复制第三方代码、照片、标识或字体。 2026-11-19 用户另提供25张纸质、电子站牌及公交／轨道车厢参考图，仅观察交错站名、斜排、折返、邻站放大与全线滚动结构；照片及标识未打包，未将其视作可公开再分发素材。 本轮追加5张车厢／站台屏参考，共30张，新增图标、编组、门侧、窗棂及分屏结构；图片本身仍不打包。",
+  "items": [
+    {
+      "title": "上海交通 · 金属、灯箱、LCD、LED 与电子墨水站牌实物对照（2025）",
+      "url": "https://news.qq.com/rain/a/20250421A06TZ300",
+      "cities": [
+        "上海"
+      ],
+      "observation": "同一城市并存多代站牌；杆挂牌一线一块，灯箱分线路纵列，电子屏独立显示本站和到站信息。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "红星新闻 · 成都智慧公交站牌实拍（2024）",
+      "url": "https://sc.sina.cn/news/b/2024-08-09/detail-inchzawm7752027.d.html",
+      "cities": [
+        "成都"
+      ],
+      "observation": "高新政务中心实拍：站名在顶部实体牌，屏内分线路卡片、横向站序与纵写站名；报道含建设计划，不能当作当前覆盖量。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "六安电子站牌实物与功能图（2018 年报道）",
+      "url": "https://k.sina.com.cn/article_3965525033_ec5d1c29040009eo5.html",
+      "cities": [
+        "六安"
+      ],
+      "observation": "到站预报屏与下方各线路站序牌分开；线路牌突出线路号、方向箭头、本站及服务时间。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "中山公交候车亭与电子站牌实拍",
+      "url": "https://k.sina.cn/article_2131593523_7f0d8933020017u97.html",
+      "cities": [
+        "中山"
+      ],
+      "observation": "候车亭的横向显示屏与独立竖屏并存；竖屏内有分线路信息区，不是简单的两列站名。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "新华网山东 · 菏泽智能公交电子站牌实拍（2022）",
+      "url": "https://sd.news.cn/news/2022-08/25/c_1128945078.htm",
+      "cities": [
+        "菏泽"
+      ],
+      "observation": "7 路、56 路分区展示站序和开往方向，车辆位置与到站预报依赖 GPS 及调度数据；本站暂未接入该类实时数据。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "新湖南 · 保靖智能公交站牌实拍（2025）",
+      "url": "https://www.hunantoday.cn/news/xhn/202511/30882074.html",
+      "cities": [
+        "保靖"
+      ],
+      "observation": "站台独立竖屏显示线路与车辆动态，不能与公交车前后电子路牌混为一种模板。",
+      "kind": "bus",
+      "checkedAt": "2026-11-18",
+      "license": "新闻实物研究，仅链接来源；照片、标识和字体未打包，未经授权不再分发。"
+    },
+    {
+      "title": "RMG · 广州、上海、香港线路图与信息牌示例",
+      "url": "https://github.com/railmapgen/rmg",
+      "kind": "metro",
+      "license": "GPL-3.0（项目代码）；图片及标识须另核实"
+    },
+    {
+      "title": "RMG Templates · 城市线路模板库",
+      "url": "https://railmapgen.org/?app=rmg-templates",
+      "kind": "metro",
+      "cities": [
+        "北京",
+        "上海",
+        "广州",
+        "香港",
+        "深圳",
+        "成都",
+        "重庆",
+        "杭州",
+        "南京",
+        "武汉",
+        "西安",
+        "天津",
+        "苏州",
+        "郑州",
+        "长沙",
+        "昆明",
+        "青岛",
+        "厦门",
+        "沈阳",
+        "长春",
+        "大连",
+        "哈尔滨",
+        "济南",
+        "合肥",
+        "福州",
+        "宁波",
+        "南昌",
+        "南宁",
+        "贵阳",
+        "兰州",
+        "太原",
+        "乌鲁木齐",
+        "石家庄",
+        "呼和浩特",
+        "无锡",
+        "常州",
+        "徐州",
+        "佛山",
+        "东莞",
+        "绍兴",
+        "温州",
+        "台州",
+        "南通",
+        "滁州",
+        "芜湖",
+        "洛阳",
+        "澳门",
+        "台北",
+        "新北",
+        "桃园",
+        "台中",
+        "高雄"
+      ],
+      "sourceUrl": "https://github.com/railmapgen/rmg-templates/tree/main/public/resources",
+      "license": "按各作品／项目许可核实"
+    },
+    {
+      "title": "RMP · 北京、上海、广州、香港示例与作品库",
+      "url": "https://railmapgen.org/?app=rmp-gallery",
+      "kind": "metro",
+      "sourceUrl": "https://github.com/railmapgen/rmp",
+      "license": "GPL-3.0（项目代码）；作品另核实"
+    },
+    {
+      "title": "公交站牌布局参考 · gjp",
+      "url": "https://github.com/wanglizhigs/gjp",
+      "kind": "bus",
+      "license": "Apache-2.0（GitHub 仓库标识）；仅作布局参考，不是全国图集"
+    },
+    {
+      "title": "苏州公交站牌素材生成脚本（简化版式）",
+      "url": "https://github.com/xushengj/busstop_infotable_generator",
+      "kind": "bus",
+      "license": "未核实明确许可；仅链接参考，未复制素材或代码"
+    },
+    {
+      "title": "济南公交线路图生成器",
+      "url": "https://github.com/xiaosanmeng/jngjxlt.github.io",
+      "kind": "bus",
+      "license": "未核实明确许可；仅链接参考"
+    },
+    {
+      "title": "Subway LCD Generator · 车厢 PIS 版式参考",
+      "url": "https://github.com/Nakano-Era/SubwayLCDGenerator",
+      "kind": "lcd",
+      "license": "README 声明 MIT，实际引入前须核实 LICENSE；当前仅链接参考"
+    },
+    {
+      "title": "MLCD · 地铁车厢屏预览参考",
+      "url": "https://github.com/sphArrek114514/MLCD",
+      "kind": "lcd",
+      "license": "未核实明确许可；仅链接参考"
+    }
+  ],
+  "userReferences": {
+    "providedAt": "2026-11-19",
+    "count": 30,
+    "layouts": [
+      "多线路纸质横牌",
+      "电子站牌",
+      "上下交错全线条屏",
+      "斜排站名条屏",
+      "双行折返全线屏",
+      "闭合回接线路屏",
+      "邻站放大与全线总览",
+      "完整站序滚动"
+    ],
+    "usage": "仅参考结构，未复制图片、字体或商标，不将本机附件路径当公开来源地址",
+    "note": "逐张核对并对应到实际可选模板；城市名称表示结构参考，不是官方复刻。",
+    "items": [
+      {
+        "index": 1,
+        "title": "高阳黑黄公交站牌",
+        "fileName": "ffd70142771900735e5024b0732c1382.jpg",
+        "templates": [
+          "bus-stop-gaoyang",
+          "bus-stop-gaoyang-detail"
+        ],
+        "observation": "黑站头、黄线路号、白运营条、紧凑站序；详情含站点地理位置和逐小时发车表"
+      },
+      {
+        "index": 2,
+        "title": "南京车厢屏",
+        "fileName": "1ac4f0b3e85164ad7fe1af38bc67a18b.jpg",
+        "templates": [
+          "metro-screen-nanjing"
+        ],
+        "observation": "蓝色下一站顶带与斜排完整站序"
+      },
+      {
+        "index": 3,
+        "title": "重庆车厢屏",
+        "fileName": "99190a726fbcf6748a082e4a61387490.jpg",
+        "templates": [
+          "metro-screen-chongqing-screen"
+        ],
+        "observation": "黄顶信息带与红绿已过／后续站灯"
+      },
+      {
+        "index": 4,
+        "title": "无锡公交灯箱",
+        "fileName": "abf4a0272be3257d326b57f0f8dcb167.jpg",
+        "templates": [
+          "bus-stop-wuxi"
+        ],
+        "observation": "黑色站头、红白分线灯箱与完整站序"
+      },
+      {
+        "index": 5,
+        "title": "无锡地铁屏",
+        "fileName": "92d25088784479110a457d679a779a02.jpg",
+        "templates": [
+          "metro-screen-wuxi-screen"
+        ],
+        "observation": "较早一代红白交错屏参考；当前无锡模板按27、28号园林实物重绘，保留为跨年代参考，非同款复刻"
+      },
+      {
+        "index": 6,
+        "title": "福州快线屏",
+        "fileName": "a8d7a7e4968e0ee68b2c5343e30c09d2.jpg",
+        "templates": [
+          "metro-screen-fuzhou"
+        ],
+        "observation": "蓝白顶带、大站点；未读跳停资料不虚构跳站"
+      },
+      {
+        "index": 7,
+        "title": "站台开门屏",
+        "fileName": "8731ef898b14e9de9a1c82e68fc3a635.jpg",
+        "templates": [
+          "metro-screen-platform"
+        ],
+        "observation": "邻站放大及开门信息栏；未读门侧和编组保留未提供"
+      },
+      {
+        "index": 8,
+        "title": "宁波车厢屏",
+        "fileName": "6b859942ffbdf977316e75cad45f36a7.jpg",
+        "templates": [
+          "metro-screen-ningbo"
+        ],
+        "observation": "底部彩色下一站带，上方斜排站序"
+      },
+      {
+        "index": 9,
+        "title": "郑州车厢屏组",
+        "fileName": "f5cca85a8abf0747fc9309c8dec9db91.jpg",
+        "templates": [
+          "metro-lcd-return",
+          "metro-led-loop",
+          "bus-interior-alternating"
+        ],
+        "observation": "交错灯点、折返与真实环线回接"
+      },
+      {
+        "index": 10,
+        "title": "苏州车厢屏",
+        "fileName": "16a09223efbbd2682a466c63a0a203b4.jpg",
+        "templates": [
+          "metro-screen-suzhou"
+        ],
+        "observation": "弧形下一站顶带与局部放大"
+      },
+      {
+        "index": 11,
+        "title": "薄荷绿公交站牌",
+        "fileName": "c9934ecded3d10f53b77b7e81cf1dfb6.jpg",
+        "templates": [
+          "bus-stop-mint"
+        ],
+        "observation": "圆角线路块、服务侧栏和红色本站定位针"
+      },
+      {
+        "index": 12,
+        "title": "黑黄双语导视",
+        "fileName": "dea8afd85905e2308c6f86a783b1c480.jpg",
+        "templates": [
+          "metro-screen-wayfinding"
+        ],
+        "observation": "黑黄大字双语站头与全线图"
+      },
+      {
+        "index": 13,
+        "title": "成都电子站牌",
+        "fileName": "adc1dc73230068fe763fe645957c5e99.jpg",
+        "templates": [
+          "bus-stop-chengdu"
+        ],
+        "observation": "站序在左，线路号和到站栏在右"
+      },
+      {
+        "index": 14,
+        "title": "深圳电子站牌",
+        "fileName": "478270cf65eae16c6b746873ad3afd41.jpg",
+        "templates": [
+          "bus-stop-shenzhen"
+        ],
+        "observation": "蓝底、左侧服务与黄色长条本站标记"
+      },
+      {
+        "index": 15,
+        "title": "松江车厢屏",
+        "fileName": "b74a06fe472edd0cb3e34d0e1ec869af.jpg",
+        "templates": [
+          "bus-interior-songjiang"
+        ],
+        "observation": "粉色方向顶带、三站放大与完整站序"
+      },
+      {
+        "index": 16,
+        "title": "上海双列纸牌",
+        "fileName": "0a79580eaf9029967b911baf231a527b.jpg",
+        "templates": [
+          "bus-stop-shanghai"
+        ],
+        "observation": "双列独立线路卡、彩色卡头、竖写站名"
+      },
+      {
+        "index": 17,
+        "title": "澳门站段车厢屏",
+        "fileName": "87d74f2782f594786c47410e16238fde.jpg",
+        "templates": [
+          "bus-interior-macau"
+        ],
+        "observation": "局部站段放大、右侧信息栏；没有真实通告不编造"
+      },
+      {
+        "index": 18,
+        "title": "青岛杆挂站牌",
+        "fileName": "adedf64dfb5c85370c44b680cf455500.jpg",
+        "templates": [
+          "bus-stop-qingdao"
+        ],
+        "observation": "蓝白整条方向头与分线路叠牌"
+      },
+      {
+        "index": 19,
+        "title": "澳门折返车厢屏",
+        "fileName": "ff28213e0becd5894fb45c392cfee241.jpg",
+        "templates": [
+          "bus-interior-macau-fold"
+        ],
+        "observation": "蓝黄顶条与完整折返站序"
+      },
+      {
+        "index": 20,
+        "title": "潍坊纸质站牌",
+        "fileName": "5b98b32bb61c0a107723321238249a68.jpg",
+        "templates": [
+          "bus-stop-weifang"
+        ],
+        "observation": "蓝色站点线、竖写站名和底部大方向箭头"
+      },
+      {
+        "index": 21,
+        "title": "兰州公司分组站牌",
+        "fileName": "6770eea9699803b3bd19480a5f3b0eb0.jpg",
+        "templates": [
+          "bus-stop-lanzhou"
+        ],
+        "observation": "青色底、运营方分组与左侧红色线路号"
+      },
+      {
+        "index": 22,
+        "title": "武汉纸质站牌",
+        "fileName": "61a6b05c4eaf5d3a24368ab65ae5fc9e.jpg",
+        "templates": [
+          "bus-stop-wuhan"
+        ],
+        "observation": "左红号、上部方向箭头、右侧站序"
+      },
+      {
+        "index": 23,
+        "title": "重庆电子站牌",
+        "fileName": "2b42d316cf017af4cc1305079fdd6366.jpg",
+        "templates": [
+          "bus-stop-chongqing"
+        ],
+        "observation": "左侧斜写站序、右侧线路号和独立两班到站栏"
+      },
+      {
+        "index": 24,
+        "title": "澄迈绿白站牌",
+        "fileName": "9ae989d8c85b3e32c78420cc1f785057.jpg",
+        "templates": [
+          "bus-stop-chengmai"
+        ],
+        "observation": "绿白方向头、左侧服务资料、底部黄色途经道路条"
+      },
+      {
+        "index": 25,
+        "title": "厦门电子站牌",
+        "fileName": "6921a8c1a2371513bfe7b2f13beadc3e.jpg",
+        "templates": [
+          "bus-stop-xiamen"
+        ],
+        "observation": "完整站序与多列发车信息卡阵"
+      },
+      {
+        "index": 26,
+        "title": "蓝色站台编组屏",
+        "fileName": "c11e87b3a0aac4d40cf81049f993b2f3.jpg",
+        "templates": [
+          "metro-screen-platform"
+        ],
+        "observation": "车厢编组、当前门位、出口与全线／站台双页"
+      },
+      {
+        "index": 27,
+        "title": "无锡园林拱灯全线屏",
+        "fileName": "a59c5bd6fb8e506b4f20097010d87ecd.jpg",
+        "templates": [
+          "metro-screen-wuxi-screen"
+        ],
+        "observation": "浅色全宽、中央窄花边牌、连续园林拱灯、竖排中英文与换乘牌"
+      },
+      {
+        "index": 28,
+        "title": "无锡园林门侧屏",
+        "fileName": "e1ee0fe11fd071fcfedbde565f615e26.jpg",
+        "templates": [
+          "metro-screen-wuxi-screen"
+        ],
+        "observation": "独立到站页：八角园林窗、竹枝、中央圆形站名、真实下一站及人工设置的门侧提示"
+      },
+      {
+        "index": 29,
+        "title": "无锡绿色编组屏",
+        "fileName": "6afa2be15a36bf88e38e2d7aff492708.jpg",
+        "templates": [
+          "metro-screen-platform"
+        ],
+        "observation": "可调配色、编组及手动楼扶梯／卫生间／无障碍图标"
+      },
+      {
+        "index": 30,
+        "title": "无锡紫色编组屏",
+        "fileName": "1f8aca65fc13e726337bc48ff2a965c4.jpg",
+        "templates": [
+          "metro-screen-suzhou"
+        ],
+        "observation": "列车编组、当前车厢、门侧与全线切换，可调紫色"
+      }
+    ]
+  }
+}

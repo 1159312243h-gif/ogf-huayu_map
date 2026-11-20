@@ -34,6 +34,7 @@ function createMapAgentProviders() {
   }
   const args=value=>{try{return JSON.parse(value);}catch{throw Error("agent_response_invalid");}};
   function geminiSchema(s) {
+    if(s.anyOf){const value=s.anyOf.find(v=>v.type!=="null");return {...geminiSchema(value),nullable:s.anyOf.some(v=>v.type==="null")};}
     const result={type:s.type.toUpperCase()};
     if(s.properties)result.properties=Object.fromEntries(Object.entries(s.properties).map(([k,v])=>[k,geminiSchema(v)]));
     if(s.required?.length)result.required=s.required;

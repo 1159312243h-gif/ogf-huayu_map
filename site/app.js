@@ -659,6 +659,7 @@
     transitGuideStart: document.getElementById("transit-guide-start"),
     transitGuideEnd: document.getElementById("transit-guide-end"),
     transitGuideStats: document.getElementById("transit-guide-stats"),
+    transitGuideService: document.getElementById("transit-guide-service"),
     transitGuideStops: document.getElementById("transit-guide-stops"),
     transitGuideDownloadStops: document.getElementById("transit-guide-download-stops"),
     transitGuideQueueStops: document.getElementById("transit-guide-queue-stops"),
@@ -1190,6 +1191,7 @@
   let transitBusRoutingPromise = null;
   let transitBusRoutingRetryAfter = 0;
   let selectedNetworkStationId = null;
+  let selectedTemplateStation = null;
   let transitLabelFrame = null;
   let transitRenderTimer = null;
   let transitInteractionActive = false;
@@ -11689,6 +11691,11 @@
   }
 
   function showTransitStation(stop, marker) {
+    const templateSource=String(stop.sourceId ?? stop.id ?? "");
+    const templateId=/^(node|way|relation)[:/][1-9]\d*$/u.test(templateSource)?templateSource.replace(":","/"):/^[1-9]\d*$/u.test(templateSource)?(stop.sourceElementType||"node")+"/"+templateSource:null;
+    selectedTemplateStation=templateId?{sourceId:templateId,name:stop.name||"未命名站点",mode:stop.isRail?"rail":"bus",sourceIds:[...new Set((stop.displaySourceIds||[stop.id,stop.sourceId]).filter(Boolean).map(id=>/^[1-9]\d*$/u.test(String(id))?(stop.sourceElementType||"node")+"/"+id:String(id).replace(":","/")))],lat:stop.sourceLat??stop.lat,lng:stop.sourceLon??stop.lon}:null;
+    window.dispatchEvent(new CustomEvent("huayu:transit-station-selected"));
+    const templateButton=()=>{const b=document.createElement("button");b.type="button";b.className="text-button";b.textContent=stop.isRail?"制作本站地铁／轨道导视图":"制作本站全部公交线路站牌";b.disabled=!selectedTemplateStation;const target=selectedTemplateStation;b.addEventListener("click",()=>window.HuayuLineTemplateUI?.loadStation(target).catch(()=>{}));return b;};
     selectedNetworkStationId = stop.id;
     document.querySelectorAll(".rail-stop-symbol.is-selected, .bus-stop-symbol.is-selected").forEach((item) => item.classList.remove("is-selected"));
     const symbol = marker?.getElement?.()?.querySelector(".rail-stop-symbol, .bus-stop-symbol");
@@ -11755,6 +11762,7 @@
         });
         popupContent.appendChild(routeList);
       }
+      if(selectedTemplateStation)popupContent.appendChild(templateButton());
       marker.bindPopup(popupContent).openPopup();
       refreshIcons();
       return;
@@ -11798,6 +11806,7 @@
         elements.transitStationRoutes.appendChild(row);
       });
     }
+    if(selectedTemplateStation)elements.transitStationRoutes.appendChild(templateButton());
     elements.transitStationDetail.hidden = false;
     setPanelMinimized(elements.transitMapPanel, false);
     showTransitMapPanel();
@@ -14751,18 +14760,22 @@
     setStatus(elements.transitStatus, `已在本页标出“${label}”：${relationText}${graph.ways.length} 段线路、${graph.stops.length} 个站点、长度约 ${formatDistance(lengthMeters)}；放大可显示更多站名。`);
   }
 
-  function orderTransitGuideStops(stops, ways, relation) {
+  function orderTransitGuideStops(stops, ways, relation, items = selectedTransitItems) {
     if (stops.length < 2 || !ways.length) return [...stops];
+    if (transitRelationRouteType(relation) !== "bus" && relation?.tags?.type === "route") {
+      const railOrder = window.HuayuTransitStationData.orderRailStops(stops, relation, items);
+      if (railOrder.orderBasis === "connected-track") return railOrder.stops;
+    }
     const geometryOrder = collectTransitGuideGeometryOrder(stops, ways, relation);
     // Bus route masters often contain two opposite direction relations. Do
     // not merge both member arrays into one interleaved sequence: OGF's
     // explicitly tagged stop/platform members are the authoritative order for
     // the selected bus direction. Geometry remains the fallback for incomplete
     // relations and for rail, whose platform topology needs the existing merge.
-    const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation);
+    const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation, items);
     if (busMemberOrder?.length >= 2) return busMemberOrder;
-    const memberOrders = selectTransitGuideMemberOrderCandidates(collectTransitGuideMemberOrderCandidates(stops, relation)
-      .filter((candidate) => isReliableTransitGuideMemberOrder(candidate, geometryOrder, relation))
+    const memberOrders = selectTransitGuideMemberOrderCandidates(collectTransitGuideMemberOrderCandidates(stops, relation, items)
+      .filter((candidate) => isReliableTransitGuideMemberOrder(candidate, geometryOrder, relation, items))
       .sort((first, second) => {
         const rootDifference = Number(second.depth === 0) - Number(first.depth === 0);
         return rootDifference || second.stops.length - first.stops.length || first.depth - second.depth;
@@ -14783,15 +14796,15 @@
     // instead of one continuous journey. Keep a coherent member sequence, but
     // fall back to the physical line order when the merged list jumps between
     // otherwise disconnected sections. Bus routes have already returned above.
-    const continuousOrder = isTransitGuideRoundtrip(relation)
+    const continuousOrder = isTransitGuideRoundtrip(relation, items)
       || transitGuideOrderAgreement(ordered, geometryOrder) >= 0.9
       ? ordered : geometryOrder;
-    return orientTransitGuideOrder(continuousOrder, relation);
+    return orientTransitGuideOrder(continuousOrder, relation, items);
   }
 
-  function selectTransitBusGuideMemberOrder(stops, relation) {
+  function selectTransitBusGuideMemberOrder(stops, relation, items = selectedTransitItems) {
     if (transitRelationRouteType(relation) !== "bus") return null;
-    const candidates = collectTransitGuideMemberOrderCandidates(stops, relation)
+    const candidates = collectTransitGuideMemberOrderCandidates(stops, relation, items)
       .filter((candidate) => transitRelationRouteType(candidate.relation) === "bus")
       .filter((candidate) => candidate.stops.length >= 2)
       .filter((candidate) => (candidate.relation.members || []).some((member) => member.type === "node"
@@ -14817,7 +14830,7 @@
     })).sort((first, second) => second.score - first.score || second.candidate.stops.length
       - first.candidate.stops.length || first.candidate.depth - second.candidate.depth || first.index - second.index);
     const selected = ranked[0]?.candidate;
-    return selected ? orientTransitGuideOrder([...selected.stops], selected.relation) : null;
+    return selected ? orientTransitGuideOrder([...selected.stops], selected.relation, items) : null;
   }
 
   function collectTransitGuideGeometryOrder(stops, ways, relation) {
@@ -14941,9 +14954,12 @@
     const from = normalizeTransitStopName(fromLabel);
     const to = normalizeTransitStopName(toLabel);
     const routeText = String(relation?.tags?.name || "").normalize("NFKC");
-    const roundtrip = String(relation?.tags?.roundtrip || "").toLowerCase() === "yes"
-      || Boolean(from && to && from === to)
-      || /(?:环线|环城|环状|环形)|\b(?:circle|circular|loop|ring)\b/iu.test(routeText);
+    const flag = String(relation?.tags?.roundtrip || "").toLowerCase();
+    const members = (relation?.members || []).filter(member => /^(stop|platform)(?:_(entry|exit)_only)?$/u.test(member.role || ""));
+    const closedMembers = members.length > 2 && members[0].type === members.at(-1).type && members[0].ref === members.at(-1).ref;
+    const roundtrip = flag !== "no" && (flag === "yes"
+      || Boolean(from && to && from === to) || closedMembers
+      || /(?:循环|环线|环城|环状|环形)|\b(?:circle|circular|loop|ring)\b/iu.test(routeText));
     return {
       roundtrip,
       anchor: roundtrip ? fromLabel || toLabel : "",
@@ -14952,7 +14968,7 @@
 
   function transitGuideRoundtripInfo(relation, items = selectedTransitItems) {
     const direct = transitGuideDirectRoundtripInfo(relation);
-    if (direct.roundtrip || String(relation?.tags?.type || "") !== "route_master") return direct;
+    if (direct.roundtrip || String(relation?.tags?.type || "") !== "route_master" || String(relation?.tags?.roundtrip || "").toLowerCase() === "no") return direct;
     const relationsById = new Map((Array.isArray(items) ? items : [])
       .filter((item) => item.type === "relation")
       .map((item) => [item.id, item]));
@@ -14971,14 +14987,14 @@
     };
   }
 
-  function isTransitGuideRoundtrip(relation) {
-    return transitGuideRoundtripInfo(relation).roundtrip;
+  function isTransitGuideRoundtrip(relation, items = selectedTransitItems) {
+    return transitGuideRoundtripInfo(relation, items).roundtrip;
   }
 
-  function isReliableTransitGuideMemberOrder(candidate, geometryOrder, rootRelation) {
+  function isReliableTransitGuideMemberOrder(candidate, geometryOrder, rootRelation, items = selectedTransitItems) {
     const { stops: order, relation, depth } = candidate;
     if (order.length < 2) return false;
-    if (isTransitGuideRoundtrip(relation)) return true;
+    if (isTransitGuideRoundtrip(relation, items)) return true;
 
     const fromIndex = transitGuideNamedStopIndex(order, relation?.tags?.from);
     const toIndex = transitGuideNamedStopIndex(order, relation?.tags?.to);
@@ -15037,9 +15053,9 @@
     return selected;
   }
 
-  function orientTransitGuideOrder(order, relation) {
+  function orientTransitGuideOrder(order, relation, items = selectedTransitItems) {
     const ordered = [...order];
-    const roundtripInfo = transitGuideRoundtripInfo(relation);
+    const roundtripInfo = transitGuideRoundtripInfo(relation, items);
     const fromLabel = relation?.tags?.from || roundtripInfo.anchor;
     const toLabel = relation?.tags?.to || roundtripInfo.anchor;
     const fromIndex = transitGuideNamedStopIndex(ordered, fromLabel);
@@ -15084,11 +15100,11 @@
     return { ...way, geometry: unfolded };
   }
 
-  function collectTransitGuideMemberOrderCandidates(stops, relation) {
-    const relationsById = new Map(selectedTransitItems
+  function collectTransitGuideMemberOrderCandidates(stops, relation, items = selectedTransitItems) {
+    const relationsById = new Map(items
       .filter((item) => item.type === "relation")
       .map((item) => [item.id, item]));
-    const nodesById = new Map(selectedTransitItems
+    const nodesById = new Map(items
       .filter((item) => item.type === "node")
       .map((item) => [item.id, item]));
     const stopsBySourceId = new Map(stops
@@ -15199,23 +15215,34 @@
     const guideRelation = focusedTransitGuideRelation || selectedTransitRoot;
     const roundtripInfo = transitGuideRoundtripInfo(guideRelation);
     const stops = currentTransitGuideStopOrder(guideRelation, roundtripInfo);
-    const namedStops = stops.filter((stop) => stop.name);
-    const transferCount = stops.filter((stop) => uniqueTransitRoutes(stop.routes || []).length > 1).length;
+    const busGuide = transitRelationRouteType(guideRelation) === "bus";
+    const guideRoutes = stop => uniqueTransitRoutes(stop.routes || []).filter(route => !busGuide || route.type !== "bus" || route.identity === transitRouteInfo(guideRelation).identity);
+    const transferCount = stops.filter((stop) => guideRoutes(stop).length > 1).length;
     const focusedRouteIdentity = selectedTransitRoot ? transitRouteInfo(selectedTransitRoot).identity : "";
-    const start = namedStops[0]?.name || "未命名起点";
-    const end = roundtripInfo.roundtrip ? start : namedStops.at(-1)?.name || "未命名终点";
+    const endpoints = window.HuayuTransitStationData.endpointsFor(guideRelation, selectedTransitItems);
+    const start = endpoints.from;
+    const end = endpoints.to || (window.HuayuTransitStationData.endpointStatus(guideRelation,selectedTransitItems)==="choose-direction"?"请选择具体方向":"未提供");
     elements.transitGuideTitle.textContent = focusedTransitGuideLabel;
     elements.transitLineGuide.style.setProperty("--guide-color", focusedTransitGuideColor);
+    // Member order is a display sequence, not evidence of an operational origin.
+    elements.transitGuideStart.parentElement.hidden = false;
+    elements.transitGuideStart.parentElement.classList.toggle("is-terminal-only", !start);
+    elements.transitGuideStart.hidden = !start;
+    elements.transitGuideStart.nextElementSibling.hidden = !start;
     elements.transitGuideStart.textContent = start;
-    elements.transitGuideEnd.textContent = end;
+    elements.transitGuideEnd.textContent = roundtripInfo.roundtrip ? "终点站  "+end : end;
     const lengthText = Number.isFinite(focusedTransitGuideLengthMeters)
       ? ` · 长度约 ${formatDistance(focusedTransitGuideLengthMeters)}` : "";
-    elements.transitGuideStats.textContent = `${stops.length} 个站点${roundtripInfo.roundtrip ? " · 环线" : ""}${transferCount ? ` · ${transferCount} 个换乘站` : ""}${lengthText}`;
+    elements.transitGuideStats.textContent = `${stops.length} 个站点${transferCount ? ` · ${transferCount} 个换乘站` : ""}${lengthText}`;
+    const serviceData = window.HuayuTransitStationData.serviceFor(guideRelation || {id:0,tags:{}}, [...transitFareRelations({id:guideRelation?.id}), ...selectedTransitItems]);
+    const service = serviceData.service;
+    const serviceText = [service.hours && "服务时间 "+service.hours, service.first && "首班 "+service.first, service.last && "末班 "+service.last, service.fare && "票价 "+service.fare, service.interval && "班次间隔 "+service.interval, service.departures && "发车时刻 "+service.departures, service.operator && "运营方 "+service.operator].filter(Boolean);
+    elements.transitGuideService.textContent = serviceText.length ? serviceText.join(" · ") : "运营资料未提供";
     elements.transitGuideStops.replaceChildren();
     stops.forEach((stop, index) => {
       const entry = document.createElement("button");
       entry.type = "button";
-      const stopRoutes = uniqueTransitRoutes(stop.routes || []);
+      const stopRoutes = guideRoutes(stop);
       const stopColors = stopRoutes.map((route) => route.color).filter(Boolean).slice(0, 4);
       entry.className = [
         "transit-guide-stop",
@@ -15223,7 +15250,7 @@
         stopRoutes.length > 1 ? "is-transfer" : "",
       ].filter(Boolean).join(" ");
       entry.setAttribute("role", "listitem");
-      entry.setAttribute("aria-label", `${index + 1}. ${stop.name || "未命名站点"}`);
+      entry.setAttribute("aria-label", roundtripInfo.roundtrip ? stop.name || "未命名站点" : `${index + 1}. ${stop.name || "未命名站点"}`);
       entry.style.setProperty("--guide-color", focusedTransitGuideColor);
       const marker = document.createElement("span");
       marker.className = "transit-guide-stop-marker";
@@ -15235,7 +15262,7 @@
       entry.style.setProperty("--guide-core", "#ffffff");
       const number = document.createElement("small");
       number.className = "transit-guide-stop-number";
-      number.textContent = String(index + 1);
+      number.textContent = roundtripInfo.roundtrip ? "" : String(index + 1);
       const name = document.createElement("span");
       name.className = "transit-guide-stop-name";
       name.textContent = stop.name || "未命名站点";
@@ -15272,6 +15299,7 @@
     elements.transitLineGuide.hidden = false;
     elements.transitResults.hidden = true;
     refreshIcons();
+    window.dispatchEvent(new CustomEvent("huayu:transit-guide-changed"));
   }
 
   function currentTransitGuideStopOrder(guideRelation = focusedTransitGuideRelation || selectedTransitRoot,
@@ -15313,17 +15341,32 @@
     elements.transitLineGuide.style.removeProperty("--guide-color");
     elements.transitGuideStops.replaceChildren();
     if (selectedTransitId === null) elements.transitResults.hidden = false;
+    window.dispatchEvent(new CustomEvent("huayu:transit-guide-changed"));
   }
 
-  function createFocusedTransitRouteResolver() {
-    const selectedRoute = transitRouteInfo(selectedTransitRoot);
+  function buildTransitTemplateFamily(relation, items, station, suppliedNetwork = null) {
+    let graph=collectTransitGraph(items,relation);
+    const snapshot=transitPreloadSnapshots.find(s=>s.network&&s.elements?.some(e=>e.type==='relation'&&e.id===relation.id)),network=suppliedNetwork||snapshot?.network;
+    const supplemented=graph.memberStopIds.length===0&&Boolean(network);
+    if(supplemented)graph=supplementTransitGraphStopsFromPreload(graph,relation,network);
+    if(!graph.stops.length||!graph.ways.length)throw Error('全线未取得完整轨道及站点，保留此前完整图');
+    const ordered=orderTransitGuideStops(graph.stops,graph.ways,relation,items),sourceNodes=items.filter(e=>e.type==='node'),memberIds=new Set(graph.memberStopIds),selectedRefs=window.HuayuTransitStationData.stationRefs(station,items),normalize=v=>String(v||'').normalize('NFKC').trim().toLocaleLowerCase('zh-CN');
+    const stops=ordered.map(stop=>{
+      const sourceId='node/'+stop.sourceId,point={lat:stop.sourceLat??stop.lat,lon:stop.sourceLon??stop.lon},name=normalize(stop.name),aliases=sourceNodes.filter(n=>(memberIds.has(n.id)||selectedRefs.has('node/'+n.id))&&normalize(n.tags?.name)===name&&distanceMeters(n,point)<=180).map(n=>'node/'+n.id),node=sourceNodes.find(n=>n.id===stop.sourceId);
+      return {sourceId,memberSourceIds:[...new Set([sourceId,...aliases])],lat:point.lat,lon:point.lon,name:stop.name||'未命名站点',nameEn:node?.tags?.['name:en']||'',tags:node?.tags||{},transfers:[]};
+    });
+    return {stops,roundtrip:transitGuideRoundtripInfo(relation,items).roundtrip,supplementSourceTime:supplemented&&Number.isFinite(transitPreloadGeneratedAt)&&transitPreloadGeneratedAt>0?new Date(transitPreloadGeneratedAt).toISOString():null};
+  }
+
+  function createFocusedTransitRouteResolver(root = selectedTransitRoot, items = selectedTransitItems) {
+    const selectedRoute = transitRouteInfo(root);
     const selectedSystem = transitLayerCategory(selectedRoute);
-    const relationsById = new Map(selectedTransitItems
+    const relationsById = new Map(items
       .filter((item) => item.type === "relation")
       .map((item) => [item.id, item]));
     const nodesByName = new Map();
     const routeMembershipsByNode = new Map();
-    selectedTransitItems.forEach((item) => {
+    items.forEach((item) => {
       if (item.type !== "node" || !Number.isFinite(item.lat) || !Number.isFinite(item.lon)) return;
       const name = normalizeTransitRuleText(item.tags?.name || item.tags?.local_ref || item.tags?.ref || "");
       if (!name) return;
@@ -36019,6 +36062,44 @@
       if(panel==="map-view"){showMapViewMenu();return;}
       if(panel===currentView){showView(panel,{preservePerspective:true});return;}
       runAction(panel);
+    },
+    buildTransitTemplateFamily,
+    getTransitTemplateRules: () => ({stationDisplayMergeOverrides:transitServiceRules.stationDisplayMergeOverrides,stationTransferAliases:transitServiceRules.stationTransferAliases,stationInterchangeOverrides:transitServiceRules.stationInterchangeOverrides,refCorrections:transitServiceRules.refCorrections}),
+    getTransitTemplateStation: () => selectedTemplateStation ? {...selectedTemplateStation} : null,
+    getTransitTemplateDirections: () => {
+      if (!selectedTransitRoot || elements.transitSegmentControl.hidden) return [];
+      return [...elements.transitSegmentSelect.options].map(option => {
+        const relation=option.value==="all"?selectedTransitRoot:selectedTransitItems.find(item=>item.type==="relation"&&String(item.id)===option.value);
+        if(!relation)return null;
+        return {sourceId:"relation/"+relation.id,title:option.textContent,ref:String(relation.tags?.ref||""),color:getTransitColor(relation.tags),from:String(relation.tags?.from||""),to:String(relation.tags?.to||""),selected:option.selected};
+      }).filter(Boolean);
+    },
+    selectTransitTemplateDirection: sourceId => {
+      const option=[...elements.transitSegmentSelect.options].find(option=>"relation/"+(option.value==="all"?selectedTransitRoot?.id:option.value)===sourceId);
+      if(!option||elements.transitSegmentControl.hidden)throw Error("请使用已读取方向里的真实关系编号");
+      elements.transitSegmentSelect.value=option.value;
+      renderFocusedTransitSelection();
+      if(!focusedTransitGuideStops.length)throw Error("此方向尚无完整站序，请选择其他方向；原始关系未改变");
+    },
+    getTransitTemplateLine: () => {
+      if (!focusedTransitGuideStops.length || !focusedTransitGuideLabel) return null;
+      const relation = focusedTransitGuideRelation || selectedTransitRoot;
+      const route = relation ? transitRouteInfo(relation) : null;
+      const tags = relation?.tags || {};
+      const endpoints = window.HuayuTransitStationData.endpointsFor(relation,selectedTransitItems);
+      const serviceData = window.HuayuTransitStationData.serviceFor(relation || {id:0,tags}, [...transitFareRelations({id:relation?.id}), ...selectedTransitItems]);
+      return {type:String(route?.type || tags.route || tags.route_master || ""),relationKind:String(tags.type || ""),
+        ...serviceData,
+        passenger:{cars:Number(tags["train:cars"]||tags.carriages)||undefined},
+        ...endpoints,endpointState:window.HuayuTransitStationData.endpointStatus?.(relation,selectedTransitItems)||"missing",
+        title:focusedTransitGuideLabel,ref:String(relation?.tags?.ref || ""),color:focusedTransitGuideColor,
+        roundtrip:tags.route==="bus"?window.HuayuTransitStationData.isRoundtrip(relation,[...transitFareRelations({id:relation?.id}),...selectedTransitItems]):transitGuideRoundtripInfo(relation).roundtrip,source:"OpenGeofiction 当前已读取线路关系",
+        sourceId:relation?.id ? "relation/"+relation.id : "",stops:currentTransitGuideStopOrder(relation).map(stop => {
+          const rawId=String(stop.sourceId ?? stop.id ?? "");
+          const sourceId=/^(node|way|relation)[:/][1-9]\d*$/u.test(rawId)?rawId.replace(":","/"):/^[1-9]\d*$/u.test(rawId)?(stop.sourceElementType || "node")+"/"+rawId:"";
+          return {sourceId,lat:stop.sourceLat??stop.lat,lon:stop.sourceLon??stop.lon??stop.lng,name:stop.name || "未命名站点",nameEn:stop.tags?.["name:en"] || "",tags:stop.tags || {},
+          transfers:uniqueTransitRoutes(stop.routes || []).filter(item => item.identity !== route?.identity).map(item => ({type:item.type,ref:item.ref||"",identity:item.identity,label:item.label || item.ref || item.type,color:item.color}))
+        };})};
     },
     openView: showView,
     applyAccountDefault,

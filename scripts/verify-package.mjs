@@ -45,7 +45,7 @@ for (const file of files) {
   assert.equal(actual, manifest.get(relative), `文件校验失败：${relative}`);
 }
 
-for (const required of ["brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
+for (const required of ["transit-station-data.js","transit-template-core.js","transit-templates.js","transit-templates.css","transit-template-references.json","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js", "building-tiles.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
@@ -1279,12 +1279,12 @@ assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
   && app.includes("explicitly tagged stop/platform members are the authoritative order")
   && app.includes('if (transitRelationRouteType(relation) !== "bus") return null')
   && app.includes("const requestedFrom = normalizeTransitStopName(relation?.tags?.from || \"\")")
-  && app.includes("const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation)"),
+  && app.includes("const busMemberOrder = selectTransitBusGuideMemberOrder(stops, relation, items)"),
 "公交线路图必须优先使用关系中的 stop/platform 成员顺序，并按 from/to 校正方向");
 assert.ok(app.includes("Rail route masters may group stops by direction or construction phase")
   && app.includes("transitGuideOrderAgreement(ordered, geometryOrder) >= 0.9")
   && app.includes("? ordered : geometryOrder")
-  && app.includes("return orientTransitGuideOrder(continuousOrder, relation)"),
+  && app.includes("return orientTransitGuideOrder(continuousOrder, relation, items)"),
 "轨道交通总关系的合并站序与连续几何冲突时必须回退到实际线路顺序");
 assert.ok(app.includes("function transitGuideDirectRoundtripInfo(relation)")
   && app.includes("function transitGuideRoundtripInfo(relation, items = selectedTransitItems)")
@@ -1293,9 +1293,10 @@ assert.ok(app.includes("function transitGuideDirectRoundtripInfo(relation)")
   && app.includes("anchor: normalizedAnchors.size === 1 ? anchors[0] : \"\"")
   && app.includes("renderTransitLineGuide({ label, color: lineColor, lengthMeters, relation: selectedRelation })")
   && app.includes("? orientTransitGuideOrder(directionalStops, guideRelation)")
-  && app.includes("const end = roundtripInfo.roundtrip ? start")
-  && app.includes('roundtripInfo.roundtrip ? " · 环线" : ""'),
-"环线线路向导必须从闭环子关系继承共同锚点，正向与换向均显示同一站为起终点");
+  && app.includes("elements.transitGuideStart.parentElement.hidden = false")
+  && app.includes('elements.transitGuideEnd.textContent = roundtripInfo.roundtrip ? "终点站  "+end : end')
+  && app.includes('number.textContent = roundtripInfo.roundtrip ? "" : String(index + 1)'),
+"环线保留源关系明确的共同绘图锚点；各方向导视保留真实终点，不据成员顺序虚构环线起终站或首站编号");
 const transitGuideDirectRoundtripInfoSource = app.match(/function transitGuideDirectRoundtripInfo\(relation\) \{[\s\S]*?\n  \}/)?.[0];
 const transitGuideRoundtripInfoSource = app.match(/function transitGuideRoundtripInfo\(relation, items = selectedTransitItems\) \{[\s\S]*?\n  \}/)?.[0];
 assert.ok(transitGuideDirectRoundtripInfoSource && transitGuideRoundtripInfoSource,
@@ -1308,6 +1309,9 @@ const transitGuideRoundtripInfo = Function(
   `"use strict"; return (${transitGuideRoundtripInfoSource});`,
 )(transitGuideDirectRoundtripInfo, normalizeGuideStopName,
   (relation) => String(relation?.tags?.route || relation?.tags?.route_master || ""));
+assert.equal(transitGuideDirectRoundtripInfo({tags:{route:"bus",name:"校园小循环"}}).roundtrip,true);
+assert.equal(transitGuideDirectRoundtripInfo({tags:{route:"bus",name:"校园小循环",roundtrip:"no"}}).roundtrip,false);
+assert.equal(transitGuideDirectRoundtripInfo({tags:{route:"bus",name:"校园小循环"}}).anchor,"");
 const ringMasterFixture = {
   type: "relation",
   id: 547550,
@@ -1320,7 +1324,7 @@ const ringChildrenFixture = [547548, 547549].map((id, index) => ({
   tags: { type: "route", route: "subway", name: `津川轨道交通4号线${index ? "外圈" : "内圈"}`, from: "虚谷", to: "虚谷" },
 }));
 assert.deepEqual(transitGuideRoundtripInfo(ringMasterFixture, [ringMasterFixture, ...ringChildrenFixture]),
-  { roundtrip: true, anchor: "虚谷" }, "津川4号线总关系未继承内外环共同起终站");
+  { roundtrip: true, anchor: "虚谷" }, "津川4号线总关系未继承内外环明确的共同绘图锚点");
 assert.deepEqual(transitGuideRoundtripInfo({
   type: "relation", tags: { type: "route", route: "subway", from: "长宁湖", to: "石木" },
 }, []), { roundtrip: false, anchor: "" }, "普通线路被错误识别为环线");
@@ -1501,6 +1505,10 @@ const managementTest = await runCheck([path.join(root,"scripts","test-brand-mana
 assert.equal(managementTest.status,0,"品牌管理申请、并发及权限回归失败："+managementTest.stderr);
 const logoTest = await runCheck([path.join(root,"scripts","test-brand-logos.mjs")]);
 assert.equal(logoTest.status,0,"品牌共享 logo 回归失败："+logoTest.stderr);
+const transitStationDataTest = await runCheck([path.join(root,"scripts","test-transit-station-data.mjs")]);
+assert.equal(transitStationDataTest.status,0,"车站全部公交关系及排版回归失败："+transitStationDataTest.stderr);
+const transitTemplateTest = await runCheck([path.join(root,"scripts","test-transit-templates.mjs")]);
+assert.equal(transitTemplateTest.status, 0, "线路显示模板回归失败");
 const agentTest = await runCheck([path.join(root,"scripts","test-map-agent.mjs")]);
 assert.equal(agentTest.status,0, "地图助手能力、权限和调用回归失败："+agentTest.stderr);
 const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);

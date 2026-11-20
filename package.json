@@ -31,6 +31,8 @@
     "test:brand-logos": "node scripts/test-brand-logos.mjs",
     "logos:sync": "node scripts/sync-brand-logos.mjs",
     "test:brand-management": "node scripts/test-brand-management.mjs",
-    "brand-management:sync": "node scripts/sync-brand-management.mjs"
+    "brand-management:sync": "node scripts/sync-brand-management.mjs",
+    "test:transit-station": "node scripts/test-transit-station-data.mjs",
+    "test:transit-templates": "node scripts/test-transit-templates.mjs"
   }
 }

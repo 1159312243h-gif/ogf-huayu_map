@@ -1,0 +1,4430 @@
+{
+  "station": {
+    "sourceId": "node/428838264",
+    "name": "南国大",
+    "mode": "rail",
+    "sourceIds": [
+      "node/428837735",
+      "node/428837736",
+      "node/428838264",
+      "node/432845496",
+      "node/432845497",
+      "node/432845498"
+    ]
+  },
+  "sourceTime": "2026-11-19T13:50:16Z",
+  "responses": [
+    {
+      "query": "[out:json][timeout:25];node(428838264)->.station;(.station;node(id:428838264,428837735,428837736,432845496,432845497,432845498);)->.station;(rel(bn.station)[\"public_transport\"=\"stop_area\"];rel(bw.station)[\"public_transport\"=\"stop_area\"];rel(br.station)[\"public_transport\"=\"stop_area\"];)->.areas;(.station;.areas;node(r.areas);way(r.areas);rel(r.areas);)->.stops;(rel(bn.stops);rel(bw.stops);rel(br.stops);)->.parents;rel.parents[\"type\"=\"route\"][\"route\"~\"^(bus|subway|light_rail|monorail|tram|train)$\"]->.routes;(.routes <<;)->.masters;(.stops;.routes;.masters;);out body center;out count;",
+      "payload": {
+        "version": 0.6,
+        "generator": "Overpass API 0.7.59.120 (mmd) 1fceaad",
+        "osm3s": {
+          "timestamp_osm_base": "2026-11-19T13:50:16Z",
+          "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+        },
+        "elements": [
+          {
+            "type": "node",
+            "id": 428837735,
+            "lat": 14.6223479,
+            "lon": 152.9687453,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837736,
+            "lat": 14.6222463,
+            "lon": 152.9687052,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428838264,
+            "lat": 14.6222907,
+            "lon": 152.968729,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "station",
+              "railway": "station",
+              "station": "subway",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845496,
+            "lat": 14.6212361,
+            "lon": 152.9689034,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845497,
+            "lat": 14.6212515,
+            "lon": 152.9688524,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "station",
+              "railway": "station",
+              "station": "subway",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845498,
+            "lat": 14.6212744,
+            "lon": 152.9687981,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540664,
+            "center": {
+              "lat": 14.6541944,
+              "lon": 152.9224929
+            },
+            "members": [
+              {
+                "type": "way",
+                "ref": 43263865,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 424888164,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888210,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428838000,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837979,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837957,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837933,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837911,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837889,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888213,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837867,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837846,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837825,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837804,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837782,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837760,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837736,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837689,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837713,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 45632149,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209459,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209452,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "19.17km",
+              "from": "鹿山公园",
+              "interval": "4/8",
+              "maxspeed": "80",
+              "name": "津川轨道交通1号线1期下行",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "to": "农园路",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540665,
+            "center": {
+              "lat": 14.6542023,
+              "lon": 152.9225814
+            },
+            "members": [
+              {
+                "type": "way",
+                "ref": 43263866,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 424888168,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888211,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428838001,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837980,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837956,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837932,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837910,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837890,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888212,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837866,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837845,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837824,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837803,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837783,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837759,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837735,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837688,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837712,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 43209473,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632148,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209453,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "19.16km",
+              "from": "农园路",
+              "interval": "4/8",
+              "maxspeed": "80",
+              "name": "津川轨道交通1号线1期上行",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "to": "鹿山公园",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540666,
+            "center": {
+              "lat": 14.6510784,
+              "lon": 152.9515903
+            },
+            "members": [
+              {
+                "type": "relation",
+                "ref": 540664,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 540665,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 428838249,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838250,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838251,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838252,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838253,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838254,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838255,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838256,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838257,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838258,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838259,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838260,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838261,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838262,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838263,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838264,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838265,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838266,
+                "role": "station"
+              },
+              {
+                "type": "relation",
+                "ref": 547490,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547489,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846836,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846812,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846787,
+                "role": "stop"
+              },
+              {
+                "type": "relation",
+                "ref": 547492,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547491,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432848092,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848116,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847428,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847452,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848044,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848068,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "41.905km",
+              "interval": "4/8/16",
+              "maxspeed": "80/100",
+              "name": "津川轨道交通1号线",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "type": "route_master"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547548,
+            "center": {
+              "lat": 14.6679671,
+              "lon": 152.9201743
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847810,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847786,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845424,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845448,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845472,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845498,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845523,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845548,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845570,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845594,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845625,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845654,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845677,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845701,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845726,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845752,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845776,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845800,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845825,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845851,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845878,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845903,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845928,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845953,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845978,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846004,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846029,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846054,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757340,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846079,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846107,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 42259339,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259344,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259347,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259349,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584359,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259350,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584362,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259352,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263918,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263915,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259355,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263894,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259356,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209395,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209393,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42176336,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632127,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632128,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632130,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259341,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846134,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846159,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846184,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846207,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846255,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846230,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.66km",
+              "from": "虚谷",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线内圈",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "to": "虚谷",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547549,
+            "center": {
+              "lat": 14.6679672,
+              "lon": 152.9201742
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847812,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847788,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845422,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845446,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845470,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845496,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845521,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845546,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845572,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845596,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845626,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845640,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845679,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845703,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845728,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845754,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845778,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845802,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845827,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845853,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845876,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845905,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845930,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845955,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845980,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846006,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846031,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846056,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757338,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846081,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846105,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 42259340,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259343,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259345,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259346,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259348,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584360,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259351,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584361,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259353,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263917,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263916,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259354,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263893,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259357,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209394,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209392,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42176335,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632129,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632125,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632126,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259342,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846132,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846157,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846182,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846205,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846253,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846228,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.68km",
+              "from": "虚谷",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线外圈",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "to": "虚谷",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547550,
+            "center": {
+              "lat": 14.6675767,
+              "lon": 152.9199667
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847811,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847787,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845423,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845447,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845471,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845497,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845522,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845547,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845571,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845595,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432388785,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432388810,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845678,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845702,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845727,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845753,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845777,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845801,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845826,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845852,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845877,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845904,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845929,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845954,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845979,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846005,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846030,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846055,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757339,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846080,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846106,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846133,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846158,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846183,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846206,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846254,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846229,
+                "role": "stop"
+              },
+              {
+                "type": "relation",
+                "ref": 547548,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547549,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.66/45.68km",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "type": "route_master"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547557,
+            "members": [
+              {
+                "type": "relation",
+                "ref": 547550,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547555,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 540666,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 545464,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 546913,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547496,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 548737,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 548740,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "fare:band:1:max_distance": "6 km",
+              "fare:band:1:price": "2",
+              "fare:band:2:max_distance": "12 km",
+              "fare:band:2:price": "3",
+              "fare:band:3:max_distance": "22 km",
+              "fare:band:3:price": "4",
+              "fare:band:4:max_distance": "32 km",
+              "fare:band:4:price": "5",
+              "fare:description": "6公里内2元；6至12公里3元；12至22公里4元；22至32公里5元；此后每20公里加1元；换乘可连续计费；有轨电车乘坐默认2元",
+              "fare:extra:distance_step": "20 km",
+              "fare:extra:price_step": "1",
+              "fare:model": "distance_bands",
+              "name": "津川轨道交通",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "type": "collection"
+            }
+          },
+          {
+            "type": "count",
+            "id": 0,
+            "tags": {
+              "nodes": "6",
+              "ways": "0",
+              "relations": "7",
+              "total": "13"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "query": "[out:json][timeout:30];rel(id:540664,540665,547548,547549)->.routes;(.routes <<;)->.masters;(.routes;.masters;node(r.routes);way(r.routes:\"platform\");way(r.routes:\"platform_entry_only\");way(r.routes:\"platform_exit_only\");way(r.routes)[\"public_transport\"=\"platform\"];way(r.routes)[\"highway\"=\"bus_stop\"];way(r.routes)[\"railway\"~\"^(station|halt|tram_stop)$\"];rel(r.routes:\"platform\");rel(r.routes:\"stop\");rel(r.routes)[\"public_transport\"=\"platform\"];rel(r.routes)[\"railway\"~\"^(station|halt|tram_stop)$\"];)->.details;(rel(bn.details);rel(bw.details);rel(br.details);)->.parents;rel.parents[\"type\"=\"route\"][\"route\"~\"^(subway|light_rail|monorail|tram|train)$\"]->.interchanges;(.interchanges <<;)->.transfermasters;(.details;.interchanges;.transfermasters;);out body center;out count;",
+      "payload": {
+        "version": 0.6,
+        "generator": "Overpass API 0.7.59.120 (mmd) 1fceaad",
+        "osm3s": {
+          "timestamp_osm_base": "2026-11-19T13:50:16Z",
+          "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+        },
+        "elements": [
+          {
+            "type": "node",
+            "id": 424888164,
+            "lat": 14.6544106,
+            "lon": 152.8973918,
+            "tags": {
+              "name": "津川火车站",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 424888168,
+            "lat": 14.6544397,
+            "lon": 152.8974143,
+            "tags": {
+              "name": "津川火车站",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 424888210,
+            "lat": 14.6610072,
+            "lon": 152.894929,
+            "tags": {
+              "name": "市政府",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 424888211,
+            "lat": 14.6609596,
+            "lon": 152.8950297,
+            "tags": {
+              "name": "市政府",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 424888212,
+            "lat": 14.6523231,
+            "lon": 152.9050761,
+            "tags": {
+              "name": "安巷",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 424888213,
+            "lat": 14.6522219,
+            "lon": 152.9050328,
+            "tags": {
+              "name": "安巷",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837688,
+            "lat": 14.6170898,
+            "lon": 152.9766418,
+            "tags": {
+              "name": "龙湖南湾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837689,
+            "lat": 14.6171822,
+            "lon": 152.9767012,
+            "tags": {
+              "name": "龙湖南湾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837712,
+            "lat": 14.6104682,
+            "lon": 152.9872608,
+            "tags": {
+              "name": "农园路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837713,
+            "lat": 14.6103762,
+            "lon": 152.9872008,
+            "tags": {
+              "name": "农园路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837735,
+            "lat": 14.6223479,
+            "lon": 152.9687453,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837736,
+            "lat": 14.6222463,
+            "lon": 152.9687052,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837759,
+            "lat": 14.6272661,
+            "lon": 152.9571721,
+            "tags": {
+              "name": "临大·津师",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837760,
+            "lat": 14.6271642,
+            "lon": 152.9571329,
+            "tags": {
+              "name": "临大·津师",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837782,
+            "lat": 14.6305482,
+            "lon": 152.9471443,
+            "tags": {
+              "name": "苍龙门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837783,
+            "lat": 14.6306529,
+            "lon": 152.9471749,
+            "tags": {
+              "name": "苍龙门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837803,
+            "lat": 14.6342571,
+            "lon": 152.9393656,
+            "tags": {
+              "name": "临川",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837804,
+            "lat": 14.6341724,
+            "lon": 152.939295,
+            "tags": {
+              "name": "临川",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837824,
+            "lat": 14.639473,
+            "lon": 152.9316084,
+            "tags": {
+              "name": "玄默门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837825,
+            "lat": 14.6393721,
+            "lon": 152.9315662,
+            "tags": {
+              "name": "玄默门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837845,
+            "lat": 14.6431834,
+            "lon": 152.9222314,
+            "tags": {
+              "name": "熙园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837846,
+            "lat": 14.6430786,
+            "lon": 152.9222014,
+            "tags": {
+              "name": "熙园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837866,
+            "lat": 14.6465891,
+            "lon": 152.9147732,
+            "tags": {
+              "name": "东南大街",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837867,
+            "lat": 14.6464995,
+            "lon": 152.9147094,
+            "tags": {
+              "name": "东南大街",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837889,
+            "lat": 14.6988178,
+            "lon": 152.858024,
+            "tags": {
+              "name": "鹿山公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837890,
+            "lat": 14.6987504,
+            "lon": 152.8581123,
+            "tags": {
+              "name": "鹿山公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837910,
+            "lat": 14.6892142,
+            "lon": 152.8626007,
+            "tags": {
+              "name": "青创城",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837911,
+            "lat": 14.689142,
+            "lon": 152.8625167,
+            "tags": {
+              "name": "青创城",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837932,
+            "lat": 14.6840402,
+            "lon": 152.8724984,
+            "tags": {
+              "name": "长宁湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837933,
+            "lat": 14.6839397,
+            "lon": 152.8724557,
+            "tags": {
+              "name": "长宁湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837956,
+            "lat": 14.6797437,
+            "lon": 152.8813041,
+            "tags": {
+              "name": "高阳北路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837957,
+            "lat": 14.6796445,
+            "lon": 152.881258,
+            "tags": {
+              "name": "高阳北路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837979,
+            "lat": 14.6751401,
+            "lon": 152.8904043,
+            "tags": {
+              "name": "环光中心",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428837980,
+            "lat": 14.6752392,
+            "lon": 152.8904508,
+            "tags": {
+              "name": "环光中心",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428838000,
+            "lat": 14.6688583,
+            "lon": 152.894828,
+            "tags": {
+              "name": "上京西路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 428838001,
+            "lat": 14.668941,
+            "lon": 152.894901,
+            "tags": {
+              "name": "上京西路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 431757338,
+            "lat": 14.6562961,
+            "lon": 152.8531736,
+            "tags": {
+              "name": "沅漳",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 431757340,
+            "lat": 14.6562349,
+            "lon": 152.8532666,
+            "tags": {
+              "name": "沅漳",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845422,
+            "lat": 14.6160931,
+            "lon": 152.9376384,
+            "tags": {
+              "name": "灵泉",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845424,
+            "lat": 14.6162017,
+            "lon": 152.9376461,
+            "tags": {
+              "name": "灵泉",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845446,
+            "lat": 14.6139482,
+            "lon": 152.9500335,
+            "tags": {
+              "name": "学府街",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845448,
+            "lat": 14.6140558,
+            "lon": 152.9500501,
+            "tags": {
+              "name": "学府街",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845470,
+            "lat": 14.6148775,
+            "lon": 152.9641206,
+            "tags": {
+              "name": "津川城市学院",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845472,
+            "lat": 14.6149547,
+            "lon": 152.9640413,
+            "tags": {
+              "name": "津川城市学院",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845496,
+            "lat": 14.6212361,
+            "lon": 152.9689034,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845498,
+            "lat": 14.6212744,
+            "lon": 152.9687981,
+            "tags": {
+              "name": "南国大",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845521,
+            "lat": 14.6292269,
+            "lon": 152.9720729,
+            "tags": {
+              "name": "龙湖西湾公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845523,
+            "lat": 14.6292612,
+            "lon": 152.9719661,
+            "tags": {
+              "name": "龙湖西湾公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845546,
+            "lat": 14.641301,
+            "lon": 152.9803129,
+            "tags": {
+              "name": "潜龙湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845548,
+            "lat": 14.6413329,
+            "lon": 152.9802054,
+            "tags": {
+              "name": "潜龙湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845570,
+            "lat": 14.6514706,
+            "lon": 152.9804966,
+            "tags": {
+              "name": "龙湖北湾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845572,
+            "lat": 14.6514879,
+            "lon": 152.9806077,
+            "tags": {
+              "name": "龙湖北湾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845594,
+            "lat": 14.6645573,
+            "lon": 152.9803812,
+            "tags": {
+              "name": "淇泾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845596,
+            "lat": 14.6645463,
+            "lon": 152.9804931,
+            "tags": {
+              "name": "淇泾",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845625,
+            "lat": 14.6761543,
+            "lon": 152.9870927,
+            "tags": {
+              "name": "虎踞",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845626,
+            "lat": 14.6763066,
+            "lon": 152.9868033,
+            "tags": {
+              "name": "虎踞",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845640,
+            "lat": 14.6883156,
+            "lon": 152.9926933,
+            "tags": {
+              "name": "卧虎山",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845654,
+            "lat": 14.6884424,
+            "lon": 152.9923911,
+            "tags": {
+              "name": "卧虎山",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845677,
+            "lat": 14.7049989,
+            "lon": 152.9860091,
+            "tags": {
+              "name": "虎跃路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845679,
+            "lat": 14.7051063,
+            "lon": 152.9860267,
+            "tags": {
+              "name": "虎跃路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845701,
+            "lat": 14.7091641,
+            "lon": 152.9711922,
+            "tags": {
+              "name": "文昔",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845703,
+            "lat": 14.7092712,
+            "lon": 152.9712118,
+            "tags": {
+              "name": "文昔",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845726,
+            "lat": 14.7094102,
+            "lon": 152.9583417,
+            "tags": {
+              "name": "锦佑",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845728,
+            "lat": 14.7095133,
+            "lon": 152.9583062,
+            "tags": {
+              "name": "锦佑",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845752,
+            "lat": 14.7079548,
+            "lon": 152.9508321,
+            "tags": {
+              "name": "松硚",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845754,
+            "lat": 14.7080625,
+            "lon": 152.9508165,
+            "tags": {
+              "name": "松硚",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845776,
+            "lat": 14.708116,
+            "lon": 152.9403313,
+            "tags": {
+              "name": "胥柘",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845778,
+            "lat": 14.7082248,
+            "lon": 152.9403341,
+            "tags": {
+              "name": "胥柘",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845800,
+            "lat": 14.7110675,
+            "lon": 152.9312998,
+            "tags": {
+              "name": "希昭",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845802,
+            "lat": 14.7111633,
+            "lon": 152.9313533,
+            "tags": {
+              "name": "希昭",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845825,
+            "lat": 14.7155304,
+            "lon": 152.9247715,
+            "tags": {
+              "name": "八渚",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845827,
+            "lat": 14.7156214,
+            "lon": 152.9248331,
+            "tags": {
+              "name": "八渚",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845851,
+            "lat": 14.7211111,
+            "lon": 152.917331,
+            "tags": {
+              "name": "长桐",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845853,
+            "lat": 14.7211975,
+            "lon": 152.9173992,
+            "tags": {
+              "name": "长桐",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845876,
+            "lat": 14.7198345,
+            "lon": 152.9077048,
+            "tags": {
+              "name": "琴溪",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845878,
+            "lat": 14.7197495,
+            "lon": 152.9077751,
+            "tags": {
+              "name": "琴溪",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845903,
+            "lat": 14.7124131,
+            "lon": 152.898022,
+            "tags": {
+              "name": "津渡",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845905,
+            "lat": 14.7124991,
+            "lon": 152.8979531,
+            "tags": {
+              "name": "津渡",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845928,
+            "lat": 14.70759,
+            "lon": 152.8911504,
+            "tags": {
+              "name": "西山路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845930,
+            "lat": 14.7076731,
+            "lon": 152.8910778,
+            "tags": {
+              "name": "西山路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845953,
+            "lat": 14.6980767,
+            "lon": 152.8808835,
+            "tags": {
+              "name": "书院路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845955,
+            "lat": 14.6981384,
+            "lon": 152.8807909,
+            "tags": {
+              "name": "书院路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845978,
+            "lat": 14.6915272,
+            "lon": 152.8768407,
+            "tags": {
+              "name": "石木",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432845980,
+            "lat": 14.691569,
+            "lon": 152.8767368,
+            "tags": {
+              "name": "石木",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846004,
+            "lat": 14.6831845,
+            "lon": 152.8725826,
+            "tags": {
+              "name": "长宁湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846006,
+            "lat": 14.6832339,
+            "lon": 152.8724824,
+            "tags": {
+              "name": "长宁湖",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846029,
+            "lat": 14.6705933,
+            "lon": 152.8636925,
+            "tags": {
+              "name": "奥体公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846031,
+            "lat": 14.6706479,
+            "lon": 152.8635952,
+            "tags": {
+              "name": "奥体公园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846054,
+            "lat": 14.6622515,
+            "lon": 152.8583718,
+            "tags": {
+              "name": "津川赛马场",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846056,
+            "lat": 14.6623005,
+            "lon": 152.8582714,
+            "tags": {
+              "name": "津川赛马场",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846079,
+            "lat": 14.6458229,
+            "lon": 152.8474397,
+            "tags": {
+              "name": "衡桥",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846081,
+            "lat": 14.6458696,
+            "lon": 152.8473381,
+            "tags": {
+              "name": "衡桥",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846105,
+            "lat": 14.6367449,
+            "lon": 152.8524855,
+            "tags": {
+              "name": "芦埠",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846107,
+            "lat": 14.6368483,
+            "lon": 152.8525205,
+            "tags": {
+              "name": "芦埠",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846132,
+            "lat": 14.6344559,
+            "lon": 152.8603369,
+            "tags": {
+              "name": "天郡",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846134,
+            "lat": 14.6345625,
+            "lon": 152.8603597,
+            "tags": {
+              "name": "天郡",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846157,
+            "lat": 14.6328343,
+            "lon": 152.8694722,
+            "tags": {
+              "name": "天光路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846159,
+            "lat": 14.6329415,
+            "lon": 152.8694918,
+            "tags": {
+              "name": "天光路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846182,
+            "lat": 14.6299906,
+            "lon": 152.8780108,
+            "tags": {
+              "name": "芯明创意园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846184,
+            "lat": 14.6300831,
+            "lon": 152.87807,
+            "tags": {
+              "name": "芯明创意园",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846205,
+            "lat": 14.622895,
+            "lon": 152.8877687,
+            "tags": {
+              "name": "创想之门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846207,
+            "lat": 14.6230001,
+            "lon": 152.8877976,
+            "tags": {
+              "name": "创想之门",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846228,
+            "lat": 14.6185316,
+            "lon": 152.9039872,
+            "tags": {
+              "name": "智谷路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846230,
+            "lat": 14.6186376,
+            "lon": 152.9040123,
+            "tags": {
+              "name": "智谷路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846253,
+            "lat": 14.6207324,
+            "lon": 152.8950485,
+            "tags": {
+              "name": "科新路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432846255,
+            "lat": 14.6208396,
+            "lon": 152.8950681,
+            "tags": {
+              "name": "科新路",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432847786,
+            "lat": 14.6168288,
+            "lon": 152.9278706,
+            "tags": {
+              "name": "小市",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432847788,
+            "lat": 14.6167203,
+            "lon": 152.9278791,
+            "tags": {
+              "name": "小市",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432847810,
+            "lat": 14.6161444,
+            "lon": 152.9129652,
+            "tags": {
+              "name": "虚谷",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "node",
+            "id": 432847812,
+            "lat": 14.6160356,
+            "lon": 152.912968,
+            "tags": {
+              "name": "虚谷",
+              "operator": "津川轨道交通集团",
+              "operator:ref": "HX:JC",
+              "public_transport": "stop_position",
+              "railway": "stop",
+              "subway": "yes"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540664,
+            "center": {
+              "lat": 14.6541944,
+              "lon": 152.9224929
+            },
+            "members": [
+              {
+                "type": "way",
+                "ref": 43263865,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 424888164,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888210,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428838000,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837979,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837957,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837933,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837911,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837889,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888213,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837867,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837846,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837825,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837804,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837782,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837760,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837736,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837689,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837713,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 45632149,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209459,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209452,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "19.17km",
+              "from": "鹿山公园",
+              "interval": "4/8",
+              "maxspeed": "80",
+              "name": "津川轨道交通1号线1期下行",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "to": "农园路",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540665,
+            "center": {
+              "lat": 14.6542023,
+              "lon": 152.9225814
+            },
+            "members": [
+              {
+                "type": "way",
+                "ref": 43263866,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 424888168,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888211,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428838001,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837980,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837956,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837932,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837910,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837890,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 424888212,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837866,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837845,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837824,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837803,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837783,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837759,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837735,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837688,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 428837712,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 43209473,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632148,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209453,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "19.16km",
+              "from": "农园路",
+              "interval": "4/8",
+              "maxspeed": "80",
+              "name": "津川轨道交通1号线1期上行",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "to": "鹿山公园",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 540666,
+            "center": {
+              "lat": 14.6510784,
+              "lon": 152.9515903
+            },
+            "members": [
+              {
+                "type": "relation",
+                "ref": 540664,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 540665,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 428838249,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838250,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838251,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838252,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838253,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838254,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838255,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838256,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838257,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838258,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838259,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838260,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838261,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838262,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838263,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838264,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838265,
+                "role": "station"
+              },
+              {
+                "type": "node",
+                "ref": 428838266,
+                "role": "station"
+              },
+              {
+                "type": "relation",
+                "ref": 547490,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547489,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846836,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846812,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846787,
+                "role": "stop"
+              },
+              {
+                "type": "relation",
+                "ref": 547492,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547491,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432848092,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848116,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847428,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847452,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848044,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432848068,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#ED4A28",
+              "distance": "41.905km",
+              "interval": "4/8/16",
+              "maxspeed": "80/100",
+              "name": "津川轨道交通1号线",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS01",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "type": "route_master"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547548,
+            "center": {
+              "lat": 14.6679671,
+              "lon": 152.9201743
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847810,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847786,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845424,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845448,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845472,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845498,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845523,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845548,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845570,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845594,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845625,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845654,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845677,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845701,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845726,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845752,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845776,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845800,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845825,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845851,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845878,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845903,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845928,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845953,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845978,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846004,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846029,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846054,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757340,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846079,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846107,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 42259339,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259344,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259347,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259349,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584359,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259350,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584362,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259352,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263918,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263915,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259355,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263894,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259356,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209395,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209393,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42176336,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632127,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632128,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632130,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259341,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846134,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846159,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846184,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846207,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846255,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846230,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.66km",
+              "from": "虚谷",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线内圈",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "to": "虚谷",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547549,
+            "center": {
+              "lat": 14.6679672,
+              "lon": 152.9201742
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847812,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847788,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845422,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845446,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845470,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845496,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845521,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845546,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845572,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845596,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845626,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845640,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845679,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845703,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845728,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845754,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845778,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845802,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845827,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845853,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845876,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845905,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845930,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845955,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845980,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846006,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846031,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846056,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757338,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846081,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846105,
+                "role": "stop"
+              },
+              {
+                "type": "way",
+                "ref": 42259340,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259343,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259345,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259346,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259348,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584360,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259351,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45584361,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259353,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263917,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263916,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259354,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43263893,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259357,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209394,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 43209392,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42176335,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632129,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632125,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 45632126,
+                "role": "route"
+              },
+              {
+                "type": "way",
+                "ref": 42259342,
+                "role": "route"
+              },
+              {
+                "type": "node",
+                "ref": 432846132,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846157,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846182,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846205,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846253,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846228,
+                "role": "stop"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.68km",
+              "from": "虚谷",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线外圈",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "to": "虚谷",
+              "type": "route"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547550,
+            "center": {
+              "lat": 14.6675767,
+              "lon": 152.9199667
+            },
+            "members": [
+              {
+                "type": "node",
+                "ref": 432847811,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432847787,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845423,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845447,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845471,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845497,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845522,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845547,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845571,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845595,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432388785,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432388810,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845678,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845702,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845727,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845753,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845777,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845801,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845826,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845852,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845877,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845904,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845929,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845954,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432845979,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846005,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846030,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846055,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 431757339,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846080,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846106,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846133,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846158,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846183,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846206,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846254,
+                "role": "stop"
+              },
+              {
+                "type": "node",
+                "ref": 432846229,
+                "role": "stop"
+              },
+              {
+                "type": "relation",
+                "ref": 547548,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547549,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "colour": "#21a675",
+              "distance": "45.66/45.68km",
+              "interval": "5/10",
+              "maxspeed": "80",
+              "name": "津川轨道交通4号线",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "ref": "JS04",
+              "route": "subway",
+              "start_date": "2026-05-27",
+              "type": "route_master"
+            }
+          },
+          {
+            "type": "relation",
+            "id": 547557,
+            "members": [
+              {
+                "type": "relation",
+                "ref": 547550,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547555,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 540666,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 545464,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 546913,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 547496,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 548737,
+                "role": "route"
+              },
+              {
+                "type": "relation",
+                "ref": 548740,
+                "role": "route"
+              }
+            ],
+            "tags": {
+              "fare:band:1:max_distance": "6 km",
+              "fare:band:1:price": "2",
+              "fare:band:2:max_distance": "12 km",
+              "fare:band:2:price": "3",
+              "fare:band:3:max_distance": "22 km",
+              "fare:band:3:price": "4",
+              "fare:band:4:max_distance": "32 km",
+              "fare:band:4:price": "5",
+              "fare:description": "6公里内2元；6至12公里3元；12至22公里4元；22至32公里5元；此后每20公里加1元；换乘可连续计费；有轨电车乘坐默认2元",
+              "fare:extra:distance_step": "20 km",
+              "fare:extra:price_step": "1",
+              "fare:model": "distance_bands",
+              "name": "津川轨道交通",
+              "network": "津川轨道交通",
+              "opening_hours": "Mo-Su 06:00-23:30",
+              "operator": "津川轨道交通集团",
+              "route": "subway",
+              "start_date": "2021-06-27",
+              "type": "collection"
+            }
+          },
+          {
+            "type": "count",
+            "id": 0,
+            "tags": {
+              "nodes": "110",
+              "ways": "0",
+              "relations": "7",
+              "total": "117"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

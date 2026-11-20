@@ -22,6 +22,7 @@ const calls=[],atlas={map:{getCenter:()=>({lat:14.6,lng:152.9}),getBounds:()=>bo
   getSelectedFeature:()=>selected,searchForAgent:async()=>sample,selectAgentPlace:r=>located=r,
   prepareAgentNavigation:(a,b,m)=>nav=[a,b,m],openAgentPanel:p=>calls.push(p)};
 const runtime=globalThis.HuayuAgentTools.create({atlas,getFile:()=>file,personal:()=>({isAuthenticated:()=>loggedIn}),
+  templates:()=>({loadGeography:async(args,ctx)=>{if(ctx.signal?.aborted)throw new DOMException("已取消","AbortError");calls.push({geography:args});return {complete:true,roadCount:42,sourceTimes:["2026-11-19T01:00:00Z"]};},loadStation:async(station,ctx)=>{if(ctx.signal?.aborted)throw new DOMException("已取消","AbortError");calls.push({station});return {stationId:"node/23",lineCount:2,complete:true,scope:"所选站点直接关系"};},getDirections:()=>[{sourceId:"relation/540664",title:"鹿山公园 → 农园路",from:"鹿山公园",to:"农园路",selected:false}],catalog:()=>[{id:"bus-amber",title:"电子路牌"}],getContext:()=>null,prepare:args=>{calls.push({template:args});return {...args,stationCount:8};}}),
   brands:()=>({prepareFromAgent:async args=>{calls.push({brandDraft:args});return {name:args.name};}}),
   features:()=>({prepareDraft:()=>draft++}),datasets:()=>({openFromAgent:async id=>calls.push(id),prepareFromAgent:async()=>{draft++;return {stats:{rows:2}};}}),
   fetch:async(path,options)=>{assert.ok(!options.method||options.method==="GET");calls.push(path);return Response.json(path.startsWith("/api/brand-management/")?{name:"aniM",profile:{description:"公开简介",website:"https://brand.test",updatedAt:123,editedBy:"user"},managers:[{id:"private-id",username:"manager",displayName:"管理者"}],application:{statement:"私有申请说明"},banned:false,canEdit:true}:{items:[],nextCursor:null});}});
@@ -52,6 +53,21 @@ await assert.rejects(runtime.execute("open_panel",{panel:"settings"},{isCurrent:
 const brandCalls=calls.filter(c=>c.brandDraft).length;
 await assert.rejects(runtime.execute("prepare_brand_management",{name:"aniM"},{signal:cancelled.signal}),{name:"AbortError"});
 assert.equal(calls.filter(c=>c.brandDraft).length,brandCalls,"取消后不能写入品牌草稿");
+const templates=await runtime.execute("get_transit_templates",{});assert.equal(templates.items[0].id,"bus-amber");assert.equal(templates.selectedLine,null);assert.equal(templates.selectedDirections[0].sourceId,"relation/540664");assert.equal(templates.selectedDirections[0].to,"农园路");
+const stationPreview=await runtime.execute("prepare_transit_template",{templateId:"bus-stop-led",source:"demo",display:"station"});assert.equal(stationPreview.status,"preview");assert.equal(stationPreview.display,"station");
+const preview=await runtime.execute("prepare_transit_template",{templateId:"bus-amber",source:"demo"});assert.equal(preview.status,"preview");assert.equal(preview.stationCount,8);
+const simulatedPreview=await runtime.execute("prepare_transit_template",{templateId:"bus-stop-led",source:"selected",lineSourceId:"relation/491367",simulateMissing:true});
+assert.equal(simulatedPreview.simulateMissing,true);assert.equal(simulatedPreview.lineSourceId,"relation/491367");
+const cleanPreview=await runtime.execute("prepare_transit_template",{templateId:"bus-amber",source:"demo",simulateMissing:false});assert.equal(cleanPreview.simulateMissing,false);
+for(const value of ["true",0,null,{},[]])assert.throws(()=>contract.argumentsFor("prepare_transit_template",{templateId:"bus-amber",source:"demo",simulateMissing:value}),/布尔/u);
+assert.throws(()=>contract.argumentsFor("prepare_transit_template",{templateId:"bus-amber",source:"selected",lineSourceId:491367}),/文字/u);
+const stationRead=await runtime.execute("load_transit_station_template",{ref:results.items[1].ref});assert.equal(stationRead.lineCount,2);assert.equal(stationRead.complete,true);assert.equal(calls.find(c=>c.station)?.station.id,23);
+await assert.rejects(runtime.execute("load_transit_station_template",{ref:results.items[1].ref},{signal:cancelled.signal}),{name:"AbortError"});
+const prepared=calls.filter(v=>v.template).length;
+await assert.rejects(runtime.execute("prepare_transit_template",{templateId:"bus-amber",source:"demo"},{signal:cancelled.signal}),{name:"AbortError"});
+assert.equal(calls.filter(v=>v.template).length,prepared);
+assert.throws(()=>contract.argumentsFor("prepare_transit_template",{templateId:"bus-amber",source:"invented"}));
+assert.throws(()=>contract.argumentsFor("prepare_transit_template",{templateId:"bus-stop-led",source:"demo",display:"invented"}));
 runtime.reset();await assert.rejects(runtime.execute("locate_place",{ref:results.items[0].ref}),/失效/);
 const DB=await createLocalPersonalDatabase(),actualFetch=globalThis.fetch;
 const env={DB,MAP_AGENT_API_KEY:"test-backend-key-not-public",MAP_AGENT_MODEL:"test-model",MAP_AGENT_BASE_URL:"https://model.example/v1"};
@@ -146,3 +162,37 @@ try{
 
 }finally{globalThis.fetch=actualFetch;DB.close();}
 console.log(JSON.stringify({status:"passed",tools:contract.tools.length,checks:["menu coverage","frontend-worker parity","real ref selection","navigation draft","local file requirement","same feature and author","cancellation and account reset","unconfigured service","authentication and same origin","model tools and protected key","validated multi-step history","unknown tool rejection","provider failure and abort","user connection isolation","three native protocols and tool histories","test-only handshake","no stored or reflected keys","credential redirect protection"]}));
+
+const passengerArgs={cars:'8',car:'3',doorSide:'left',phase:'arrived',page:'platform',leftExit:'A',facilities:['wc','lift']};
+const passengerResult=await runtime.execute('prepare_transit_template',{templateId:'metro-screen-platform',source:'demo',passenger:passengerArgs});
+assert.deepEqual(passengerResult.passenger,passengerArgs);assert.deepEqual(calls.filter(c=>c.template).at(-1).template.passenger,passengerArgs);
+const geographyResult=await runtime.execute('load_transit_template_geography',{refresh:true});assert.equal(geographyResult.roadCount,42);assert.deepEqual(geographyResult.sourceTimes,['2026-11-19T01:00:00Z']);
+assert.deepEqual(calls.find(c=>c.geography).geography,{refresh:true});
+await assert.rejects(runtime.execute('load_transit_template_geography',{}, {signal:cancelled.signal}),{name:'AbortError'});
+for(const passenger of [{cars:'0'},{car:'25'},{doorSide:'outside'},{facilities:['script']},{phase:'random'}])assert.throws(()=>contract.argumentsFor('prepare_transit_template',{templateId:'metro-screen-platform',source:'demo',passenger}));
+console.log('Passed: actual assistant dispatch for manual passenger parameters and cancellable real geography handler; invalid enums rejected.');
+
+// The station tool delegates rail loading too and preserves the loader's honest result/scope.
+const railRuntime=globalThis.HuayuAgentTools.create({atlas,templates:()=>({loadStation:async(station,ctx)=>{assert.equal(station,null);if(ctx.signal?.aborted)throw new DOMException('已取消','AbortError');return {stationId:'node/428838264',stationName:'南国大',mode:'rail',lineCount:4,complete:true,scope:'明确合并来源的已登记轨道关系',sourceTime:'2026-11-19T13:50:16Z'};}})});
+const railHandoff=await railRuntime.execute('load_transit_station_template',{});assert.equal(railHandoff.mode,'rail');assert.equal(railHandoff.stationName,'南国大');assert.equal(railHandoff.lineCount,4);assert.equal(railHandoff.status,'preview');assert.match(railHandoff.message,/轨道/u);await assert.rejects(railRuntime.execute('load_transit_station_template',{}, {signal:cancelled.signal}),{name:'AbortError'});
+console.log('Passed: station assistant dispatch retains actual rail mode, station, direction count, scope, source time and cancellation.');
+
+const throughArgs=[{ref:'JS02',name:'二号贯通',color:'#469ab4',fromIndex:'2',toIndex:'8'}];
+contract.argumentsFor('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',throughServices:throughArgs});
+await runtime.execute('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',throughServices:throughArgs});assert.deepEqual(calls.filter(c=>c.template).at(-1).template.throughServices,throughArgs);
+for(const bad of [[{ref:'X',color:'#123456',fromIndex:'0',toIndex:'2',script:'x'}],Array(21).fill(throughArgs[0])])assert.throws(()=>contract.argumentsFor('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',throughServices:bad}));
+console.log('Passed: assistant delegates through-running intervals to actual preview handler and rejects unknown or excessive interval parameters.');
+
+// Master identities use the same real preparation handoff as concrete phases.
+const masterPrepared=await runtime.execute('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',lineSourceId:'relation/540666'});assert.equal(masterPrepared.lineSourceId,'relation/540666');assert.equal(calls.filter(c=>c.template).at(-1).template.lineSourceId,'relation/540666');
+console.log('Passed: assistant hands full master identity to the same existing template selection handler.');
+
+const connectedArgs={throughConnections:[{lineSourceId:'relation/99002',attach:'end',reverse:false}],operatingPattern:{name:'小交路',fromIndex:'1',toIndex:'7',skipIndexes:['3']}};
+await runtime.execute('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',...connectedArgs});
+assert.deepEqual(calls.filter(c=>c.template).at(-1).template.operatingPattern,connectedArgs.operatingPattern);
+contract.argumentsFor('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',operatingPattern:null});
+for(const operatingPattern of [true,[],{fromIndex:'1',toIndex:'2',script:'x'},{fromIndex:1,toIndex:'2'}])assert.throws(()=>contract.argumentsFor('prepare_transit_template',{templateId:'metro-screen-platform',source:'selected',operatingPattern}));
+const connectionRuntime=globalThis.HuayuAgentTools.create({atlas,templates:()=>({loadThroughCandidates:async(args,ctx)=>{assert.deepEqual(args,{endpoint:'both'});if(ctx.signal?.aborted)throw new DOMException('已取消','AbortError');return {complete:true,choices:connectedArgs.throughConnections,sourceTimes:['2026-11-20T00:00:00Z']};}})});
+assert.equal((await connectionRuntime.execute('load_transit_through_candidates',{endpoint:'both'})).choices.length,1);
+await assert.rejects(connectionRuntime.execute('load_transit_through_candidates',{endpoint:'both'},{signal:cancelled.signal}),{name:'AbortError'});
+console.log('Passed: assistant validates actual through connections and nullable stopping patterns, delegates endpoint loading and cancels safely.');

@@ -1,0 +1,707 @@
+{
+  "source": "https://overpass.opengeofiction.net/api/interpreter",
+  "sourceTime": "2026-11-19T09:36:57Z",
+  "relations": [
+    {
+      "type": "relation",
+      "id": 540664,
+      "members": [
+        {
+          "type": "way",
+          "ref": 43263865,
+          "role": "route"
+        },
+        {
+          "type": "node",
+          "ref": 424888164,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 424888210,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428838000,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837979,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837957,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837933,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837911,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837889,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 424888213,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837867,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837846,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837825,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837804,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837782,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837760,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837736,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837689,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837713,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 45632149,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209459,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209452,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "19.17km",
+        "from": "鹿山公园",
+        "interval": "4/8",
+        "maxspeed": "80",
+        "name": "津川轨道交通1号线1期下行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2021-06-27",
+        "to": "农园路",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 540665,
+      "members": [
+        {
+          "type": "way",
+          "ref": 43263866,
+          "role": "route"
+        },
+        {
+          "type": "node",
+          "ref": 424888168,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 424888211,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428838001,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837980,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837956,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837932,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837910,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837890,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 424888212,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837866,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837845,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837824,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837803,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837783,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837759,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837735,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837688,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 428837712,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 43209473,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 45632148,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209453,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "19.16km",
+        "from": "农园路",
+        "interval": "4/8",
+        "maxspeed": "80",
+        "name": "津川轨道交通1号线1期上行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2021-06-27",
+        "to": "鹿山公园",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 540666,
+      "members": [
+        {
+          "type": "relation",
+          "ref": 540664,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 540665,
+          "role": "route"
+        },
+        {
+          "type": "node",
+          "ref": 428838249,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838250,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838251,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838252,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838253,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838254,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838255,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838256,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838257,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838258,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838259,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838260,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838261,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838262,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838263,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838264,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838265,
+          "role": "station"
+        },
+        {
+          "type": "node",
+          "ref": 428838266,
+          "role": "station"
+        },
+        {
+          "type": "relation",
+          "ref": 547490,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 547489,
+          "role": "route"
+        },
+        {
+          "type": "node",
+          "ref": 432846836,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846812,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846787,
+          "role": "stop"
+        },
+        {
+          "type": "relation",
+          "ref": 547492,
+          "role": "route"
+        },
+        {
+          "type": "relation",
+          "ref": 547491,
+          "role": "route"
+        },
+        {
+          "type": "node",
+          "ref": 432848092,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848116,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847428,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847452,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848044,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848068,
+          "role": "stop"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "41.905km",
+        "interval": "4/8/16",
+        "maxspeed": "80/100",
+        "name": "津川轨道交通1号线",
+        "network": "津川轨道交通",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2021-06-27",
+        "type": "route_master"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 547489,
+      "members": [
+        {
+          "type": "node",
+          "ref": 432846837,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846813,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846788,
+          "role": "stop"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "8.48km",
+        "from": "技郸",
+        "interval": "8/16",
+        "maxspeed": "80",
+        "name": "津川轨道交通1号线2期西段下行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2027-03-15",
+        "to": "鹿山公园",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 547490,
+      "members": [
+        {
+          "type": "node",
+          "ref": 432846786,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846811,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432846835,
+          "role": "stop"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "8.50km",
+        "from": "鹿山公园",
+        "interval": "8/16",
+        "maxspeed": "80",
+        "name": "津川轨道交通1号线2期西段上行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2027-03-15",
+        "to": "技郸",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 547491,
+      "members": [
+        {
+          "type": "node",
+          "ref": 432848091,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848115,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847451,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848043,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848067,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847427,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 43263864,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263863,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209437,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263852,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263846,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263845,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263844,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209424,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "14.25km",
+        "from": "荣川国际机场",
+        "interval": "8/16",
+        "maxspeed": "100",
+        "name": "津川轨道交通1号线2期东段上行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2023-12-21",
+        "to": "农园路",
+        "type": "route"
+      }
+    },
+    {
+      "type": "relation",
+      "id": 547492,
+      "members": [
+        {
+          "type": "node",
+          "ref": 432848093,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848069,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848045,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847453,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432847429,
+          "role": "stop"
+        },
+        {
+          "type": "node",
+          "ref": 432848117,
+          "role": "stop"
+        },
+        {
+          "type": "way",
+          "ref": 43209423,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263849,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263848,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263847,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263853,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43209438,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263862,
+          "role": "route"
+        },
+        {
+          "type": "way",
+          "ref": 43263861,
+          "role": "route"
+        }
+      ],
+      "tags": {
+        "colour": "#ED4A28",
+        "distance": "14.25km",
+        "from": "农园路",
+        "interval": "8/16",
+        "maxspeed": "100",
+        "name": "津川轨道交通1号线2期东段下行",
+        "opening_hours": "Mo-Su 06:00-23:30",
+        "operator": "津川轨道交通集团",
+        "ref": "JS01",
+        "route": "subway",
+        "start_date": "2023-12-21",
+        "to": "荣川国际机场",
+        "type": "route"
+      }
+    }
+  ]
+}

@@ -12,7 +12,8 @@
     <link rel="preconnect" href="https://openmaptiles.opengeofiction.net" crossorigin />
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
-    <link rel="stylesheet" href="./styles.css?v=9.0-brand-management-v1" />
+    <link rel="stylesheet" href="./transit-templates.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=9.0-rail-family-v1" />
     <link rel="stylesheet" href="./brand-browser.css?v=2" />
     <link rel="stylesheet" href="./brand-logos.css?v=2" />
   </head>
@@ -782,6 +783,59 @@
 
         <section id="transit-view" class="panel-view" data-view="transit" hidden>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>公共交通线路 · OGF Overpass</span></div>
+          <details id="line-template-workspace" class="line-template-workspace">
+            <summary>线路显示模板<small>公交站牌、车载路牌、地铁导视与车厢线路屏</small></summary>
+            <div class="line-template-body">
+              <p>选择下方真实线路后自动填入线路信息；也可先用示例体验。版式与线路数据分开保存。</p>
+              <label>线路数据<select id="line-template-source"><option value="selected">当前选中的真实线路／车站</option><option value="demo">示例线路（非真实运营数据）</option></select></label>
+              <label id="line-template-line-choice-row" hidden>套用哪条已读线路／方向<select id="line-template-line-choice"></select></label>
+              <p id="line-template-endpoint-status" class="help-text" role="status"></p>
+              <label>显示范围<select id="line-template-display"><option value="line">单线路</option><option value="station">同站多线路站牌</option></select></label>
+              <section id="line-template-station-controls" hidden><p id="line-template-station-summary"></p><p>可在下方按车站查询全部已登记公交线路；也可读取具体方向后手动加入同一站点。仅按相同要素编号收录，对向站分开。手动增删后标为自选清单，刷新不保留；下载图片可保存。</p><div class="line-template-actions"><button id="line-template-station-add" type="button" class="text-button">将当前线路／方向加入本站牌</button><button id="line-template-station-clear" type="button" class="text-button">清空本站牌</button></div><div id="line-template-station-lines"></div></section>
+              <section class="line-template-station-lookup"><h4>按车站生成站牌／轨道导视图</h4><label>车站名称／OGF 编号<input id="line-template-station-query" maxlength="100" placeholder="例如 兰园南，或 node/123456" /></label><div class="line-template-actions"><button id="line-template-station-search" type="button" class="text-button">搜索车站</button><button id="line-template-station-selected" type="button" class="text-button">使用地图选中的车站</button><button id="line-template-station-refresh" type="button" class="text-button" disabled>重新读取本站数据</button><button id="line-template-station-cancel" type="button" class="text-button" hidden>取消读取</button></div><p id="line-template-station-load-status" role="status">选择公交或轨道车站，读取真实停靠关系和完整站序；地铁读取完整主关系及全部分期方向，默认全线总览，再选择具体方向。全线与“线路”页共用组装和排序；未经过本站的分期不指定当前站。地图另选车站时自动更新；已有完整线路先定位本站，后台核对全部停靠关系。两分钟内可复用完整缓存，重新读取可强制更新。明确 stop_area 或地图已合并站体的来源可共用，不按同名或附近猜测。</p><div id="line-template-station-results"></div></section>
+              <div class="line-template-grid"><label>显示类型<select id="line-template-family"><option value="">全部类型</option></select></label><label>选择模板<select id="line-template-preset"></select></label></div>
+              <label>本站／当前站（手动选择，非实时）<select id="line-template-current"></select></label>
+              <label class="line-template-check"><input id="line-template-reverse" type="checkbox" />反向显示（只改变模板内站序）</label>
+              <p>共 53 套模板：26 种公交站牌、9 种公交车厢屏，以及前后路牌和轨道导视／车厢屏。本批加入高阳黑黄站牌与详情、成都／深圳电子牌、上海双列纸牌、重庆斜排屏等；下方参考资料可逐图查看对应版式。城市名称表示结构参考。</p>
+              <p id="line-template-order-status" role="status"></p>
+              <details id="line-template-through-controls" hidden><summary>贯通运营线路与运行区间</summary><h4>首尾相接的贯通线路</h4><p>先选具体方向；从首末站读取相接线路，接入后保留两线完整站序，接点只显示一次。只按真实站点编号、明确 stop_area 或完整轨道的共同端点连接，同名或相邻不拼接。正反向由下拉框明确选择，仅用于本页展示。</p><div class="line-template-actions"><button id="line-template-connect-load" type="button" class="text-button">读取首末站相接线路</button><button id="line-template-connect-cancel" type="button" class="text-button" hidden>取消读取</button></div><label>可接入方向<select id="line-template-connect-choice"></select></label><div class="line-template-actions"><button id="line-template-connect-add" type="button" class="text-button">接入完整站序</button><button id="line-template-connect-undo" type="button" class="text-button">撤销最近拼接</button></div><div id="line-template-connect-list"></div><p id="line-template-connect-status" role="status"></p><h4>本次运行交路与跳停</h4><p>全线始终显示；区间外和跳停站置灰、不点亮。下一站按本交路实际停靠顺序提示。起终站必须停靠，环线区间可跨首尾。</p><div class="line-template-grid"><label>交路名称<input id="line-template-operating-name" maxlength="80" value="本次交路" /></label><label>交路起站<select id="line-template-operating-from"></select></label><label>交路终站<select id="line-template-operating-to"></select></label></div><details><summary>选择区间内跳停站</summary><div id="line-template-operating-stops"></div></details><div class="line-template-actions"><button id="line-template-operating-apply" type="button" class="text-button">应用交路与跳停</button><button id="line-template-operating-reset" type="button" class="text-button">恢复全程各站停靠</button></div><p id="line-template-operating-status" role="status"></p><h4>附加运行区间色条</h4><p>可添加多条贯通线路，分别设置编号、颜色和在当前方向上的运行区间。可选已读线路或手动填写；这里的标注用于本页预览和导出，不改写地图源数据或导航。普通线路请选择顺向区间，环线可跨过首尾。</p><div class="line-template-grid"><label>已读贯通线路（也可手填）<select id="line-template-through-known"></select></label><label>贯通线路编号<input id="line-template-through-ref" maxlength="40" placeholder="如 JS02" /></label><label>线路名称<input id="line-template-through-name" maxlength="120" /></label><label>线路颜色<input id="line-template-through-color" type="color" value="#469ab4" /></label><label>运行区间起站<select id="line-template-through-from"></select></label><label>运行区间终站<select id="line-template-through-to"></select></label></div><div class="line-template-actions"><button id="line-template-through-add" type="button" class="text-button">添加贯通运行区间</button><button id="line-template-through-clear" type="button" class="text-button">清空本线贯通标注</button></div><div id="line-template-through-list"></div><p id="line-template-through-status" role="status"></p></details>
+              <section class="line-template-simulation"><label class="line-template-check"><input id="line-template-simulate-missing" type="checkbox" checked />缺失资料用模拟数据补全</label><p>已有运营资料优先保留；缺少时间、票价、班次或运营方时生成演示资料。到站时刻按当前时间及间隔／时刻表模拟，未提供间隔时随机生成。图片仅显示乘车信息，不印模拟字样和底部说明；补全来源保留在本页及 SVG 元数据，不代表实时运营。</p><div class="line-template-actions"><button id="line-template-simulate-again" type="button" class="text-button">重新生成模拟数据</button><button id="line-template-time-refresh" type="button" class="text-button">按现在时间更新</button></div><p id="line-template-simulation-status" role="status"></p></section>
+              <p id="line-template-demo-note">示例线路仅用于体验版式，不代表地图上的真实线路。</p>
+              <div id="line-template-motion-controls" hidden><div class="line-template-actions"><button id="line-template-motion-toggle" type="button" class="text-button">暂停动画</button><label>动画速度<select id="line-template-motion-speed"><option value="0.5">慢速</option><option value="1" selected>正常</option><option value="2">快速</option></select></label></div><label class="line-template-check"><input id="line-template-full-map" type="checkbox" />查看完整静态线路图</label><p>全线图与车厢／站台页可自动切换，包含方向箭头、当前站灯及开关门动画；均为手动预览，不推进真实车辆。PNG、SVG 及下载清单保存完整静态线路图；长线路不会截断。减少动态效果时默认暂停。</p></div>
+
+              <details id="line-template-passenger-controls" hidden><summary>车厢、开门与导视预览</summary><p>本页手动预览，不代表现场乘车指引。已有明确编组标签优先；留空时轨道画六节、公交画单节车厢示意，门侧未设置时保持中性。全线、站台、门动画和图标共用以下参数，导出保留完整站序和车厢图；这些设置不写入共享模板或 OGF。</p><div class="line-template-grid">
+              <label>编组节数（留空使用已读值／示意）<input id="line-template-vehicle-cars" type="number" min="1" max="24" placeholder="6" /></label><label>当前车厢<input id="line-template-vehicle-car" type="number" min="1" max="24" value="1" /></label>
+              <label>开门侧<select id="line-template-door-side"><option value="unknown">待设置</option><option value="left">左侧</option><option value="right">右侧</option><option value="both">两侧</option></select></label><label>车门／站台门编号<input id="line-template-door-label" maxlength="40" placeholder="如 3 车 2 门" /></label>
+              <label>预览状态<select id="line-template-vehicle-phase"><option value="approaching">即将到站</option><option value="running">运行中</option><option value="arrived">到站开门</option><option value="closing">关门提示</option></select></label>
+              <label>屏幕页面<select id="line-template-screen-page"><option value="cycle">全线／站台自动切换</option><option value="route">全线图</option><option value="platform">车厢与站台导视</option></select></label>
+              <label>左侧出口导视<input id="line-template-left-exit" maxlength="160" placeholder="如 A、B 出口 · 城市广场" /></label><label>右侧出口导视<input id="line-template-right-exit" maxlength="160" placeholder="如 C 出口 · 中央车站" /></label></div>
+              <div class="line-template-grid"><label><input id="line-template-facility-wc" type="checkbox" />卫生间图标</label><label><input id="line-template-facility-accessible" type="checkbox" />无障碍图标</label><label><input id="line-template-facility-lift" type="checkbox" />电梯图标</label><label><input id="line-template-facility-stairs" type="checkbox" />楼扶梯图标</label></div></details>
+              <section id="line-template-geography-controls" hidden><div class="line-template-actions"><button id="line-template-geography-load" type="button" class="text-button">重新读取城市路网</button><button id="line-template-geography-cancel" type="button" class="text-button" hidden>取消路网读取</button></div><p id="line-template-geography-status">详情版按线路范围读取真实道路背景，失败保留原图；虚线只表示站点连线，不推断道路。</p></section>
+
+              <figure id="line-template-preview" hidden><div id="line-template-motion-preview" hidden></div><img id="line-template-image" alt="线路显示模板预览" /></figure>
+              <p id="line-template-status" role="status" aria-live="polite"></p>
+              <div class="line-template-actions"><button id="line-template-zoom" type="button" class="text-button">放大查看</button><button id="line-template-svg" type="button" class="text-button">下载 SVG</button><button id="line-template-png" type="button" class="text-button">下载 PNG</button></div>
+              <div class="line-template-grid"><label>PNG 倍率<select id="line-template-scale"><option value="1">1× · 原宽</option><option value="2" selected>2× · 两倍宽</option><option value="3">3× · 三倍宽</option></select></label><label>加入清单的格式<select id="line-template-format"><option value="svg">SVG</option><option value="png">PNG</option></select></label></div>
+              <button id="line-template-queue" type="button" class="secondary-button">将当前显示图加入下载清单</button>
+              <details><summary>本张站牌的运营资料</summary><p>优先读取线路关系，再查明确关联的上级与运营方服务安排；不把公司办公时间当作公交运行时间。原始资料缺少时可模拟补全或手动填写，只用于本页和导出图片，标记为“用户补填，未核验”，不会写入 OGF 或共享模板。</p><label>编辑哪条线路<select id="line-template-service-line"></select></label><div class="line-template-grid"><label>运行时间<input id="line-template-service-hours" placeholder="按实际运营资料填写" /></label><label>班次间隔<input id="line-template-service-interval" placeholder="如每 10–15 分钟，须有依据" /></label><label>发车时刻<textarea id="line-template-service-departures" rows="3" placeholder="如 07:10、07:45、08:30；与班次间隔分别填写"></textarea></label><label>首班<input id="line-template-service-first" /></label><label>末班<input id="line-template-service-last" /></label><label>票价／费用<input id="line-template-service-fare" /></label><label>运营公司<input id="line-template-service-operator" /></label></div><button id="line-template-service-reset" type="button" class="text-button">恢复该线原始资料</button><p id="line-template-service-source"></p></details>
+              <details><summary>编辑与上传模板</summary>
+                <label>模板名称<input id="line-template-title" maxlength="100" /></label>
+                <label id="line-template-screen-layout-row" hidden>车厢屏结构<select id="line-template-screen-layout"></select></label>
+                <label id="line-template-bus-layout-row" hidden>公交站牌结构<select id="line-template-bus-layout"></select></label>
+                <div class="line-template-colors"><label>背景色<input id="line-template-background" type="color" /></label><label>文字色<input id="line-template-text" type="color" /></label><label>线路／强调色<input id="line-template-accent" type="color" /></label></div>
+                <label class="line-template-check"><input id="line-template-use-route-color" type="checkbox" />使用原线路颜色</label>
+                <label>旧式导视每行站点数（站牌及参考屏自动排列）<input id="line-template-columns" type="number" min="4" max="16" step="1" /></label>
+                <label>版式作者<input id="line-template-author" maxlength="120" /></label><label>使用许可<input id="line-template-license" maxlength="200" placeholder="请按实际许可填写" /></label><label>参考来源链接（可选）<input id="line-template-source-url" type="url" maxlength="2048" /></label>
+                <p id="line-template-attribution"></p>
+                <div class="line-template-actions"><button id="line-template-download" type="button" class="text-button">下载模板 JSON</button><button id="line-template-share" type="button" class="text-button">准备共享发布</button></div>
+                <label>导入模板 JSON<input id="line-template-upload" type="file" accept=".json,application/json" /></label>
+                <p>可导入本站导出的 JSON 或共享模板数据包。任意照片、其他网站的模板及 HTML／SVG 不能直接当作版式导入。模板只描述布局和颜色，不附带当前线路资料。</p>
+                <p>共享发布复用“数据”页：请登录并核对来源、作者和许可后发布。游客可使用、下载公开模板；作者与管理员可在数据页维护。</p>
+              </details>
+              <details><summary>共享模板库</summary><button id="line-template-shared-refresh" type="button" class="text-button">刷新共享模板</button><p id="line-template-shared-status" role="status">按需读取，不影响地图加载。</p><div id="line-template-shared-list"></div><button id="line-template-shared-more" type="button" class="text-button" hidden>继续读取</button></details>
+              <details id="line-template-references"><summary>各城市参考资料</summary><div id="line-template-reference-list"></div></details>
+            </div>
+          </details>
           <section class="transit-atlas" aria-labelledby="transit-atlas-heading">
             <div class="transit-atlas-heading">
               <div>
@@ -889,7 +943,7 @@
             </div>
             <div class="transit-guide-meta">
               <span id="transit-guide-stats">0 个站点</span>
-              <span class="transit-guide-note">班次与票价未在 OGF 数据中提供</span>
+              <span id="transit-guide-service" class="transit-guide-note">运营资料未提供</span>
             </div>
             <div class="transit-guide-export"><button id="transit-guide-download-stops" class="text-button" type="button">下载站点 CSV</button><button id="transit-guide-queue-stops" class="text-button" type="button">加入下载清单</button></div>
             <div id="transit-guide-stops" class="transit-guide-stops" role="list" aria-label="线路站点"></div>
@@ -1108,6 +1162,11 @@
               <h3>规划出行</h3>
               <p>打开“导航”，选择驾车、步行、骑行、公交地铁、铁路或机场接驳。起终点可输入地名、输入“纬度,经度”、点击准星在地图上选点，或从收藏选择；中间的交换按钮可对调起终点。点击“开始规划”后查看候选方案、路线和分步说明。</p>
               <p>组合出行可按推荐、最快、省钱、换乘最少或步行最少比较，并选择自动、步行、骑行或打车接驳。步行、骑行使用已有道路几何估算，时间和费用也为估算。铁路选项中的“推定铁路连接（含规划段）”表示未经确认的连接，可关闭；“允许公交地铁接驳”单独控制市内接驳。</p>
+              <h3>线路显示模板、导入与共享</h3><p>贯通请选择具体方向，展开“贯通运营线路与运行区间”，读取首末站线路后接入完整站序；只按真实站点编号、明确 stop_area 或完整轨道的共同端点连接，共用接点显示一次。可连续接入、撤销最近拼接。“本次运行交路与跳停”可设置大小交路及区间内跳停，完整线路保留，不停靠站置灰、不点灯，下一站只提示停靠站；可恢复全程各站停靠。这是本页用户指定的展示方案，PNG／SVG 与动画一致；线路画在站点下方，灰显站圈保留不透明底色，图内不附底部交路灰字说明，运行方向箭头放在第一行站点上方。不改写实际线路、导航或源终点属性。</p><p>点选地铁站后可点击“制作本站地铁／轨道导视图”，也可在模板中使用地图选站。读取本站真实线路和具体方向，当前站按源编号定位；无数据时显示读取提示，不自动套示例。换乘标识采用各线路自己的颜色和编号，完整线路名保留在提示及导出元数据。</p><p>终点缺失时先看“套用哪条已读线路／方向”：总关系可能包含不同上下行或分期，选择具体关系后读取该方向的 from/to。未标终点不会用站序推算。公交环线两侧均衡排站，只有真实环线才闭合；折返线的圆角、粗细和描边保持一致。无锡园林屏使用浅色宽屏、窄花边牌、连续拱形站灯和独立到站页，长线仍保留全部站序，车厢与门侧继续手动设置。</p><p>本批参考（含新增五张车厢／站台屏，共30张）已对应可选版式：高阳黑黄多线站牌与发车表详情、成都右栏电子牌、深圳蓝黄牌、上海双列纸牌、重庆斜排牌，以及蓝顶、底部彩带、弧顶、三站放大等车厢屏。展开“各城市参考资料”可直接套用。高阳详情按全部站点范围读取实际城市道路背景，线路优先沿直接成员道路几何绘制；无成员几何时虚线仅为站点连线，可重新读取或取消，失败保留旧图；发车表保留原日期条件，不虚构工作日／节假日班表。可展开“车厢、开门与导视预览”设置编组、当前车厢、门侧、门号、状态、出口及设施；这些是本页手动预览，门侧未知保持中性，未填出口／设施不绘制。全线图和车厢／站台页自动切换，含箭头、站灯及开关门动画；可暂停、调速或查看完整静态图。没有真实跳停与通告时不编造，城市名表示结构参考。</p><p>按车站读完后可用“套用哪条已读线路”直接制作单线车载屏。默认开启缺失运营资料模拟补全，可关闭或重新随机；真实值优先，到站时刻按当前设备时间与间隔／时刻表推演，没有间隔则生成模拟参数。图片内不显示模拟字样或底部说明，页面与 SVG 元数据保留补全来源，不代表实时运营；同一条线路分行后只显示一次大号线路编号；站序、终点和环线不随机生成。切换样式复用同一模拟结果，预览可见时整分钟更新时间，后台和输入期间暂停更新。</p><p>共 53 套模板，公交车厢屏可选 LED 全线走马灯、上下交错站名、斜排、折返、闭合回接和邻站放大。可指定当前站、暂停／播放、调节速度及查看完整静态图；放大后也能暂停。减少动态效果偏好下默认暂停，页面后台或离屏暂停。滚动与灯效是手动演示，不代表实时车辆。PNG／SVG 和下载清单保存包含全部已读站点的完整静态图。</p>
+              <p>“线路 → 线路显示模板”提供公交站牌、公交车载前／后路牌、地铁导视、车厢 LED 与 LCD 版式。公交分为横排竖写纸质牌、纵向灯箱、杆挂横牌及 LCD、LED、电子墨水站台屏，本站名、开往方向、下一站、站序与服务信息各有位置；显示范围可改为“同站多线路站牌”，纸质逐线叠放、灯箱分栏、电子牌显示多行到站表。现有 26 种公交结构，另有紧凑横条、左右分区灯箱、横屏多线路看板、双列分卡、枢纽索引和横写双语牌可选；枢纽索引不猜测站台号，英文只取源标签。横屏看板原宽 1920 像素，其他新牌原宽 1440 像素。真实车站可输入站名／OGF 编号，或使用地图点选的车站，读取这个站点所有已登记公交停靠关系及各自完整站序；不依赖视窗范围，不把同名或对向站混入。也可读取具体方向后手动加入。读取失败或取消保留旧站牌；手动增删后按自选清单标注，刷新后不保留；可下载保存。初次可用明确标注的示例；在下方选中真实线路并等候站序读取后自动填入。站序沿用已读取的当前线路方向及分段，不根据城市网络图的裁切结果猜测。</p>
+              <p>轨道具体方向按完整真实轨道连接校正站序，断开或分支则保留关系顺序并提示。全线各站核对明确站体、stop_area 及正式停靠关系，换乘用各线颜色加编号。可展开“贯通运营线路与运行区间”添加多个编号、颜色及起止站，图片与动画显示对应色条和区间说明；该手动标注不改写 OGF、终点属性或导航。可切换模板、修改配色、反向显示和手动预览当前／下一站。公交横版按可读宽度优先排满一行，只有超出容量才分行；站牌保留全部已读取站点，仅保留地铁、铁路、航空等跨方式换乘提示，不列公交互换清单。医院和学校只在有明确标签时用医／学标识，不按站名猜测。轨道线路屏继续显示原换乘信息；车载前／后路牌主要显示终点和下一站。本站是手动选择，公交模板可预览任意已读取站点；初始选中的位置不表示运营首站。运行时间、首末班、票价、运营方优先查线路关系，再查明确上级及匹配的运营方公交服务安排；同级冲突不猜测，不把公司办公时间当线路运营时间。班次间隔与逐班发车时刻分开显示，有时刻表而无间隔时只列发车时刻；长时刻表自动展开，缺项为“未提供”。环线支持 roundtrip、相同起终点、重复闭环端点及名称中的“循环／环线”，明确 roundtrip=no 优先；闭合曲线的主线与回接线采用相同粗细；所有线路的始发和终点以 from/to 属性为准，不按站序猜测；保留终点和本站／下一站，未标终点显示“未提供”，反向预览不改写属性；不以关系首个成员推断运营首站，不额外印“环线”“循环接首站”等说明。多线路之间按排列方式显示横向或纵向分隔线；规则统一用于各城市、各版式、车载牌、轨道模板、线路导视与图片下载。反向只影响预览，不生成另一方向时刻。“本张站牌的运营资料”可补填，只影响本页及图片，并注明用户补填、未核验，不写入 OGF 或模板。导出站牌只保留乘车信息，不显示来源编号、重复线路名、收录统计或“同站多线路”标题；这些查询范围、来源和预览说明保留在页面及 SVG 元数据，示例或人工未核验资料保留简短标记。电子站牌的到站预报、车辆位置及天气尚未接入，不编造分钟数或翻译。</p>
+              <p>下载 PNG（1×／2×／3×）、SVG，或将图片加入统一下载清单。下载模板 JSON 可保存版式并重新导入，JSON 不含当前线路资料。上传接受本站声明式 JSON 或共享模板包，不能直接导入任意图片、RMG／RMP 格式、HTML 或可执行 SVG。</p>
+              <p>“准备共享发布”将模板带入既有数据表单，登录后核对作者、来源和许可，再勾选共享并发布。共享模板库可刷新、分页并读取使用；作者及管理员在数据页维护，修改模板正文时发布新包以保留原件。外部城市参考目录仅作研究，不表示本站已内置对应城市同款版式。</p>
               <h3>查看线路与车站</h3>
               <p>“线路”页下方可按名称搜索公交或轨道线路、筛选类型，查看线路走向和站点。主地图开启交通图层后，可点击车站查看所属线路；是否显示公交站、普通铁路等由交通筛选控制。</p>
               <h3>城市铁路与轨道交通网</h3>
@@ -1394,6 +1453,7 @@
       <div id="traffic-follow-marker" class="traffic-follow-marker" hidden aria-hidden="true"><span>跟随车辆</span><i></i></div>
     </main>
 
+    <dialog id="line-template-dialog" class="line-template-dialog" aria-labelledby="line-template-dialog-title"><header><strong id="line-template-dialog-title">线路显示图预览</strong><button id="line-template-large-motion-toggle" type="button" class="text-button" hidden>暂停动画</button><button id="line-template-close" type="button" class="text-button">关闭</button></header><div><div id="line-template-large-motion" hidden></div><img id="line-template-large-image" alt="放大线路显示图" /></div></dialog>
     <noscript>此地图需要启用 JavaScript。</noscript>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
@@ -1417,10 +1477,11 @@
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=3"></script>
     <script src="./brand-logo-core.js?v=3"></script>
-    <script src="./map-agent-contract.js?v=9.0-brand-management-v1"></script>
-    <script src="./map-agent-providers.js?v=9.0-brand-management-v1"></script>
-    <script src="./map-agent-tools.js?v=9.0-brand-management-v1"></script>
-    <script src="./app.js?v=9.0-brand-management-v1"></script>
+    <script src="./map-agent-contract.js?v=9.0-direction-top-v1"></script>
+    <script src="./map-agent-providers.js?v=9.0-through-operating-v1"></script>
+    <script src="./map-agent-tools.js?v=9.0-direction-top-v1"></script>
+    <script src="./transit-station-data.js?v=references-13"></script>
+    <script src="./app.js?v=9.0-transit-templates-v1"></script>
     <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
@@ -1434,7 +1495,9 @@
     <script src="./feature-info.js?v=9.0-brand-management-v1"></script>
     <script src="./shared-dataset-core.js?v=9.0-shared-data-v1"></script>
     <script src="./shared-dataset-theme.js?v=9.0-shared-data-v1"></script>
-    <script src="./shared-datasets.js?v=9.0-brand-management-v1"></script>
-    <script src="./map-agent.js?v=9.0-brand-management-v1"></script>
+    <script src="./shared-datasets.js?v=9.0-rail-family-v1"></script>
+    <script src="./transit-template-core.js?v=24"></script>
+    <script src="./transit-templates.js?v=22"></script>
+    <script src="./map-agent.js?v=9.0-rail-family-v1"></script>
   </body>
 </html>

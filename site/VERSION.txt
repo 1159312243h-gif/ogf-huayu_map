@@ -1,4 +1,15 @@
 华域地图 v9.0
+Released: 2026-11-20
+Cloudflare Pages project: ogf-atlas
+Build: 9.0-transit-templates-v1
+Included: 53 transit templates, exact station relation loading, complete rail master/phase diagrams, per-line transfer colours, manually joined endpoint-connected routes and full-line short-turn/skip displays.
+Included: shared station-foreground painting, opaque inactive markers, clean artwork footers and running-direction arrows above the first station row. Static, animated, enlarged and PNG/SVG output use the same renderer.
+Validated: 53 template regressions, 130 browser frames and 351 marker pixels; full package, updater, dataset integrity and age checks. Source snapshots retain their original generation times.
+Deployment status is verified separately against GitHub Actions and production content hashes.
+
+Previous build metadata:
+
+华域地图 v9.0
 Released: 2026-11-18
 Cloudflare Pages project: ogf-atlas
 Build: 9.0-brand-management-v1

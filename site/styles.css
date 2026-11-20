@@ -5003,3 +5003,9 @@ canvas.traffic-picking { cursor:crosshair !important; }
 .map-agent fieldset { border:0; padding:0; margin:0; min-width:0; }
 .map-agent .agent-remember { display:flex; align-items:flex-start; gap:8px; }
 .agent-remember input { margin-top:5px; flex:none; }
+
+.transit-guide-endpoints[hidden]{display:none;}
+#transit-guide-service{white-space:normal;overflow-wrap:anywhere;}
+
+.transit-guide-endpoints > [hidden]{display:none;}
+.transit-guide-endpoints.is-terminal-only{grid-template-columns:minmax(0,1fr);}

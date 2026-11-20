@@ -223,6 +223,8 @@
         atlas.openView("datasets",{preservePerspective:true});$("upload-section").open=true;
         $("title").value=meta.title||selected.name;$("kind").value=meta.kind||"other";$("scope-label").value=meta.scopeLabel||"";
         $("source").value=meta.source||"";$("unit").value=meta.unit||"";$("shared").checked=false;
+        if(["feature","region","large"].includes(meta.scopeKind)){$("scope-kind").value=meta.scopeKind;attachment=null;$("scope-note").textContent="范围仅为本数据包的说明，未关联地图选中物体。";}
+        for(const [key,id] of [["description","description"],["license","license"],["sourceUrl","source-url"]])if(typeof meta[key]==="string")$(id).value=meta[key];
         const transfer=new DataTransfer();transfer.items.add(selected);$("file").files=transfer.files;
         await chooseFile(selected,signal);
         if(signal?.aborted||account!==accountEpoch)throw new DOMException("已取消","AbortError");
