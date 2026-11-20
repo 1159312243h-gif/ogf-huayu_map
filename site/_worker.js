@@ -3060,13 +3060,16 @@ async function updaterIdentity(token){
   const header=JSON.parse(new TextDecoder().decode(updaterJwtPart(pieces[0])));
   const claims=JSON.parse(new TextDecoder().decode(updaterJwtPart(pieces[1]))),now=Date.now()/1000;
   const workflows=["data-refresh.yml","brand-refresh.yml"].map(name=>UPDATER_REPOSITORY+"/.github/workflows/"+name+"@refs/heads/main");
-  if(header.alg!=="RS256"||typeof header.kid!=="string"||header.kid.length>200||header.jku||header.jwk
-    ||claims.iss!=="https://token.actions.githubusercontent.com"||claims.aud!==UPDATER_AUDIENCE
-    ||claims.repository!==UPDATER_REPOSITORY||String(claims.repository_id)!=="1390670617"
-    ||claims.ref!=="refs/heads/main"||claims.sub!=="repo:"+UPDATER_REPOSITORY+":ref:refs/heads/main"
-    ||!workflows.includes(claims.workflow_ref)||!["push","schedule","workflow_dispatch"].includes(claims.event_name)||!Number.isFinite(claims.exp)||claims.exp<=now||claims.exp>now+900
-    ||!Number.isFinite(claims.iat)||claims.iat>now+30||claims.iat<now-900
-    ||claims.nbf!==undefined&&(!Number.isFinite(claims.nbf)||claims.nbf>now+30))throw Error("invalid_identity");
+  if(header.alg!=="RS256"||typeof header.kid!=="string"||header.kid.length>200||header.jku||header.jwk)throw Error("identity_algorithm_invalid");
+  const scope=[
+    ["issuer",claims.iss==="https://token.actions.githubusercontent.com"],["audience",claims.aud===UPDATER_AUDIENCE],
+    ["repository",claims.repository===UPDATER_REPOSITORY],["repository_id",String(claims.repository_id)==="1390670617"],
+    ["ref",claims.ref==="refs/heads/main"],["subject",claims.sub==="repo:"+UPDATER_REPOSITORY+":ref:refs/heads/main"],
+    ["workflow",workflows.includes(claims.workflow_ref)],["event",["push","schedule","workflow_dispatch"].includes(claims.event_name)],
+  ].filter(([,valid])=>!valid).map(([name])=>name);
+  if(scope.length)throw Error("identity_scope_invalid:"+scope.join(","));
+  if(!Number.isFinite(claims.exp)||claims.exp<=now||claims.exp>now+900||!Number.isFinite(claims.iat)
+    ||claims.iat>now+30||claims.iat<now-900||claims.nbf!==undefined&&(!Number.isFinite(claims.nbf)||claims.nbf>now+30))throw Error("identity_lifetime_invalid");
   let key=updaterRelayKeys.keys.get(header.kid);
   if(!key||Date.now()-updaterRelayKeys.at>3600000){
     if(!updaterRelayKeys.pending&&Date.now()-updaterRelayKeys.attemptAt>=30000){
@@ -3079,20 +3082,25 @@ async function updaterIdentity(token){
         for(const jwk of payload.keys){if(jwk.kty!=="RSA"||jwk.alg&&jwk.alg!=="RS256"||jwk.use&&jwk.use!=="sig")continue;
           keys.set(jwk.kid,await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]));}
         updaterRelayKeys.keys=keys;updaterRelayKeys.at=Date.now();
-      })().finally(()=>{updaterRelayKeys.pending=null;});
+      })().catch(()=>{throw Error("identity_service_unavailable");}).finally(()=>{updaterRelayKeys.pending=null;});
     }
     if(updaterRelayKeys.pending)await updaterRelayKeys.pending;
     if(Date.now()-updaterRelayKeys.at>3600000)throw Error("identity_service_unavailable");
     key=updaterRelayKeys.keys.get(header.kid);
   }
-  if(!key||!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,updaterJwtPart(pieces[2]),new TextEncoder().encode(pieces[0]+"."+pieces[1])))throw Error("invalid_identity");
+  if(!key)throw Error("identity_key_unknown");
+  if(!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,updaterJwtPart(pieces[2]),new TextEncoder().encode(pieces[0]+"."+pieces[1])))throw Error("identity_signature_invalid");
 }
 async function fetchUpdaterSource(request){
   const reply=(error,status)=>new Response(JSON.stringify({error}),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
   if(request.method!=="POST")return reply("method_not_allowed",405);
   const auth=request.headers.get("Authorization")||"";
   if(!auth.startsWith("Bearer "))return reply("job_identity_required",401);
-  try{await updaterIdentity(auth.slice(7));}catch{return reply("job_identity_rejected",403);}
+  try{await updaterIdentity(auth.slice(7));}catch(error){
+    const reason=/^(?:identity_[a-z_]+(?::[a-z_,]+)?|invalid_identity)$/u.test(error?.message||"")?error.message:"invalid_identity";
+    return new Response(JSON.stringify({error:"job_identity_rejected",reason}),{status:reason==="identity_service_unavailable"?503:403,
+      headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
+  }
   let query;
   try{const input=JSON.parse(await updaterBoundedText(request.body,256*1024));query=input.query;
     if(typeof query!=="string"||!query.trimStart().startsWith("[out:json]")||query.length>128*1024||Object.keys(input).some(k=>k!=="query"))throw Error();

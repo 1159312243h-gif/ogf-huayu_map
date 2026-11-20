@@ -27,7 +27,7 @@ try{
  assert.equal((await run(new Request('https://ogf-atlas.pages.dev/api/data-update/source'))).status,405);
  for(const bad of [{aud:'https://other.test'},{repository:'other/repo'},{repository_id:'1'},{ref:'refs/pull/1/merge'},{event_name:'pull_request_target'},{sub:'repo:'+repo+':pull_request'},{workflow_ref:repo+'/.github/workflows/untrusted.yml@refs/heads/main'},{exp:now-1},{iat:now+100},{nbf:now+100},{iss:'https://other.test'}])assert.equal((await run(request(await jwt(bad)))).status,403);
  assert.equal((await run(request(await jwt({}, {alg:'none'})))).status,403);assert.equal((await run(request(await jwt({}, {jku:'https://other.test/key'})))).status,403);
- const badSig=valid.slice(0,valid.lastIndexOf('.')+1)+('a'+valid.slice(valid.lastIndexOf('.')+2));assert.equal((await run(request(badSig))).status,403);
+ const signatureStart=valid.lastIndexOf('.')+1;const badSig=valid.slice(0,signatureStart)+(valid[signatureStart]==='a'?'b':'a')+valid.slice(signatureStart+1);assert.equal((await run(request(badSig))).status,403);
  const unknown=await jwt({}, {kid:'unknown-key'});
  const r=await run(request());assert.equal(r.status,200);assert.equal(r.headers.get('x-huayu-source-route'),'github-oidc');assert.equal(r.headers.get('cache-control'),'no-store, no-transform');
  assert.equal(await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text(),raw,'compression must preserve every original byte and source time');
@@ -36,9 +36,9 @@ try{
  mode='rate';const rate=await run(request());assert.equal(rate.status,429);assert.equal(rate.headers.get('retry-after'),'90');
  mode='hold';const c=new AbortController(),a=await run(request(valid,{query},c.signal)),b=await run(request());assert.equal((await run(request())).status,429);c.abort();mode='normal';const afterAbort=await run(request());assert.equal(afterAbort.status,200);await afterAbort.body.cancel();await a.body.cancel().catch(()=>{});await b.body.cancel().catch(()=>{});
  mode='oversize';const large=await run(request());await assert.rejects(large.arrayBuffer());mode='normal';const recovery=await run(request());assert.equal(recovery.status,200);await recovery.body.cancel();
- let time=Date.now(),identities=0,relays=0;
+ let time=Date.now(),identities=0,relays=0;const identityDiagnostics=[];
  const environment={ACTIONS_ID_TOKEN_REQUEST_URL:'https://token.actions.githubusercontent.com/request?api-version=2',ACTIONS_ID_TOKEN_REQUEST_TOKEN:'local-runner-secret'};
- const client=relayClient.createRelayFetcher({environment,now:()=>time,fetcher:async(url,init)=>{
+ const client=relayClient.createRelayFetcher({environment,now:()=>time,onIdentity:info=>identityDiagnostics.push(info),fetcher:async(url,init)=>{
   if(url.startsWith(environment.ACTIONS_ID_TOKEN_REQUEST_URL)){identities++;assert.equal(new URL(url).searchParams.get('audience'),aud);assert.equal(init.headers.Authorization,'Bearer local-runner-secret');assert.equal(init.redirect,'error');return new Response(JSON.stringify({value:valid}));}
   assert.equal(url,'https://ogf-atlas.pages.dev/api/data-update/source');relays++;assert.equal(init.redirect,'error');assert.equal(JSON.parse(init.body).query,query);assert.equal(init.headers.Authorization,'Bearer '+valid);return new Response(raw);
  }});
@@ -46,6 +46,8 @@ try{
  await assert.rejects(client('https://other.test/api/interpreter',{method:'POST'}));await assert.rejects(client(source,{method:'POST',headers:{Authorization:'private'},body:new URLSearchParams({data:query})}));
  assert.equal(identities,1);assert.equal(relays,2);
  time+=241000;assert.equal((await client(source,{method:"POST",body:new URLSearchParams({data:query})})).status,200);assert.equal(identities,2,"long builds must renew short-lived job identity");
+ assert.equal(identityDiagnostics.length,2);assert.equal(identityDiagnostics[0].repositoryId,claims.repository_id);
+ assert.equal(JSON.stringify(identityDiagnostics).includes(valid),false);assert.equal(JSON.stringify(identityDiagnostics).includes("local-runner-secret"),false);
  const previousRelay=process.env.OGF_UPDATER_RELAY;
  try{process.env.OGF_UPDATER_RELAY='1';let ordinary=0;globalThis.fetch=async url=>{ordinary++;assert.equal(url,'https://opengeofiction.net/api/0.6/way/1/full.json');return new Response('original API');};
   assert.equal(await (await network.fetchWithRetry('https://opengeofiction.net/api/0.6/way/1/full.json')).text(),'original API');assert.equal(ordinary,1);

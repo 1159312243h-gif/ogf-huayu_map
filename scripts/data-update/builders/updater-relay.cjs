@@ -1,7 +1,7 @@
 // CI-only authenticated route through our existing Pages Worker; credentials stay in memory.
 const RELAY="https://ogf-atlas.pages.dev/api/data-update/source";
 const AUDIENCE="https://ogf-atlas.pages.dev/data-update";
-function createRelayFetcher({fetcher=globalThis.fetch,environment=process.env,now=()=>Date.now()}={}){
+function createRelayFetcher({fetcher=globalThis.fetch,environment=process.env,now=()=>Date.now(),onIdentity}={}){
   let identity=null,pending=null;
   async function token(signal){
     if(identity&&identity.expiresAt>now()+60000)return identity.value;
@@ -16,6 +16,9 @@ function createRelayFetcher({fetcher=globalThis.fetch,environment=process.env,no
       if(typeof value!=="string"||value.length>16000)throw Error("Updater job identity is invalid");
       let claims;try{claims=JSON.parse(Buffer.from(value.split(".")[1],"base64url").toString("utf8"));}catch{throw Error("Updater job identity is invalid");}
       if(claims.aud!==AUDIENCE||!Number.isFinite(claims.exp)||claims.exp*1000<=now())throw Error("Updater job identity is invalid");
+      if(onIdentity)onIdentity({issuer:claims.iss,audience:claims.aud,subject:claims.sub,repository:claims.repository,
+        repositoryId:claims.repository_id,ref:claims.ref,workflow:claims.workflow_ref,event:claims.event_name,
+        lifetimeSeconds:claims.exp-claims.iat,issuedSecondsAgo:Math.round(now()/1000-claims.iat)});
       identity={value,expiresAt:claims.exp*1000};return value;
     })().finally(()=>{pending=null;});
     return pending;
