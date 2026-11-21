@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - .github/workflows/data-refresh.yml
+      - scripts/probe-updater-relay.mjs
       - scripts/update-all-data.mjs
       - scripts/test-data-updater.mjs
       - scripts/data-update/builders/**
@@ -91,7 +92,7 @@ jobs:
       - name: Check authenticated updater source route
         env:
           OGF_UPDATER_RELAY: "1"
-        run: node scripts/probe-updater-relay.mjs
+        run: node scripts/probe-updater-relay.mjs --dense-inventory
       - name: Rebuild and validate all generated data
         id: rebuild
         env:

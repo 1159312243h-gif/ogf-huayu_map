@@ -16,7 +16,7 @@ async function readTerrainInventory({query,bounds,read,cacheRead=async()=>null,c
     const counts=await read(query.replace("out tags bb;","out count;"),true);
     const total=Number(counts[0]?.tags?.total);
     if(counts.length!==1||counts[0].type!=="count"||!Number.isSafeInteger(total)||total<0)throw Error("Invalid terrain inventory count");
-    if(total>limit)throw Object.assign(Error("Terrain inventory requires smaller responses: "+total),{code:"TERRAIN_INVENTORY_PARTITION"});
+    if(total>limit&&depth<8)throw Object.assign(Error("Terrain inventory requires smaller responses: "+total),{code:"TERRAIN_INVENTORY_PARTITION"});
     return await read(query,true);
   }catch(error){
     const split=error.code==="TERRAIN_INVENTORY_PARTITION"||error instanceof SyntaxError||error?.name==="TimeoutError"||/timed out|timeout|out of memory/iu.test(error?.message||"");

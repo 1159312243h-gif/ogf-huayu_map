@@ -5,7 +5,7 @@ import {createRequire} from "node:module";
 import {fileURLToPath} from "node:url";
 const require=createRequire(import.meta.url);
 const {terrainRuntime}=require("./data-update/builders/build-terrain-preload.cjs");
-const {buildTerrainContext,appendTerrainInventory}=require("./data-update/builders/build-terrain-context.cjs");
+const {buildTerrainContext,appendTerrainInventory,readTerrainInventory}=require("./data-update/builders/build-terrain-context.cjs");
 const site=fileURLToPath(new URL("../site/",import.meta.url));
 const runtime=await terrainRuntime(site);
 const testRoot=fileURLToPath(new URL("../.data-update/",import.meta.url));
@@ -189,3 +189,8 @@ await assert.rejects(buildTerrainContext({...options,cacheDirectory:incompleteDi
 const packets=await Promise.all((await fs.readdir(incompleteDirectory)).map(async file=>JSON.parse(await fs.readFile(path.join(incompleteDirectory,file),"utf8"))));
 assert.ok(!packets.some(p=>p.query.includes("(0,0,1,1)")&&p.query.includes("out tags bb;")));
 console.log("Count-first terrain inventories passed: dense parents never stream oversized bodies, all four children preserve complete geometry, resume skips counts and a failed child cannot cache the parent.");
+
+const depthEntries=Array.from({length:6485},(_,i)=>({type:"way",id:i+1}));let terminalReads=0;
+assert.deepEqual(await readTerrainInventory({query:"[out:json];way(0,0,1,1);out tags bb;",bounds:{south:0,west:0,north:1,east:1},depth:8,read:async q=>{terminalReads++;return q.includes("out count;")?[{type:"count",tags:{total:"6485"}}]:depthEntries;}}),depthEntries);
+assert.equal(terminalReads,2,"density is a transport hint, not an element truncation or an invented fatal limit; the deepest complete response is still read");
+console.log("Terrain density hint passed: an actual full 6485-element leaf is retained at the original depth bound; no further subdivision or truncation.");
