@@ -2630,7 +2630,7 @@ function createBrandLogoServer(deps) {
         const response=await fetch(upstream+(method==="GET"?"?data="+encodeURIComponent(query):""),{method,
           headers:{Accept:"application/json",...(method==="POST"?{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"}:{})},
           ...(method==="POST"?{body:"data="+encodeURIComponent(query)}:{}),
-          signal:AbortSignal.any([signal,AbortSignal.timeout(27000)]),credentials:"omit",redirect:"error"});
+          signal:AbortSignal.any([signal,AbortSignal.timeout(27000)]),credentials:"omit",redirect:"manual"});
         if(!response.ok){
           await response.body?.cancel();
           throw Object.assign(Error("logo_places_unavailable"),{status:502,retryable:[408,425,429,500,502,503,504].includes(response.status)});
@@ -3151,13 +3151,14 @@ async function fetchUpdaterSource(request,environment,context){
     const stream=new ReadableStream({async pull(output){try{const {value,done}=await reader.read();if(done){finish();output.close();return;}
       bytes+=value.length;if(bytes>64*1024*1024)throw Error("source_response_too_large");output.enqueue(value);
     }catch(error){abort();finish();output.error(error);}},async cancel(){abort();finish();await reader.cancel().catch(()=>{});}});
-    const compression=new CompressionStream("gzip");
+    const identity=request.headers.get("x-huayu-source-encoding")==="identity";
+    const compression=identity?new TransformStream():new CompressionStream("gzip");
     // Keep the entire source-to-compressor pipe alive, including its final
     // cleanup. An unobserved pipeThrough promise can outlive the fetch handler.
     const transfer=stream.pipeTo(compression.writable).catch(()=>{abort();}).finally(finish);
     context?.waitUntil?.(transfer);
-    return new Response(compression.readable,{headers:{"Content-Type":"application/json; charset=UTF-8","Content-Encoding":"gzip",
-      "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc","x-huayu-source-method":sourceMethod},encodeBody:"manual"});
+    return new Response(compression.readable,{headers:{"Content-Type":"application/json; charset=UTF-8",...(identity?{}:{"Content-Encoding":"gzip"}),
+      "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc","x-huayu-source-method":sourceMethod,"x-huayu-source-encoding":identity?"identity":"gzip"},encodeBody:"manual"});
   }catch{abort();finish();return reply("source_unavailable",502);}
 }
 

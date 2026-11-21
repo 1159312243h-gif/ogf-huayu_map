@@ -65,4 +65,11 @@ checks.push("permanent-errors-count-duplicates-and-byte-limits-stay-fatal");
  const s=setup(long);s.setTransport(async()=>{if(s.calls.length===1)throw TypeError("offline");return payload();});assert.equal((await s.get()).status,200);
  assert.equal(s.calls.length,2);assert.ok(s.calls.every(c=>c.method==="POST"),"large registries never exceed safe GET URL length");checks.push("large-registry-keeps-bounded-post-transport");
 }
+{
+ const s=setup();s.setTransport(async(_url,options)=>{assert.equal(options.redirect,"manual");return payload();});
+ assert.equal((await s.get()).status,200);assert.equal(s.calls.length,1);
+ const redirected=setup();redirected.setTransport(async()=>new Response("moved",{status:302,headers:{Location:"https://example.invalid/other"}}));
+ const rejected=await redirected.get();assert.equal(rejected.status,502);assert.equal(redirected.calls.length,1);assert.ok(redirected.calls[0].url.startsWith("https://overpass.opengeofiction.net/api/interpreter"));
+ checks.push("edge-supported-manual-redirect-mode-and-permanent-upstream-redirect-rejection");
+}
 console.log(JSON.stringify({status:"passed",checks}));

@@ -110,7 +110,7 @@ try{
  assert.equal((await request("/api/brand-logos/"+override.body.item.id,"DELETE",{revision:1},a.cookie)).status,200);
  assert.equal((await request("/api/brand-logos")).body.items.find(e=>e.name==="ToDays").builtin,true);
  const originalFetch=globalThis.fetch;let fetches=0,partial=false;
- globalThis.fetch=async()=>{fetches++;return new Response(JSON.stringify({elements:[{type:"node",id:11,lat:14.01,lon:152.01,tags:{brand:"ToDays",name:"ToDays（站前店）",branch:"站前店"}},{type:"count",tags:{total:partial?"5":"1"}}],osm3s:{timestamp_osm_base:"2026-11-17T00:00:00Z"}}));};
+ globalThis.fetch=async(_url,options)=>{assert.equal(options.redirect,"manual");fetches++;return new Response(JSON.stringify({elements:[{type:"node",id:11,lat:14.01,lon:152.01,tags:{brand:"ToDays",name:"ToDays（站前店）",branch:"站前店"}},{type:"count",tags:{total:partial?"5":"1"}}],osm3s:{timestamp_osm_base:"2026-11-17T00:00:00Z"}}));};
  try{
   const p=await request("/api/brand-logo-places?bounds=152,14,152.1,14.1");assert.equal(p.status,200);assert.equal(p.body.items[0].label,"ToDays · 站前店");
   await request("/api/brand-logo-places?bounds=152,14,152.1,14.1");assert.equal(fetches,1);

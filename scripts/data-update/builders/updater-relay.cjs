@@ -31,7 +31,7 @@ function createRelayFetcher({fetcher=globalThis.fetch,environment=process.env,no
     const query=String(init.method||"GET").toUpperCase()==="POST"?body.get("data"):original.searchParams.get("data");
     if(typeof query!=="string")throw Error("Updater source query is missing");
     const value=await token(init.signal);
-    const response=await fetcher(RELAY,{method:"POST",redirect:"error",credentials:"omit",headers:{Authorization:"Bearer "+value,"Content-Type":"application/json"},
+    const response=await fetcher(RELAY,{method:"POST",redirect:"error",credentials:"omit",headers:{Authorization:"Bearer "+value,"Content-Type":"application/json","Accept-Encoding":"identity","x-huayu-source-encoding":"identity"},
       body:JSON.stringify({query}),signal:init.signal});
     if(response.status===401||response.status===403)identity=null;
     return response;

@@ -154,3 +154,10 @@ try {
  const next=await isolated.fetch(request(),{},{waitUntil:p=>work.push(p)});assert.equal(next.status,200);await next.body.cancel();await Promise.all(work);
  console.log('Updater stream lifetime passed: actual routed context owns complete byte-preserving source pipes; EOF and cancellation release slots before the next sequential request.');
 }finally{globalThis.fetch=nativeFetch;}
+
+try {
+ const work=[];globalThis.fetch=async(url)=>url==="https://token.actions.githubusercontent.com/.well-known/jwks"?Response.json({keys:[jwk]}):new Response(raw);
+ const isolated=(await import("../site/_worker.js?identity-source-transfer")).default;
+ for(let i=0;i<5;i++){const req=request();req.headers.set("x-huayu-source-encoding","identity");const r=await isolated.fetch(req,{},{waitUntil:p=>work.push(p)});assert.equal(r.status,200);assert.equal(r.headers.get("content-encoding"),null);assert.equal(r.headers.get("x-huayu-source-encoding"),"identity");assert.equal(await r.text(),raw);await Promise.all(work);}
+ console.log("Updater identity transport passed: original bytes and source time, tracked EOF and sequential slot cleanup without a JavaScript gzip stage; legacy gzip tests remain.");
+}finally{globalThis.fetch=nativeFetch;}

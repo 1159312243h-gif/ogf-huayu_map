@@ -60,7 +60,7 @@ function createBrandLogoServer(deps) {
         const response=await fetch(upstream+(method==="GET"?"?data="+encodeURIComponent(query):""),{method,
           headers:{Accept:"application/json",...(method==="POST"?{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"}:{})},
           ...(method==="POST"?{body:"data="+encodeURIComponent(query)}:{}),
-          signal:AbortSignal.any([signal,AbortSignal.timeout(27000)]),credentials:"omit",redirect:"error"});
+          signal:AbortSignal.any([signal,AbortSignal.timeout(27000)]),credentials:"omit",redirect:"manual"});
         if(!response.ok){
           await response.body?.cancel();
           throw Object.assign(Error("logo_places_unavailable"),{status:502,retryable:[408,425,429,500,502,503,504].includes(response.status)});
