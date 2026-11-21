@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./test-refresh-route-indexes.mjs";
 import "./test-update-recovery.mjs";
+import "./test-source-body-recovery.mjs";
 import "./test-terrain-request.mjs";
 import "./test-scheduled-data-update.mjs";
 import "./test-updater-relay.mjs";

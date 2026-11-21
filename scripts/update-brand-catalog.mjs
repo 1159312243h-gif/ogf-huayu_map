@@ -4,6 +4,7 @@ import path from "node:path";
 import "../site/brand-data.js";
 import overpassNetwork from "./data-update/builders/overpass-network.cjs";
 const {fetchWithRetry: fetch} = overpassNetwork;
+import {recoverSourceBody} from "./lib/source-body-recovery.mjs";
 
 const {aggregate, validateCatalog, namedFacility, namedFacilityQuery, recognizeBrands} = globalThis.HuayuBrandData;
 const endpoint = "https://overpass.opengeofiction.net/api/interpreter";
@@ -72,7 +73,7 @@ export async function replaceBrandCatalog(file, candidate) {
     await rename(temporary, file);
   } finally {await unlink(temporary).catch(error => {if (error.code !== "ENOENT") throw error;});}
 }
-async function fetchCatalogPart(kind, type) {
+async function fetchCatalogPartOnce(kind, type) {
   const response = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
     body: new URLSearchParams({data: catalogQuery(kind, type)}), signal: AbortSignal.timeout(130000)});
   if (!response.ok) throw Error(`CATALOG_HTTP_${response.status}`);
@@ -86,6 +87,9 @@ async function fetchCatalogPart(kind, type) {
     }
   } finally {await reader.cancel().catch(() => {});}
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+export async function fetchCatalogPart(kind,type,options={}) {
+  return recoverSourceBody(()=>fetchCatalogPartOnce(kind,type),options);
 }
 export async function fetchCatalog(kind) {
   const parts = [];

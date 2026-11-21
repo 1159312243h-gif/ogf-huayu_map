@@ -140,3 +140,17 @@ try{
  } finally {Date.now=realNow;globalThis.fetch=nativeFetch;}
  console.log('Updater lease recovery passed: real signed requests, bounded concurrency, expired-stream cancellation without timers and explicit upstream/relay diagnostics.');
 }
+
+try {
+ let count=0;const work=[];globalThis.fetch=async(url)=>url==='https://token.actions.githubusercontent.com/.well-known/jwks'?Response.json({keys:[jwk]}):new Response(raw);
+ const isolated=(await import('../site/_worker.js?tracked-pipe-lifetime')).default;
+ for(let i=0;i<5;i++) {
+  const r=await isolated.fetch(request(),{},{waitUntil(p){count++;work.push(p);}});
+  assert.equal(r.status,200);assert.equal(await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text(),raw);
+  await Promise.all(work);
+ }
+ assert.equal(count,5,'the actual public route must track every full source/compression pipe until its cleanup finishes');
+ const cancelled=await isolated.fetch(request(),{},{waitUntil:p=>work.push(p)});await cancelled.body.cancel();await Promise.all(work);
+ const next=await isolated.fetch(request(),{},{waitUntil:p=>work.push(p)});assert.equal(next.status,200);await next.body.cancel();await Promise.all(work);
+ console.log('Updater stream lifetime passed: actual routed context owns complete byte-preserving source pipes; EOF and cancellation release slots before the next sequential request.');
+}finally{globalThis.fetch=nativeFetch;}

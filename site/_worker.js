@@ -3108,7 +3108,7 @@ async function updaterIdentity(token,environment){
   if(!key)throw Error("identity_key_unknown");
   if(!await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,updaterJwtPart(pieces[2]),new TextEncoder().encode(pieces[0]+"."+pieces[1])))throw Error("identity_signature_invalid");
 }
-async function fetchUpdaterSource(request,environment){
+async function fetchUpdaterSource(request,environment,context){
   const reply=(error,status)=>new Response(JSON.stringify({error}),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
   if(request.method!=="POST")return reply("method_not_allowed",405);
   const auth=request.headers.get("Authorization")||"";
@@ -3151,7 +3151,12 @@ async function fetchUpdaterSource(request,environment){
     const stream=new ReadableStream({async pull(output){try{const {value,done}=await reader.read();if(done){finish();output.close();return;}
       bytes+=value.length;if(bytes>64*1024*1024)throw Error("source_response_too_large");output.enqueue(value);
     }catch(error){abort();finish();output.error(error);}},async cancel(){abort();finish();await reader.cancel().catch(()=>{});}});
-    return new Response(stream.pipeThrough(new CompressionStream("gzip")),{headers:{"Content-Type":"application/json; charset=UTF-8","Content-Encoding":"gzip",
+    const compression=new CompressionStream("gzip");
+    // Keep the entire source-to-compressor pipe alive, including its final
+    // cleanup. An unobserved pipeThrough promise can outlive the fetch handler.
+    const transfer=stream.pipeTo(compression.writable).catch(()=>{abort();}).finally(finish);
+    context?.waitUntil?.(transfer);
+    return new Response(compression.readable,{headers:{"Content-Type":"application/json; charset=UTF-8","Content-Encoding":"gzip",
       "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc","x-huayu-source-method":sourceMethod},encodeBody:"manual"});
   }catch{abort();finish();return reply("source_unavailable",502);}
 }
@@ -3177,7 +3182,7 @@ export {
 export default {
   async fetch(request, environment, context) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/data-update/source") return fetchUpdaterSource(request,environment);
+    if (url.pathname === "/api/data-update/source") return fetchUpdaterSource(request,environment,context);
     if (url.pathname.startsWith("/api/brand-management/")) return brandManagementApi.handle(request,environment);
     if (url.pathname.startsWith("/api/brand-logos") || url.pathname === "/api/brand-logo-places") return brandLogoApi.handle(request,environment);
     if (url.pathname.startsWith("/api/agent/")) return createMapAgentServer({contract:createMapAgentContract(),providers:createMapAgentProviders(),json:personalJson,readJson:readJsonBody,sameOrigin:sameOriginMutation,requireUser:requirePersonalUser,bindingsAvailable:personalBindingsAvailable}).handle(request,environment);

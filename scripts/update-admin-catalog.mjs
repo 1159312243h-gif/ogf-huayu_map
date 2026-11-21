@@ -2,6 +2,7 @@ import {readFile,writeFile,rename,unlink} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import "../site/admin-catalog.js";
 import overpassNetwork from "./data-update/builders/overpass-network.cjs";
+import {recoverSourceBody} from "./lib/source-body-recovery.mjs";
 const C=globalThis.HuayuAdministrativeCatalog;
 export async function replaceAdministrativeCatalog(file,candidate){
   C.validate(candidate);
@@ -15,7 +16,7 @@ async function main(){
   let previous;try{previous=C.validate(JSON.parse(await readFile(file,"utf8")));}catch(e){if(e.code!=="ENOENT")throw e;}
   if(process.argv.includes("--check")){C.validate(previous);console.log(JSON.stringify({total:previous.total,readAt:previous.readAt,sourceTime:previous.sourceTime}));return;}
   const loader=new C.Loader({storage:null,fetcher:overpassNetwork.fetchWithRetry});loader.current=previous;
-  const candidate=await loader.live();
+  const candidate=await recoverSourceBody(()=>loader.live());
   await replaceAdministrativeCatalog(fileURLToPath(file),candidate);
   console.log(JSON.stringify({total:candidate.total,readAt:candidate.readAt,sourceTime:candidate.sourceTime}));
 }
