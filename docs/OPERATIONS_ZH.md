@@ -193,3 +193,5 @@ GitHub OIDC的subject可能包含固定用户／仓库编号。本站仅接受�
 已核实Cloudflare workerd不实现redirect:error；使用该值会在联网前直接抛TypeError。维护Worker应使用manual并自行拒绝3xx；Node测试需同时覆盖这一实际运行时限制，避免将参数错误误报成上游不可达。
 
 交通／地形工作流保留失败分块检查点；后续任务仅在六小时内且当前发布基线一致时自动续跑，否则开始新一代。候选仍需完整校验后整代发布。地形429按有界递增退避处理，不完整JSON先重读同一查询，避免拆分风暴；缓存与重试均不改写真实源时间。
+
+若更新报Maximum call stack size exceeded，检查清单合并是否仍把大型数组用push(...items)展开；逐项去重保留完整输入。中转429现在带x-huayu-source-error，区分relay-concurrency与upstream-http-429；过期读取通过四分钟租约回收，防止已结束边缘请求遗留计数锁。

@@ -3040,7 +3040,7 @@ async function fetchBrandData(request) {
 
 // Private maintenance transport. GitHub signs short-lived job identity; no stored relay key.
 const updaterRelayKeys={at:0,attemptAt:-Infinity,keys:new Map(),pending:null};
-let updaterRelayActive=0;
+const updaterRelayLeases=new Set();
 const UPDATER_AUDIENCE="https://ogf-atlas.pages.dev/data-update";
 const UPDATER_REPOSITORY="1159312243h-gif/ogf-huayu_map";
 async function updaterBoundedText(stream,limit){
@@ -3122,11 +3122,15 @@ async function fetchUpdaterSource(request,environment){
   try{const input=JSON.parse(await updaterBoundedText(request.body,256*1024));query=input.query;
     if(typeof query!=="string"||!query.trimStart().startsWith("[out:json]")||query.length>128*1024||Object.keys(input).some(k=>k!=="query"))throw Error();
   }catch{return reply("invalid_source_query",400);}
-  if(updaterRelayActive>=2)return new Response(null,{status:429,headers:{"Retry-After":"10","Cache-Control":"no-store"}});
-  updaterRelayActive++;let finished=false;const controller=new AbortController();
+  // A terminated edge request may never run its timer/stream cleanup. Reap
+  // expired leases on arrival as well, so old streams cannot lock future jobs.
+  for(const lease of updaterRelayLeases)if(lease.expiresAt<=Date.now())lease.abort();
+  if(updaterRelayLeases.size>=2)return new Response(null,{status:429,headers:{"Retry-After":"10","Cache-Control":"no-store","x-huayu-source-error":"relay-concurrency"}});
+  let finished=false,lease;const controller=new AbortController();
   let timer;const abort=()=>controller.abort();
-  const finish=()=>{if(finished)return;finished=true;updaterRelayActive--;clearTimeout(timer);request.signal.removeEventListener("abort",onAbort);};
+  const finish=()=>{if(finished)return;finished=true;updaterRelayLeases.delete(lease);clearTimeout(timer);request.signal.removeEventListener("abort",onAbort);};
   const onAbort=()=>{abort();finish();};
+  lease={expiresAt:Date.now()+240000,abort:onAbort};updaterRelayLeases.add(lease);
   request.signal.addEventListener("abort",onAbort,{once:true});timer=setTimeout(onAbort,240000);if(request.signal.aborted)onAbort();
   try{
     const source="https://overpass.opengeofiction.net/api/interpreter";
@@ -3141,7 +3145,7 @@ async function fetchUpdaterSource(request,environment){
       sourceMethod="POST";response=await read(sourceMethod);
     }
     if(response.status>=300&&response.status<400){await response.body?.cancel().catch(()=>{});finish();return reply("source_redirect_rejected",502);}
-    if(!response.ok){await response.body?.cancel().catch(()=>{});finish();return new Response(null,{status:response.status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"10"}});}
+    if(!response.ok){await response.body?.cancel().catch(()=>{});finish();return new Response(null,{status:response.status,headers:{"Cache-Control":"no-store","Retry-After":response.headers.get("retry-after")||"10","x-huayu-source-error":"upstream-http-"+response.status}});}
     if(!response.body)throw Error("empty_source");
     const reader=response.body.getReader();let bytes=0;
     const stream=new ReadableStream({async pull(output){try{const {value,done}=await reader.read();if(done){finish();output.close();return;}

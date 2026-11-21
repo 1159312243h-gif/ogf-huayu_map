@@ -1538,6 +1538,8 @@ assert.equal(viewPerformanceTest.status,0,`交通／地形性能等价回归失�
 assert.equal(transitDisplayTest.status, 0, `铁路站显示去重与交通缓存回归失败：${transitDisplayTest.stderr || transitDisplayTest.stdout}`);
 const terrainTest = await runCheck([path.join(root, "scripts", "test-terrain-loading.mjs")]);
 assert.equal(terrainTest.status, 0, `山体加载回归测试失败：${terrainTest.stderr || terrainTest.stdout}`);
+const geometryParserTest = await runCheck([path.join(root,"scripts","test-geometry-parser.mjs")]);
+assert.equal(geometryParserTest.status,0,`复杂多边形完整性与一致性回归失败：${geometryParserTest.stderr}`);
 const heightFieldTest = await runCheck([path.join(root, "scripts", "test-terrain-height-field.mjs")]);
 assert.equal(heightFieldTest.status, 0, `山地高程约束回归失败：${heightFieldTest.stderr || heightFieldTest.stdout}`);
 const perspectiveTerrainTest = await runCheck([path.join(root, "scripts", "test-terrain-perspective.mjs")]);

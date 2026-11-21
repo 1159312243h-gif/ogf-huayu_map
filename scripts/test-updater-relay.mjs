@@ -117,3 +117,26 @@ try{
  redirectSource=true;const rejected=await actualRuntime.fetch(request(),{},{});assert.equal(rejected.status,502);assert.equal(rejected.headers.has('Location'),false);assert.equal((await rejected.json()).error,'source_redirect_rejected');assert.equal(followed,2);
  console.log('Cloudflare runtime passed: supported manual redirect mode, actual signed source read and explicit redirect refusal without forwarding credentials.');
 }finally{globalThis.fetch=nativeFetch;}
+
+// Model a suspended request whose timers never get a chance to run.
+{
+ const realNow=Date.now;let clock=realNow(),hold=true;const upstreamSignals=[];
+ try {
+  Date.now=()=>clock;
+  globalThis.fetch=async(url,init)=>{
+   if(url==='https://token.actions.githubusercontent.com/.well-known/jwks')return Response.json({keys:[jwk]});
+   upstreamSignals.push(init.signal);
+   return hold?new Response(new ReadableStream({pull(){return new Promise(()=>{});}})):new Response(raw);
+  };
+  const isolated=(await import('../site/_worker.js?expiring-source-leases')).default;
+  const a=await isolated.fetch(request(),{},{}),b=await isolated.fetch(request(),{},{});
+  const blocked=await isolated.fetch(request(),{},{});assert.equal(blocked.status,429);assert.equal(blocked.headers.get('x-huayu-source-error'),'relay-concurrency');
+  clock+=240001;hold=false;
+  const recovered=await isolated.fetch(request(),{},{});assert.equal(recovered.status,200);assert.ok(upstreamSignals.slice(0,2).every(s=>s.aborted),'expired source reads are actually cancelled before slots are reused');
+  assert.equal(await new Response(recovered.body.pipeThrough(new DecompressionStream('gzip'))).text(),raw);
+  await a.body.cancel().catch(()=>{});await b.body.cancel().catch(()=>{});
+  globalThis.fetch=async(url)=>url==='https://token.actions.githubusercontent.com/.well-known/jwks'?Response.json({keys:[jwk]}):new Response(null,{status:429});
+  const upstream=await isolated.fetch(request(),{},{});assert.equal(upstream.headers.get('x-huayu-source-error'),'upstream-http-429');
+ } finally {Date.now=realNow;globalThis.fetch=nativeFetch;}
+ console.log('Updater lease recovery passed: real signed requests, bounded concurrency, expired-stream cancellation without timers and explicit upstream/relay diagnostics.');
+}

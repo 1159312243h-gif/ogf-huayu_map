@@ -5,7 +5,7 @@ import {createRequire} from "node:module";
 import {fileURLToPath} from "node:url";
 const require=createRequire(import.meta.url);
 const {terrainRuntime}=require("./data-update/builders/build-terrain-preload.cjs");
-const {buildTerrainContext}=require("./data-update/builders/build-terrain-context.cjs");
+const {buildTerrainContext,appendTerrainInventory}=require("./data-update/builders/build-terrain-context.cjs");
 const site=fileURLToPath(new URL("../site/",import.meta.url));
 const runtime=await terrainRuntime(site);
 const testRoot=fileURLToPath(new URL("../.data-update/",import.meta.url));
@@ -118,3 +118,23 @@ assert.equal(splitRequests,5);let depthRequests=0;
 await assert.rejects(buildTerrainContext({...options,cacheDirectory:path.join(directory,'inventory-split-limit'),wait:async()=>{},fetch:async()=>{depthRequests++;throw new DOMException('persistent timeout','TimeoutError');}}),{name:'TimeoutError'});
 assert.equal(depthRequests,9,'spatial fallback has a fixed depth and keeps a persistent outage fatal');
 console.log('Terrain context split passed: complete quadrants, identity union, original geometries and finite failure depth.');
+
+const largeInventory=Array.from({length:150000},(_,id)=>({type:'way',id}));
+const completeInventory=new Map();appendTerrainInventory(completeInventory,largeInventory);
+const replacement={type:'way',id:3,updated:true};appendTerrainInventory(completeInventory,[replacement,{type:'relation',id:3}]);
+assert.equal(completeInventory.size,150001);assert.equal(completeInventory.get('way:3'),replacement);
+assert.equal([...completeInventory.keys()][3],'way:3');assert.equal(completeInventory.get('way:149999'),largeInventory.at(-1));
+assert.equal(largeInventory[3].updated,undefined,'inventory merge never mutates an earlier source response');
+console.log('Large terrain inventory passed: 150000 items retain exact identity, order and typed deduplication without argument expansion.');
+
+let incompleteReads=0;const incompleteWaits=[],incompleteQueries=[];
+assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'incomplete-json'),wait:async ms=>incompleteWaits.push(ms),fetch:async(...args)=>{
+  incompleteQueries.push(args[1].body.get('data'));
+  if(++incompleteReads===1)return new Response('{"elements":[');
+  return fetch(...args);
+}}),context);
+assert.equal(incompleteQueries[0],incompleteQueries[1]);assert.deepEqual(incompleteWaits,[10000]);
+let persistentBroken=0;const badJsonCache=path.join(directory,'persistent-incomplete-json');
+await assert.rejects(buildTerrainContext({...options,cacheDirectory:badJsonCache,wait:async()=>{},fetch:async()=>{persistentBroken++;return new Response('{');}}),SyntaxError);
+assert.equal(persistentBroken,3);assert.deepEqual(await fs.readdir(badJsonCache),[]);
+console.log('Terrain context body recovery passed: same-query retry, original complete geometry, fresh responses and no incomplete cache publication.');

@@ -16,7 +16,9 @@ async function requestTerrainElements(query,label,{fetch:request,wait=pause,time
         await response.body?.cancel().catch(()=>{});
         if(requested>120000)throw Error('Terrain '+label+': HTTP 429; Retry-After exceeds bounded retry window');
         const delay=Math.max(Math.min(120000,30000*++limited),Number.isFinite(requested)?requested:0);
-        console.log('Terrain rate limit '+label+': retry in '+delay/1000+'s');await wait(delay);continue;
+        const origin=response.headers.get('x-huayu-source-error');
+        const diagnostic=/^(?:relay-concurrency|upstream-http-429)$/u.test(origin||'')?' ('+origin+')':'';
+        console.log('Terrain rate limit '+label+diagnostic+': retry in '+delay/1000+'s');await wait(delay);continue;
       }
       if(!response.ok) {await response.body?.cancel().catch(()=>{});throw Error('Terrain '+label+': HTTP '+response.status);}
       const payload=await response.json();

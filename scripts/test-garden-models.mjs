@@ -178,7 +178,13 @@ for(const name of [...names,"createHuayuGardenModels","huayuTrafficBuildingTags"
 assert.equal(createHash("sha256").update(declaration("createHuayuGardenModels")).digest("hex"),
   "3a1f9af4806619f56c111b8f42c1535791a365ed4633e2ec263d9128570689a8",
   "roof expansion must preserve the existing garden algorithms and their independent cache");
-assert.equal(createHash("sha256").update(names.map(name=>factory[name].toString()).join("\n")).digest("hex"),
+const reviewedGeometry=JSON.parse(await readFile(new URL('./fixtures/geometry-parser-legacy.json',import.meta.url),'utf8'));
+// Only the two exact-output geometry optimizations differ; their frozen-result
+// parity is checked separately. Keep the original source hash for every other
+// shared model function and the original independent garden cache identity.
+assert.equal(models.version,'gardens-v2-3753287207');
+assert.equal(createHash("sha256").update(names.map(name=>['huayuWallJoinRings','huayuCityWallRelationGeometry'].includes(name)
+  ? reviewedGeometry[name].trimStart() : factory[name].toString()).join("\n")).digest("hex"),
   "b6ce9c6a815b46af726311a7112ba443726b82396e5926fb31353e628d8a9f0b",
   "the reviewed roof-only height fix invalidates building/structure geometry without changing garden caches");
 const worker=new Worker(`const {parentPort}=require("node:worker_threads");

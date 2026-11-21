@@ -5,6 +5,10 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const {createHash} = require("node:crypto");
 
+function appendTerrainInventory(target,elements) {
+  for (const item of elements) target.set(item.type+":"+item.id,item);
+}
+
 // Context is part of the same successful snapshot transaction as the mountain
 // geometry. Inventory first avoids downloading every building in distant cities.
 async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, fetch: request = fetch, resume = false,
@@ -94,6 +98,11 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       await fs.writeFile(target,JSON.stringify({query,elements:payload.elements}));
       return payload.elements;
       } catch(error) {
+        if (error instanceof SyntaxError && attempt<2) {
+          const delay=10000*(attempt+1);
+          console.log(`Terrain context incomplete JSON: retry same query in ${delay/1000}s`);
+          await wait(delay); continue;
+        }
         const retryable=error?.name==="TimeoutError" || error instanceof TypeError && error.message==="fetch failed";
         if (!retryable || splitTimeout || attempt===2) throw error;
         const delay=10000*(attempt+1);
@@ -120,14 +129,14 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
         if (!timeout || depth>=8) throw error;
         const midX=(bounds.west+bounds.east)/2,midY=(bounds.south+bounds.north)/2;
         console.log("Terrain context split "+slice.id+" depth "+(depth+1));
-        const parts=[];
+        const parts=new Map();
         for(const part of [
           {west:bounds.west,east:midX,south:bounds.south,north:midY},
           {west:midX,east:bounds.east,south:bounds.south,north:midY},
           {west:bounds.west,east:midX,south:midY,north:bounds.north},
           {west:midX,east:bounds.east,south:midY,north:bounds.north},
-        ])parts.push(...await readInventory(part,depth+1));
-        const complete=[...new Map(parts.map(item=>[item.type+":"+item.id,item])).values()];
+        ])appendTerrainInventory(parts,await readInventory(part,depth+1));
+        const complete=[...parts.values()];
         const combinedKey=createHash("sha256").update(boundedQuery).digest("hex");
         await fs.writeFile(path.join(cacheDirectory,`context-${combinedKey}.json`),JSON.stringify({query:boundedQuery,elements:complete}));
         return complete;
@@ -187,4 +196,4 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
   }
   return features.sort((a,b)=>a.id.localeCompare(b.id));
 }
-module.exports={buildTerrainContext};
+module.exports={buildTerrainContext,appendTerrainInventory};

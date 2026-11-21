@@ -21300,20 +21300,27 @@
   }
 
   function huayuWallJoinRings(segments) {
-    const remaining = segments.filter((coordinates) => coordinates.length >= 2)
-      .map((coordinates) => coordinates.slice());
-    const rings = [];
-    while (remaining.length) {
-      const ring = remaining.shift();
+    const pieces = segments.filter(coordinates => coordinates.length >= 2).map(coordinates => coordinates.slice());
+    const endpoints = new Map(), used = new Uint8Array(pieces.length), rings = [];
+    const add = (key, index) => {
+      if (!endpoints.has(key)) endpoints.set(key, {indices: [], cursor: 0});
+      endpoints.get(key).indices.push(index);
+    };
+    pieces.forEach((piece, index) => {
+      const first = huayuWallPointKey(piece[0]), last = huayuWallPointKey(piece.at(-1));
+      add(first, index); if (first !== last) add(last, index);
+    });
+    for (let index = 0; index < pieces.length; index++) {
+      if (used[index]) continue;
+      const ring = pieces[index]; used[index] = 1;
       while (ring.length >= 2 && huayuWallPointKey(ring[0]) !== huayuWallPointKey(ring.at(-1))) {
-        const endKey = huayuWallPointKey(ring.at(-1));
-        const nextIndex = remaining.findIndex((coordinates) => (
-          huayuWallPointKey(coordinates[0]) === endKey || huayuWallPointKey(coordinates.at(-1)) === endKey
-        ));
-        if (nextIndex < 0) break;
-        const next = remaining.splice(nextIndex, 1)[0];
+        const endKey = huayuWallPointKey(ring.at(-1)), bucket = endpoints.get(endKey);
+        if (!bucket) break;
+        while (bucket.cursor < bucket.indices.length && used[bucket.indices[bucket.cursor]]) bucket.cursor++;
+        if (bucket.cursor === bucket.indices.length) break;
+        const nextIndex = bucket.indices[bucket.cursor++], next = pieces[nextIndex]; used[nextIndex] = 1;
         if (huayuWallPointKey(next.at(-1)) === endKey) next.reverse();
-        ring.push(...next.slice(1));
+        for (let point = 1; point < next.length; point++) ring.push(next[point]);
       }
       if (ring.length >= 4 && huayuWallPointKey(ring[0]) === huayuWallPointKey(ring.at(-1))) rings.push(ring);
     }
@@ -21401,18 +21408,43 @@
     const innerRings = huayuWallJoinRings(innerSegments)
       .map((ring) => huayuNormalizedWallRing(ring, true));
     if (!outerRings.length) return null;
-    const polygons = outerRings.map((ring) => [ring]);
-    innerRings.forEach((ring) => {
+    const polygons = outerRings.map(ring => [ring]);
+    const outerInfo = outerRings.map((ring, index) => {
+      const bounds = {west: Infinity, east: -Infinity, south: Infinity, north: -Infinity};
+      for (const [longitude, latitude] of ring) {
+        bounds.west = Math.min(bounds.west, longitude); bounds.east = Math.max(bounds.east, longitude);
+        bounds.south = Math.min(bounds.south, latitude); bounds.north = Math.max(bounds.north, latitude);
+      }
+      return {ring, index, area: Math.abs(huayuWallRingArea(ring)), bounds};
+    });
+    let candidates = () => outerInfo;
+    if (outerInfo.length >= 32 && innerRings.length) {
+      const extent = {west: Infinity, east: -Infinity, south: Infinity, north: -Infinity};
+      for (const {bounds} of outerInfo) {
+        extent.west = Math.min(extent.west, bounds.west); extent.east = Math.max(extent.east, bounds.east);
+        extent.south = Math.min(extent.south, bounds.south); extent.north = Math.max(extent.north, bounds.north);
+      }
+      const axis = (value, low, high) => Math.max(0, Math.min(31, Math.floor((value - low) / (high - low || 1) * 32)));
+      const cells = Array.from({length: 1024}, () => []);
+      let indexEntries = 0, completeIndex = true;
+      for (const item of outerInfo) {
+        const b = item.bounds, x0 = axis(b.west, extent.west, extent.east), x1 = axis(b.east, extent.west, extent.east);
+        const y0 = axis(b.south, extent.south, extent.north), y1 = axis(b.north, extent.south, extent.north);
+        indexEntries += (x1 - x0 + 1) * (y1 - y0 + 1);
+        if (indexEntries > 65536) {completeIndex = false; break;}
+        for (let y = y0; y <= y1; y++)
+          for (let x = x0; x <= x1; x++) cells[y * 32 + x].push(item);
+      }
+      if (completeIndex) candidates = point => point[0] < extent.west || point[0] > extent.east || point[1] < extent.south || point[1] > extent.north
+        ? [] : cells[axis(point[1], extent.south, extent.north) * 32 + axis(point[0], extent.west, extent.east)];
+    }
+    innerRings.forEach(ring => {
       const sample = ring[0];
-      let polygonIndex = -1;
-      let polygonArea = Infinity;
-      outerRings.forEach((outerRing, index) => {
-        const area = Math.abs(huayuWallRingArea(outerRing));
-        if (area < polygonArea && huayuWallPointInRing(sample, outerRing)) {
-          polygonIndex = index;
-          polygonArea = area;
-        }
-      });
+      let polygonIndex = -1, polygonArea = Infinity;
+      for (const {index, area, bounds, ring: outerRing} of candidates(sample)) {
+        if (sample[0] < bounds.west || sample[0] > bounds.east || sample[1] < bounds.south || sample[1] > bounds.north) continue;
+        if (area < polygonArea && huayuWallPointInRing(sample, outerRing)) {polygonIndex = index; polygonArea = area;}
+      }
       if (polygonIndex >= 0) polygons[polygonIndex].push(ring);
     });
     return polygons.length === 1
