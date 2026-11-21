@@ -125,7 +125,7 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       const boundedQuery=query.replaceAll(bbox,area);
       try {return await queryElements(boundedQuery,true);}
       catch(error) {
-        const timeout=error?.name==="TimeoutError" || /timed out|timeout|out of memory/iu.test(error?.message||"");
+        const timeout=error instanceof SyntaxError || error?.name==="TimeoutError" || /timed out|timeout|out of memory/iu.test(error?.message||"");
         if (!timeout || depth>=8) throw error;
         const midX=(bounds.west+bounds.east)/2,midY=(bounds.south+bounds.north)/2;
         console.log("Terrain context split "+slice.id+" depth "+(depth+1));
@@ -146,13 +146,29 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
     for (const item of items) if (selected(item)) inventory.set(`${item.type}:${item.id}`,item);
     console.log(`Terrain context inventory ${slice.id}: ${inventory.size} mapped features`);
   }
+  const readGeometry = async (type, items) => {
+    const query=`[out:json][timeout:120];${type}(id:${items.map(item=>item.id).join(",")});out body geom;`;
+    try {return await queryElements(query);}
+    catch(error) {
+      const incomplete=error instanceof SyntaxError || error?.name==="TimeoutError"
+        || /timed out|timeout|out of memory/iu.test(error?.message||"");
+      if(!incomplete || items.length<2)throw error;
+      const middle=Math.ceil(items.length/2);
+      console.log('Terrain context geometry split '+type+': '+items.length+' identities');
+      const elements=[...await readGeometry(type,items.slice(0,middle)),...await readGeometry(type,items.slice(middle))];
+      const present=new Set(elements.filter(item=>item.type===type).map(item=>String(item.id)));
+      if(items.some(item=>!present.has(String(item.id))))throw Error('Incomplete split terrain context geometry');
+      const key=createHash("sha256").update(query).digest("hex");
+      await fs.writeFile(path.join(cacheDirectory,`context-${key}.json`),JSON.stringify({query,elements}));
+      return elements;
+    }
+  };
   const features=[];
   for (const [type,batchSize] of [["way",150],["relation",4]]) {
     const items=[...inventory.values()].filter(item=>item.type===type);
     for (let offset=0;offset<items.length;offset+=batchSize) {
       const batch=items.slice(offset,offset+batchSize);
-      const query=`[out:json][timeout:120];${type}(id:${batch.map(item=>item.id).join(",")});out body geom;`;
-      const elements=await queryElements(query);
+      const elements=await readGeometry(type,batch);
       const byId=new Map(elements.map(item=>[String(item.id),item]));
       for (const item of batch) {
         const element=byId.get(String(item.id));

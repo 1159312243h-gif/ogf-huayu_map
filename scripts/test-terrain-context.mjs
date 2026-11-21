@@ -136,5 +136,20 @@ assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(
 assert.equal(incompleteQueries[0],incompleteQueries[1]);assert.deepEqual(incompleteWaits,[10000]);
 let persistentBroken=0;const badJsonCache=path.join(directory,'persistent-incomplete-json');
 await assert.rejects(buildTerrainContext({...options,cacheDirectory:badJsonCache,wait:async()=>{},fetch:async()=>{persistentBroken++;return new Response('{');}}),SyntaxError);
-assert.equal(persistentBroken,3);assert.deepEqual(await fs.readdir(badJsonCache),[]);
+assert.equal(persistentBroken,27);assert.deepEqual(await fs.readdir(badJsonCache),[]);
 console.log('Terrain context body recovery passed: same-query retry, original complete geometry, fresh responses and no incomplete cache publication.');
+
+let truncatedParent=0,childInventories=0;
+assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'truncated-inventory-split'),wait:async()=>{},fetch:async(...args)=>{
+  const q=args[1].body.get('data');if(q.includes('out tags bb;')){if(q.includes('(0,0,1,1)')){truncatedParent++;return new Response('{');}childInventories++;}
+  return fetch(...args);
+}}),context);assert.equal(truncatedParent,3);assert.equal(childInventories,4,'all four complete children are required after bounded same-query recovery');
+let brokenGeometry=0,splitGeometry=0;
+const splitGeometryOptions={...options,cacheDirectory:path.join(directory,'truncated-geometry-split'),wait:async()=>{},fetch:async(...args)=>{
+ const q=args[1].body.get('data');if(q.includes('way(id:')){const ids=q.match(/\(id:([^)]*)\)/u)[1].split(',');if(ids.length>1){brokenGeometry++;return new Response('{');}splitGeometry++;}
+ return fetch(...args);
+}};
+assert.deepEqual(await buildTerrainContext(splitGeometryOptions),context,'all identities retain original full geometries across response-size subdivisions');
+assert.ok(brokenGeometry>=3);assert.equal(splitGeometry,4);let resumedCalls=0;
+assert.deepEqual(await buildTerrainContext({...splitGeometryOptions,resume:true,fetch:async()=>{resumedCalls++;throw Error('completed split should be cached');}}),context);assert.equal(resumedCalls,0);
+console.log('Terrain response subdivision passed: every child inventory, full identity batches, unchanged geometry, bounded persistent failure and complete-only resume.');
