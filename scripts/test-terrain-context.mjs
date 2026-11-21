@@ -153,3 +153,16 @@ assert.deepEqual(await buildTerrainContext(splitGeometryOptions),context,'all id
 assert.ok(brokenGeometry>=3);assert.equal(splitGeometry,4);let resumedCalls=0;
 assert.deepEqual(await buildTerrainContext({...splitGeometryOptions,resume:true,fetch:async()=>{resumedCalls++;throw Error('completed split should be cached');}}),context);assert.equal(resumedCalls,0);
 console.log('Terrain response subdivision passed: every child inventory, full identity batches, unchanged geometry, bounded persistent failure and complete-only resume.');
+
+for (const failures of [['json','json','rate'],['rate','json','rate','json']]) {
+ let seen=0;const waits=[],sent=[],signals=new Set();
+ assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'mixed-'+failures.join('-')),wait:async ms=>waits.push(ms),fetch:async(...args)=>{
+  signals.add(args[1].signal);sent.push(args[1].body.get('data'));
+  const failure=failures[seen++];if(failure==='json')return new Response('{');
+  if(failure==='rate')return new Response(null,{status:429,headers:{'Retry-After':'90','x-huayu-source-error':'upstream-http-429'}});
+  return fetch(...args);
+ }}),context,'body retries and real HTTP limits must each retain their independent bounded budget');
+ assert.ok(sent.slice(0,failures.length+1).every(q=>q===sent[0]));assert.equal(signals.size,sent.length);
+ assert.deepEqual(waits,failures.map((kind,index)=>kind==='rate'?90000:failures.slice(0,index+1).filter(x=>x==='json').length*10000));
+}
+console.log('Mixed terrain failures passed: truncated bodies followed by 429 recover without consuming each other retry budget; original three-attempt bounds remain.');

@@ -72,23 +72,31 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
         if (cached.query===query && Array.isArray(cached.elements) && !cached.remark) return cached.elements;
       } catch {}
     }
+    let limited=0;
     for (let attempt=0;attempt<3;attempt++) {
       try {
       const response=await request("https://overpass.opengeofiction.net/api/interpreter",{
         method:"POST",body:new URLSearchParams({data:splitTimeout?query.replace("[timeout:90]","[timeout:35]"):query}),
         signal:AbortSignal.timeout(splitTimeout?90000:150000)});
-      if (response.status===429 && attempt<2) {
+      if (response.status===429 && limited<2) {
         const retryAfter=response.headers.get("retry-after") || "";
         const requestedDelay=/^\s*\d+\s*$/u.test(retryAfter) ? Number(retryAfter)*1000
           : Math.max(0,Date.parse(retryAfter)-Date.now()) || 0;
-        const delay=Math.max(30000*(attempt+1),requestedDelay);
+        const delay=Math.max(30000*(++limited),requestedDelay);
         if (delay>120000) throw Error("Terrain context: HTTP 429; Retry-After exceeds the bounded retry window");
         await response.body?.cancel();
-        console.log(`Terrain context rate limit: retry in ${Math.ceil(delay/1000)}s`);
+        const origin=response.headers.get("x-huayu-source-error");
+        const diagnostic=/^(?:relay-concurrency|upstream-http-429)$/u.test(origin||"") ? ` (${origin})` : "";
+        console.log(`Terrain context rate limit${diagnostic}: retry in ${Math.ceil(delay/1000)}s`);
         await wait(delay);
+        attempt--; // Rate-limit waits do not consume the independent body/timeout attempts.
         continue;
       }
-      if (!response.ok) throw Error(`Terrain context: HTTP ${response.status}`);
+      if (!response.ok) {
+        await response.body?.cancel().catch(()=>{});
+        const origin=response.headers.get("x-huayu-source-error");
+        throw Error(`Terrain context: HTTP ${response.status}${/^(?:relay-concurrency|upstream-http-429)$/u.test(origin||"") ? " "+origin : ""}`);
+      }
       const payload=await response.json();
       if (payload.remark || !Array.isArray(payload.elements)) {
         if (splitTimeout && /timed out|timeout|out of memory/iu.test(payload.remark || "")) throw Error(payload.remark);
