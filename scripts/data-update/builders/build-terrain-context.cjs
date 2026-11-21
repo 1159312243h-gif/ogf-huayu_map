@@ -9,6 +9,35 @@ function appendTerrainInventory(target,elements) {
   for (const item of elements) target.set(item.type+":"+item.id,item);
 }
 
+async function readTerrainInventory({query,bounds,read,cacheRead=async()=>null,cacheWrite=async()=>{},label="inventory",depth=0,limit=5000}) {
+  const cached=await cacheRead(query);if(cached)return cached;
+  try {
+    // Counts choose transport partitions; every child's full inventory is read.
+    const counts=await read(query.replace("out tags bb;","out count;"),true);
+    const total=Number(counts[0]?.tags?.total);
+    if(counts.length!==1||counts[0].type!=="count"||!Number.isSafeInteger(total)||total<0)throw Error("Invalid terrain inventory count");
+    if(total>limit)throw Object.assign(Error("Terrain inventory requires smaller responses: "+total),{code:"TERRAIN_INVENTORY_PARTITION"});
+    return await read(query,true);
+  }catch(error){
+    const split=error.code==="TERRAIN_INVENTORY_PARTITION"||error instanceof SyntaxError||error?.name==="TimeoutError"||/timed out|timeout|out of memory/iu.test(error?.message||"");
+    if(!split||depth>=8)throw error;
+    const midX=(bounds.west+bounds.east)/2,midY=(bounds.south+bounds.north)/2;
+    const bbox=[bounds.south,bounds.west,bounds.north,bounds.east].join(",");
+    console.log("Terrain context split "+label+" depth "+(depth+1));
+    const parts=new Map();
+    for(const part of [
+      {west:bounds.west,east:midX,south:bounds.south,north:midY},
+      {west:midX,east:bounds.east,south:bounds.south,north:midY},
+      {west:bounds.west,east:midX,south:midY,north:bounds.north},
+      {west:midX,east:bounds.east,south:midY,north:bounds.north},
+    ]){
+      const area=[part.south,part.west,part.north,part.east].join(",");
+      appendTerrainInventory(parts,await readTerrainInventory({query:query.replaceAll(bbox,area),bounds:part,read,cacheRead,cacheWrite,label,depth:depth+1,limit}));
+    }
+    const complete=[...parts.values()];await cacheWrite(query,complete);return complete;
+  }
+}
+
 // Context is part of the same successful snapshot transaction as the mountain
 // geometry. Inventory first avoids downloading every building in distant cities.
 async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, fetch: request = fetch, resume = false,
@@ -64,14 +93,12 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
     return nearby.some(({contains})=>points.some(contains));
   };
   await fs.mkdir(cacheDirectory,{recursive:true});
+  const cacheRead=async query=>{
+    if(resume){try{const cached=JSON.parse(await fs.readFile(path.join(cacheDirectory,"context-"+createHash("sha256").update(query).digest("hex")+".json"),"utf8"));if(cached.query===query&&Array.isArray(cached.elements)&&!cached.remark)return cached.elements;}catch{}}return null;
+  };
+  const cacheWrite=async(query,elements)=>fs.writeFile(path.join(cacheDirectory,"context-"+createHash("sha256").update(query).digest("hex")+".json"),JSON.stringify({query,elements}));
   const queryElements = async (query, splitTimeout = false) => {
-    const key=createHash("sha256").update(query).digest("hex");
-    const target=path.join(cacheDirectory,`context-${key}.json`);
-    if (resume) {
-      try {const cached=JSON.parse(await fs.readFile(target,"utf8"));
-        if (cached.query===query && Array.isArray(cached.elements) && !cached.remark) return cached.elements;
-      } catch {}
-    }
+    const cached=await cacheRead(query);if(cached)return cached;
     let limited=0;
     for (let attempt=0;attempt<3;attempt++) {
       try {
@@ -103,7 +130,7 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
         if (attempt<2) continue;
         throw Error(payload.remark || "Invalid terrain context response");
       }
-      await fs.writeFile(target,JSON.stringify({query,elements:payload.elements}));
+      await cacheWrite(query,payload.elements);
       return payload.elements;
       } catch(error) {
         if (error instanceof SyntaxError && attempt<2) {
@@ -128,29 +155,7 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
       '["building"]','["leisure"~"^(garden|park|pitch|swimming_pool)$"]'];
     const query=`[out:json][timeout:90];(${filters.flatMap(filter=>[
       `way${filter}(${bbox});`,`rel["type"="multipolygon"]${filter}(${bbox});`]).join("")});out tags bb;`;
-    const readInventory = async (bounds, depth = 0) => {
-      const area = String(bounds.south)+","+bounds.west+","+bounds.north+","+bounds.east;
-      const boundedQuery=query.replaceAll(bbox,area);
-      try {return await queryElements(boundedQuery,true);}
-      catch(error) {
-        const timeout=error instanceof SyntaxError || error?.name==="TimeoutError" || /timed out|timeout|out of memory/iu.test(error?.message||"");
-        if (!timeout || depth>=8) throw error;
-        const midX=(bounds.west+bounds.east)/2,midY=(bounds.south+bounds.north)/2;
-        console.log("Terrain context split "+slice.id+" depth "+(depth+1));
-        const parts=new Map();
-        for(const part of [
-          {west:bounds.west,east:midX,south:bounds.south,north:midY},
-          {west:midX,east:bounds.east,south:bounds.south,north:midY},
-          {west:bounds.west,east:midX,south:midY,north:bounds.north},
-          {west:midX,east:bounds.east,south:midY,north:bounds.north},
-        ])appendTerrainInventory(parts,await readInventory(part,depth+1));
-        const complete=[...parts.values()];
-        const combinedKey=createHash("sha256").update(boundedQuery).digest("hex");
-        await fs.writeFile(path.join(cacheDirectory,`context-${combinedKey}.json`),JSON.stringify({query:boundedQuery,elements:complete}));
-        return complete;
-      }
-    };
-    const items=await readInventory(b);
+    const items=await readTerrainInventory({query,bounds:b,read:queryElements,cacheRead,cacheWrite,label:slice.id});
     for (const item of items) if (selected(item)) inventory.set(`${item.type}:${item.id}`,item);
     console.log(`Terrain context inventory ${slice.id}: ${inventory.size} mapped features`);
   }
@@ -220,4 +225,4 @@ async function buildTerrainContext({surfaces, slices, runtime, cacheDirectory, f
   }
   return features.sort((a,b)=>a.id.localeCompare(b.id));
 }
-module.exports={buildTerrainContext,appendTerrainInventory};
+module.exports={buildTerrainContext,appendTerrainInventory,readTerrainInventory};

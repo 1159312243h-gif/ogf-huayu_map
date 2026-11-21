@@ -36,6 +36,7 @@ let downloads=0;
 const fetch=async (_url,options)=>{
   downloads++;
   const query=options.body.get("data");
+  if(query.includes("out count;"))return Response.json({elements:[{type:"count",tags:{total:String(inventory.length)}}]});
   if(query.includes("out tags bb;"))return new Response(JSON.stringify({elements:inventory}));
   const ids=query.match(/\(id:([^)]*)\)/u)[1].split(",").map(Number);
   return new Response(JSON.stringify({elements:elements.filter(element=>ids.includes(element.id))}));
@@ -89,7 +90,7 @@ for(const phase of ['connect','body']){
  assert.deepEqual(await buildTerrainContext({...options,cacheDirectory:path.join(directory,'timeout-'+phase),
   wait:async ms=>waits.push(ms),fetch:async(...args)=>{
    calls++;if(phase==='connect' && calls===1)throw new DOMException('temporary timeout','TimeoutError');
-   if(phase==='body' && !args[1].body.get('data').includes('out tags bb;') && bodyFailures++===0)
+   if(phase==='body' && args[1].body.get('data').includes('(id:') && bodyFailures++===0)
     return {ok:true,status:200,json:async()=>{throw new DOMException('temporary body timeout','TimeoutError');}};
    return fetch(...args);
   }}),context,'a transient '+phase+' timeout must recover the same complete context');
@@ -166,3 +167,25 @@ for (const failures of [['json','json','rate'],['rate','json','rate','json']]) {
  assert.deepEqual(waits,failures.map((kind,index)=>kind==='rate'?90000:failures.slice(0,index+1).filter(x=>x==='json').length*10000));
 }
 console.log('Mixed terrain failures passed: truncated bodies followed by 429 recover without consuming each other retry budget; original three-attempt bounds remain.');
+
+let counted=0,parentReads=0,childReads=0;
+const countedDirectory=path.join(directory,"count-first");
+const countedOptions={...options,cacheDirectory:countedDirectory,fetch:async(...args)=>{
+  const q=args[1].body.get("data");
+  if(q.includes("out count;")){counted++;return Response.json({elements:[{type:"count",tags:{total:q.includes("(0,0,1,1)")?"200000":String(inventory.length)}}]});}
+  if(q.includes("out tags bb;")){if(q.includes("(0,0,1,1)"))parentReads++;else childReads++;}
+  return fetch(...args);
+}};
+assert.deepEqual(await buildTerrainContext(countedOptions),context);
+assert.equal(counted,5);assert.equal(parentReads,0);assert.equal(childReads,4);
+assert.deepEqual(await buildTerrainContext({...countedOptions,resume:true,fetch:async()=>assert.fail("complete parent cache requires no new counts or downloads")}),context);
+const incompleteDirectory=path.join(directory,"counted-child-failure");
+await assert.rejects(buildTerrainContext({...options,cacheDirectory:incompleteDirectory,fetch:async(...args)=>{
+  const q=args[1].body.get("data");
+  if(q.includes("out count;"))return Response.json({elements:[{type:"count",tags:{total:q.includes("(0,0,1,1)")?"200000":"7"}}]});
+  if(q.includes("(0.5,0.5,1,1)"))return new Response(null,{status:403});
+  return fetch(...args);
+}}),/HTTP 403/u);
+const packets=await Promise.all((await fs.readdir(incompleteDirectory)).map(async file=>JSON.parse(await fs.readFile(path.join(incompleteDirectory,file),"utf8"))));
+assert.ok(!packets.some(p=>p.query.includes("(0,0,1,1)")&&p.query.includes("out tags bb;")));
+console.log("Count-first terrain inventories passed: dense parents never stream oversized bodies, all four children preserve complete geometry, resume skips counts and a failed child cannot cache the parent.");

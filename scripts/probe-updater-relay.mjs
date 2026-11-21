@@ -1,3 +1,4 @@
+import contextInventory from './data-update/builders/build-terrain-context.cjs';
 import {readFile} from "node:fs/promises";
 import network from './data-update/builders/overpass-network.cjs';
 import relay from './data-update/builders/updater-relay.cjs';
@@ -29,12 +30,15 @@ for(let attempt=0;attempt<30;attempt++){
   const [[south,west],[north,east]]=cover.bounds,rows=Math.ceil((north-south)/9),cols=Math.ceil((east-west)/4);
   const bbox=[south+(north-south)*2/rows,west+(east-west)*4/cols,south+(north-south)*3/rows,west+(east-west)*5/cols].join(",");
   const filters=["[natural=water]","[waterway]","[landuse=reservoir]","[building]","[leisure~\"^(garden|park|pitch|swimming_pool)$\"]"];
-  const inventoryQuery="[out:json][timeout:35];("+filters.flatMap(f=>["way"+f+"("+bbox+");","rel[type=multipolygon]"+f+"("+bbox+");"]).join("")+");out tags bb;out count;";
-  const inventory=await fetcher("https://overpass.opengeofiction.net/api/interpreter",{method:"POST",body:new URLSearchParams({data:inventoryQuery}),signal:AbortSignal.timeout(90000)});
-  if(!inventory.ok)throw Error("Inventory source probe HTTP "+inventory.status+" "+(inventory.headers.get("x-huayu-source-error")||""));
-  const inventoryText=await inventory.text();let inventoryData;try{inventoryData=JSON.parse(inventoryText);}catch{throw Error("Inventory source JSON truncated: bytes="+Buffer.byteLength(inventoryText)+" transfer="+inventory.headers.get("x-huayu-source-encoding"));}
-  const counts=inventoryData.elements?.filter(e=>e.type==="count");if(inventoryData.remark||counts?.length!==1||Number(counts[0].tags.total)!==inventoryData.elements.length-1)throw Error("Incomplete inventory probe");
-  console.log(JSON.stringify({inventorySourceProbe:"passed",bytes:Buffer.byteLength(inventoryText),elements:inventoryData.elements.length-1,transfer:inventory.headers.get("x-huayu-source-encoding")}));
+  const inventoryQuery="[out:json][timeout:35];("+filters.flatMap(f=>["way"+f+"("+bbox+");","rel[type=multipolygon]"+f+"("+bbox+");"]).join("")+");out tags bb;";
+  let maximumBytes=0,inventoryRequests=0;
+  const items=await contextInventory.readTerrainInventory({query:inventoryQuery,bounds:{south:south+(north-south)*2/rows,west:west+(east-west)*4/cols,north:south+(north-south)*3/rows,east:west+(east-west)*5/cols},label:"production-probe",read:async q=>{
+    inventoryRequests++;const r=await fetcher("https://overpass.opengeofiction.net/api/interpreter",{method:"POST",body:new URLSearchParams({data:q}),signal:AbortSignal.timeout(90000)});
+    if(!r.ok)throw Error("Inventory source probe HTTP "+r.status+" "+(r.headers.get("x-huayu-source-error")||""));
+    const body=await r.text();maximumBytes=Math.max(maximumBytes,Buffer.byteLength(body));let data;try{data=JSON.parse(body);}catch{throw new SyntaxError("Inventory JSON truncated: bytes="+Buffer.byteLength(body)+" transfer="+r.headers.get("x-huayu-source-encoding"));}
+    if(data.remark||!Array.isArray(data.elements))throw Error(data.remark||"Invalid inventory source probe");return data.elements;
+  }});
+  console.log(JSON.stringify({inventorySourceProbe:"passed",requests:inventoryRequests,maximumResponseBytes:maximumBytes,elements:items.length}));
   const final=await fetcher('https://overpass.opengeofiction.net/api/interpreter',{method:'POST',body:new URLSearchParams({data:'[out:json][timeout:10];rel(28652);out count;'}),signal:AbortSignal.timeout(45000)});
   if(!final.ok)throw Error('Sequential source probe HTTP '+final.status+' '+(final.headers.get('x-huayu-source-error')||''));
   const released=await final.json();if(released.remark||Number(released.elements?.[0]?.tags?.total)!==1)throw Error('Incomplete sequential source probe');
