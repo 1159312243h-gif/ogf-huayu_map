@@ -5009,3 +5009,33 @@ canvas.traffic-picking { cursor:crosshair !important; }
 
 .transit-guide-endpoints > [hidden]{display:none;}
 .transit-guide-endpoints.is-terminal-only{grid-template-columns:minmax(0,1fr);}
+
+.timetable-workspace{margin:12px 0;padding:12px;border:1px solid #cbd8d5;border-radius:10px;background:var(--panel-bg,#fff);}
+.timetable-workspace summary{cursor:pointer;font-weight:650;}
+.timetable-workspace label{display:grid;gap:5px;margin:10px 0;font-size:13px;}
+.timetable-workspace input,.timetable-workspace select{width:100%;min-width:0;box-sizing:border-box;padding:9px;border:1px solid #cbd8d5;border-radius:7px;}
+.timetable-workspace p{font-size:12px;line-height:1.65;overflow-wrap:anywhere;}
+.timetable-workspace table{border-collapse:collapse;font-size:12px;width:100%;}
+.timetable-workspace th,.timetable-workspace td{padding:7px;text-align:left;border-bottom:1px solid #e0e7e5;white-space:nowrap;}
+
+/* Operation panels keep instructions short; detailed rules live in searchable help. */
+.panel-guide {display:flex;justify-content:flex-end;gap:8px;margin:0 0 8px;}
+.panel-guide .text-button {font-size:12px;min-height:32px;}
+.operation-options {margin:12px 0;padding:10px 12px;border:1px solid var(--line);border-radius:7px;}
+.operation-options > summary,.line-template-simulation > summary {cursor:pointer;font-size:13px;font-weight:600;}
+.help-step {border-bottom:1px solid var(--line);margin:0;}
+.help-step > summary {padding:12px 2px;font-size:13px;font-weight:550;cursor:pointer;line-height:1.6;}
+.help-step > div {padding:0 2px 8px;}
+.help-step > summary:focus-visible {outline:2px solid var(--teal);outline-offset:2px;}
+.help-dialog {width:min(680px,calc(100vw - 24px));max-width:calc(100vw - 24px);height:min(760px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 12px 48px #182d3a40;overflow:hidden;}
+.help-dialog[open] {display:flex;flex-direction:column;}
+.help-dialog::backdrop {background:#152d3c42;}
+.help-dialog-header {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);flex-shrink:0;}
+.help-dialog-header h2 {margin:0;font-size:16px;}
+#help-dialog-content {overflow-y:auto;overscroll-behavior:contain;min-height:0;padding:0 20px 20px;scrollbar-gutter:stable;}
+.help-dialog .help-view {padding:0;}
+@media(max-width:480px) {
+  .help-dialog {width:calc(100vw - 12px);max-width:calc(100vw - 12px);height:calc(100dvh - 16px);max-height:calc(100dvh - 16px);border-radius:8px;}
+  .help-dialog-header {padding:10px 12px;}
+  #help-dialog-content {padding:0 12px 12px;}
+}

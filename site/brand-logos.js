@@ -3,6 +3,9 @@
  if(!window.HuayuAtlas){addEventListener("huayu:map-ready",start,{once:true});return;}
  if(window.HuayuBrandLogos)return;
  const atlas=HuayuAtlas,core=HuayuBrandLogoCore,$=id=>document.getElementById("logo-"+id),sourceId="huayu-brand-logo-points",layerId=sourceId+"-symbols";
+ const MAP_LOGO_MIN_ZOOM=16;
+ let publicCache;try{publicCache=window.HuayuBrandLogoCache.createStore({storage:localStorage});}catch{publicCache=window.HuayuBrandLogoCache.createStore();}
+ let redrawTimer=null;
  let entries=[],match=core.matcher([]),epoch=0,read=null,timer=null,gl=null,drawn=null,places=null,lastRead=0,enabled=true,editing=null,prepared=null,preparing=0,busy=false;
  let mutationEpoch=0,drawEpoch=0,registrySignature="",placeSignature="",filters=new Map(),registryRequest=null,registryReadAt=0;
  let requestBounds=null,requestSignature="",retryBounds=null,retrySignature="",retryTimer=null,retryCount=0,nextAttemptAt=0,forcePlaces=false,placeCache=[];
@@ -12,18 +15,20 @@
    &&new Set(p.items.map(e=>e.type+"/"+e.id)).size===p.items.length
    &&p.items.every(e=>["node","way","relation"].includes(e.type)&&Number.isSafeInteger(e.id)&&e.id>0&&Number.isFinite(e.lat)&&Math.abs(e.lat)<=85
      &&Number.isFinite(e.lon)&&Math.abs(e.lon)<=180&&typeof e.name==="string"&&typeof e.label==="string"&&e.tags&&entries.some(v=>v.key===e.logoKey));}
- try{const raw=sessionStorage.getItem(placeCacheKey);if(raw&&raw.length<=2*1024*1024){const saved=JSON.parse(raw);if(Array.isArray(saved)&&saved.length<=8)placeCache=saved;}}catch{}
- function cachedPlaces(bounds,sig){return placeCache.find(p=>p.signature===sig&&Array.isArray(p.bounds)&&p.bounds.length===4&&p.bounds.every(Number.isFinite)
-   &&covers(p.bounds,bounds)&&Date.now()-p.fetchedAt<3*3600000&&validResult(p));}
+ placeCache=publicCache.windows();
+ try{const raw=!placeCache.length&&sessionStorage.getItem(placeCacheKey);if(raw&&raw.length<=2*1024*1024){const saved=JSON.parse(raw);if(Array.isArray(saved)&&saved.length<=8)placeCache=saved;}}catch{}
+ publicCache.saveWindows(placeCache);
+ function cachedPlaces(bounds,sig,partial=false){return placeCache.find(p=>p.signature===sig&&Array.isArray(p.bounds)&&p.bounds.length===4&&p.bounds.every(Number.isFinite)
+   &&(covers(p.bounds,bounds)||partial&&p.bounds[0]<=bounds[2]&&p.bounds[2]>=bounds[0]&&p.bounds[1]<=bounds[3]&&p.bounds[3]>=bounds[1])&&Date.now()-p.fetchedAt<3*3600000&&validResult(p));}
  function rememberPlaces(p,sig){
    placeCache=placeCache.filter(v=>v.signature===sig&&validResult(v)&&Date.now()-v.fetchedAt<3*3600000&&JSON.stringify(v.bounds)!==JSON.stringify(p.bounds));
    placeCache.unshift({...p,signature:sig});placeCache=placeCache.slice(0,8);
    while(placeCache.length&&JSON.stringify(placeCache).length>2*1024*1024)placeCache.pop();
-   try{sessionStorage.setItem(placeCacheKey,JSON.stringify(placeCache));}catch{}
+   publicCache.saveWindows(placeCache);try{sessionStorage.setItem(placeCacheKey,JSON.stringify(placeCache));}catch{}
  }
  function cancelPlaces(){read?.abort();epoch++;requestBounds=null;requestSignature="";clearTimeout(retryTimer);retryTimer=null;}
  function retryPlaces(ms){clearTimeout(retryTimer);nextAttemptAt=Date.now()+ms;retryTimer=setTimeout(()=>{retryTimer=null;schedule();},ms);}
- const assets=new Map(),loading=new Map(),failed=new Map(),leaflet=L.layerGroup(),rows=new Map();
+ const assets=new Map(),mapImages=new Map(),loading=new Map(),failed=new Map(),leaflet=L.layerGroup(),rows=new Map();
  const user=()=>window.HuayuPersonalData?.getCurrentUser();
  const txt=(tag,value,cls)=>{const n=document.createElement(tag);n.textContent=value;if(cls)n.className=cls;return n;};
  const button=(label,fn)=>{const n=txt("button",label,"text-button");n.type="button";n.onclick=fn;return n;};
@@ -97,44 +102,94 @@
      if(account!==user()?.id||token!==mutationEpoch)return;if(draft===preparing)reset();await refresh(true);if(token!==mutationEpoch)return;status("已共享。地图将按当前范围更新，其他用户在下一次自动检查或手动刷新后读取。");
    }catch(e){if(account===user()?.id&&token===mutationEpoch)status(message(e));}finally{if(token===mutationEpoch){busy=false;drawLibrary();}}
  }
+ function installRegistry(next,{readAt=0,persist=false}={}){
+   if(!window.HuayuBrandLogoCache.validRegistry(next.items))throw Error("标识目录格式无效");
+   const signature=JSON.stringify(next.items.map(e=>[e.key,e.imageUrl,e.aliases,e.categories]));
+   const previousEntries=new Map(entries.map(e=>[e.key,e]));
+   registryReadAt=readAt;entries=next.items;if(persist)publicCache.saveRegistry(entries,readAt);
+   if(signature!==registrySignature){
+     registrySignature=signature;match=core.matcher(entries);
+     const identity=e=>JSON.stringify([e.kind,e.name,e.aliases,e.categories]);
+     const unchanged=new Set(entries.filter(e=>previousEntries.has(e.key)&&identity(e)===identity(previousEntries.get(e.key))).map(e=>e.key));
+     if(places)places={...places,items:places.items.filter(p=>unchanged.has(p.logoKey)||match.match(p.tags)?.key===p.logoKey)};
+     placeSignature="";cancelPlaces();retryBounds=null;retrySignature="";retryCount=0;nextAttemptAt=0;lastRead=0;drawn=null;
+     const activeUrls=new Set(entries.map(e=>e.imageUrl));for(const url of assets.keys())if(!activeUrls.has(url)){assets.delete(url);mapImages.delete(url);}
+     dispatchEvent(new CustomEvent("huayu:brand-logos-changed"));atlas.refreshBrandLogoTransit?.();schedule();
+   }
+   drawLibrary();
+ }
  function refresh(force=false){
-   if(registryRequest)return force?registryRequest.then(()=>refresh(true)):registryRequest;if(!force&&Date.now()-registryReadAt<120000)return Promise.resolve();
+   if(registryRequest)return force?registryRequest.then(()=>refresh(true)):registryRequest;
+   if(!force&&Date.now()-registryReadAt<120000)return Promise.resolve();
    registryRequest=(async()=>{
      try{
-       const next=await api("/api/brand-logos");
-       if(!Array.isArray(next.items))throw Error("标识目录格式无效");
-       const signature=JSON.stringify(next.items.map(e=>[e.key,e.imageUrl,e.aliases,e.categories]));
-       const previousEntries=new Map(entries.map(e=>[e.key,e]));
-       registryReadAt=Date.now();entries=next.items;
-       if(signature!==registrySignature){
-         registrySignature=signature;entries=next.items;match=core.matcher(entries);
-         // A newly uploaded system must not erase unrelated ready shop logos.
-         // Retain only identities whose matching is unchanged or revalidated; keep the old window signature until a complete new query succeeds.
-         const identity=e=>JSON.stringify([e.kind,e.name,e.aliases,e.categories]);
-         const unchanged=new Set(entries.filter(e=>previousEntries.has(e.key)&&identity(e)===identity(previousEntries.get(e.key))).map(e=>e.key));
-         if(places)places={...places,items:places.items.filter(p=>unchanged.has(p.logoKey)||match.match(p.tags)?.key===p.logoKey)};
-         placeSignature="";cancelPlaces();retryBounds=null;retrySignature="";retryCount=0;nextAttemptAt=0;lastRead=0;drawn=null;
-         const activeUrls=new Set(entries.map(e=>e.imageUrl));for(const url of assets.keys())if(!activeUrls.has(url))assets.delete(url);
-         dispatchEvent(new CustomEvent("huayu:brand-logos-changed"));atlas.refreshBrandLogoTransit?.();schedule();
-       }
-       drawLibrary();if(!next.sharedAvailable)status("共享标识服务尚未配置或暂不可用，继续显示四个内置 logo。");
+       const next=await api("/api/brand-logos",{signal:AbortSignal.timeout(12000)});
+       installRegistry(next,{readAt:Date.now(),persist:true});
+       if(!next.sharedAvailable)status("共享标识服务尚未配置或暂不可用，继续显示内置 logo。");
      }catch(e){registryReadAt=Date.now()-90000;status("logo 目录暂不可用，已有标识保留："+message(e));}
    })().finally(()=>registryRequest=null);return registryRequest;
+ }
+ function scheduleDraw(){
+   if(redrawTimer!==null||document.hidden||!enabled)return;
+   redrawTimer=setTimeout(()=>{redrawTimer=null;draw().catch(e=>{$("map-status").textContent=message(e);});},0);
+ }
+ async function bootstrapRegistry(){
+   const saved=publicCache.registry();
+   if(saved){installRegistry(saved,{readAt:saved.readAt});schedule();}
+   const online=refresh();
+   if(!entries.length){
+     try{const r=await fetch("./brand-logos.json",{cache:"no-cache",signal:AbortSignal.timeout(5000)});
+       if(r.ok){const next=await r.json();if(!entries.length)installRegistry(next);}}
+     catch{}
+   }
+   await online;schedule();
+ }
+ function prepareMapLogo(bmp){
+   const scan=document.createElement("canvas");scan.width=bmp.width;scan.height=bmp.height;
+   const source=scan.getContext("2d",{willReadFrequently:true});source.drawImage(bmp,0,0);
+   const pixels=source.getImageData(0,0,bmp.width,bmp.height).data;
+   let left=bmp.width,top=bmp.height,right=-1,bottom=-1;
+   for(let y=0;y<bmp.height;y++)for(let x=0;x<bmp.width;x++)if(pixels[(y*bmp.width+x)*4+3]){
+     left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x);bottom=Math.max(bottom,y);
+   }
+   if(right<left||bottom<top)throw Error("logo_image_empty");
+   const width=right-left+1,height=bottom-top+1,scale=Math.min(100/width,64/height);
+   const canvas=document.createElement("canvas");canvas.width=Math.ceil(width*scale)+8;canvas.height=Math.ceil(height*scale)+8;
+   const context=canvas.getContext("2d");context.clearRect(0,0,canvas.width,canvas.height);
+   context.drawImage(bmp,left,top,width,height,4,4,width*scale,height*scale);
+   return {data:context.getImageData(0,0,canvas.width,canvas.height),url:canvas.toDataURL("image/png")};
+ }
+ function mapSize(entry){
+   const data=assets.get(entry.imageUrl);return data?{width:Math.round(data.width*.3),height:Math.round(data.height*.3)}:{width:22,height:22};
+ }
+ function mapImage(entry){
+   const img=image(entry),size=mapSize(entry);img.src=mapImages.get(entry.imageUrl)||entry.imageUrl;
+   img.style.width=size.width+"px";img.style.height=size.height+"px";img.style.margin="0";return img;
  }
  async function loadImage(e){
    if(assets.has(e.imageUrl))return assets.get(e.imageUrl);if(loading.has(e.imageUrl))return loading.get(e.imageUrl);
    if(Date.now()-(failed.get(e.imageUrl)||0)<30000)return null;
    const task=(async()=>{try{
-     const r=await fetch(e.imageUrl,{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error("image");const bmp=await createImageBitmap(await r.blob());
-     const c=document.createElement("canvas");c.width=c.height=72;const ctx=c.getContext("2d");const scale=68/Math.max(bmp.width,bmp.height);ctx.drawImage(bmp,(72-bmp.width*scale)/2,(72-bmp.height*scale)/2,bmp.width*scale,bmp.height*scale);bmp.close();
-     const data=ctx.getImageData(0,0,72,72);assets.set(e.imageUrl,data);return data;
+     let prepared;const saved=publicCache.image(e.imageUrl);
+     if(saved)try{
+       const bmp=await createImageBitmap(await (await fetch(saved)).blob());
+       try{if(bmp.width>108||bmp.height>72)throw Error("invalid_cached_logo");const c=document.createElement("canvas");
+         c.width=bmp.width;c.height=bmp.height;const ctx=c.getContext("2d");ctx.drawImage(bmp,0,0);
+         prepared={data:ctx.getImageData(0,0,c.width,c.height),url:saved};}finally{bmp.close();}
+     }catch{}
+     if(!prepared){
+       const r=await fetch(e.imageUrl,{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error("image");const bmp=await createImageBitmap(await r.blob());
+       try{prepared=prepareMapLogo(bmp);}finally{bmp.close();}publicCache.saveImage(e.imageUrl,prepared.url);
+     }
+     if(!entries.some(v=>v.imageUrl===e.imageUrl))return null;
+     assets.set(e.imageUrl,prepared.data);mapImages.set(e.imageUrl,prepared.url);drawn=null;atlas.refreshBrandLogoTransit?.();scheduleDraw();return prepared.data;
    }catch{failed.set(e.imageUrl,Date.now());return null;}finally{loading.delete(e.imageUrl);}})();loading.set(e.imageUrl,task);return task;
  }
  function imageId(map,e){
-   const data=assets.get(e.imageUrl);if(!data)return null;const id="huayu-logo-"+e.id+"-"+String(e.imageUrl).split("=").at(-1).replace(/[^a-zA-Z0-9_-]/gu,"").slice(-20);
-   if(!map.hasImage(id))map.addImage(id,data);return id;
+   const data=assets.get(e.imageUrl);if(!data)return null;const id="huayu-logo-transparent-v2-"+e.id+"-"+String(e.imageUrl).split("=").at(-1).replace(/[^a-zA-Z0-9_-]/gu,"").slice(-20);
+   if(!map.hasImage(id))map.addImage(id,data,{pixelRatio:2});return id;
  }
- async function preload(values){let changed=false;await Promise.all(values.map(async e=>{const had=assets.has(e.imageUrl);if(await loadImage(e)&&!had)changed=true;}));if(changed){drawn=null;atlas.refreshBrandLogoTransit?.();}}
+ async function preload(values){await Promise.all(values.map(loadImage));}
  function restoreFilters(){
    if(!gl)return;for(const [id,s] of filters)try{if(gl.getLayer(id)&&JSON.stringify(gl.getFilter(id))===JSON.stringify(s.applied))gl.setFilter(id,s.base);}catch{}filters.clear();
  }
@@ -148,12 +203,16 @@
  }
  function detach(){
    if(!gl)return;restoreFilters();
-   try{gl.off("moveend",schedule);gl.off("style.load",styleLoaded);gl.off("styledata",schedule);for(const id of [layerId])if(gl.getLayer(id))gl.removeLayer(id);if(gl.getSource(sourceId))gl.removeSource(sourceId);
+   try{gl.off("moveend",schedule);gl.off("zoom",syncVisibility);gl.off("style.load",styleLoaded);gl.off("styledata",schedule);for(const id of [layerId])if(gl.getLayer(id))gl.removeLayer(id);if(gl.getSource(sourceId))gl.removeSource(sourceId);
      for(const id of gl.listImages().filter(id=>id.startsWith("huayu-logo-")))gl.removeImage(id);delete gl.__huayuLogoNames;}catch{}gl=null;drawn=null;
  }
  function styleLoaded(){drawn=null;filters.clear();if(gl)delete gl.__huayuLogoNames;schedule();}
+ function syncVisibility(){
+   const context=atlas.getBrandLogoContext();
+   if(context.zoom<MAP_LOGO_MIN_ZOOM||context.satellite&&!context.labels){cancelPlaces();if(drawn!==null||rows.size||filters.size)clearMap();}
+ }
  function pick(point){
-   if(!enabled||!atlas.canSelectBrandLogo?.()||!gl?.getLayer(layerId))return false;
+   if(!enabled||atlas.getBrandLogoContext().zoom<MAP_LOGO_MIN_ZOOM||!atlas.canSelectBrandLogo?.()||!gl?.getLayer(layerId))return false;
    const eventPoint=gl.project([point.lng,point.lat]);let p;
    try{const hit=gl.queryRenderedFeatures(eventPoint,{layers:[layerId]})[0];p=rows.get(hit?.properties?.identity);}
    catch{
@@ -165,42 +224,45 @@
    if(!p)return false;
    atlas.selectBrandLogoPlace(p);return true;
  }
- function clearMap(){drawEpoch++;if(gl){suppress([]);if(gl.getSource(sourceId))gl.getSource(sourceId).setData({type:"FeatureCollection",features:[]});}leaflet.clearLayers();drawn=null;rows.clear();}
+ function clearMap(){const hadData=drawn!==null||rows.size>0;drawEpoch++;if(gl){suppress([]);if(hadData&&gl.getSource(sourceId))gl.getSource(sourceId).setData({type:"FeatureCollection",features:[]});}leaflet.clearLayers();drawn=null;rows.clear();}
  async function draw(){
    const token=++drawEpoch;
-   if(!enabled||document.hidden){clearMap();return;}const context=atlas.getBrandLogoContext();if(context.vector!==gl){detach();gl=context.vector;if(gl){gl.on("moveend",schedule);gl.on("style.load",styleLoaded);gl.on("styledata",schedule);}}
-   if(context.satellite&&!context.labels||context.zoom<14||!places){clearMap();return;}
+   if(!enabled||document.hidden){clearMap();return;}const context=atlas.getBrandLogoContext();if(context.vector!==gl){detach();gl=context.vector;if(gl){gl.on("moveend",schedule);gl.on("zoom",syncVisibility);gl.on("style.load",styleLoaded);gl.on("styledata",schedule);}}
+   if(context.satellite&&!context.labels||context.zoom<MAP_LOGO_MIN_ZOOM||!places||Date.now()-places.fetchedAt>=3*3600000){clearMap();return;}
    const byKey=new Map(entries.map(e=>[e.key,e])),candidates=places.items.filter(p=>!(p.kind==="transit"&&context.transit));
-   await preload([...new Set(candidates.map(p=>byKey.get(p.logoKey)).filter(Boolean))]);if(token!==drawEpoch||!enabled||document.hidden||context.vector!==atlas.getBrandLogoContext().vector)return;
+   preload([...new Set(candidates.map(p=>byKey.get(p.logoKey)).filter(Boolean))]);if(token!==drawEpoch||!enabled||document.hidden||context.vector!==atlas.getBrandLogoContext().vector)return;
+   const latest=atlas.getBrandLogoContext();if(latest.zoom<MAP_LOGO_MIN_ZOOM||latest.satellite&&!latest.labels){clearMap();return;}
    const ready=candidates.filter(p=>assets.has(byKey.get(p.logoKey)?.imageUrl)).map(p=>({...p,label:core.placeLabel(p.tags,byKey.get(p.logoKey))}));rows.clear();ready.forEach(p=>rows.set(p.type+"/"+p.id,p));
    if(gl){
      if(!gl.style||!gl.getLayersOrder().length)return;
      const features=ready.map(p=>({type:"Feature",id:p.type+"/"+p.id,geometry:{type:"Point",coordinates:[p.lon,p.lat]},properties:{identity:p.type+"/"+p.id,name:p.label,icon:imageId(gl,byKey.get(p.logoKey))}})),signature=JSON.stringify(features);
      if(!gl.getSource(sourceId))gl.addSource(sourceId,{type:"geojson",data:{type:"FeatureCollection",features:[]}});
-     if(!gl.getLayer(layerId))gl.addLayer({id:layerId,type:"symbol",source:sourceId,minzoom:14,layout:{"icon-image":["get","icon"],"icon-size":.4,"icon-allow-overlap":false,"text-field":["get","name"],"text-size":11,"text-font":["Noto Sans Regular"],"text-offset":[0,1.6],"text-anchor":"top","text-optional":true,"icon-pitch-alignment":"viewport","text-pitch-alignment":"viewport"},paint:{"text-color":context.night?"#f4f4f4":"#303f46","text-halo-color":context.night?"#263238":"#ffffff","text-halo-width":1.5}});
+     if(!gl.getLayer(layerId))gl.addLayer({id:layerId,type:"symbol",source:sourceId,minzoom:MAP_LOGO_MIN_ZOOM,layout:{"icon-image":["get","icon"],"icon-size":.6,"icon-allow-overlap":false,"icon-optional":false,"icon-padding":2,"text-field":["get","name"],"text-size":12,"text-font":["Noto Sans Regular"],"text-offset":[0,1.1],"text-padding":2,"text-max-width":9,"text-anchor":"top","text-optional":true,"icon-pitch-alignment":"viewport","text-pitch-alignment":"viewport"},paint:{"text-color":context.night?"#f4f4f4":"#303f46","text-halo-color":context.night?"#263238":"#ffffff","text-halo-width":1.5}},gl.getLayersOrder().find(id=>/^poi-level-[123]$/u.test(id)));
      if(drawn!==signature){gl.getSource(sourceId).setData({type:"FeatureCollection",features});drawn=signature;}
      suppress(ready);leaflet.clearLayers();
    }else{
-     const signature=JSON.stringify(ready);if(drawn===signature)return;leaflet.clearLayers();
-     for(const p of ready){const node=document.createElement("span");node.append(image(byKey.get(p.logoKey)),txt("span",p.label));
-       L.marker([p.lat,p.lon],{icon:L.divIcon({html:node,className:"brand-logo-map-marker",iconSize:[32,32],iconAnchor:[16,16]})}).on("click",()=>atlas.handleBrandLogoClick(p)).addTo(leaflet);}
+     const signature=JSON.stringify([ready,context.night]);if(drawn===signature)return;leaflet.clearLayers();
+     for(const p of ready){const entry=byKey.get(p.logoKey),size=mapSize(entry),node=document.createElement("span");node.append(mapImage(entry),txt("span",p.label));
+       L.marker([p.lat,p.lon],{icon:L.divIcon({html:node,className:"brand-logo-map-marker"+(context.night?" is-night":""),iconSize:[size.width,size.height],iconAnchor:[size.width/2,size.height/2]})}).on("click",()=>atlas.handleBrandLogoClick(p)).addTo(leaflet);}
      if(!atlas.map.hasLayer(leaflet))leaflet.addTo(atlas.map);drawn=signature;
    }
  }
  async function update(){
-   if(!enabled||document.hidden){cancelPlaces();clearMap();return;}await refresh();
+   if(!enabled||document.hidden){cancelPlaces();clearMap();return;}refresh();
    if(!enabled||document.hidden)return;
-   const c=atlas.getBrandLogoContext();if(c.zoom<14||c.satellite&&!c.labels){cancelPlaces();clearMap();return;}
+   const c=atlas.getBrandLogoContext();if(c.zoom<MAP_LOGO_MIN_ZOOM||c.satellite&&!c.labels){cancelPlaces();clearMap();return;}
+   if(!entries.length){$("map-status").textContent="正在准备 logo 目录，原有地图符号保留。";return;}
    const b=c.bounds,bounds=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()],sig=registrySignature;
    if(!covers(places?.bounds,bounds)||placeSignature!==sig){
-     const saved=cachedPlaces(bounds,sig);
+     const saved=cachedPlaces(bounds,sig)||(!places?cachedPlaces(bounds,sig,true):null);
      if(saved){places=saved;placeSignature=sig;lastRead=saved.fetchedAt;await draw();
-       $("map-status").textContent="已恢复完整地点缓存："+saved.items.length+" 个地点。来源 "+(saved.dbTimestamp||new Date(saved.fetchedAt).toISOString())+"；正在按原始时间检查更新。";}
+       $("map-status").textContent=(covers(saved.bounds,bounds)?"已恢复完整地点缓存：":"先显示已缓存区域，正在补齐当前视窗：")+saved.items.length+" 个地点。来源 "+(saved.dbTimestamp||new Date(saved.fetchedAt).toISOString())+"；正在按原始时间检查更新。";}
    }
    // Style and camera events for the same buffered window must not cancel its live request.
    if(requestSignature===sig&&covers(requestBounds,bounds)&&!forcePlaces){await draw();return;}
    if(!forcePlaces&&covers(places?.bounds,bounds)&&placeSignature===sig&&!places.stale&&Date.now()-lastRead<120000){await draw();return;}
    if(!forcePlaces&&retrySignature===sig&&covers(retryBounds,bounds)&&Date.now()<nextAttemptAt){await draw();return;}
+   await draw();
    const sameRetry=retrySignature===sig&&covers(retryBounds,bounds),force=forcePlaces;
    cancelPlaces();read=new AbortController();const token=epoch,dx=(bounds[2]-bounds[0])*.18,dy=(bounds[3]-bounds[1])*.18;
    const expanded=[Math.max(-180,bounds[0]-dx),Math.max(-85,bounds[1]-dy),Math.min(180,bounds[2]+dx),Math.min(85,bounds[3]+dy)];
@@ -229,24 +291,24 @@
  $("cancel").onclick=reset;$("refresh").onclick=async()=>{cancelPlaces();forcePlaces=true;nextAttemptAt=0;retryCount=0;await refresh(true);schedule();};$("query").oninput=drawLibrary;
  $("enabled").onchange=()=>{enabled=$("enabled").checked;try{localStorage.setItem("huayu-brand-logos-enabled",String(enabled));}catch{}atlas.refreshBrandLogoTransit?.();schedule();};
  try{enabled=localStorage.getItem("huayu-brand-logos-enabled")!=="false";}catch{}$("enabled").checked=enabled;
- atlas.map.on("moveend baselayerchange",schedule);addEventListener("huayu:account-changed",()=>{mutationEpoch++;reset();busy=false;drawLibrary();});
+ atlas.map.on("moveend baselayerchange",schedule);atlas.map.on("zoom",syncVisibility);addEventListener("huayu:account-changed",()=>{mutationEpoch++;reset();busy=false;drawLibrary();});
  document.addEventListener("visibilitychange",()=>{if(document.hidden){cancelPlaces();clearTimeout(timer);}else schedule();});
  const interval=setInterval(()=>{if(!document.hidden)schedule();},120000);
- addEventListener("pagehide",()=>{cancelPlaces();clearTimeout(timer);clearInterval(interval);detach();leaflet.clearLayers();});
+ addEventListener("pagehide",()=>{cancelPlaces();clearTimeout(timer);clearTimeout(redrawTimer);clearInterval(interval);atlas.map.off("zoom",syncVisibility);detach();leaflet.clearLayers();});
  function transitEntry(stop,routes){
    if(!enabled)return null;let e=match.transit(stop,routes);
    if(!e){const ids=new Set([stop.sourceId,stop.id,...stop.displaySourceIds||[]].filter(Boolean).map(id=>String(id).replace(/:/gu,"/").replace(/^([nwr])(\d+)$/u,(_,t,n)=>({n:"node",w:"way",r:"relation"})[t]+"/"+n)));
      const hits=new Set((places?.items||[]).filter(p=>p.kind==="transit"&&ids.has(p.type+"/"+p.id)).map(p=>p.logoKey));if(hits.size===1)e=entries.find(e=>e.key===[...hits][0]);}
    return e||null;
  }
- window.HuayuBrandLogos=Object.freeze({sync:schedule,refresh,pick,entries:()=>entries,image,getEntry,
-   transitEntry:(stop,routes)=>{const e=transitEntry(stop,routes);if(e&&!assets.has(e.imageUrl)){preload([e]).then(schedule);return null;}return e;},
-   transitIcon:(map,stop,routes)=>{const e=transitEntry(stop,routes);if(!e)return null;const id=imageId(map,e);if(!id)preload([e]).then(schedule);return id;},
+ window.HuayuBrandLogos=Object.freeze({sync:schedule,refresh,pick,entries:()=>entries,image,mapImage,mapSize,getEntry,
+   transitEntry:(stop,routes)=>{const e=transitEntry(stop,routes);if(e&&!assets.has(e.imageUrl)){preload([e]);return null;}return e;},
+   transitIcon:(map,stop,routes)=>{const e=transitEntry(stop,routes);if(!e)return null;const id=imageId(map,e);if(!id)preload([e]);return id;},
    prepareForBrand:(name,kind="brand")=>{
      if(busy)return;const e=getEntry(kind,name),manager=window.HuayuBrandManagement;
      if(e&&!manager?.isBanned(e)&&(e.builtin&&user()||user()?.id===e.author?.id||user()?.role==="admin"||manager?.canManage(e))){edit(e);return;}
      reset();$("section").open=true;$("name").value=name;$("kind").value=kind;drawLibrary();$("form").scrollIntoView({block:"nearest"});
    }
  });
- refresh().then(schedule);
+ bootstrapRegistry().catch(e=>status(message(e)));
 })();

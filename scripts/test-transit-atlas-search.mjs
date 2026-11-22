@@ -33,7 +33,7 @@ function context(overrides = {}) {
       return {minLon:Math.min(...lons),maxLon:Math.max(...lons),minLat:Math.min(...lats),maxLat:Math.max(...lats)};
     },...overrides});
   for (const name of ["normalizePlaceSearchText","fuzzyAdministrativeNameKey","placeSearchOwnNames","withQueryMatchedPlaceName","primaryPlaceName","administrativePlaceNameKey",
-    "placeSearchResultKey","placeSearchMatchScore","isAdministrativeCenterResult","rankPlaceSearchResults",
+    "placeSearchResultKey","placeSearchMatchScore","isAdministrativeCenterResult","isAdministrativeSearchBoundary","rankPlaceSearchResults",
     "administrativeResultKey","isAdministrativeBoundaryResult","polygonFeatureGeometry","administrativeBoundaryGeometry",
     "sameAdministrativeCoordinate","pointInAdministrativeRing","stitchAdministrativeRings","overpassRelationFeature",
     "transitSearchEditDistance","transitAtlasCityQueryVariants","transitAtlasCitySearchScore","exactAdministrativeCitySearchScore","transitAtlasCityCandidates",

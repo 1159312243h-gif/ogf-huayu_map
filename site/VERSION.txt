@@ -1,4 +1,14 @@
 华域地图 v9.0
+Release date: 2026-11-22
+Cloudflare Pages project: ogf-atlas
+Build: 9.0-provider-compat-v2
+Included: official DeepSeek auto tool selection, full reasoning/signature replay, Chat Completions/Responses/Claude/Gemini, two-round connection tests, model-list lookup and explicit text-only mode.
+Included: shorter operation panels with 14 searchable help topics and return-to-operation dialog, shared rail/urban-rail/flight timetables, candidate-route schedule matching, faster places-first search and transparent reliable brand logos.
+Validation and deployment are verified separately. Protocol tests use synthetic providers; no claim of paid live tests for every model. Existing OGF snapshot generation/source times and update policies are preserved.
+
+Previous build metadata:
+
+华域地图 v9.0
 Released: 2026-11-20
 Cloudflare Pages project: ogf-atlas
 Build: 9.0-transit-templates-v1

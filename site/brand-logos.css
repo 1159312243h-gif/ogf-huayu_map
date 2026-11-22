@@ -10,11 +10,13 @@
 .logo-upload-preview{width:96px;height:96px;object-fit:contain;border:1px solid #b7caca;background:repeating-conic-gradient(#eee 0 25%,#fff 0 50%) 0 / 12px 12px;}
 .brand-logo-map-marker{background:transparent;border:0;}
 .brand-logo-map-marker>span{display:flex;align-items:center;flex-direction:column;}
-.brand-logo-map-marker img{width:30px;height:30px;object-fit:contain;background:white;border-radius:5px;}
-.brand-logo-map-marker span span{white-space:nowrap;font-size:11px;color:#263238;text-shadow:0 1px white,1px 0 white,-1px 0 white;}
-.transit-stop-div-icon .brand-logo-thumbnail{width:24px;height:24px;margin:0;box-shadow:0 0 0 2px white;border-radius:4px;}
+.brand-logo-map-marker img{width:22px;height:22px;object-fit:contain;background:transparent;border-radius:0;margin:0;}
+.brand-logo-map-marker span span{white-space:nowrap;font-size:12px;color:#263238;text-shadow:0 1px white,1px 0 white,-1px 0 white;}
+.transit-stop-div-icon .brand-logo-thumbnail{width:22px;height:22px;margin:0;background:transparent;box-shadow:none;border-radius:0;}
 
 .brand-management-card textarea{width:100%;box-sizing:border-box;resize:vertical;}
 .brand-management-card p,.brand-managed-public{overflow-wrap:anywhere;}
 .brand-managed-public{padding:10px 0;}
 .brand-managed-public:empty{display:none;}
+
+.brand-logo-map-marker.is-night span span{color:#f4f4f4;text-shadow:0 1px #263238,1px 0 #263238,-1px 0 #263238;}

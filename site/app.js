@@ -743,6 +743,8 @@
   let huaxiaAdminCatalogLoader = null;
   let toastTimer;
   let searchRequestId = 0;
+  let placeSearchController=null,searchSelectionController=null,placeSearchSelectionId=0;
+  const placeSearchClient=window.HuayuPlaceSearch?.createClient()||{read:(url,{timeout=16000}={})=>fetchJson(url,timeout)};
   let measurementMode = "distance";
   let measurementPoints = [];
   let measurementPreviewPoint = null;
@@ -2420,6 +2422,11 @@
 
   async function runPlaceSearch(query) {
     const requestId = ++searchRequestId;
+    placeSearchController?.abort();searchSelectionController?.abort();placeSearchSelectionId++;
+    const controller=new AbortController();placeSearchController=controller;
+    let auxiliaryStarted=false;
+    const startAuxiliary=()=>{if(auxiliaryStarted||requestId!==searchRequestId||controller.signal.aborted)return;
+      auxiliaryStarted=true;window.HuayuBrandBrowser?.search(query);};
     window.HuayuBrandBrowser?.clearSearch();
     window.HuayuFeatureInfo?.clearSearch();
     elements.searchResults.replaceChildren();
@@ -2446,7 +2453,7 @@
       return;
     }
 
-    window.HuayuBrandBrowser?.search(query);
+
     window.HuayuFeatureInfo?.search(query);
 
     // The top search box is also a line finder. Keep place search as the
@@ -2463,7 +2470,7 @@
       const transitMatches = prepareTransitRelations(findPreloadedTransitRelations(query));
       if (transitMatches.length) {
         renderTransitSearchResults(transitMatches, query);
-        return;
+        startAuxiliary();return;
       }
     }
 
@@ -2475,22 +2482,29 @@
           if (requestId !== searchRequestId) return;
           if (nearbyResults.length) {
             renderSearchResults(nearbyResults, query, { pointOfInterestCollection: true, pointOfInterestType });
-            return;
+            startAuxiliary();return;
           }
         } catch {
           // Fall back to the ordinary place index when the live viewport query is unavailable.
         }
       }
-      const results = await searchPlacesWithAdministrativeFuzzy(query, 30);
+      let lastResultSignature="";
+      const show=results=>{
+        if(requestId!==searchRequestId||controller.signal.aborted)return;
+        const filtered=pointOfInterestType?results.filter(r=>pointOfInterestResultMatchesDefinition(r,pointOfInterestType)):results;
+        const signature=JSON.stringify(filtered);
+        if(filtered.length&&signature!==lastResultSignature){lastResultSignature=signature;renderSearchResults(filtered,query,pointOfInterestType?{pointOfInterestCollection:true,pointOfInterestType}:undefined);startAuxiliary();}
+      };
+      const results = await searchPlacesWithAdministrativeFuzzy(query,30,{includeBoundary:false,signal:controller.signal,onResults:show});
       if (requestId !== searchRequestId) return;
       const filteredResults = pointOfInterestType
         ? results.filter((result) => pointOfInterestResultMatchesDefinition(result, pointOfInterestType)) : results;
-      renderSearchResults(filteredResults, query, pointOfInterestType
+      if(!filteredResults.length||JSON.stringify(filteredResults)!==lastResultSignature)renderSearchResults(filteredResults, query, pointOfInterestType
         ? { pointOfInterestCollection: true, pointOfInterestType } : undefined);
     } catch (error) {
       if (requestId !== searchRequestId) return;
       setStatus(elements.searchStatus, humanizeError(error, "地名搜索暂时不可用，请稍后重试。"), true);
-    }
+    }finally{startAuxiliary();}
   }
 
   function getSearchHistory() {
@@ -3013,6 +3027,7 @@
   }
 
   function renderSearchResults(results, query, options = {}) {
+    const focusedKey=elements.searchResults.contains(document.activeElement)?document.activeElement?.dataset.searchResultKey:null;
     elements.searchResults.replaceChildren();
     placeSearchResultLayer.clearLayers();
     const brandNameType = !options.pointOfInterestType && pointOfInterestNameTypeSearch(query);
@@ -3024,7 +3039,7 @@
     const namedPointOfInterestCollection = pointOfInterestResults.length && !options.pointOfInterestType;
     const exactGeneralResults = namedPointOfInterestCollection ? exactGeneralSearchResults(results, query) : [];
     const administrativeResults = namedPointOfInterestCollection
-      ? fuzzyAdministrativeDisplayResults(results) : [];
+      ? fuzzyAdministrativeDisplayResults(results, query) : [];
     const classifiedPointOfInterestResults = namedPointOfInterestCollection
       ? pointOfInterestResults.map((result) => pointOfInterestResultHasBrand(result)
         ? { ...result, huayu_brand_result: true } : result)
@@ -3075,12 +3090,32 @@
         icon: result.huayu_poi_icon || (roadResult ? "route" : featureGeometry ? "building-2" : placeIconName(result)),
         title: primaryPlaceName(result) || label.split(",")[0],
         meta: roadLength ? `${label} · 长度约 ${formatDistance(roadLength)}${roadSegments > 1 ? `（含 ${roadSegments} 条同名相邻道路几何）` : ""}` : areaText ? `${label} · ${areaText}` : label,
-        tag: roadResult ? "道路" : result.huayu_fuzzy_administrative ? "行政区"
+        tag: roadResult ? "道路" : result.huayu_fuzzy_administrative || isAdministrativeSearchBoundary(result) ? "行政区"
           : result.huayu_brand_result ? "品牌"
           : result.huayu_poi_type_label || (featureGeometry ? selectedPlaceFeatureTypeLabel(result) : translatePlaceType(type)),
       });
       connectSearchResultMapMarker(button, markerByResult.get(placeSearchResultKey(result)));
+      button.dataset.searchResultKey=placeSearchResultKey(result);
       button.addEventListener("click", async () => {
+        ++searchRequestId;placeSearchController?.abort();
+        try{await selectPlaceSearchResult(result,results);}catch(error){showToast(error.message||"所选地点暂时无法读取，请重试");}
+      });
+      elements.searchResults.appendChild(button);
+      if(focusedKey&&button.dataset.searchResultKey===focusedKey)button.focus({preventScroll:true});
+    });
+    refreshIcons();
+  }
+
+  async function selectPlaceSearchResult(result, results=[result], options={}) {
+    searchSelectionController?.abort();const controller=new AbortController();searchSelectionController=controller;
+    const signal=options.signal?AbortSignal.any([options.signal,controller.signal]):controller.signal;
+    const selectionId=++placeSearchSelectionId,current=()=>selectionId===placeSearchSelectionId&&!signal.aborted;
+    try {
+      const original=result;if(result.huayu_search_geometry_pending)showToast("正在读取所选要素的完整范围…");
+      result=await hydratePlaceSearchResult(result,signal);if(!current())return false;
+      results=results.map(r=>placeSearchResultKey(r)===placeSearchResultKey(original)?result:r);
+      const roadResult=isRoadSearchResult(result),label=result.display_name||result.name||"未命名地点";
+
         if (roadResult) {
           const roadPoint = {
             lat: Number(result.lat),
@@ -3088,6 +3123,7 @@
           };
           if (!Number.isFinite(roadPoint.lat) || !Number.isFinite(roadPoint.lng)) return;
           const roadResults = await loadRoadSearchResults(result, results);
+          if(!current())return false;
           const roadLengthMeters = roadSearchResultsLength(roadResults);
           const roadSegmentCount = roadSearchResultsSegmentCount(roadResults);
           setSelectedPlace({
@@ -3096,7 +3132,7 @@
             label: primaryPlaceName(result) || label.split(",")[0],
             roadLengthMeters,
             roadSegmentCount,
-          }, { move: true, popup: true, featureResult:result });
+          }, { move: true, popup: true, featureResult:result, preservePerspective:options.preservePerspective===true,searchSelectionId:selectionId });
           showRoadSearchHighlight(roadResults, primaryPlaceName(result) || label.split(",")[0], true);
           updateSelectedRoadDescription(roadLengthMeters, roadSegmentCount);
           return;
@@ -3106,12 +3142,13 @@
         if (!centerResult && isAdministrativeBoundaryResult(result)) {
           showToast("正在读取行政中心…");
           centerResult = await loadAdministrativeCenter(result);
+          if(!current())return false;
         }
         const locationResult = centerResult || result;
         const place = {
           lat: Number(locationResult.lat),
           lng: Number(locationResult.lon),
-          zoom: isAdministrativeCenterResult(locationResult) ? 12 : 16,
+          zoom: isAdministrativeCenterResult(locationResult) ? 12 : options.zoom || 16,
           label: primaryPlaceName(locationResult) || label.split(",")[0],
           administrativeCenter: Boolean(centerResult),
         };
@@ -3125,6 +3162,7 @@
           boundaryCenter: centerResult,
           featureResult: !boundary ? result : null,
           fitBoundary: Boolean(boundary),
+          preservePerspective:options.preservePerspective===true,searchSelectionId:selectionId,
         });
         if (boundary) return;
         const bounds = parseBoundingBox(result.boundingbox);
@@ -3132,7 +3170,8 @@
         if (!isAdministrativeCenterResult(result)) return;
         showToast("正在读取所属行政区边界…");
         boundaryResult = await loadAdministrativeBoundary(result);
-        if (!samePoint(selectedPlace, place)) return;
+        if(!current())return false;
+        if (!samePoint(selectedPlace, place)) return false;
         const loadedBoundary = administrativeBoundaryGeometry(boundaryResult);
         if (!loadedBoundary) {
           showToast("该城市暂未提供可绘制的行政区边界");
@@ -3141,10 +3180,10 @@
         showAdministrativeBoundary(loadedBoundary, primaryPlaceName(boundaryResult), true, boundaryResult, result);
         updateSelectedPlaceBoundaryDescription();
         showToast("已高亮所属行政区边界");
-      });
-      elements.searchResults.appendChild(button);
-    });
-    refreshIcons();
+
+      return true;
+    }catch(error){if(!current())return false;throw error;}
+    finally{if(searchSelectionController===controller)searchSelectionController=null;}
   }
 
   function renderTransitSearchResults(relations, query) {
@@ -3356,6 +3395,7 @@
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [54, 54], maxZoom: 17 });
       renderRouteResult(route);
     } catch (error) {
+      if(error.name==="AbortError")return;
       console.error("Route planning failed", error);
       setStatus(elements.routeStatus, humanizeRouteError(error), true);
     } finally {
@@ -3655,6 +3695,97 @@
     transitRoutingContextKey = key;
   }
 
+
+  function timetableStopKeys(stop, stops, counts = null) {
+    if (!stop) return [];
+    const core=window.HuayuTimetableCore, keys=[];
+    for (const raw of [stop.sourceId, ...(stop.displaySourceIds||[]), stop.id]) {
+      let value=String(raw??"").replace(/^airport:/u,"").replace(/^([nwr])(\d+)$/u,(_,t,n)=>({n:"node",w:"way",r:"relation"})[t]+"/"+n).replace(":","/");
+      if (/^\d+$/u.test(value)&&!/^(?:airport:)/u.test(String(stop.id)))value="node/"+value;
+      if (/^(node|way|relation)\/[1-9]\d*$/u.test(value))keys.push("id:"+value);
+    }
+    const ownName=core.name(stop.name);
+    if (ownName&&(counts?counts.get(ownName):stops.filter(s=>core.name(s.name)===ownName).length)===1)keys.push("name:"+ownName);
+    for(const value of [stop.iata,stop.icao,stop.tags?.iata,stop.tags?.icao])if(value)keys.push("code:"+core.name(value));
+    return [...new Set(keys)].slice(0,16);
+  }
+
+  function timetableEdgeSegments(edge) {
+    if(edge.geometryGaps?.length||edge.nationalRailLink||edge.inferredRailLinks?.length)return [];
+    return edge.speedProfileSegments?.length ? edge.speedProfileSegments : (edge.geometrySegments||[]).map(geometry=>({geometry,maxspeed:edge.maxspeed||edge.route?.maxspeed||null}));
+  }
+
+  function describeTimetablePlan(plan) {
+    if(plan.directTaxi)return {prefix:plan.duration,legs:[]};
+    const stops=[...(transitNetworkData?.stops||[]),...(plan.extraStops||[])];
+    const byId=new Map(stops.map(s=>[String(s.id),s])),all=[...byId.values()],counts=new Map();
+    for(const stop of all){const k=window.HuayuTimetableCore.name(stop.name);counts.set(k,(counts.get(k)||0)+1);}
+    const keys=stop=>timetableStopKeys(stop,all,counts);
+    const legs=collapseMultimodalRouteLegs(plan.path,byId).map(leg=>{
+      const indexes=leg.edgeIndexes||[],edges=indexes.map(i=>plan.path.edges[i]);
+      const mode=leg.kind!=="ride"?null:leg.route?.type==="flight"?"flight"
+        :leg.route?.type==="train"?(isUrbanRailTransitRoute(leg.route)?"urban":"rail")
+        :METRO_ROUTE_TYPES.has(leg.route?.type)||leg.route?.type==="tram"?"urban":null;
+      const pathStops=indexes.length?[byId.get(plan.path.stops[indexes[0]]),...indexes.map(i=>byId.get(plan.path.stops[i+1]))]:[];
+      return {kind:leg.kind,mode,seconds:leg.duration,edgeIndexes:indexes,
+        fromKeys:keys(leg.from),toKeys:keys(leg.to),
+        stops:pathStops.map(s=>({keys:keys(s)})),
+        sections:edges.map(timetableEdgeSegments),
+        routeIds:[...new Set(edges.flatMap(e=>[e.route?.sourceRelationId,e.route?.id]).filter(v=>/^\d+$/u.test(String(v))).map(v=>"relation/"+v))],
+        unconfirmed:edges.some(e=>e.geometryGaps?.length||e.nationalRailLink||e.inferredRailLinks?.length)};
+    });
+    const suffix=(plan.egressConnector?.duration||0)+(plan.exitWalk?.duration||0);
+    return {prefix:Math.max(0,plan.duration-suffix-legs.reduce((s,l)=>s+l.seconds,0)),legs};
+  }
+
+  async function enrichTimetablePlans(plans) {
+    if(!window.HuayuTimetables)return plans;
+    return window.HuayuTimetables.enrich(plans);
+  }
+
+  async function getTimetablePaths(trip,{signal}={}) {
+    const check=()=>{if(signal?.aborted)throw new DOMException("已取消","AbortError");};
+    check();
+    if(trip.mode==="flight"){
+      if(!await ensureAirportDataLoaded())throw Error("机场数据尚未加载");
+      check();const stops=airportData.map(airport=>({...airportStopFor(airport),iata:airport.iata,icao:airport.icao})),counts=new Map();
+      for(const stop of stops){const k=window.HuayuTimetableCore.name(stop.name);counts.set(k,(counts.get(k)||0)+1);}
+      const resolved=trip.stops.map(call=>{
+        const matches=stops.filter(s=>window.HuayuTimetableCore.stopKeys(call).some(k=>timetableStopKeys(s,stops,counts).includes(k)));
+        if(matches.length!==1)throw Error("机场未明确匹配，请填写原始编号或唯一机场代码："+call.name);return matches[0];
+      });
+      return resolved.slice(1).map((to,i)=>[{geometry:[{lat:resolved[i].lat,lon:resolved[i].lon},{lat:to.lat,lon:to.lon}]}]);
+    }
+    if(transitPreloadPromise)await transitPreloadPromise;check();
+    if(!transitNetworkData)throw Error("请先在目标城市加载交通数据");
+    await ensureTransitRelationsLoaded();check();prepareTransitRoutingContext();
+    if(trip.mode==="rail")await ensureRailwayRoutingLoaded();check();
+    const stops=transitNetworkData.stops,core=window.HuayuTimetableCore,counts=new Map();
+    for(const stop of stops){const k=core.name(stop.name);counts.set(k,(counts.get(k)||0)+1);}
+    const resolved=trip.stops.map(call=>{
+      const keys=call.ref?["id:"+call.ref]:call.code?["code:"+core.name(call.code)]:["name:"+core.name(call.name)];
+      const matches=stops.filter(s=>keys.some(k=>timetableStopKeys(s,stops).includes(k)));
+      if(matches.length!==1)throw Error("停靠点未明确匹配，请使用 OGF 编号："+call.name);return matches[0];
+    });
+    const graph=buildTransitRoutingGraph(transitNetworkData,trip.mode==="rail"?new Set(["train"]):new Set(["train","subway","light_rail","monorail","tram"]));
+    const paths=[];
+    for(let i=1;i<resolved.length;i++){
+      check();let segments=[];
+      const path=findTransitPathWithRouteState(String(resolved[i-1].id),new Set([String(resolved[i].id)]),graph);
+      if(path&&path.edges.every(e=>e.kind==="ride"&&(trip.mode!=="urban"||METRO_ROUTE_TYPES.has(e.route?.type)||e.route?.type==="tram"||isUrbanRailTransitRoute(e.route))&&(!trip.routeId||[e.route?.id,e.route?.sourceRelationId].some(id=>"relation/"+id===trip.routeId)))){
+        segments=path.edges.flatMap(timetableEdgeSegments);
+      } else if(trip.mode==="rail"&&!trip.routeId&&railwayRoutingData){
+        const infrastructure=getRailInfrastructureGraph(transitNetworkData,{physicalOnly:true});
+        const physical=findRailInfrastructurePath(resolved[i-1],resolved[i],infrastructure);
+        if(physical&&!physical.geometryGaps?.length&&!physical.inferredRailLinks?.length&&!physical.nationalRailLink)
+          segments=physical.speedProfileSegments?.length?physical.speedProfileSegments:(physical.geometrySegments||[]).map(geometry=>({geometry,maxspeed:physical.route?.maxspeed}));
+      }
+      if(!segments.length)throw Error("未确认两站间连续、同制式的实际轨道："+resolved[i-1].name+" → "+resolved[i].name);
+      paths.push(segments);await yieldForNavigationPaint();
+    }
+    check();return paths;
+  }
+
   async function runMultimodalRouteSearch(origin, destination) {
     // Airport planning is independent of the transit preload. Keeping this
     // branch first prevents an empty/slow public-transport packet from
@@ -3662,7 +3793,7 @@
     if (routeMode === "airport") {
       const airportReady = await ensureAirportDataLoaded();
       if (!airportReady) throw new Error("NO_AIRPORT_ROUTE");
-      const airportPlans = await buildAirportPlans(origin, destination);
+      const airportPlans = await enrichTimetablePlans(await buildAirportPlans(origin, destination));
       if (!airportPlans.length) throw new Error("NO_AIRPORT_ROUTE");
       multimodalCandidatePlans = airportPlans;
       const orderedAirportPlans = classifyMultimodalPlans(airportPlans, routePreference);
@@ -3764,6 +3895,7 @@
         "候选公共交通方案的实际进出站接驳过远，已改为比较全程道路方案");
       throw new Error("GROUND_ACCESS_UNAVAILABLE");
     }
+    multimodalCandidatePlans = await enrichTimetablePlans(multimodalCandidatePlans);
     multimodalCandidatePlans.forEach((plan) => { plan.busDataIncomplete = !busRoutingComplete; });
     const orderedPlans = classifyMultimodalPlans(multimodalCandidatePlans, routePreference);
     renderMultimodalOptions(orderedPlans);
@@ -3817,6 +3949,7 @@
       selectMultimodalPlan(direct);
       return;
     }
+    plans = await enrichTimetablePlans(plans);
     multimodalCandidatePlans = plans;
     const orderedPlans = classifyMultimodalPlans(plans, routePreference);
     renderMultimodalOptions(orderedPlans);
@@ -5752,7 +5885,7 @@
     [...multimodalRelationsById.values()].filter((relation) => transitRelationRouteType(relation) === "train")
       .forEach((relation) => collectWays(relation, transitRouteInfo(relation)));
     const rawLines = railwayRoutingData?.ways.map(([id, nodeRefs, coordinates, name, maxspeed, highspeed]) => ({
-      id, nodeRefs, geometry: coordinates.map(([lat, lon]) => ({lat, lon})),
+      id, nodeRefs, trackMaxspeed:maxspeed, geometry: coordinates.map(([lat, lon]) => ({lat, lon})),
       routes: rawWayRoutes.get(id) || [applyPublicTransitRailSystem({id:`infrastructure:${id}`,type:"train",color:"#4e5e66",
         identity:`train:infrastructure:${id}`,label:name || "铁路",isFallback:true,
         speedKmh:maxspeed ? speedFromRelationTags({route:"train",maxspeed}) : highspeed ? 180 : transitOperatingSpeedKmh({type:"train",label:name}),
@@ -6411,6 +6544,7 @@
         distance: legDistance,
         duration: legDuration,
         geometrySegments: mergeRailPathGeometry(edges),
+        speedProfileSegments: edges.filter(e=>!e.gap).map(e=>({geometry:e.geometry,maxspeed:graph.lines[e.lineIndex]?.trackMaxspeed||e.route?.maxspeed||null})),
         geometryGaps: edges.filter((edge) => edge.gap).map((edge) => edge.geometry),
         inferredRailLinks: legInferredLinks,
         lineIndexes: [...new Set(edges.map((edge) => edge.lineIndex).filter(Number.isInteger))],
@@ -6477,6 +6611,7 @@
       duration,
       legs,
       geometrySegments: rideLegs.flatMap((leg) => leg.geometrySegments),
+      speedProfileSegments: rideLegs.flatMap(leg=>leg.speedProfileSegments||[]),
       geometryGaps: pathEdges.filter((edge) => edge.gap).map((edge) => edge.geometry),
       inferredRailLinks,
       lineIndexes: [...new Set(pathEdges.map((edge) => edge.lineIndex).filter(Number.isInteger))],
@@ -7349,6 +7484,7 @@
         geometryGaps: leg.geometryGaps || [],
         inferredRailLinks: leg.inferredRailLinks || [],
         railLineIndexes: leg.lineIndexes || [],
+        speedProfileSegments: leg.speedProfileSegments,
         estimated: leg.estimated,
         nationalRailTransfer: Boolean(leg.nationalRailTransfer),
         nationalRailLink: Boolean(leg.nationalRailLink),
@@ -9172,7 +9308,7 @@
         swatch.className = "route-option-swatch";
         swatch.style.background = route.color || "#0e7c74";
         const text = document.createElement("span");
-        text.textContent = transitRoutingRouteLabel(route);
+        text.textContent = transitRoutingRouteLabel(route)+(route.sharedTripNo?" · "+route.sharedTripNo:"");
         leg.append(swatch, text);
         return leg;
       });
@@ -9476,7 +9612,7 @@
     const connectorNote = [plan.accessConnector, plan.egressConnector].some((connector) => connector?.carRoadReference)
       ? "；部分接驳缺少步行/骑行路网，车行道路仅供参考"
       : plan.groundRouteEstimated ? "；部分接驳或吸附缺口为估算" : "";
-    const sourceNote = plan.airport
+    const sourceNote = plan.sharedTimetables?.length ? "用户共享班次时刻与实际路径；未匹配段按默认估算（非实时运营）" : plan.airport
       ? plan.groundAirportOnly ? "OGF 道路路网" : "机场间直飞估算（无正式航班关系或实时班次）"
       : plan.physicalRail
         ? `实际铁路路网与线路速度估算${connectorNote}`
@@ -9492,7 +9628,7 @@
           ? "；含国家铁路未绘制联络乘车段，里程与用时按全国铁路网连通性估算"
         : plan.path.edges.some((edge) => edge.nationalRailTransfer)
           ? "；含国家铁路未绘制联络线换乘，换乘关系按全国铁路网连通性估算" : "";
-    const serviceNote = plan.throughCount ? "；贯通按已确认运营信息规划，无实时班次" : "";
+    const serviceNote = plan.throughCount && !plan.sharedTimetables?.length ? "；贯通按已确认运营信息规划，无实时班次" : "";
     const busNote = plan.busDataIncomplete ? "；公交补充数据未完整加载，当前方案仅基于已加载线路" : "";
     const railStationNote = intermediateRailStops.length ? `；沿线标出 ${intermediateRailStops.length} 个中途铁路站` : "";
     setStatus(elements.routeStatus, `${modeLabel} · ${routeNames} · ${sourceNote}${stationNote}${geometryNote}${serviceNote}${busNote}${railStationNote}`);
@@ -9503,6 +9639,7 @@
       createRouteStat(formatDistance(multimodalWalkingDistance(plan)), "步行约"),
     );
     elements.routeSummary.hidden = false;
+    if(plan.timetableStatus){const note=document.createElement("p");note.textContent=plan.timetableStatus+"。出发／到达采用设备时区。";elements.routeSummary.append(note);}
     elements.routeSteps.replaceChildren();
     const routeLegs = collapseMultimodalRouteLegs(plan.path, graphStops);
     const steps = [
@@ -9525,6 +9662,9 @@
           return [`乘坐国家铁路联络（线路未绘制）从${leg.from?.name || "当前铁路站"}前往${leg.to?.name || "下一铁路站"}`,
             leg.distance, "transit", "train-front", leg.duration];
         }
+        if(leg.sharedTimetable){const t=leg.sharedTimetable;return [
+          "乘坐 "+t.tripId+"（共享"+(t.mode==="flight"?"航班":"车次")+"）从"+leg.from.name+"前往"+leg.to.name+"；"+new Date(t.departure).toLocaleString()+" 发 → "+new Date(t.arrival).toLocaleString()+" 到，候车约 "+Math.ceil(t.waitSeconds/60)+" 分钟"+(t.estimated?"（含按路径估算时刻）":"")+"；来源："+t.source.title+" / "+t.source.author.username,
+          leg.distance,"transit",transitIconName(leg.route?.type),leg.duration];}
         const stopText = leg.stopCount > 1 ? `，经过 ${leg.stopCount} 站` : "";
         if (leg.route?.type === "flight") {
           return [`从${leg.from?.name || "出发机场"}直飞至${leg.to?.name || "到达机场"}（无正式航班关系）`, leg.distance, "transit", "plane", leg.duration];
@@ -9602,6 +9742,7 @@
         previous.distance += edge.distance;
         previous.duration += transitEdgeTravelSeconds(edge);
         previous.stopCount += 1 + (edge.intermediateStationCount || 0);
+        previous.edgeIndexes.push(index);
         previousRideRoute = edge.route;
         return;
       }
@@ -9611,6 +9752,8 @@
         routeKey,
         from,
         to,
+        edgeIndexes: [index],
+        sharedTimetable: edge.sharedTimetable,
         distance: edge.distance,
         duration: transitEdgeTravelSeconds(edge),
         stopCount: edge.kind === "ride" ? 1 + (edge.intermediateStationCount || 0) : 0,
@@ -11624,7 +11767,7 @@
 
   function createTransitStopIcon(stop, visibleRoutes, displayIsRail) {
     const logo=displayIsRail&&window.HuayuBrandLogos?.transitEntry(stop,visibleRoutes);
-    if(logo){const node=window.HuayuBrandLogos.image(logo);return window.L.divIcon({className:"transit-stop-div-icon",html:node,iconSize:[24,24],iconAnchor:[12,12]});}
+    if(logo){const node=window.HuayuBrandLogos.mapImage?.(logo)||window.HuayuBrandLogos.image(logo),size=window.HuayuBrandLogos.mapSize?.(logo)||{width:22,height:22};return window.L.divIcon({className:"transit-stop-div-icon",html:node,iconSize:[size.width,size.height],iconAnchor:[size.width/2,size.height/2]});}
     if (!displayIsRail) {
       return window.L.divIcon({
         className: "transit-stop-div-icon",
@@ -15604,6 +15747,7 @@
       && !elements.panel.classList.contains("is-minimized"));
     window.HuayuSharedDatasets?.setActive(view === "datasets" && panelVisible
       && !elements.panel.classList.contains("is-minimized"));
+    window.HuayuTimetables?.setActive(view === "directions" && panelVisible && !elements.panel.classList.contains("is-minimized"));
     const administrativeSearchView = panelVisible
       && view === "place"
       && Boolean(selectedAdministrativeBoundary);
@@ -15923,6 +16067,7 @@
   }
 
   function setSelectedPlace(place, options = {}) {
+    if(options.searchSelectionId!==placeSearchSelectionId){placeSearchSelectionId++;searchSelectionController?.abort();}
     setFeatureInfoSelection(null);
     featurePickSequence += 1;
     featurePickController?.abort();
@@ -16666,7 +16811,7 @@
 
   async function searchPlaces(query, limit, options = {}) {
     const polygon = options.includeBoundary ? "&polygon_geojson=1" : "";
-    const extraTags = options.includeBoundary ? "&extratags=1" : "";
+    const extraTags = options.includeBoundary || options.includeTags ? "&extratags=1" : "";
     const nameDetails = options.includeNameDetails ? "&namedetails=1" : "";
     const dedupe = options.dedupe === false ? "&dedupe=0" : "";
     const bounded = options.bounded ? "&bounded=1" : "";
@@ -16675,8 +16820,9 @@
     const featureType = ["country", "state", "city", "settlement"].includes(options.featureType)
       ? `&featureType=${options.featureType}` : "";
     const url = `${NOMINATIM_URL}/search?format=jsonv2&addressdetails=1${polygon}${extraTags}${nameDetails}${dedupe}${bounded}${viewbox}${featureType}&limit=${limit}&q=${encodeURIComponent(query)}`;
-    const payload = await fetchJson(url, 16000);
-    return Array.isArray(payload) ? payload : [];
+    const payload = await placeSearchClient.read(url,{signal:options.signal,timeout:16000});
+    return payload.map(result=>options.includeBoundary!==true&&["way","relation"].includes(result.osm_type)&&!result.geojson
+      ? {...result,huayu_search_geometry_pending:true}:result);
   }
 
   function pointOfInterestTypeSearch(query) {
@@ -16862,7 +17008,7 @@
     const bounds = map.getBounds();
     const center = map.getCenter();
     return [...new Map(results.filter((result) => !isRoadSearchResult(result) && !isPointOfInterestSearchResult(result)
-      && !isAdministrativeBoundaryResult(result) && !isAdministrativeCenterResult(result)
+      && !isAdministrativeSearchBoundary(result) && !isAdministrativeCenterResult(result)
       && normalizePlaceSearchText(primaryPlaceName(result)) === queryKey)
       .map((result) => [placeSearchResultKey(result), result])).values()]
       .map((result, index) => {
@@ -16904,20 +17050,26 @@
     return [value, ...FUZZY_ADMINISTRATIVE_SUFFIXES.map((suffix) => `${value}${suffix}`)];
   }
 
-  async function searchFuzzyAdministrativePlaces(query) {
-    const queries = fuzzyAdministrativeSearchQueries(query);
-    const resultGroups = await Promise.all(queries.map((candidate, index) => searchPlaces(candidate, 12, {
-      includeBoundary: true,
-      includeNameDetails: true,
-      featureType: index === 0 ? "city" : undefined,
-      dedupe: false,
-    }).catch(() => [])));
-    return [...new Map(resultGroups.flat()
-      .map((result) => [placeSearchResultKey(result), result])).values()];
+  async function searchFuzzyAdministrativePlaces(query, options = {}) {
+    const queries = fuzzyAdministrativeSearchQueries(query), resolved=queries.map(()=>[]);
+    const resultGroups = await Promise.all(queries.map(async(candidate,index)=>{
+      try{
+        const values=await searchPlaces(candidate,12,{includeBoundary:options.includeBoundary!==false,includeTags:true,
+          includeNameDetails:true,featureType:index===0?"city":undefined,dedupe:false,signal:options.signal});
+        resolved[index]=values;options.onResults?.(resolved.flat());return values;
+      }catch(error){options.onError?.(error);return [];}
+    }));
+    return [...new Map(resultGroups.flat().map(result=>[placeSearchResultKey(result),result])).values()];
+  }
+
+  function isAdministrativeSearchBoundary(result) {
+    return isAdministrativeBoundaryResult(result)||(result?.huayu_search_geometry_pending===true
+      &&["way","relation"].includes(result.osm_type)
+      &&(result.type==="administrative"||result.category==="boundary"||result.class==="boundary"));
   }
 
   function isFuzzyAdministrativeCandidate(result, query) {
-    if (!isAdministrativeBoundaryResult(result) && !isAdministrativeCenterResult(result)) return false;
+    if (!isAdministrativeSearchBoundary(result) && !isAdministrativeCenterResult(result)) return false;
     const queryKey = normalizePlaceSearchText(query);
     const resultKey = fuzzyAdministrativeNameKey(primaryPlaceName(result));
     return Boolean(queryKey && resultKey === queryKey);
@@ -16940,18 +17092,12 @@
     return 5;
   }
 
-  function fuzzyAdministrativeDisplayResults(results) {
-    const preferredByName = new Map();
-    results.filter((result) => result.huayu_fuzzy_administrative).forEach((result) => {
-      const key = normalizePlaceSearchText(primaryPlaceName(result));
-      const existing = preferredByName.get(key);
-      if (!existing || (isAdministrativeBoundaryResult(result) && !isAdministrativeBoundaryResult(existing))) {
-        preferredByName.set(key, result);
-      }
-    });
-    return [...preferredByName.values()].slice(0, 4);
+  function fuzzyAdministrativeDisplayResults(results,query="") {
+    return [...new Map(results.filter(result=>result.huayu_fuzzy_administrative||
+      ((isAdministrativeSearchBoundary(result)||isAdministrativeCenterResult(result))&&placeSearchOwnNames(result).some(name=>
+        normalizePlaceSearchText(name)===normalizePlaceSearchText(query)||fuzzyAdministrativeNameKey(name)===normalizePlaceSearchText(query))))
+      .map(result=>[placeSearchResultKey(result),result])).values()].slice(0,12);
   }
-
   function placeSearchOwnNames(result) {
     // Nominatim's _place_name belongs to a linked centre, not to this boundary.
     // Only explicit name/alias keys may rename or identify the source object.
@@ -16987,12 +17133,15 @@
         const validPoint = Number.isFinite(lat) && Number.isFinite(lon);
         const inViewport = validPoint && bounds.contains([lat, lon]);
         const distance = validPoint ? distanceMeters({ lat: center.lat, lon: center.lng }, { lat, lon }) : Infinity;
-        const administrativePriority = isAdministrativeBoundaryResult(result) ? 0
+        const administrativePriority = isAdministrativeSearchBoundary(result) ? 0
           : isAdministrativeCenterResult(result) ? 1 : 2;
-        return { result, index, score: placeSearchMatchScore(result, query), inViewport,
+        const administrativeExact=administrativePriority<2&&placeSearchOwnNames(result).some(name=>
+          normalizePlaceSearchText(name)===normalizePlaceSearchText(query)||fuzzyAdministrativeNameKey(name)===normalizePlaceSearchText(query));
+        return { result, index, score: placeSearchMatchScore(result, query), inViewport, administrativeExact,
           administrativePriority, distance };
       })
-      .sort((first, second) => first.score - second.score
+      .sort((first, second) => Number(second.administrativeExact)-Number(first.administrativeExact)
+        || first.score - second.score
         || Number(second.inViewport) - Number(first.inViewport)
         || first.administrativePriority - second.administrativePriority
         || first.distance - second.distance
@@ -17001,32 +17150,45 @@
       .map((entry) => entry.result);
   }
 
-  async function searchPlacesWithAdministrativeFuzzy(query, limit) {
-    const nameType = pointOfInterestNameTypeSearch(query);
-    const canonicalQuery = pointOfInterestCanonicalNameQuery(query, nameType);
-    const basePromise = searchPlaces(query, limit, { includeBoundary: true, includeNameDetails: true });
-    const canonicalPromise = canonicalQuery !== String(query || "").trim()
-      ? searchPlaces(canonicalQuery, limit, { includeBoundary: true, includeNameDetails: true,
-        dedupe: false }).catch(() => [])
-      : Promise.resolve([]);
-    const viewportPromise = shouldSearchCurrentViewportByName(query)
-      ? searchPlaces(canonicalQuery, limit, { includeBoundary: true, includeNameDetails: true, bounded: true,
-        viewbox: currentNominatimViewbox(), dedupe: false }).catch(() => [])
-      : Promise.resolve([]);
-    const administrativePromise = shouldExpandAdministrativeSearch(query)
-      ? searchFuzzyAdministrativePlaces(query)
-      : Promise.resolve([]);
-    const [baseResults, canonicalResults, viewportResults] = await Promise.all([
-      basePromise,
-      canonicalPromise,
-      viewportPromise,
-    ]);
-    const combinedResults = [...viewportResults, ...canonicalResults, ...baseResults];
-    const administrativeResults = await administrativePromise;
-    const fuzzyAdministrativeResults = administrativeResults
-      .filter((result) => isFuzzyAdministrativeCandidate(result, query))
-      .map((result) => ({ ...result, huayu_fuzzy_administrative: true }));
-    return rankPlaceSearchResults([...combinedResults, ...fuzzyAdministrativeResults], query, limit);
+  async function searchPlacesWithAdministrativeFuzzy(query, limit, options = {}) {
+    const nameType=pointOfInterestNameTypeSearch(query),canonicalQuery=pointOfInterestCanonicalNameQuery(query,nameType);
+    const controller=new AbortController(),signal=options.signal?AbortSignal.any([options.signal,controller.signal]):controller.signal;
+    const timer=window.setTimeout(()=>controller.abort(Object.assign(new Error("搜索服务超时"),{name:"TimeoutError"})),options.timeout||16000);
+    const groups={base:[],canonical:[],viewport:[],administrative:[]},errors=[];
+    const ranked=()=>rankPlaceSearchResults([...groups.viewport,...groups.canonical,...groups.base,
+      ...groups.administrative.filter(r=>isFuzzyAdministrativeCandidate(r,query)).map(r=>({...r,huayu_fuzzy_administrative:true}))],query,limit);
+    const publish=()=>{if(!signal.aborted){const result=ranked();if(result.length)options.onResults?.(result);}};
+    const run=async(key,promise)=>{try{groups[key]=await promise;publish();}catch(error){errors.push(error);}};
+    const common={includeBoundary:options.includeBoundary!==false,includeTags:true,includeNameDetails:true,signal};
+    try{
+      await Promise.all([
+        run("base",searchPlaces(query,limit,common)),
+        canonicalQuery!==String(query||"").trim()?run("canonical",searchPlaces(canonicalQuery,limit,{...common,dedupe:false})):Promise.resolve(),
+        shouldSearchCurrentViewportByName(query)?run("viewport",searchPlaces(canonicalQuery,limit,{...common,bounded:true,viewbox:currentNominatimViewbox(),dedupe:false})):Promise.resolve(),
+        shouldExpandAdministrativeSearch(query)?run("administrative",searchFuzzyAdministrativePlaces(query,{...common,
+          onResults:values=>{groups.administrative=values;publish();},onError:error=>errors.push(error)})):Promise.resolve(),
+      ]);
+      options.signal?.throwIfAborted();
+      const result=ranked();if(!result.length&&errors.length)throw errors[0];return result;
+    }finally{window.clearTimeout(timer);}
+  }
+  async function hydratePlaceSearchResult(result, signal) {
+    if(!result?.huayu_search_geometry_pending)return result;
+    const type=String(result.osm_type||"").toLowerCase(),id=Number(result.osm_id),prefix={node:"N",way:"W",relation:"R"}[type];
+    if(!prefix||!Number.isSafeInteger(id)||id<=0)throw Error("所选要素编号无效");
+    const url=NOMINATIM_URL+"/lookup?format=jsonv2&osm_ids="+prefix+id+"&polygon_geojson=1&extratags=1&namedetails=1&addressdetails=1";
+    let candidates;
+    try{candidates=await placeSearchClient.read(url,{signal,timeout:16000});}
+    catch(error){
+      signal?.throwIfAborted();
+      if(!/^HTTP_(?:404|405)$/u.test(error.message||""))throw error;
+      candidates=await searchPlaces(primaryPlaceName(result),30,{includeBoundary:true,includeNameDetails:true,signal});
+    }
+    signal?.throwIfAborted();
+    const full=candidates.find(r=>placeSearchResultKey(r)===placeSearchResultKey(result));
+    if(!full||!full.geojson)throw Error("暂时无法读取所选要素的完整几何，请稍后重试");
+    const {huayu_search_name,huayu_search_geometry_pending,...original}=result;
+    return withQueryMatchedPlaceName({...original,...full},primaryPlaceName(result));
   }
 
   function primaryPlaceName(result) {
@@ -20143,6 +20305,7 @@
     if (panel === elements.panel && currentView === "brands") {
       window.HuayuBrandBrowser?.setActive(!minimized && !panel.classList.contains("is-hidden"));
     }
+    if (panel === elements.panel && currentView === "directions") window.HuayuTimetables?.setActive(!minimized && !panel.classList.contains("is-hidden"));
     if (panel === elements.panel && currentView === "datasets") {
       window.HuayuSharedDatasets?.setActive(!minimized && !panel.classList.contains("is-hidden"));
     }
@@ -33409,7 +33572,8 @@
       const routeColors = markerRoutes.filter((route) => route.type !== "bus").map((route) => route.color);
       const color = routeColors[0] || markerRoutes[0]?.color || (displayIsBus ? "#1676a3" : "#7651a3");
       const mainline = Boolean(stop.isMainline || markerRoutes.some((route) => transitLayerCategory(route) === "railway"));
-      const icon = window.HuayuBrandLogos?.transitIcon(glMap,stop,markerRoutes) || ensureVectorTransitStopIcon(glMap, routeColors.length ? routeColors : [color], {
+      const logoIcon=window.HuayuBrandLogos?.transitIcon(glMap,stop,markerRoutes);
+      const icon = logoIcon || ensureVectorTransitStopIcon(glMap, routeColors.length ? routeColors : [color], {
         busOnly: displayIsBus && !displayIsRail,
         mainline,
       });
@@ -33417,6 +33581,7 @@
         type: "Feature",
         properties: {
           stopId: String(stop.id),
+          brandLogo: Boolean(logoIcon),
           name: stop.name || "",
           color,
           icon,
@@ -33494,7 +33659,7 @@
         source: VECTOR_TRANSIT_STOP_SOURCE,
         layout: {
           "icon-image": ["get", "icon"],
-          "icon-size": 0.5,
+          "icon-size": ["case",["==",["get","brandLogo"],true],0.6,0.5],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },
@@ -36104,18 +36269,18 @@
     findAdministrativeCities: findTransitAtlasCities,
     selectSavedPlace: place => setSelectedPlace(place, {move:true,popup:true}),
     useSavedRoutePoint,
-    searchForAgent: async query => {
+    searchForAgent: async (query,options={}) => {
       const coordinate=parseCoordinates(query);
       if(coordinate)return [{name:"坐标位置",lat:coordinate.lat,lon:coordinate.lng}];
       const kind=pointOfInterestTypeSearch(query);
       if(kind){const nearby=await searchViewportPointsOfInterest(kind);if(nearby.length)return nearby.slice(0,8);}
-      return searchPlacesWithAdministrativeFuzzy(query,8);
+      return searchPlacesWithAdministrativeFuzzy(query,8,{includeBoundary:false,signal:options.signal});
     },
-    selectAgentPlace: result => setSelectedPlace({lat:Number(result.lat),lng:Number(result.lon??result.lng),
-      label:primaryPlaceName(result),zoom:17},{move:true,popup:true,featureResult:result,preservePerspective:true}),
-    prepareAgentNavigation: (origin,destination,mode) => {
+    selectAgentPlace: (result,options={}) => selectPlaceSearchResult(result,[result],{...options,preservePerspective:true,zoom:17}),
+    prepareAgentNavigation: (origin,destination,mode,options={}) => {
       const point=r=>({lat:Number(r.lat),lng:Number(r.lon??r.lng),label:primaryPlaceName(r)});
       showView("directions");setRouteMode(mode);setRoutePoint("origin",point(origin));setRoutePoint("destination",point(destination));
+      if(options.departureAt){const date=new Date(options.departureAt);if(!Number.isFinite(date.getTime()))throw Error("出发时间无效");document.getElementById("timetable-departure").value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);}
     },
     openAgentPanel: panel => {
       if(!window.HuayuAgentContract.panels.some(p=>p.id===panel))throw Error("未知地图功能");
@@ -36124,6 +36289,8 @@
       runAction(panel);
     },
     buildTransitTemplateFamily,
+    describeTimetablePlan,
+    getTimetablePaths,
     getTransitTemplateRules: () => ({stationDisplayMergeOverrides:transitServiceRules.stationDisplayMergeOverrides,stationTransferAliases:transitServiceRules.stationTransferAliases,stationInterchangeOverrides:transitServiceRules.stationInterchangeOverrides,refCorrections:transitServiceRules.refCorrections}),
     getTransitTemplateStation: () => selectedTemplateStation ? {...selectedTemplateStation} : null,
     getTransitTemplateDirections: () => {

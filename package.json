@@ -15,7 +15,7 @@
     "brands:update": "node scripts/update-brand-catalog.mjs",
     "brands:check": "node scripts/update-brand-catalog.mjs --check",
     "test:personal-data": "node scripts/test-personal-data.mjs",
-    "test:map-agent": "node scripts/test-map-agent.mjs",
+    "test:map-agent": "node scripts/test-map-agent.mjs && node scripts/test-map-agent-providers.mjs && node scripts/test-map-agent-client.mjs",
     "agent:sync": "node scripts/sync-map-agent.mjs",
     "test:feature-info": "node scripts/test-feature-info.mjs",
     "test:shared-datasets": "node scripts/test-shared-datasets.mjs",
@@ -33,6 +33,9 @@
     "test:brand-management": "node scripts/test-brand-management.mjs",
     "brand-management:sync": "node scripts/sync-brand-management.mjs",
     "test:transit-station": "node scripts/test-transit-station-data.mjs",
-    "test:transit-templates": "node scripts/test-transit-templates.mjs"
+    "test:transit-templates": "node scripts/test-transit-templates.mjs",
+    "test:timetables": "node scripts/test-transport-timetables.mjs",
+    "timetables:sync": "node scripts/sync-transport-timetables.mjs",
+    "test:ui": "node scripts/test-panel-help.mjs"
   }
 }

@@ -55,6 +55,12 @@
 /brand-browser.css
   Cache-Control: public, max-age=0, must-revalidate
 
+/place-search.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/brand-search-index.json
+  Cache-Control: public, max-age=300, must-revalidate
+
 /brand-catalog.json
   Cache-Control: public, max-age=300, must-revalidate
 
@@ -149,6 +155,9 @@
 /brand-logos.css
   Cache-Control: public, max-age=0, must-revalidate
 
+/brand-logo-cache.js
+  Cache-Control: public, max-age=0, must-revalidate
+
 /brand-logos.json
   Cache-Control: public, max-age=0, must-revalidate
 
@@ -158,3 +167,12 @@
 
 /brand-management*.js
   Cache-Control: public, max-age=300, must-revalidate
+
+/transport-timetable-core.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/transport-timetable-navigation.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/transport-timetables.js
+  Cache-Control: public, max-age=0, must-revalidate

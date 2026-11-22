@@ -123,5 +123,7 @@ try{
  for(const script of ["site/brand-logos.js","site/brand-logo-core.js","site/brand-logo-server.js"]){assert.equal(spawnSync(process.execPath,["--check",script],{encoding:"utf8"}).status,0,script);}
  assert.equal(spawnSync(process.execPath,["scripts/sync-brand-logos.mjs","--check"],{encoding:"utf8"}).status,0);
  await import("./test-brand-logo-loading.mjs");
+ await import("./test-brand-logo-display.mjs");
+ await import("./test-brand-logo-startup.mjs");
  console.log(JSON.stringify({status:"passed",checks:["four-authentic-assets","explicit-brand-and-branch-names-without-name-duplication","transit-network-and-relation-members","ambiguous-systems-keep-original","literal-queries-and-bounds","PNG-validation-and-public-image","author-admin-and-version-conflicts","override-delete-fallback","account-cascade","complete-only-cache","frontend-worker-parity"]}));
 }finally{DB.close();}

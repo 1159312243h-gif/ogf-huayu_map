@@ -90,6 +90,41 @@
         return exact || (sort === "name" ? 0 : b.count - a.count) || a.name.localeCompare(b.name, "zh-CN");
       });
   }
+  const nameSearchText=new WeakMap();
+  function matchesName(entries,query,limit=6){
+    const normalized=normalize(query),terms=normalized.split(" ").filter(Boolean);if(!terms.length)return [];
+    const names=entry=>{
+      if(!nameSearchText.has(entry))nameSearchText.set(entry,normalize([entry.name,...(entry.aliases||[])].join(" ")));
+      return nameSearchText.get(entry);
+    };
+    return entries.filter(entry=>terms.every(term=>names(entry).includes(term)))
+      .sort((a,b)=>Number(normalize(b.name)===normalized)-Number(normalize(a.name)===normalized)
+        ||b.count-a.count||a.name.localeCompare(b.name,"zh-CN")).slice(0,limit);
+  }
+  function buildSearchIndex(catalog){
+    validateCatalog(catalog);
+    const compact=e=>({name:e.name,count:e.count,categories:e.categories.slice(0,2),
+      ...(e.aliases?.length?{aliases:e.aliases}:{}),...(e.candidate?{candidate:true}:{}),
+      ...(Number.isSafeInteger(e.taggedCount)?{taggedCount:e.taggedCount}:{}),...(Number.isSafeInteger(e.namedCount)?{namedCount:e.namedCount}:{}),
+      ...(Number.isSafeInteger(e.candidateCount)?{candidateCount:e.candidateCount}:{})});
+    return validateSearchIndex({schema:"huayu-brand-search-v1",generatedAt:catalog.generatedAt,dbTimestamp:catalog.dbTimestamp,
+      brands:catalog.brands.map(compact),operators:catalog.operators.map(compact)});
+  }
+  function validateSearchIndex(index){
+    if(index?.schema!=="huayu-brand-search-v1"||!Number.isFinite(Date.parse(index.generatedAt))
+      ||index.dbTimestamp!==null&&!Number.isFinite(Date.parse(index.dbTimestamp))
+      ||!Array.isArray(index.brands)||!Array.isArray(index.operators)
+      ||!index.brands.length||!index.operators.length||index.brands.length+index.operators.length>200000)throw Error("品牌搜索索引不完整");
+    for(const entry of [...index.brands,...index.operators]){
+      if(typeof entry.name!=="string"||!entry.name.trim()||!Number.isSafeInteger(entry.count)||entry.count<1
+        ||!Array.isArray(entry.categories)||entry.categories.some(c=>!Array.isArray(c)||typeof c[0]!=="string")
+        ||entry.categories.some(c=>c.length!==2||!Number.isSafeInteger(c[1])||c[1]<1)
+        ||["taggedCount","namedCount","candidateCount"].some(key=>entry[key]!==undefined&&(!Number.isSafeInteger(entry[key])||entry[key]<0))
+        ||entry.candidate!==undefined&&entry.candidate!==true
+        ||entry.aliases&&(!Array.isArray(entry.aliases)||entry.aliases.some(n=>typeof n!=="string"||!n.trim())))throw Error("品牌搜索索引无效");
+    }
+    return index;
+  }
   function aggregate(elements, kind) {
     if (!["brand", "operator"].includes(kind)) throw Error("INVALID_KIND");
     const groups = new Map(), seen = new Set();
@@ -208,6 +243,6 @@
       },
     };
   }
-  root.HuayuBrandData = Object.freeze({REFRESH_MS, normalize, matches, aggregate, validateCatalog, placeLabel, place, createStore,
+  root.HuayuBrandData = Object.freeze({REFRESH_MS, normalize, matches, matchesName, buildSearchIndex, validateSearchIndex, aggregate, validateCatalog, placeLabel, place, createStore,
     namedFacility, namedFacilityQuery, nameQueryPattern, createMatcher, recognizeBrands, filterEntries});
 })(globalThis);

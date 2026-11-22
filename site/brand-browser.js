@@ -16,6 +16,7 @@
   const store = data.createStore((url, options) => fetch(url, {...options,
     signal: AbortSignal.any([options.signal, AbortSignal.timeout(32000)])}));
   let catalog = null, catalogPromise = null, active = false, timer = null, movementTimer = null;
+  let searchIndex=null, searchIndexPromise=null, searchIndexCheckedAt=0;
   let selected = null, locations = null, locationKey = "", discovery = null, discovering = false, catalogLimit = 30, locationLimit = 40, visiblePoints = [];
   let searchSequence = 0, loadSequence = 0, catalogCheckedAt = 0, lastLocationCheck = 0, fitOnLoad = false;
   let citySequence = 0, citySearching = false, city = null, discoveryScope = "", lastDiscoveryCheck = 0;
@@ -47,6 +48,31 @@
     })().finally(() => {catalogPromise = null;});
     return catalogPromise;
   }
+  async function loadSearchIndex() {
+    if(catalog&&Date.now()-catalogCheckedAt<300000)return catalog;
+    if(searchIndex&&Date.now()-searchIndexCheckedAt<300000)return searchIndex;
+    if(searchIndexPromise)return searchIndexPromise;
+    searchIndexPromise=(async()=>{
+      const response=await fetch("./brand-search-index.json",{cache:"no-cache",signal:AbortSignal.timeout(16000)});
+      if(!response.ok)throw Error("品牌搜索暂时不可用");
+      const next=data.validateSearchIndex(await response.json());
+      searchIndex=next;searchIndexCheckedAt=Date.now();return next;
+    })().finally(()=>{searchIndexPromise=null;});
+    return searchIndexPromise;
+  }
+  async function openSearchEntry(entry,kind,sequence) {
+    try {
+      const complete=await loadCatalog(!catalog||Date.now()-catalogCheckedAt>=300000);
+      if(sequence!==searchSequence)return;
+      const original=complete[kind==="brand"?"brands":"operators"].find(value=>value.name===entry.name);
+      if(!original)throw Error("品牌目录已更新，请重新搜索");
+      clearSearch();openEntry(original,kind);
+    }catch(error){
+      if(sequence!==searchSequence)return;
+      searchBox.replaceChildren(button(error.message+"，点击重试",()=>openSearchEntry(entry,kind,sequence)));
+      searchBox.hidden=false;
+    }
+  }
   function entries() {
     const all = discovery?.kind === fields.kind.value ? discovery.entries : catalog?.[fields.kind.value === "brand" ? "brands" : "operators"] || [];
     return fields.kind.value === "brand" ? data.filterEntries(all, fields.recognition.value || "all") : all;
@@ -68,8 +94,8 @@
     fields.category.value = keys.includes(previous) ? previous : "";
     fields.category.disabled = false;
   }
-  function catalogCard(entry, kind) {
-    const card = button("", () => openEntry(entry, kind), "brand-card");
+  function catalogCard(entry, kind, action = () => openEntry(entry, kind)) {
+    const card = button("", action, "brand-card");
     const logo=window.HuayuBrandLogos?.getEntry(kind,entry.name);if(logo)card.append(window.HuayuBrandLogos.image(logo));
     card.append(text("strong", entry.name), text("small", `${kind === "brand" ? entry.candidate ? "店名候选" : "品牌" : "运营者"} · ${entry.count.toLocaleString()} 个地图要素`),
       ...(kind === "brand" ? [text("small", countsLabel(entry))] : []),
@@ -319,6 +345,7 @@
   function setActive(next) {
     if (active === next) return;
     active = next;
+    if(!next)clearSearch();
     window.HuayuBrandManagement?.setActive(next);
     if (active) {
       checkCatalog();
@@ -334,13 +361,13 @@
     const sequence = ++searchSequence;
     if ([...data.normalize(query)].length < 2) return;
     try {
-      await loadCatalog(); if (sequence !== searchSequence) return;
-      const found = ["brand", "operator"].flatMap(kind => data.matches(catalog[kind === "brand" ? "brands" : "operators"], query)
-        .slice(0, 4).map(entry => ({entry, kind})));
+      const index=await loadSearchIndex(); if (sequence !== searchSequence) return;
+      const found = ["brand", "operator"].flatMap(kind => data.matchesName(index[kind === "brand" ? "brands" : "operators"], query,4)
+        .map(entry => ({entry, kind})));
       if (!found.length) return;
       found.sort((a, b) => Number(data.normalize(b.entry.name) === data.normalize(query)) - Number(data.normalize(a.entry.name) === data.normalize(query)));
       searchBox.replaceChildren(text("h2", "品牌、店名与运营者 · 选择后查看地点"));
-      found.slice(0, 6).forEach(({entry, kind}) => searchBox.append(catalogCard(entry, kind)));
+      found.slice(0, 6).forEach(({entry, kind}) => searchBox.append(catalogCard(entry, kind,()=>openSearchEntry(entry,kind,sequence))));
       searchBox.hidden = false;
     } catch {
       if (sequence !== searchSequence) return;
@@ -442,7 +469,7 @@
     event.preventDefault();
     const query = fields["city-query"].value.trim(), sequence = ++citySequence;
     fields["city-results"].replaceChildren(); fields["city-results"].hidden = true;
-    if (!query) {fields["city-status"].textContent = "请输入城市或行政区名称，例如：津川。"; return;}
+    if (!query) {fields["city-status"].textContent = "请输入城市或行政区名称。"; return;}
     closeDetail(); citySearching = true;
     fields["city-status"].textContent = `正在查找“${query}”的真实行政边界…`;
     try {

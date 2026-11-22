@@ -28,13 +28,14 @@
           attachment:getFile()?{name:getFile().name,size:getFile().size,contentSentToModel:false}:null};
       },
       search_places:async({query},ctx)=>{
-        const results=await atlas.searchForAgent(query);guard(ctx);
+        const results=await atlas.searchForAgent(query,{signal:ctx.signal});guard(ctx);
         return {query,items:results.slice(0,8).map(refFor),limit:8,complete:false,source:"OpenGeofiction 地名及设施索引"};
       },
-      locate_place:async({ref},ctx)=>{guard(ctx);atlas.selectAgentPlace(resolve(ref));return {status:"located",handoff:true,message:"已定位并打开物体详情。"};},
-      prepare_navigation:async({originRef,destinationRef,mode},ctx)=>{
+      locate_place:async({ref},ctx)=>{guard(ctx);const selected=await atlas.selectAgentPlace(resolve(ref),{signal:ctx.signal});guard(ctx);if(selected===false)throw Error("地点定位已被新的选择取代");return {status:"located",handoff:true,message:"已定位并打开物体详情。"};},
+      prepare_navigation:async({originRef,destinationRef,mode,departureAt},ctx)=>{
         const origin=resolve(originRef),destination=resolve(destinationRef);guard(ctx);
-        atlas.prepareAgentNavigation(origin,destination,mode);
+        if(departureAt&&(!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/u.test(departureAt)||!Number.isFinite(Date.parse(departureAt))))throw Error("出发时间须为含时区的 ISO 时间");
+        atlas.prepareAgentNavigation(origin,destination,mode,{departureAt});
         return {status:"draft",handoff:true,message:"导航起终点已填好，请在导航页开始规划；尚未计算路线。"};
       },
       search_shared_info:async({query},ctx)=>{
@@ -64,6 +65,18 @@
         guard(ctx);const result=await options.datasets().prepareFromAgent(file,args,ctx.signal);guard(ctx);
         return {status:"draft",handoff:true,message:"附件已带入数据页面并完成预览，尚未发布。请补齐来源与口径后勾选共享并发布。",stats:result?.stats};
       },
+      search_transport_services:async(args,ctx)=>{
+        guard(ctx);const service=options.timetables?.()||root.HuayuTimetables;
+        if(!service)throw Error("班次模块尚未加载");
+        const result=await service.query({...args,page:Number(args.page||0)},ctx.signal);guard(ctx);
+        return {...result,source:"用户共享铁路／城铁／航班时刻表，非实时运营资料"};
+      },
+      estimate_transport_service:async(args,ctx)=>{
+        guard(ctx);const service=options.timetables?.()||root.HuayuTimetables;
+        if(!service)throw Error("班次模块尚未加载");
+        const result=await service.estimate({...args,tripIndex:Number(args.tripIndex)},ctx.signal);guard(ctx);
+        return {...result,published:false,message:"已保留上传时刻并按可确认路径补齐缺项；仅本次估算，尚未发布。"};
+      },
       get_brand_profile:async({name},ctx)=>{
         const data=await json("/api/brand-management/brand?name="+encodeURIComponent(name),ctx);
         return {name:data.name,source:"用户共享品牌资料",profile:data.profile?{description:data.profile.description,website:data.profile.website,updatedAt:data.profile.updatedAt,editedBy:data.profile.editedBy}:null,
@@ -79,6 +92,7 @@
       load_transit_through_candidates:async(args,ctx)=>{guard(ctx);const result=await options.templates().loadThroughCandidates(args,ctx);guard(ctx);return {...result,status:"loaded",message:"已读取真实端点线路候选，尚未自动拼接；可按返回 choices 设置 throughConnections。"};},
       load_transit_template_geography:async(args,ctx)=>{guard(ctx);const result=await options.templates().loadGeography(args,ctx);guard(ctx);return {...result,status:"loaded"};},
       prepare_transit_template:async(args,ctx)=>{guard(ctx);const result=options.templates().prepare(args);return {...result,status:"preview",handoff:true,message:"已在原线路页面准备显示图预览，未下载或发布；当前站不代表实时车辆位置。"};},
+      open_help:async({topic},ctx)=>{guard(ctx);if(!root.HuayuMapHelp)throw Error("帮助模块尚未加载");const result=root.HuayuMapHelp.open(topic);return {...result,status:"opened",handoff:true,message:"已打开相关帮助，返回操作可继续原表单。"};},
       open_panel:async({panel},ctx)=>{guard(ctx);atlas.openAgentPanel(panel);return {status:"opened",handoff:true,message:"已打开"+contract.panels.find(p=>p.id===panel).title+"；可在该页继续操作。"};}
     };
     for(const tool of contract.tools)if(typeof handlers[tool.name]!=="function")throw Error("助手功能缺少处理器："+tool.name);

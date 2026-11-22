@@ -284,7 +284,7 @@
       passengerOptions();simulationNow=Date.now();lineChoices();
       epoch++;output=null;$("motion-preview").replaceChildren();$("large-motion").replaceChildren();syncMotion();if(url){URL.revokeObjectURL(url);url=null;}$("image").removeAttribute("src");
       refreshBoard();serviceControls();throughControls();simulationSummary();scheduleSimulation();const route=data(),multi=stationMode(),subject=multi?board():route;
-      $("order-status").textContent=route?.type!=="bus"&&route?(route.orderBasis==="line-page"?"全线站序与‘线路’页共用完整主关系、全部分段及原有排序处理器；全线总览不表示全部分段贯通运营。":route.orderBasis==="connected-track"?"站序已按所选线路的实际轨道连接校正；起终点仍使用该关系 from/to。":route.orderWarning||"站序沿用已读线路方向；换乘按完整站体关系显示。"):"";
+      $("order-status").textContent=route?.type!=="bus"&&route?(route.orderBasis==="line-page"?"全线总览，包含全部已读分期；不表示全程贯通。":route.orderBasis==="connected-track"?"站序按实际轨道校正；起终点取线路属性。":route.orderWarning||"站序沿用已读线路方向；换乘按完整站体关系显示。"):"";
       $("endpoint-status").textContent=multi||!route?"":route.endpointState==="choose-direction"?"总关系未填写统一终点，各方向／分段终点不同。请在上方选择已读取的具体方向，再按该关系的 from/to 显示。":route.endpointState==="incomplete"?"总关系的方向数据尚未读全；不能据此推定终点，请重新读取线路。":!route.to?"当前关系未填写 to 终点属性；不会用成员顺序或随机资料代替终点。":"起终点来自 "+route.sourceId+"："+(route.from||"未提供起点")+" → "+route.to;$("demo-note").hidden=!subject?.demo;
       for(const id of ["svg","png","queue","zoom"])$(id).disabled=!subject;
       if(!subject){$("preview").hidden=true;if(stationPending){status("已选中 "+(stationTarget?.name||selectedStation()?.name||"车站")+"，正在准备本站真实线路，读取后自动更新；当前没有套用示例。");return;}if(multi){status("请先选中公交线路及本站，点击‘加入本站牌’；换线时会保留本站牌，按相同要素编号核对归属。");return;}status("请在下方搜索并选中一条线路，待站序读取后即可套用模板；也可切换示例线路。");return;}
@@ -294,8 +294,8 @@
         url=URL.createObjectURL(new Blob([output.svg],{type:"image/svg+xml"}));$("image").src=url;$("image").alt=(multi?subject.stationName:route.title)+" · "+template.title;if($("dialog").open)$("large-image").src=url;
         scheduleGeography();mountMotion("motion-preview");if($("dialog").open)mountMotion("large-motion");
         $("preview").hidden=false;syncMotion();
-        if(multi){status((subject.demo?"示例站牌":"已收录 "+subject.stationName)+" · "+output.lineCount+" 条线路／方向 · 共 "+output.stationCount+" 个线路站次，完整站序均保留。"+(subject.complete?"本站已登记公交停靠关系已读完；":"当前为手动收录清单；")+($("simulate-missing").checked?"已补全模拟资料与到站演示，非实时运营。":"到站预报未接入。"));return;}
-        status((route.demo?"正在显示示例线路":"已套用 "+route.title)+" · "+output.stationCount+" 站。"+(template.family==="bus-rollsign"?"车载前／后路牌显示终点及手动预览的下一站。":template.style.screenLayout?"车厢内完整站序；走马灯与灯效支持暂停、调速，下载保留完整静态图。":template.family==="bus-stop"?"本站为手动选择；仅展示本线，服务资料优先按已读线路显示。":"已保留全部站点，长线自动分行。")+"当前位置仅为手动预览。"+($("simulate-missing").checked?"缺失运营资料与到站时间已模拟补全；图片只保留乘车信息，补全来源见本页说明。":""));
+        if(multi){status((subject.demo?"示例站牌":"已收录 "+subject.stationName)+" · "+output.lineCount+" 条线路／方向 · 共 "+output.stationCount+" 个站次。"+(subject.complete?"本站已登记公交停靠关系已读完；":"当前为手动收录清单；")+($("simulate-missing").checked?"已补全模拟资料与到站演示，非实时运营。":"到站预报未接入。"));return;}
+        status((route.demo?"示例线路":route.title)+" · "+output.stationCount+" 站 · 手动预览，非实时。"+($("simulate-missing").checked?"已含模拟补全。":""));
       }catch(e){$("preview").hidden=true;status(e.message,true);}
     }
     function edit(){

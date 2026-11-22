@@ -10,12 +10,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
 const port = Math.max(1, Math.min(65535, Number(process.argv[2] || process.env.PORT || 4178)));
 let personalDatabase = null;
-if (process.argv.includes("--personal-data")) {
+if (process.argv.includes("--personal-data") || process.argv.includes("--personal-data-memory")) {
   const {createLocalPersonalDatabase} = await import("./lib/local-personal-db.mjs");
   const localDataDirectory = path.join(root, ".data-update");
   await fs.mkdir(localDataDirectory, {recursive:true});
-  personalDatabase = await createLocalPersonalDatabase(path.join(localDataDirectory, "local-personal-data.sqlite"));
+  personalDatabase = await createLocalPersonalDatabase(process.argv.includes("--personal-data-memory") ? ":memory:" : path.join(localDataDirectory, "local-personal-data.sqlite"));
 }
+const publicLogoPreview = process.argv.includes("--public-logos-system-network")
+  ? (await import("./lib/public-logo-preview.mjs")).createPublicLogoPreview() : null;
 const cache = new Map();
 globalThis.caches = {
   default: {
@@ -79,7 +81,7 @@ const server = createServer(async (incoming, outgoing) => {
       signal: controller.signal,
     });
     const pending = [];
-    const response = await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}), ...Object.fromEntries(["MAP_AGENT_API_KEY","MAP_AGENT_MODEL","MAP_AGENT_BASE_URL","MAP_AGENT_ALLOW_GUESTS","MAP_AGENT_PROTOCOL"].filter(key=>process.env[key]).map(key=>[key,process.env[key]])) }, {
+    const response = await publicLogoPreview?.(request) || await worker.fetch(request, { ASSETS: { fetch: staticResponse }, ...(personalDatabase ? {DB:personalDatabase} : {}), ...Object.fromEntries(["MAP_AGENT_API_KEY","MAP_AGENT_MODEL","MAP_AGENT_BASE_URL","MAP_AGENT_ALLOW_GUESTS","MAP_AGENT_PROTOCOL"].filter(key=>process.env[key]).map(key=>[key,process.env[key]])) }, {
       waitUntil(promise) { pending.push(Promise.resolve(promise)); },
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));

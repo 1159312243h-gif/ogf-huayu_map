@@ -45,12 +45,12 @@ for (const file of files) {
   assert.equal(actual, manifest.get(relative), `文件校验失败：${relative}`);
 }
 
-for (const required of ["_routes.json","updater-jwks.json","transit-station-data.js","transit-template-core.js","transit-templates.js","transit-templates.css","transit-template-references.json","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
+for (const required of ["transport-timetable-core.js","transport-timetable-server.js","transport-timetable-navigation.js","transport-timetables.js","_routes.json","updater-jwks.json","transit-station-data.js","transit-template-core.js","transit-templates.js","transit-templates.css","transit-template-references.json","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-cache.js","brand-logo-server.js","brand-logos.js","brand-logos.css","brand-logos.json","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","_headers", "_worker.js", "app.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "index.html", "huayu-style.json",
   "transit-preload.json", "transit-relations.json", "station-access.json", "railway-routing.json",
   "terrain-preload.json.gz", "terrain-preload-manifest.json", "model-options.js", "model-assets.js", "building-roofs.js", "building-tiles.js",
   "bridge-models.js", "facility-models.js", "sunlight.js", "sunlight-shadows.js", "map-export.js", "feature-data.js", "saved-places.js", "overlay-bounds.js", "map-help.js",
   "coastline.js", "coastline-client.js", "coastline-worker.js", "vendor/polygon-clipping-0.15.7.js", "vendor/polygon-clipping-LICENSE.md",
-  "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json", "download-center.js",
+  "brand-data.js", "brand-browser.js", "brand-browser.css", "brand-catalog.json", "brand-search-index.json", "place-search.js", "download-center.js",
   "traffic-core.js", "traffic-demand.js", "traffic-worker.js", "traffic-simulation.js", "traffic-regions.js", "traffic-regional-core.js", "traffic-regional-sites.js", "traffic-protocol.js", "traffic-trip.js", "traffic-camera.js",
   "model-import/runtime.js", "model-import/foliage-mipmaps.js", "model-import/GLTFLoader.js", "model-import/BufferGeometryUtils.js",
   "model-import/ATTRIBUTION.md", "model-import/bundled-candidates.json", "model-import/assets/birch-trees-7d8f84d32933.glb"]) {
@@ -1271,10 +1271,10 @@ assert.ok(app.includes("function currentVectorCameraSnapshot()")
 "华域标准、深夜与 Vector 图层切换必须保留完整透视相机状态");
 assert.ok(app.includes('const FUZZY_ADMINISTRATIVE_SUFFIXES = ["市", "区", "县"]')
   && app.includes("function fuzzyAdministrativeSearchQueries(query)")
-  && app.includes("async function searchFuzzyAdministrativePlaces(query)")
+  && app.includes("async function searchFuzzyAdministrativePlaces(query, options = {})")
   && app.includes("await Promise.all(queries.map")
-  && app.includes("function fuzzyAdministrativeDisplayResults(results)")
-  && app.includes("? fuzzyAdministrativeDisplayResults(results) : []")
+  && app.includes('function fuzzyAdministrativeDisplayResults(results,query="")')
+  && app.includes("? fuzzyAdministrativeDisplayResults(results, query) : []")
   && !app.includes("if (pointOfInterestCollectionResults(combinedResults, query).length)"),
 "无后缀中文行政区搜索必须补查市区县，并在同名普通地点存在时仍保留行政区结果");
 assert.ok(app.includes("function selectTransitBusGuideMemberOrder")
@@ -1498,23 +1498,37 @@ assert.ok(app.includes("let transitBusRetryTimer = null")
   && app.includes("正在追加公交站"),
 "地图交通视图的公交查询必须使用窄范围、恢复站点线路关系并在临时失败后自动重试");
 
-for (const script of ["brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-server.js","brand-logos.js","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","app.js", "facility-models.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "brand-data.js", "brand-browser.js", "_worker.js", "terrain-perspective.js"]) {
+for (const script of ["transport-timetable-core.js","transport-timetable-server.js","transport-timetable-navigation.js","transport-timetables.js","brand-management.js","brand-management-server.js","brand-logo-core.js","brand-logo-cache.js","brand-logo-server.js","brand-logos.js","map-agent-providers.js","map-agent-contract.js","map-agent-tools.js","map-agent-server.js","map-agent.js","app.js", "facility-models.js", "personal-data.js", "feature-info.js", "shared-datasets.js", "shared-dataset-core.js", "shared-dataset-theme.js", "shared-dataset-worker.js", "saved-places.js", "overlay-bounds.js", "map-help.js", "brand-data.js", "brand-browser.js", "_worker.js", "terrain-perspective.js"]) {
   const result = await runCheck(["--check", path.join(site, script)]);
   assert.equal(result.status, 0, `${script} 语法检查失败：${result.stderr}`);
 }
 
+const panelHelpTest = await runCheck([path.join(root,"scripts","test-panel-help.mjs")]);
+assert.equal(panelHelpTest.status,0,"操作面板与帮助回归失败："+panelHelpTest.stderr);
+const timetableTest = await runCheck([path.join(root,"scripts","test-transport-timetables.mjs")]);
+assert.equal(timetableTest.status,0,"车次航班和导航匹配回归失败："+timetableTest.stderr);
 const managementTest = await runCheck([path.join(root,"scripts","test-brand-management.mjs")]);
 assert.equal(managementTest.status,0,"品牌管理申请、并发及权限回归失败："+managementTest.stderr);
+const publicLogoPreviewTest = await runCheck([path.join(root,"scripts","test-public-logo-preview.mjs")]);
+assert.equal(publicLogoPreviewTest.status,0,publicLogoPreviewTest.stderr||publicLogoPreviewTest.stdout);
 const logoTest = await runCheck([path.join(root,"scripts","test-brand-logos.mjs")]);
 assert.equal(logoTest.status,0,"品牌共享 logo 回归失败："+logoTest.stderr);
 const transitStationDataTest = await runCheck([path.join(root,"scripts","test-transit-station-data.mjs")]);
 assert.equal(transitStationDataTest.status,0,"车站全部公交关系及排版回归失败："+transitStationDataTest.stderr);
 const transitTemplateTest = await runCheck([path.join(root,"scripts","test-transit-templates.mjs")]);
 assert.equal(transitTemplateTest.status, 0, "线路显示模板回归失败");
+for (const name of ["test-map-agent-providers.mjs","test-map-agent-client.mjs"]) {
+  const result = await runCheck([path.join(root,"scripts",name)]);
+  assert.equal(result.status,0,"模型协议兼容回归失败："+result.stderr);
+}
 const agentTest = await runCheck([path.join(root,"scripts","test-map-agent.mjs")]);
 assert.equal(agentTest.status,0, "地图助手能力、权限和调用回归失败："+agentTest.stderr);
 const workerTest = await runCheck([path.join(root, "scripts", "test-worker.mjs")]);
 assert.equal(workerTest.status, 0, `Worker 接口测试失败：${workerTest.stderr || workerTest.stdout}`);
+const searchTest = await runCheck([path.join(root, "scripts", "test-place-search.mjs")]);
+assert.equal(searchTest.status,0,searchTest.stderr||searchTest.stdout);
+const brandIndexCheck = await runCheck([path.join(root, "scripts", "build-brand-search-index.mjs"),"--check"]);
+assert.equal(brandIndexCheck.status,0,brandIndexCheck.stderr||brandIndexCheck.stdout);
 const brandsTest = await runCheck([path.join(root, "scripts", "test-brands.mjs")]);
 assert.equal(brandsTest.status, 0, `品牌目录与门店查询回归失败：${brandsTest.stderr}`);
 const personalDataTest = await runCheck([path.join(root, "scripts", "test-personal-data.mjs")]);

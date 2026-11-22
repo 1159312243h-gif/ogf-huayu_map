@@ -1,3 +1,4 @@
+import {replaceCatalogFiles} from "./build-brand-search-index.mjs";
 import {readFile, writeFile, rename, unlink} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
@@ -62,17 +63,7 @@ export function buildBrandCatalog(brandPayload, operatorPayload, previous, now =
     coverage: `${namePayload ? "品牌包含标签标注及名称识别；全域另收录至少两个要素同名的待确认店名，不混入品牌总数；单独店名可在城市／视野发现。" : "品牌按 brand 标签聚合；本快照尚未补读店名。"}运营者仅收录商店、公共设施、旅游、办公、手工、休闲、医疗与公共交通设施。计数为地图要素，非核实门店总量；城市、分店和名称列表为样本。`,
     attribution: "© OpenGeofiction contributors · ODbL", brands, operators});
 }
-export async function replaceBrandCatalog(file, candidate) {
-  validateCatalog(candidate);
-  const body = JSON.stringify(candidate);
-  if (Buffer.byteLength(body) > 16 * 1024 * 1024) throw Error("CATALOG_TOO_LARGE");
-  const temporary = `${file}.${process.pid}.pending`;
-  try {
-    await writeFile(temporary, body, {flag: "wx"});
-    validateCatalog(JSON.parse(await readFile(temporary, "utf8")));
-    await rename(temporary, file);
-  } finally {await unlink(temporary).catch(error => {if (error.code !== "ENOENT") throw error;});}
-}
+export async function replaceBrandCatalog(file,candidate,options) {return replaceCatalogFiles(file,candidate,options);}
 async function fetchCatalogPartOnce(kind, type) {
   const response = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
     body: new URLSearchParams({data: catalogQuery(kind, type)}), signal: AbortSignal.timeout(130000)});

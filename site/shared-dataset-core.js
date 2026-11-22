@@ -1,7 +1,7 @@
 // This factory is also embedded verbatim in the standalone Pages Worker.
 function createSharedDatasetTools() {
   "use strict";
-  const KINDS = Object.freeze({poi:"POI／设施",population:"人口",gdp:"GDP",land_price:"地价",demand:"通行需求",schedule:"车次安排",other:"其他数据"});
+  const KINDS = Object.freeze({poi:"POI／设施",population:"人口",gdp:"GDP",land_price:"地价",demand:"通行需求",schedule:"车次安排（统计）",rail_timetable:"铁路时刻表",urban_timetable:"城铁时刻表",flight_timetable:"航班时刻表",other:"其他数据"});
   const fail = message => {throw Object.assign(new Error(message), {status:400});};
   const plain = v => v && typeof v === "object" && !Array.isArray(v);
   const own = (o,k) => Object.prototype.hasOwnProperty.call(o,k);
@@ -105,7 +105,7 @@ function createSharedDatasetTools() {
       if(typeKey||idKey){if(props[typeKey]!==""||props[idKey]!=="")target=identity(props[typeKey],props[idKey]);}
       if(!target&&data.length===1&&area?.target)target=area.target;
       if(!g&&data.length===1&&area?.geometry)g=geometry(area.geometry,budget);
-      const nameKey=get("name",["name","名称","地区","站名"]),valueKey=get("value",({population:["population","人口","value","值"],gdp:["gdp","GDP","value","值"],land_price:["land_price","地价","value","值"],demand:["trips","demand","通行需求","value","值"],schedule:["frequency","车次","value","值"]})[options.kind]||["value","值"]);
+      const nameKey=get("name",["stop_name","station","name","名称","地区","站名"]),valueKey=get("value",({population:["population","人口","value","值"],gdp:["gdp","GDP","value","值"],land_price:["land_price","地价","value","值"],demand:["trips","demand","通行需求","value","值"],schedule:["frequency","车次","value","值"]})[options.kind]||["value","值"]);
       const value=valueKey?numeric(props[valueKey]):null;
       if(valueKey&&own(props,valueKey))primaryColumns.add(valueKey);
       if(valueKey&&props[valueKey]!==null&&props[valueKey]!==""&&value===null)fail(`第 ${i+1} 条指标不是有效数字，请用单位栏填写单位`);
@@ -116,6 +116,7 @@ function createSharedDatasetTools() {
     });
     const result={schema:"huayu-shared-dataset-v1",records,columns:[...columns],primaryColumns:[...primaryColumns],numericColumns:Object.fromEntries(numericColumns),
       stats:{rows:records.length,located:records.filter(r=>r.geometry).length,linked:records.filter(r=>r.target).length,vertices:budget.vertices,bounds:bounds.every(Number.isFinite)?bounds:null}};
+    if(["rail_timetable","urban_timetable","flight_timetable"].includes(options.kind))result.timetable=(globalThis.HuayuTimetableCore||createTransportTimetableCore()).normalize(records,options.kind);
     return result;
   }
   function analyze(data,{field="value",mode="numeric"}={}) {

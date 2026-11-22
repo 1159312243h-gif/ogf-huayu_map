@@ -13,9 +13,9 @@
     <link rel="preconnect" href="https://ogf-tileserver-t5qifc5o4q-uc.a.run.app" crossorigin />
     <link rel="stylesheet" href="./leaflet-base.css" />
     <link rel="stylesheet" href="./transit-templates.css?v=7" />
-    <link rel="stylesheet" href="./styles.css?v=9.0-rail-family-v1" />
+    <link rel="stylesheet" href="./styles.css?v=9.0-simple-ui-v1" />
     <link rel="stylesheet" href="./brand-browser.css?v=2" />
-    <link rel="stylesheet" href="./brand-logos.css?v=2" />
+    <link rel="stylesheet" href="./brand-logos.css?v=3" />
   </head>
   <body>
     <main class="app-shell" data-app-version="9.0">
@@ -192,9 +192,10 @@
             <div id="feature-export-actions"></div>
           </section>
           <section id="feature-info" class="panel-section feature-info" aria-labelledby="feature-info-heading" hidden>
+            <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-feature-info">词条填写帮助</button></div>
             <div class="section-heading"><h2 id="feature-info-heading">共享词条信息</h2><button id="feature-info-refresh" class="text-button" type="button">刷新</button></div>
             <p id="feature-info-target" class="feature-info-meta"></p>
-            <p class="feature-info-meta">大家可阅读。登录后可补充简介、建筑名称和属性值；仅作者和管理员可修改或删除。用户补充会在详情及共享词条搜索中展示，与 OGF 原始标签分列。</p>
+            <p class="feature-info-meta">登录后可补充简介、名称和属性；作者和管理员可维护。补充内容公开展示，不直接修改原始地图。</p>
             <p id="feature-info-status" class="view-status" role="status"></p>
             <div id="feature-info-list"></div>
             <button id="feature-info-more" class="text-button" type="button" hidden>加载更多投稿</button>
@@ -204,7 +205,7 @@
               <p id="feature-info-public" class="feature-info-meta">提交的文字、署名和来源将公开展示，请勿填写私人地址、电话或其他不希望公开的内容。</p>
               <fieldset class="feature-info-properties-editor">
                 <legend>补充属性</legend>
-                <p class="feature-info-meta">可只填属性，也可同时写简介。每次最多 32 项；属性名最多 80 字，值最多 512 字，整次提交最多 32 KiB。修改或移除只影响本条投稿。</p>
+                <p class="feature-info-meta">可仅填属性，每条最多 32 项。</p>
                 <div class="feature-info-actions"><button id="feature-info-add-name" class="text-button" type="button">给建筑／要素加名字</button><button id="feature-info-add-property" class="text-button" type="button">添加属性</button></div>
                 <div id="feature-info-property-rows"></div>
                 <datalist id="feature-info-property-keys">
@@ -338,10 +339,11 @@
         </section>
 
         <section id="download-view" class="panel-view" data-view="download" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-ranges">下载帮助</button></div>
           <div class="boundary-resolution-row"><label for="download-content-mode">添加内容</label><select id="download-content-mode"><option value="map">底图与行政区</option><option value="objects">地图物体</option></select><p class="boundary-resolution-note">表格、品牌清单、线路数据和图片可直接下载或加入下方清单；多项会合并为 ZIP。</p></div>
           <section id="huaxia-admin-catalog" class="huaxia-admin-catalog" aria-labelledby="huaxia-admin-catalog-heading">
             <div class="section-heading"><h2 id="huaxia-admin-catalog-heading">华夏行政区清单</h2><i data-lucide="list" aria-hidden="true"></i></div>
-            <p class="boundary-resolution-note">以“华夏共和国”国家关系为根范围读取实际存在的各级行政关系，结果可下载或加入统一下载清单。</p>
+            <p class="boundary-resolution-note">读取华夏共和国范围内的各级行政区，可下载或加入清单。</p>
             <button id="huaxia-admin-catalog-load" class="secondary-button boundary-full-button" type="button">读取华夏各级行政区</button>
             <button id="huaxia-admin-catalog-refresh" class="secondary-button boundary-full-button" type="button" hidden>检查最新数据</button>
             <p id="huaxia-admin-catalog-status" class="view-status" aria-live="polite"></p>
@@ -364,7 +366,7 @@
             <label class="boundary-toggle-option"><input id="feature-pick-map" type="checkbox" /><span><strong>在地图上点选物体</strong><small>点击目标后查看轮廓与属性，再点击“加入下载”</small></span></label>
           </section>
             <fieldset id="download-queue" class="boundary-extent-fieldset"><legend id="feature-queue-heading">下载清单 · 0 项</legend>
-              <p class="boundary-resolution-note">底图、行政区、地物、表格 CSV 和生成图片共用清单。底图和行政区保存加入时的范围与选项；多个文件自动打包 ZIP 并附来源、数据时间和导出时间。最多 2000 项，其中底图／行政区任务最多 10 项。清单仅保留在本页，刷新前请先下载。</p>
+              <p class="boundary-resolution-note">多项自动打包 ZIP。清单仅保留在本页，刷新前请下载。</p>
               <div id="feature-queue-list" class="feature-object-list" aria-live="polite"></div>
               <button id="feature-clear-queue" class="text-button" type="button" disabled>清空下载清单</button>
               <div id="feature-output-options">
@@ -383,57 +385,64 @@
         </section>
 
         <section id="agent-view" class="panel-view map-agent" data-view="agent" data-export-private hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-agent">助手帮助</button></div>
           <details id="agent-connection-section" open>
             <summary>AI 接口设置</summary>
             <label for="agent-source">使用方式<select id="agent-source"><option value="user">使用我自己的 AI 接口</option><option value="site" disabled>使用站点提供的接口（未配置）</option></select></label>
             <form id="agent-connection-form" autocomplete="off" data-export-private>
               <fieldset id="agent-connection-fields">
                 <label for="agent-provider">服务商预设<select id="agent-provider"></select></label>
-                <label for="agent-protocol">接口协议<select id="agent-protocol"><option value="openai">OpenAI 兼容（Chat Completions）</option><option value="anthropic">Anthropic（Messages）</option><option value="gemini">Gemini（GenerateContent）</option></select></label>
+                <label for="agent-protocol">接口协议<select id="agent-protocol"><option value="openai">OpenAI 兼容（Chat Completions）</option><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic（Messages）</option><option value="gemini">Gemini（GenerateContent）</option></select></label>
                 <label for="agent-base-url">API 地址<input id="agent-base-url" type="url" required maxlength="2048" placeholder="https://api.example.com/v1" aria-describedby="agent-connection-note" /></label>
-                <label for="agent-model">模型名称<input id="agent-model" type="text" required maxlength="200" placeholder="填写服务商提供的模型 ID" autocapitalize="off" spellcheck="false" /></label>
+                <label for="agent-model">模型名称<input id="agent-model" list="agent-models" type="text" required maxlength="200" placeholder="填写服务商提供的模型 ID" autocapitalize="off" spellcheck="false" /></label>
+                <datalist id="agent-models"></datalist>
                 <label for="agent-api-key">API 密钥<input id="agent-api-key" type="password" required maxlength="4096" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="只保留在当前页面" /></label>
+                <button id="agent-models-read" class="text-button" type="button">读取可用模型</button><p id="agent-models-status" class="view-status" role="status"></p>
+                <details><summary>连接选项</summary><label for="agent-tool-mode">使用能力<select id="agent-tool-mode"><option value="auto">对话与地图工具</option><option value="text">仅对话（不支持工具的模型）</option></select></label><label for="agent-timeout">最长等待（秒）<input id="agent-timeout" type="number" min="30" max="600" step="1" value="180" required /></label></details>
                 <label class="agent-remember"><input id="agent-remember" type="checkbox" />在此浏览器记住服务商、地址和模型（不保存密钥）</label>
                 <div class="agent-controls"><button id="agent-config-apply" class="secondary-button" type="submit">应用配置</button><button id="agent-config-test" class="secondary-button" type="button">测试连接与工具调用</button></div>
               </fieldset>
             </form>
             <button id="agent-config-clear" class="text-button" type="button">清除我的接口配置和密钥</button>
-            <p id="agent-connection-note" class="feature-info-meta">支持上述三种协议的公开 HTTPS 接口；地址可填 API 根路径。密钥仅在当前页面暂存，经本站转发到你填写的服务商，不存入账号、浏览器存储或共享数据。刷新、退出或换账号后需重新填写。测试会向所选服务发送一条简短工具调用请求，可能产生该服务的用量。</p>
+            <p id="agent-connection-note" class="feature-info-meta">密钥仅本页暂存，经本站转发给所填服务商，刷新或换账号后清除。地图工具测试会发送两轮合成请求，产生服务商用量。</p>
             <p id="agent-config-status" class="view-status" role="status"></p>
           </details>
           <p id="agent-service" class="view-status" role="status">正在检查对话服务…</p>
-          <p>用对话查地点、查看共享资料，或准备信息和数据包草稿。需要公开发布时，会打开原表单供你核对。</p>
+          <p>查地点、读资料或准备草稿；公开发布前在原表单核对。</p>
           <div class="agent-controls"><button id="agent-refresh" class="text-button" type="button">重试连接</button><button id="agent-clear" class="text-button" type="button">清空对话</button></div>
           <div id="agent-messages" class="agent-messages" role="log" aria-label="地图助手对话" aria-live="polite"></div>
           <form id="agent-form" data-export-private>
             <label for="agent-input">向地图助手提问</label>
-            <textarea id="agent-input" maxlength="6000" rows="4" placeholder="例如：帮我找津川的医院；给选中的建筑准备一段简介"></textarea>
+            <textarea id="agent-input" maxlength="6000" rows="4" placeholder="例如：查找附近医院；给选中的建筑准备一段简介"></textarea>
             <div class="agent-controls"><button id="agent-send" class="primary-button" type="submit" disabled>发送</button><button id="agent-stop" class="secondary-button" type="button" disabled>停止</button></div>
           </form>
           <p id="agent-status" class="view-status" role="status"></p>
           <details><summary>附加本机数据文件</summary>
             <label for="agent-attach">CSV、JSON、GeoJSON</label><input id="agent-attach" type="file" accept=".csv,.json,.geojson" />
             <p id="agent-file-name" class="feature-info-meta">尚未选择附件</p>
-            <p class="feature-info-meta">附件原文不自动发给模型，不自动发布。可转入数据页面补齐类型、范围、来源和许可，再校验与发布。</p>
+            <p class="feature-info-meta">附件不自动发给模型或公开；可带入数据页校验、发布。</p>
             <button id="agent-file-preview" class="secondary-button" type="button" disabled>带入数据上传表单</button>
           </details>
-          <details open><summary>可使用的现有功能</summary><div id="agent-capabilities" class="agent-capabilities"></div></details>
+          <details><summary>可使用的现有功能</summary><div id="agent-capabilities" class="agent-capabilities"></div></details>
           <p class="feature-info-meta">对话只保留在当前页面；退出或切换账号会清空。接入模型后，你发送的文字和对话中查询到的资料会交给该模型服务处理。</p>
         </section>
 
         <section id="datasets-view" class="panel-view shared-datasets" data-view="datasets" hidden>
-          <p>共享数据包可供大家查询、下载、后台统计和生成专题图。每份保留作者、来源、单位及统计日期；同地区不同来源分别保存。</p>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-datasets">数据帮助</button></div>
+          <p>上传公开资料，查询、下载或生成专题图。</p>
           <details id="dataset-upload-section">
             <summary>上传共享数据包</summary>
             <p id="dataset-auth-note" class="view-status" role="status">登录后可上传；游客可查看和下载。</p>
             <form id="dataset-form" data-export-private>
-              <label>数据包名称<input id="dataset-title" required maxlength="120" placeholder="例如：津川各区人口 · 2026" /></label>
-              <label>数据类型<select id="dataset-kind"><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排</option><option value="other">其他数据</option></select></label>
+              <label>数据包名称<input id="dataset-title" required maxlength="120" placeholder="例如：各区人口 · 2026" /></label>
+
+              <label>数据类型<select id="dataset-kind"><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排（统计）</option><option value="rail_timetable">铁路时刻表</option><option value="urban_timetable">城铁时刻表</option><option value="flight_timetable">航班时刻表</option><option value="other">其他数据</option></select></label>
+              <p id="dataset-timetable-note" class="feature-info-meta" hidden>每行一个停靠点，至少两站且首站有时间；默认每日开行、UTC+08:00。可在文件中指定日期、星期和时区。</p>
               <div class="dataset-two-columns"><label>范围类型<select id="dataset-scope-kind"><option value="feature">单个要素</option><option value="region" selected>区域／城市</option><option value="large">省／国家／更大范围</option></select></label><label>范围名称<input id="dataset-scope-label" required maxlength="200" placeholder="填写实际覆盖范围" /></label></div>
               <button id="dataset-use-selection" class="text-button" type="button">关联当前已选行政区／要素</button>
-              <p id="dataset-scope-note" class="feature-info-meta">范围名称只作说明；空间定位以文件几何／坐标为准。可先在地图选中行政区，再关联真实范围。</p>
+              <p id="dataset-scope-note" class="feature-info-meta">范围名称仅作说明；定位使用文件坐标或关联的真实几何。</p>
               <label>文件（UTF-8 CSV、JSON、GeoJSON）<input id="dataset-file" type="file" accept=".csv,.json,.geojson,text/csv,application/json,application/geo+json" required /></label>
-              <p class="feature-info-meta">不设应用层文件大小、记录数、列数或顶点数上限。GeoJSON 保留完整点线面与孔洞；JSON 支持对象数组或 records 数组。CSV 经纬度列默认识别 longitude／latitude、lon／lat、经度／纬度。可用 osm_type + osm_id 关联原要素；缺少位置的记录仍保存，但不会凭名称猜位置。</p>
+              <p class="feature-info-meta">使用 WGS84 经纬度。无位置的记录仍保存；字段格式见帮助，也可下载本类型模板。</p>
               <div id="dataset-template-actions" class="feature-info-actions"><button id="dataset-template" class="text-button" type="button">下载本类型 CSV 模板</button></div>
               <details><summary>自定义列映射（留空自动识别）</summary><div class="dataset-two-columns">
                 <label>经度列<input id="dataset-field-lng" list="dataset-columns" maxlength="80" /></label><label>纬度列<input id="dataset-field-lat" list="dataset-columns" maxlength="80" /></label>
@@ -447,7 +456,7 @@
               <label>共享许可／使用说明<input id="dataset-license" required maxlength="200" placeholder="例如：CC BY 4.0，使用时注明来源" /></label>
               <label>简介<textarea id="dataset-description" rows="3" maxlength="2000"></textarea></label>
               <label class="boundary-toggle-option"><input id="dataset-shared" type="checkbox" required /><span>公开共享本数据包、作者署名、来源及统计资料，供大家下载与计算使用</span></label>
-              <p class="feature-info-meta">不设应用层上传数量、账号容量或发布频率配额。实际传输与保存仍受托管平台和设备能力影响；失败时保留草稿，不截断文件或发布半包。</p>
+              <p class="feature-info-meta">不设应用层配额；实际保存受平台及设备能力影响。</p>
               <div class="feature-info-actions"><button id="dataset-preview" class="secondary-button" type="button">校验与预览</button><button id="dataset-publish" class="primary-button" type="submit">发布共享数据包</button><button id="dataset-edit-cancel" class="text-button" type="button" hidden>取消编辑资料</button></div>
               <p id="dataset-upload-status" class="view-status" role="status"></p>
               <div id="dataset-preview-result"></div>
@@ -455,22 +464,23 @@
           </details>
           <div class="section-heading"><h2>共享数据目录</h2><button id="dataset-refresh" class="text-button" type="button">刷新</button></div>
           <label>搜索名称、范围或来源<input id="dataset-query" type="search" maxlength="200" /></label>
-          <label>分类<select id="dataset-filter"><option value="">全部类型</option><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排</option><option value="other">其他数据</option></select></label>
+          <label>分类<select id="dataset-filter"><option value="">全部类型</option><option value="poi">POI／设施</option><option value="population">人口</option><option value="gdp">GDP</option><option value="land_price">地价</option><option value="demand">通行需求</option><option value="schedule">车次安排（统计）</option><option value="rail_timetable">铁路时刻表</option><option value="urban_timetable">城铁时刻表</option><option value="flight_timetable">航班时刻表</option><option value="other">其他数据</option></select></label>
           <button id="dataset-search" class="secondary-button" type="button">查询共享数据</button>
           <p id="dataset-list-status" class="view-status" role="status"></p><div id="dataset-list"></div><button id="dataset-more" class="text-button" type="button" hidden>加载更多数据包</button>
           <section id="dataset-detail" hidden aria-labelledby="dataset-detail-title">
             <h2 id="dataset-detail-title"></h2><div id="dataset-detail-meta"></div><div id="dataset-downloads"></div>
             <div class="dataset-two-columns"><label>专题字段<select id="dataset-theme-field"></select></label><label>表现方式<select id="dataset-theme-mode"><option value="numeric">数值分级设色／比例点</option><option value="category">类别分布</option></select></label></div>
             <label>本次专题的字段单位<input id="dataset-theme-unit" maxlength="80" placeholder="主指标沿用原单位；其他字段请填写相应单位" /></label>
-            <p class="feature-info-meta">更换字段不会把人口单位套给 GDP 或坐标。手填单位仅作用于本次专题，不修改共享包资料。</p>
+            <p class="feature-info-meta">单位仅用于本次专题，不修改共享包。</p>
             <div class="feature-info-actions"><button id="dataset-show-theme" class="primary-button" type="button">计算并显示专题图</button><button id="dataset-hide-theme" class="text-button" type="button">隐藏专题图</button><button id="dataset-fit-theme" class="text-button" type="button">查看专题范围</button></div>
             <p id="dataset-analysis-status" class="view-status" role="status"></p><div id="dataset-legend" class="dataset-legend"></div><div id="dataset-analysis-summary"></div><div id="dataset-theme-downloads"></div>
-            <p class="feature-info-meta">专题值来自当前选择的数据包，不改变 OGF 原始标签或其他图层。数值分级按记录分位数；记录算术和未扣除上下级、重复范围，不代表行政总量。车次、GDP、地价等保留各自口径，不自动换算为汽车流量或替换既有模拟参数。</p>
+            <p class="feature-info-meta">统计与专题来自所选包；记录合计未扣除重复或上下级，不代表行政总量。</p>
             <div id="dataset-records"></div>
           </section>
         </section>
 
         <section id="simulation-view" class="panel-view" data-view="simulation" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-simulation">模拟帮助</button></div>
           <fieldset class="render-settings-section" id="traffic-settings">
             <legend>出行需求与路况 · 实验</legend>
             <label class="render-setting-toggle" for="traffic-enabled"><span>道路汽车模拟</span><input id="traffic-enabled" type="checkbox" role="switch" aria-describedby="traffic-note" /><span class="render-setting-switch" aria-hidden="true"></span></label>
@@ -478,13 +488,13 @@
               <label class="render-setting-field" for="traffic-scope"><span>模拟范围</span><select id="traffic-scope"><option value="regional" selected>城市／省／国家</option><option value="local">当前街区 · 局部精细模拟</option></select></label>
               <details id="traffic-regions" class="traffic-basis" open>
                 <summary>选择／更换行政区范围</summary>
-                <label class="render-setting-field" for="traffic-region-query"><span>添加城市、区县、省或国家</span><input id="traffic-region-query" type="search" placeholder="例如：津川市" maxlength="80" /></label>
+                <label class="render-setting-field" for="traffic-region-query"><span>添加城市、区县、省或国家</span><input id="traffic-region-query" type="search" placeholder="城市、区县、省或国家名称" maxlength="80" /></label>
                 <button id="traffic-region-search" type="button" class="secondary-button">查找行政区</button>
                 <div id="traffic-region-results" class="traffic-region-list" aria-live="polite"></div>
-                <p class="model-options-summary">可选 1–4 个具有完整边界的行政区，城市、省和国家均读取完整汽车道路类别；多个相邻区域通过真实连通干道分配出行，内部路只作首末接入。单轴跨度最多 12°，路网最多 40000 条／35 万节点，超限须选择较小范围。跨海断路不会生成虚构连接。</p>
+                <p class="model-options-summary">可添加 1–4 个完整行政区；超出容量时请缩小范围。</p>
                 <div id="traffic-region-selected" class="traffic-region-list"></div>
                 <div class="sunlight-presets"><button id="traffic-region-build" class="secondary-button" type="button">加载所选区域并模拟</button><button id="traffic-region-cancel" class="secondary-button" type="button" hidden>取消加载</button></div>
-                <p id="traffic-region-status" class="model-options-summary" role="status">先选择行政区；完整区域与附近预览同时准备。移动地图不重建全域。只有城市点的结果可先定位，再切换“当前街区”。</p>
+                <p id="traffic-region-status" class="model-options-summary" role="status">选择行政区后加载；移动地图不会改变所选范围。</p>
               </details>
               <button id="traffic-region-overview" class="secondary-button" type="button">查看模拟全域</button>
               <p id="traffic-summary" class="model-options-summary" role="status">等待路网和出行需求…</p>
@@ -492,23 +502,25 @@
               <details class="traffic-basis"><summary>模拟排队集中路段与停车场</summary><div id="traffic-hotspots" class="traffic-region-list" aria-label="模拟排队集中路段"></div></details>
               <label class="render-setting-field" for="traffic-time"><span>情景开始时间</span><input id="traffic-time" type="time" value="08:00" /></label>
               <label class="render-setting-field" for="traffic-demand"><span>需求强度</span><select id="traffic-demand"><option value="1" selected>基础假设 · 1×</option><option value="3">高峰演示 · 3×</option><option value="6">压力情景 · 6×</option><option value="8">压力情景 · 8×</option></select></label>
+              <details class="operation-options"><summary>显示数量与运行选项</summary>
               <label class="render-setting-field" for="traffic-count"><span>车辆绘制上限</span><select id="traffic-count"><option value="60">轻量 · 60 辆</option><option value="240">240 辆</option><option value="480">480 辆</option><option value="600" selected>标准 · 600 辆</option><option value="1200">更多 · 1200 辆</option></select></label>
               <label class="render-setting-field" for="traffic-rate"><span>模拟速度</span><select id="traffic-rate"><option value="0.5">0.5 倍</option><option value="1" selected>1 倍</option><option value="2">2 倍</option><option value="10">10 倍 · 加快观察行程</option></select></label>
               <label class="render-setting-field" for="traffic-side"><span>通行方向（模拟）</span><select id="traffic-side"><option value="right">靠右行驶</option><option value="left">靠左行驶</option></select></label>
+              </details>
               <label class="render-setting-toggle" for="traffic-overlay"><span>需求与模拟路况图</span><input id="traffic-overlay" type="checkbox" checked /><span class="render-setting-switch" aria-hidden="true"></span></label>
               <label class="render-setting-toggle" for="traffic-lanes"><span>近景车道</span><input id="traffic-lanes" type="checkbox" checked aria-describedby="traffic-lane-note" /><span class="render-setting-switch" aria-hidden="true"></span></label>
               <p id="traffic-lane-status" class="model-options-summary" role="status">放大到街道近景显示车道。</p>
               <p id="traffic-bridge-note" class="model-options-summary" role="status" hidden></p>
-              <details class="traffic-basis"><summary>车道估算依据</summary><p id="traffic-lane-note" class="model-options-summary">优先 lanes 与方向车道标签；缺失时按有效 width 估算，否则采用道路类型默认值：高速单向 3 道，干线双向共 8 道，主要道路双向共 6 道（单独绘制的单向车行道分别为 4、3 道），普通道路共 2 道，匝道／服务路／生活街道 1 道。窄双向路共享路面；车辆按本方向车道行驶、分道跟车，路口按下游车道衔接。推算值不代表实测车道，未根据建筑间距推算；桥面按合法高度显示，俯视同样自动开启；视野内隧道提供带方向、总数和来源的独立车道示意，非地下实景，无需先跟车。</p></details>
+              <details class="traffic-basis"><summary>车道估算依据</summary><p id="traffic-lane-note" class="model-options-summary">优先车道标签，其次路宽，再按道路等级估算。推算值非实测；详细默认值见帮助。</p></details>
               <p class="model-options-summary traffic-legend"><span>绿：较顺畅</span><span>黄：减速</span><span>红：明显减速</span><span>灰：未分配车流／暂无在途量</span></p>
-              <p class="model-options-summary">线宽表示分配的需求强弱；颜色取有车方向中较慢的一侧，不是实测拥堵。零需求道路也保留灰线，灰色表示此次未分配到可达行程或暂无在途量；不代表道路缺失或已证实畅通。金线为所选车的路线，起终点标记是估算的道路接入点。</p>
+              <p class="model-options-summary">线宽表示需求，颜色表示模拟减速；灰色为未分配车流或暂无在途量。</p>
               <div class="sunlight-presets"><button id="traffic-pause" type="button" class="secondary-button">暂停模拟</button><button id="traffic-reset" type="button" class="secondary-button">重新模拟</button><button id="traffic-near" type="button" class="secondary-button">移近当前街区</button></div>
               <details class="traffic-basis" id="traffic-custom-trip"><summary>自定义车辆起点</summary>
                 <label class="render-setting-field" for="traffic-start"><span>起点 · 纬度,经度</span><input id="traffic-start" type="text" autocomplete="off" placeholder="在地图上选点" aria-describedby="traffic-trip-note" /></label>
                 <div class="sunlight-presets"><button id="traffic-pick-start" class="secondary-button" type="button">地图选起点</button><button id="traffic-current-start" class="secondary-button" type="button">使用地图中心</button></div>
                 <label class="render-setting-field" for="traffic-destination"><span>终点 · 可选</span><input id="traffic-destination" type="text" autocomplete="off" placeholder="留空自动选可达设施" aria-describedby="traffic-trip-note" /></label>
                 <div class="sunlight-presets"><button id="traffic-pick-destination" class="secondary-button" type="button">地图选终点</button><button id="traffic-clear-destination" class="secondary-button" type="button">自动选择终点</button></div>
-                <p id="traffic-trip-note" class="model-options-summary">先加载街区或行政区模拟，再选择起点。车辆吸附到 100 米内可行驶道路；终点采用附近道路接入点。每次一辆，按现有车道、单行和排队规则运行，到达后结束。此车为手动观察车辆，不改变人口及区域需求统计。</p>
+                <p id="traffic-trip-note" class="model-options-summary">先加载模拟，再选起点。吸附到 100 米内道路；终点留空自动选择，到达后结束。</p>
                 <div class="sunlight-presets"><button id="traffic-start-trip" class="secondary-button" type="button">发车并跟随</button><button id="traffic-end-trip" class="secondary-button" type="button" disabled>结束自定义行程</button></div>
                 <p id="traffic-trip-status" class="model-options-summary" role="status" aria-live="polite">可在地图选起点，也可输入纬度,经度。</p>
               </details>
@@ -516,14 +528,15 @@
               <p id="traffic-vehicle" class="model-options-summary">点击地图上的车辆，或从列表选择。</p>
               <label class="render-setting-field" for="traffic-follow-mode"><span>车辆跟随视角</span><select id="traffic-follow-mode"><option value="2d">2D · 北向俯视</option><option value="3d" selected>3D · 沿行驶方向倾斜</option></select></label>
               <button id="traffic-follow" type="button" class="secondary-button" disabled>跟随所选车辆</button>
-              <details class="traffic-basis"><summary>人口、设施与估算依据</summary><p id="traffic-basis" class="model-options-summary"></p><p class="model-options-summary">优先使用完整局部住宅范围的人口标签；缺失时按住宅面积、有效高度／层数估算，每人 35 m²、住宅利用率 80%，住宅用地额外按 25% 建筑覆盖率。层数不明按 2 层估算；无用途建筑不凭名称当住宅。每人每小时基准 0.22 次出发、汽车分担率 35%、每车 1.4 人，再乘时段、设施容量、路程衰减与所选强度。停留基准：购物 15 分钟、休闲 30 分钟、就医 45 分钟、工作 8 小时、上学 6 小时，允许约 ±20% 差异。这些是假设参数，未用实测客流校准。局部模式不覆盖范围外出行；区域模式采用已读取的完整路网和分层人口。市内及周边出行优先；采用 94% 的 7 公里衰减和 6% 的 45 公里衰减混合权重，同距离跨行政边界不额外放大或压低。仅有远处设施时减少出发，不把全部本地需求分给远处。面板显示 25 公里内及 100 公里以上的车次比例，均为未校准假设。</p></details>
+              <details class="traffic-basis"><summary>人口、设施与估算依据</summary><p id="traffic-basis" class="model-options-summary"></p><p class="model-options-summary">人口、建筑与设施按已读标签和估算参数分配。详细假设见帮助。</p></details>
             </div>
             <p id="traffic-status" class="model-options-summary" role="status" aria-live="polite">默认关闭，开启后可选择城市、区县、省、国家或局部街区。</p>
-            <p id="traffic-note" class="model-options-summary">默认关闭，仅本次开启。区域模式按所选行政区读取路网、设施及分层人口，优先 population／population:hx 与行政中心人口，父子区域不重复相加。按道路车道、等级及容量计算在途量、队列和待出发量；近景汽车为同一出行需求的展示样本，可跟随、到达停留及返程，绘制上限不改变区域流量。开启模拟会临时自动启用桥面和近景车道，关闭后恢复原设置；街道近景下俯视和 3D 均自动显示桥面车道，视野内隧道自动提供独立车道图。桥隧参与路网，尚无合法桥面高度时不画贴地汽车；路况线仍显示。局部模式仍为约 850 米局部精细模拟。两种模式都是未校准情景，不是实测路况。后台暂停；拖动地图或 Esc 退出跟随，滚轮／双指缩放保持跟随。</p>
+            <p id="traffic-note" class="model-options-summary">未校准情景，非实测路况。开启后自动显示近景车道及有效桥面；后台暂停。拖动地图或 Esc 退出跟随，缩放保持跟随。</p>
           </fieldset>
         </section>
 
         <section id="settings-view" class="panel-view" data-view="settings" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-render">设置帮助</button></div>
           <fieldset class="render-settings-section" id="sunlight-settings">
             <legend>光影与日照</legend>
             <label class="render-setting-toggle" for="setting-sunlight-enabled"><span>按时间模拟日照</span>
@@ -550,7 +563,7 @@
               <p id="sunlight-status" class="model-options-summary" role="status" aria-live="polite"></p>
               <p id="sunlight-shadow-status" class="model-options-summary" role="status" aria-live="polite"></p>
             </div>
-            <p id="sunlight-note" class="model-options-summary">默认开启并跟随设备当前日期与时间，每分钟更新光照。修改日期、时间或拖动滑块会切换为手动预览；“回到现实时间”恢复自动跟随。设备时区的钟表时间作为地图日照参考，手动模式按当地太阳时模拟，夜间使用中性弱光。放大到建筑近景可显示地面阴影，倾斜可看墙面受光。投影按建筑高度估算并随地形贴地，不含山体遮光或建筑间反射，不作为工程日照分析；模拟卫星与 OGF 栅格不应用此设置。</p>
+            <p id="sunlight-note" class="model-options-summary">默认跟随设备时间，每分钟更新；调整日期或时间转为手动，“回到现实时间”恢复跟随。光影为制图估算，非工程日照分析。</p>
           </fieldset>
           <fieldset class="render-settings-section">
             <legend>桥梁与立交</legend>
@@ -583,14 +596,16 @@
         </section>
 
         <section id="search-view" class="panel-view" data-view="search" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-search-measure">搜索帮助</button></div>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>地名搜索 · OGF Nominatim</span></div>
-          <p id="search-status" class="view-status" aria-live="polite">在上方输入地名，结果会直接显示在这里。</p>
+          <p id="search-status" class="view-status" aria-live="polite">在上方输入地名，地点结果优先显示；品牌建议列在下方。</p>
+          <div id="search-results" class="result-list" aria-live="polite"></div>
           <div id="brand-search-matches" class="brand-search-matches" aria-live="polite" hidden></div>
           <div id="feature-info-search" class="feature-info-search" aria-live="polite" hidden></div>
-          <div id="search-results" class="result-list" aria-live="polite"></div>
         </section>
 
         <section id="measure-view" class="panel-view" data-view="measure" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-search-measure">量算帮助</button></div>
           <div class="source-note"><i data-lucide="ruler" aria-hidden="true"></i><span>地图量算 · WGS 84</span></div>
           <div class="measure-modes" role="group" aria-label="测量类型">
             <button class="measure-mode is-active" type="button" data-measure-mode="distance" aria-pressed="true"><i data-lucide="route" aria-hidden="true"></i>测距</button>
@@ -627,12 +642,13 @@
         </section>
 
         <section id="brands-view" class="panel-view brand-view" data-view="brands" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-brands">品牌帮助</button></div>
           <p class="source-note">品牌目录 · OpenGeofiction 标签与店名</p>
           <label class="brand-live-option"><input id="brand-live" type="checkbox" checked />打开品牌页时，每两分钟检查所选城市或门店更新</label>
 
           <details id="brand-management-section" class="brand-logo-section">
             <summary>品牌资料与管理者申请</summary>
-            <p class="view-status">首位申请者默认通过；同一品牌已有其他申请者或管理者时，由站点管理员审核。管理员可查看所有申请，并撤销权限或禁止用户管理某个品牌。</p>
+            <p class="view-status">首位申请通常自动通过；同品牌多人申请时由管理员审核。</p>
             <form id="brand-management-select" class="brand-form"><label>品牌完整名称<input id="brand-management-name" maxlength="160" required placeholder="从品牌详情进入，或输入完整品牌名" /></label><button type="submit" class="secondary-button">查看品牌资料</button></form>
             <div id="brand-management-public" class="brand-managed-public"></div>
             <p id="brand-management-current" class="view-status" role="status">先选择品牌，再申请管理或维护品牌资料。</p>
@@ -659,7 +675,7 @@
           <details id="logo-section" class="brand-logo-section">
             <summary>品牌与地铁 logo · 共享标识</summary>
             <label class="brand-live-option"><input id="logo-enabled" type="checkbox" checked />地图显示品牌及地铁 logo</label>
-            <p id="logo-map-status" class="view-status">近景显示 logo 与店名／站名；临时失败自动重试，刷新 logo 可重读当前地点，已有完整结果保留。密集处按比例尺避让，放大可查看。地铁按明确的 network／operator 或线路关系识别，不更改线路颜色、站点位置及导航。</p>
+            <p id="logo-map-status" class="view-status">放大至街道近景查看 logo；读取失败保留原符号或完整缓存。</p>
             <div class="brand-input-row"><input id="logo-query" aria-label="筛选共享 logo" type="search" placeholder="查找 logo 名称、别名或作者" /><button id="logo-refresh" type="button" class="secondary-button">刷新 logo</button></div>
             <p id="logo-count" class="view-status"></p><div id="logo-list" class="brand-list"></div>
             <p id="logo-login" class="view-status">登录后可公开上传 logo，作者维护自己的标识，获批品牌管理者可维护对应品牌，管理员可维护全部。</p>
@@ -670,7 +686,7 @@
               <label>明确别名（可选，分号分隔）<textarea id="logo-aliases" rows="2" placeholder="只填写该品牌实际使用的简称／语言名，不能填其他品牌"></textarea></label>
               <label>Logo 图片<input id="logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" /></label>
               <div id="logo-preview"></div>
-              <p class="view-status">PNG、JPG、WebP 或独立 SVG，最大 8 MiB；在透明画布中等比缩放为 128×128 PNG，保留原图背景。仅公开这张标识，不上传其他文件。</p>
+              <p class="view-status">支持 PNG、JPG、WebP、独立 SVG，最大 8 MiB；保留原图透明度和背景。</p>
               <label>来源／权利说明<input id="logo-source" required maxlength="500" placeholder="例如：本人设计，允许作为该品牌地图标识" /></label>
               <label>来源链接（可选）<input id="logo-source-url" type="url" maxlength="2048" placeholder="https://" /></label>
               <label class="brand-live-option"><input id="logo-rights" type="checkbox" required />我有权公开使用此标识，确认名称和别名属于同一品牌／系统</label>
@@ -682,7 +698,7 @@
           <div id="brand-browse">
           <form id="brand-city-form" class="brand-form" role="search">
             <label for="brand-city-query">按城市行政边界统计</label>
-            <div class="brand-input-row"><input id="brand-city-query" type="search" maxlength="64" placeholder="输入城市，例如：津川" /><button class="primary-button" type="submit">查城市</button></div>
+            <div class="brand-input-row"><input id="brand-city-query" type="search" maxlength="64" placeholder="输入城市或行政区名称" /><button class="primary-button" type="submit">查城市</button></div>
           </form>
           <p id="brand-city-status" class="view-status" role="status">选择真实行政边界后，按品牌标签和商业设施店名统计；待确认店名单列。</p>
           <div id="brand-city-results" class="brand-list" hidden></div>
@@ -717,11 +733,25 @@
             <div id="brand-location-list" class="brand-list"></div>
             <button id="brand-locations-more" class="secondary-button" type="button" hidden>显示更多门店</button>
           </section>
-          <p class="brand-attribution">© OpenGeofiction contributors · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>。品牌支持标签及商业设施店名识别；未知店名单列为待确认候选，不算已确认品牌。运营者仍按 operator 标签读取。计数为地图要素，可能包含重复标注，非核实营业门店总数。</p>
+          <p class="brand-attribution">© OpenGeofiction contributors · <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>。计数为地图要素，非核实营业门店总数。</p>
         </section>
 
         <section id="directions-view" class="panel-view" data-view="directions" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-travel">导航帮助</button></div>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>组合导航 · OGF 道路与交通关系</span></div>
+          <details class="timetable-workspace">
+            <summary>铁路／城铁车次与航班</summary><div class="panel-guide"><button type="button" class="text-button" data-help-target="help-timetables">时刻表帮助</button></div>
+            <p>优先匹配能赶上的共享班次；无匹配时沿用默认方案。共享资料非实时运营信息。</p>
+            <label>导航出发时间（设备时区；留空为现在）<input id="timetable-departure" type="datetime-local" /></label>
+            <button id="timetable-now" type="button" class="text-button">回到现在</button>
+            <label>车次／航班／站点<input id="timetable-query" type="search" placeholder="如 G123、机场名或站名" /></label>
+            <label>交通方式<select id="timetable-mode"><option value="">全部</option><option value="rail">铁路</option><option value="urban">城铁／地铁</option><option value="flight">航班</option></select></label>
+            <label>上车站／出发机场<input id="timetable-from" placeholder="名称、机场代码或 node/123（可留空）" /></label>
+            <label>下车站／到达机场<input id="timetable-to" placeholder="名称、机场代码或 node/456（可留空）" /></label>
+            <div class="feature-info-actions"><button id="timetable-search" type="button" class="secondary-button">查询班次</button><button id="timetable-upload" type="button" class="text-button">上传时刻表</button></div>
+            <p id="timetable-status" class="view-status" role="status">可只上传停靠点和时间；缺失运行时间可按已确认轨道与车辆参数估算。</p>
+            <div id="timetable-results"></div><button id="timetable-more" type="button" class="text-button" hidden>更多班次</button>
+          </details>
           <form id="route-form" class="route-form">
             <div class="saved-place-route-selects">
               <label class="personal-field" for="route-saved-origin"><span>收藏起点</span><select id="route-saved-origin"><option value="">从收藏选择起点</option></select></label>
@@ -782,28 +812,35 @@
         </section>
 
         <section id="transit-view" class="panel-view" data-view="transit" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-templates">线路与模板帮助</button></div>
           <div class="source-note"><i data-lucide="database" aria-hidden="true"></i><span>公共交通线路 · OGF Overpass</span></div>
           <details id="line-template-workspace" class="line-template-workspace">
-            <summary>线路显示模板<small>公交站牌、车载路牌、地铁导视与车厢线路屏</small></summary>
+            <summary>线路显示模板<small>站牌、路牌与车厢屏</small></summary>
             <div class="line-template-body">
-              <p>选择下方真实线路后自动填入线路信息；也可先用示例体验。版式与线路数据分开保存。</p>
+              <p>选车站或线路，再选择模板。也可使用示例体验。</p>
               <label>线路数据<select id="line-template-source"><option value="selected">当前选中的真实线路／车站</option><option value="demo">示例线路（非真实运营数据）</option></select></label>
               <label id="line-template-line-choice-row" hidden>套用哪条已读线路／方向<select id="line-template-line-choice"></select></label>
               <p id="line-template-endpoint-status" class="help-text" role="status"></p>
               <label>显示范围<select id="line-template-display"><option value="line">单线路</option><option value="station">同站多线路站牌</option></select></label>
-              <section id="line-template-station-controls" hidden><p id="line-template-station-summary"></p><p>可在下方按车站查询全部已登记公交线路；也可读取具体方向后手动加入同一站点。仅按相同要素编号收录，对向站分开。手动增删后标为自选清单，刷新不保留；下载图片可保存。</p><div class="line-template-actions"><button id="line-template-station-add" type="button" class="text-button">将当前线路／方向加入本站牌</button><button id="line-template-station-clear" type="button" class="text-button">清空本站牌</button></div><div id="line-template-station-lines"></div></section>
-              <section class="line-template-station-lookup"><h4>按车站生成站牌／轨道导视图</h4><label>车站名称／OGF 编号<input id="line-template-station-query" maxlength="100" placeholder="例如 兰园南，或 node/123456" /></label><div class="line-template-actions"><button id="line-template-station-search" type="button" class="text-button">搜索车站</button><button id="line-template-station-selected" type="button" class="text-button">使用地图选中的车站</button><button id="line-template-station-refresh" type="button" class="text-button" disabled>重新读取本站数据</button><button id="line-template-station-cancel" type="button" class="text-button" hidden>取消读取</button></div><p id="line-template-station-load-status" role="status">选择公交或轨道车站，读取真实停靠关系和完整站序；地铁读取完整主关系及全部分期方向，默认全线总览，再选择具体方向。全线与“线路”页共用组装和排序；未经过本站的分期不指定当前站。地图另选车站时自动更新；已有完整线路先定位本站，后台核对全部停靠关系。两分钟内可复用完整缓存，重新读取可强制更新。明确 stop_area 或地图已合并站体的来源可共用，不按同名或附近猜测。</p><div id="line-template-station-results"></div></section>
+              <section id="line-template-station-controls" hidden><p id="line-template-station-summary"></p><p>按车站读取已登记线路，或手动加入方向；对向站分开，刷新前请下载保存。</p><div class="line-template-actions"><button id="line-template-station-add" type="button" class="text-button">将当前线路／方向加入本站牌</button><button id="line-template-station-clear" type="button" class="text-button">清空本站牌</button></div><div id="line-template-station-lines"></div></section>
+              <section class="line-template-station-lookup"><h4>按车站生成站牌／轨道导视图</h4><label>车站名称／OGF 编号<input id="line-template-station-query" maxlength="100" placeholder="输入站名或 node/123456" /></label><div class="line-template-actions"><button id="line-template-station-search" type="button" class="text-button">搜索车站</button><button id="line-template-station-selected" type="button" class="text-button">使用地图选中的车站</button><button id="line-template-station-refresh" type="button" class="text-button" disabled>重新读取本站数据</button><button id="line-template-station-cancel" type="button" class="text-button" hidden>取消读取</button></div><p id="line-template-station-load-status" role="status">搜索车站或使用地图选站，读取本站线路与完整站序；地图另选车站时自动更新。</p><div id="line-template-station-results"></div></section>
               <div class="line-template-grid"><label>显示类型<select id="line-template-family"><option value="">全部类型</option></select></label><label>选择模板<select id="line-template-preset"></select></label></div>
               <label>本站／当前站（手动选择，非实时）<select id="line-template-current"></select></label>
               <label class="line-template-check"><input id="line-template-reverse" type="checkbox" />反向显示（只改变模板内站序）</label>
-              <p>共 53 套模板：26 种公交站牌、9 种公交车厢屏，以及前后路牌和轨道导视／车厢屏。本批加入高阳黑黄站牌与详情、成都／深圳电子牌、上海双列纸牌、重庆斜排屏等；下方参考资料可逐图查看对应版式。城市名称表示结构参考。</p>
+              <p>53 套模板，可按类型筛选；各城市参考资料见下方。</p>
               <p id="line-template-order-status" role="status"></p>
-              <details id="line-template-through-controls" hidden><summary>贯通运营线路与运行区间</summary><h4>首尾相接的贯通线路</h4><p>先选具体方向；从首末站读取相接线路，接入后保留两线完整站序，接点只显示一次。只按真实站点编号、明确 stop_area 或完整轨道的共同端点连接，同名或相邻不拼接。正反向由下拉框明确选择，仅用于本页展示。</p><div class="line-template-actions"><button id="line-template-connect-load" type="button" class="text-button">读取首末站相接线路</button><button id="line-template-connect-cancel" type="button" class="text-button" hidden>取消读取</button></div><label>可接入方向<select id="line-template-connect-choice"></select></label><div class="line-template-actions"><button id="line-template-connect-add" type="button" class="text-button">接入完整站序</button><button id="line-template-connect-undo" type="button" class="text-button">撤销最近拼接</button></div><div id="line-template-connect-list"></div><p id="line-template-connect-status" role="status"></p><h4>本次运行交路与跳停</h4><p>全线始终显示；区间外和跳停站置灰、不点亮。下一站按本交路实际停靠顺序提示。起终站必须停靠，环线区间可跨首尾。</p><div class="line-template-grid"><label>交路名称<input id="line-template-operating-name" maxlength="80" value="本次交路" /></label><label>交路起站<select id="line-template-operating-from"></select></label><label>交路终站<select id="line-template-operating-to"></select></label></div><details><summary>选择区间内跳停站</summary><div id="line-template-operating-stops"></div></details><div class="line-template-actions"><button id="line-template-operating-apply" type="button" class="text-button">应用交路与跳停</button><button id="line-template-operating-reset" type="button" class="text-button">恢复全程各站停靠</button></div><p id="line-template-operating-status" role="status"></p><h4>附加运行区间色条</h4><p>可添加多条贯通线路，分别设置编号、颜色和在当前方向上的运行区间。可选已读线路或手动填写；这里的标注用于本页预览和导出，不改写地图源数据或导航。普通线路请选择顺向区间，环线可跨过首尾。</p><div class="line-template-grid"><label>已读贯通线路（也可手填）<select id="line-template-through-known"></select></label><label>贯通线路编号<input id="line-template-through-ref" maxlength="40" placeholder="如 JS02" /></label><label>线路名称<input id="line-template-through-name" maxlength="120" /></label><label>线路颜色<input id="line-template-through-color" type="color" value="#469ab4" /></label><label>运行区间起站<select id="line-template-through-from"></select></label><label>运行区间终站<select id="line-template-through-to"></select></label></div><div class="line-template-actions"><button id="line-template-through-add" type="button" class="text-button">添加贯通运行区间</button><button id="line-template-through-clear" type="button" class="text-button">清空本线贯通标注</button></div><div id="line-template-through-list"></div><p id="line-template-through-status" role="status"></p></details>
-              <section class="line-template-simulation"><label class="line-template-check"><input id="line-template-simulate-missing" type="checkbox" checked />缺失资料用模拟数据补全</label><p>已有运营资料优先保留；缺少时间、票价、班次或运营方时生成演示资料。到站时刻按当前时间及间隔／时刻表模拟，未提供间隔时随机生成。图片仅显示乘车信息，不印模拟字样和底部说明；补全来源保留在本页及 SVG 元数据，不代表实时运营。</p><div class="line-template-actions"><button id="line-template-simulate-again" type="button" class="text-button">重新生成模拟数据</button><button id="line-template-time-refresh" type="button" class="text-button">按现在时间更新</button></div><p id="line-template-simulation-status" role="status"></p></section>
-              <p id="line-template-demo-note">示例线路仅用于体验版式，不代表地图上的真实线路。</p>
-              <div id="line-template-motion-controls" hidden><div class="line-template-actions"><button id="line-template-motion-toggle" type="button" class="text-button">暂停动画</button><label>动画速度<select id="line-template-motion-speed"><option value="0.5">慢速</option><option value="1" selected>正常</option><option value="2">快速</option></select></label></div><label class="line-template-check"><input id="line-template-full-map" type="checkbox" />查看完整静态线路图</label><p>全线图与车厢／站台页可自动切换，包含方向箭头、当前站灯及开关门动画；均为手动预览，不推进真实车辆。PNG、SVG 及下载清单保存完整静态线路图；长线路不会截断。减少动态效果时默认暂停。</p></div>
+              <figure id="line-template-preview" hidden><div id="line-template-motion-preview" hidden></div><img id="line-template-image" alt="线路显示模板预览" /></figure>
+              <p id="line-template-status" role="status" aria-live="polite"></p>
+              <div class="line-template-actions"><button id="line-template-zoom" type="button" class="text-button">放大查看</button><button id="line-template-svg" type="button" class="text-button">下载 SVG</button><button id="line-template-png" type="button" class="text-button">下载 PNG</button></div>
+              <div class="line-template-grid"><label>PNG 倍率<select id="line-template-scale"><option value="1">1× · 原宽</option><option value="2" selected>2× · 两倍宽</option><option value="3">3× · 三倍宽</option></select></label><label>加入清单的格式<select id="line-template-format"><option value="svg">SVG</option><option value="png">PNG</option></select></label></div>
+              <button id="line-template-queue" type="button" class="secondary-button">将当前显示图加入下载清单</button>
 
-              <details id="line-template-passenger-controls" hidden><summary>车厢、开门与导视预览</summary><p>本页手动预览，不代表现场乘车指引。已有明确编组标签优先；留空时轨道画六节、公交画单节车厢示意，门侧未设置时保持中性。全线、站台、门动画和图标共用以下参数，导出保留完整站序和车厢图；这些设置不写入共享模板或 OGF。</p><div class="line-template-grid">
+              <details id="line-template-through-controls" hidden><summary>贯通运营线路与运行区间</summary><h4>首尾相接的贯通线路</h4><p>选择具体方向，读取首末站的真实相接线路后接入。</p><div class="line-template-actions"><button id="line-template-connect-load" type="button" class="text-button">读取首末站相接线路</button><button id="line-template-connect-cancel" type="button" class="text-button" hidden>取消读取</button></div><label>可接入方向<select id="line-template-connect-choice"></select></label><div class="line-template-actions"><button id="line-template-connect-add" type="button" class="text-button">接入完整站序</button><button id="line-template-connect-undo" type="button" class="text-button">撤销最近拼接</button></div><div id="line-template-connect-list"></div><p id="line-template-connect-status" role="status"></p><h4>本次运行交路与跳停</h4><p>全线保留，不停靠站置灰；起终站须停靠。</p><div class="line-template-grid"><label>交路名称<input id="line-template-operating-name" maxlength="80" value="本次交路" /></label><label>交路起站<select id="line-template-operating-from"></select></label><label>交路终站<select id="line-template-operating-to"></select></label></div><details><summary>选择区间内跳停站</summary><div id="line-template-operating-stops"></div></details><div class="line-template-actions"><button id="line-template-operating-apply" type="button" class="text-button">应用交路与跳停</button><button id="line-template-operating-reset" type="button" class="text-button">恢复全程各站停靠</button></div><p id="line-template-operating-status" role="status"></p><h4>附加运行区间色条</h4><p>添加本页展示用的编号、颜色与运行区间，不改变实际运营或导航。</p><div class="line-template-grid"><label>已读贯通线路（也可手填）<select id="line-template-through-known"></select></label><label>贯通线路编号<input id="line-template-through-ref" maxlength="40" placeholder="如 JS02" /></label><label>线路名称<input id="line-template-through-name" maxlength="120" /></label><label>线路颜色<input id="line-template-through-color" type="color" value="#469ab4" /></label><label>运行区间起站<select id="line-template-through-from"></select></label><label>运行区间终站<select id="line-template-through-to"></select></label></div><div class="line-template-actions"><button id="line-template-through-add" type="button" class="text-button">添加贯通运行区间</button><button id="line-template-through-clear" type="button" class="text-button">清空本线贯通标注</button></div><div id="line-template-through-list"></div><p id="line-template-through-status" role="status"></p></details>
+              <details class="line-template-simulation"><summary>运营资料模拟补全</summary><label class="line-template-check"><input id="line-template-simulate-missing" type="checkbox" checked />缺失资料用模拟数据补全</label><p>仅补全缺失项，不代表实时运营。补全来源保留在页面及 SVG 元数据。</p><div class="line-template-actions"><button id="line-template-simulate-again" type="button" class="text-button">重新生成模拟数据</button><button id="line-template-time-refresh" type="button" class="text-button">按现在时间更新</button></div><p id="line-template-simulation-status" role="status"></p></details>
+              <p id="line-template-demo-note">示例线路仅用于体验版式，不代表地图上的真实线路。</p>
+              <div id="line-template-motion-controls" hidden><div class="line-template-actions"><button id="line-template-motion-toggle" type="button" class="text-button">暂停动画</button><label>动画速度<select id="line-template-motion-speed"><option value="0.5">慢速</option><option value="1" selected>正常</option><option value="2">快速</option></select></label></div><label class="line-template-check"><input id="line-template-full-map" type="checkbox" />查看完整静态线路图</label><p>动画仅为手动预览；下载保存完整静态图。</p></div>
+
+              <details id="line-template-passenger-controls" hidden><summary>车厢、开门与导视预览</summary><p>手动预览，不代表现场指引；未知门侧保持中性。</p><div class="line-template-grid">
               <label>编组节数（留空使用已读值／示意）<input id="line-template-vehicle-cars" type="number" min="1" max="24" placeholder="6" /></label><label>当前车厢<input id="line-template-vehicle-car" type="number" min="1" max="24" value="1" /></label>
               <label>开门侧<select id="line-template-door-side"><option value="unknown">待设置</option><option value="left">左侧</option><option value="right">右侧</option><option value="both">两侧</option></select></label><label>车门／站台门编号<input id="line-template-door-label" maxlength="40" placeholder="如 3 车 2 门" /></label>
               <label>预览状态<select id="line-template-vehicle-phase"><option value="approaching">即将到站</option><option value="running">运行中</option><option value="arrived">到站开门</option><option value="closing">关门提示</option></select></label>
@@ -812,12 +849,7 @@
               <div class="line-template-grid"><label><input id="line-template-facility-wc" type="checkbox" />卫生间图标</label><label><input id="line-template-facility-accessible" type="checkbox" />无障碍图标</label><label><input id="line-template-facility-lift" type="checkbox" />电梯图标</label><label><input id="line-template-facility-stairs" type="checkbox" />楼扶梯图标</label></div></details>
               <section id="line-template-geography-controls" hidden><div class="line-template-actions"><button id="line-template-geography-load" type="button" class="text-button">重新读取城市路网</button><button id="line-template-geography-cancel" type="button" class="text-button" hidden>取消路网读取</button></div><p id="line-template-geography-status">详情版按线路范围读取真实道路背景，失败保留原图；虚线只表示站点连线，不推断道路。</p></section>
 
-              <figure id="line-template-preview" hidden><div id="line-template-motion-preview" hidden></div><img id="line-template-image" alt="线路显示模板预览" /></figure>
-              <p id="line-template-status" role="status" aria-live="polite"></p>
-              <div class="line-template-actions"><button id="line-template-zoom" type="button" class="text-button">放大查看</button><button id="line-template-svg" type="button" class="text-button">下载 SVG</button><button id="line-template-png" type="button" class="text-button">下载 PNG</button></div>
-              <div class="line-template-grid"><label>PNG 倍率<select id="line-template-scale"><option value="1">1× · 原宽</option><option value="2" selected>2× · 两倍宽</option><option value="3">3× · 三倍宽</option></select></label><label>加入清单的格式<select id="line-template-format"><option value="svg">SVG</option><option value="png">PNG</option></select></label></div>
-              <button id="line-template-queue" type="button" class="secondary-button">将当前显示图加入下载清单</button>
-              <details><summary>本张站牌的运营资料</summary><p>优先读取线路关系，再查明确关联的上级与运营方服务安排；不把公司办公时间当作公交运行时间。原始资料缺少时可模拟补全或手动填写，只用于本页和导出图片，标记为“用户补填，未核验”，不会写入 OGF 或共享模板。</p><label>编辑哪条线路<select id="line-template-service-line"></select></label><div class="line-template-grid"><label>运行时间<input id="line-template-service-hours" placeholder="按实际运营资料填写" /></label><label>班次间隔<input id="line-template-service-interval" placeholder="如每 10–15 分钟，须有依据" /></label><label>发车时刻<textarea id="line-template-service-departures" rows="3" placeholder="如 07:10、07:45、08:30；与班次间隔分别填写"></textarea></label><label>首班<input id="line-template-service-first" /></label><label>末班<input id="line-template-service-last" /></label><label>票价／费用<input id="line-template-service-fare" /></label><label>运营公司<input id="line-template-service-operator" /></label></div><button id="line-template-service-reset" type="button" class="text-button">恢复该线原始资料</button><p id="line-template-service-source"></p></details>
+              <details><summary>本张站牌的运营资料</summary><p>优先沿用已读运营资料；手填仅用于本页和导出，未核验。</p><label>编辑哪条线路<select id="line-template-service-line"></select></label><div class="line-template-grid"><label>运行时间<input id="line-template-service-hours" placeholder="按实际运营资料填写" /></label><label>班次间隔<input id="line-template-service-interval" placeholder="如每 10–15 分钟，须有依据" /></label><label>发车时刻<textarea id="line-template-service-departures" rows="3" placeholder="如 07:10、07:45、08:30；与班次间隔分别填写"></textarea></label><label>首班<input id="line-template-service-first" /></label><label>末班<input id="line-template-service-last" /></label><label>票价／费用<input id="line-template-service-fare" /></label><label>运营公司<input id="line-template-service-operator" /></label></div><button id="line-template-service-reset" type="button" class="text-button">恢复该线原始资料</button><p id="line-template-service-source"></p></details>
               <details><summary>编辑与上传模板</summary>
                 <label>模板名称<input id="line-template-title" maxlength="100" /></label>
                 <label id="line-template-screen-layout-row" hidden>车厢屏结构<select id="line-template-screen-layout"></select></label>
@@ -829,8 +861,8 @@
                 <p id="line-template-attribution"></p>
                 <div class="line-template-actions"><button id="line-template-download" type="button" class="text-button">下载模板 JSON</button><button id="line-template-share" type="button" class="text-button">准备共享发布</button></div>
                 <label>导入模板 JSON<input id="line-template-upload" type="file" accept=".json,application/json" /></label>
-                <p>可导入本站导出的 JSON 或共享模板数据包。任意照片、其他网站的模板及 HTML／SVG 不能直接当作版式导入。模板只描述布局和颜色，不附带当前线路资料。</p>
-                <p>共享发布复用“数据”页：请登录并核对来源、作者和许可后发布。游客可使用、下载公开模板；作者与管理员可在数据页维护。</p>
+                <p>仅支持本站模板 JSON 或共享模板包，不含当前线路数据。</p>
+                <p>共享发布前，在数据页核对作者、来源和许可。</p>
               </details>
               <details><summary>共享模板库</summary><button id="line-template-shared-refresh" type="button" class="text-button">刷新共享模板</button><p id="line-template-shared-status" role="status">按需读取，不影响地图加载。</p><div id="line-template-shared-list"></div><button id="line-template-shared-more" type="button" class="text-button" hidden>继续读取</button></details>
               <details id="line-template-references"><summary>各城市参考资料</summary><div id="line-template-reference-list"></div></details>
@@ -895,7 +927,7 @@
               <div id="transit-atlas-legend" class="transit-atlas-legend" aria-label="铁路与轨道交通线路显示开关"></div>
               <button id="transit-atlas-add-queue" class="secondary-button" type="button">将可见线路与站点加入下载清单</button>
               <button id="transit-atlas-add-file-queue" class="secondary-button" type="button">将当前线路图文件加入下载清单</button>
-              <p class="transit-atlas-hint">按当前范围、线路和建设状态保存，可在“下载”中统一导出 GeoJSON、SHP、CSV、PNG 或 SVG。线路图几何含边界截断，不能作为原始 OSM 导出。</p>
+              <p class="transit-atlas-hint">保存当前筛选和范围；裁切后的派生线路不支持原始 OSM。</p>
               <div class="transit-atlas-download">
                 <label for="transit-atlas-format">下载格式</label>
                 <select id="transit-atlas-format">
@@ -910,7 +942,7 @@
           <div class="transit-toolbar">
             <form id="transit-form" class="transit-search">
               <label class="sr-only" for="transit-query">搜索公共交通线路名称</label>
-              <input id="transit-query" type="search" autocomplete="off" placeholder="线路名称，例如：津川轨道交通1号线" />
+              <input id="transit-query" type="search" autocomplete="off" placeholder="线路名称或编号" />
               <button class="field-icon-button" type="submit" aria-label="搜索线路" data-tooltip="搜索线路"><i data-lucide="search" aria-hidden="true"></i></button>
             </form>
             <div class="transit-filters" role="group" aria-label="线路类型">
@@ -952,6 +984,7 @@
         </section>
 
         <section id="favorites-view" class="panel-view" data-view="favorites" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-personal">收藏帮助</button></div>
           <p id="favorites-status" class="view-status" aria-live="polite"></p>
           <div id="saved-place-login-note" class="view-status">登录后可保存默认位置、家庭住址和人生经历地点。<button id="saved-place-login" type="button" class="text-button">登录 / 注册</button></div>
           <div class="saved-place-tools">
@@ -981,6 +1014,7 @@
         </section>
 
         <section id="overlays-view" class="panel-view personal-view" data-view="overlays" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-ranges">贴图帮助</button></div>
           <div class="source-note"><i data-lucide="image-up" aria-hidden="true"></i><span>个人地图贴图</span></div>
           <p id="overlay-auth-status" class="view-status" aria-live="polite"></p>
           <form id="overlay-upload-form" class="personal-form" hidden>
@@ -1013,6 +1047,7 @@
         </section>
 
         <section id="account-view" class="panel-view personal-view" data-view="account" hidden>
+          <div class="panel-guide"><button type="button" class="text-button" data-help-target="help-personal">账号帮助</button></div>
           <div class="source-note"><i data-lucide="shield-check" aria-hidden="true"></i><span>华域地图账号</span></div>
           <p id="account-status" class="view-status" aria-live="polite"></p>
           <div id="account-guest">
@@ -1079,17 +1114,17 @@
 
         <section id="help-view" class="panel-view help-view" data-view="help" hidden>
           <div class="source-note"><i data-lucide="book-open" aria-hidden="true"></i><span>使用帮助 · 按场景查找功能</span></div>
-          <p class="help-intro">9.0 使用指南：从找地点、规划出行，到下载地图、补充共享词条和上传共享数据。相关操作放在同一组，展开后可查看步骤或直接前往功能。</p>
+          <p class="help-intro">搜索关键词，或选择主题查看步骤和详细规则。</p>
           <div class="help-search-field">
             <label for="help-search">搜索帮助</label>
             <div class="help-search-row"><input id="help-search" type="search" maxlength="100" placeholder="例如：共享词条、数据包、框选、车辆跟随" aria-describedby="help-search-status" /><button id="help-search-clear" class="text-button" type="button" hidden>清除</button></div>
-            <p id="help-search-status" class="view-status" role="status">共 10 组说明，可搜索或从目录进入。</p>
+            <p id="help-search-status" class="view-status" role="status">选择主题，或输入关键词查找说明。</p>
           </div>
           <nav class="help-directory" aria-label="帮助目录">
             <button type="button" data-help-target="help-agent">地图助手与对话</button>
             <button type="button" data-help-target="help-map">地图浏览与显示</button>
             <button type="button" data-help-target="help-search-measure">搜索、行政区与测量</button>
-            <button type="button" data-help-target="help-travel">导航、车站与线路图</button>
+            <button type="button" data-help-target="help-travel">导航、车站与线路图</button><button type="button" data-help-target="help-timetables">车次与航班</button><button type="button" data-help-target="help-templates">站牌与车厢屏</button><button type="button" data-help-target="help-brands">品牌、门店与 logo</button><button type="button" data-help-target="help-simulation">车流与车辆跟随</button>
             <button type="button" data-help-target="help-ranges">范围、下载与贴图</button>
             <button type="button" data-help-target="help-feature-info">共享词条与属性</button>
             <button type="button" data-help-target="help-datasets">共享数据包与专题图</button>
@@ -1102,100 +1137,81 @@
           <details id="help-agent" class="help-topic" data-help-section>
             <summary><span>地图助手<small>对话搜索、功能调用与上传草稿</small></span></summary>
             <div class="help-topic-content">
-              <h3>对话和地图功能一起使用</h3>
+              <details class="help-step"><summary>对话和地图功能一起使用</summary><div>
               <p>“助手”可通过统一功能清单查找地点、定位查询结果、读取地图选中物体、检索公开投稿与共享数据，并准备导航起终点。重名结果应先选择；结果保留来源和数量范围。导航仍在原页面开始计算，打开模拟、线路、品牌或下载页面不代表已经完成对应操作。</p>
-              <h3>补充信息与上传附件</h3>
+              </div></details><details class="help-step"><summary>补充信息与上传附件</summary><div>
               <p>先定位具体 OGF 物体并登录，再让助手准备简介、名称和属性，核对原表单后发布。CSV、JSON、GeoJSON 附件只从你主动选择的本机文件读取，可带入共享数据表单；原文不自动发送给模型，不自动公开。既有草稿会保留，不静默覆盖。作者、管理员和原始数据规则与普通操作相同。</p>
-              <h3>模型连接和对话状态</h3>
-              <p>在“助手 → AI 接口设置”选择预设或自定义服务，填写协议、公开 HTTPS API 地址、准确的模型 ID 和自己的 API 密钥；支持 OpenAI 兼容、Claude Messages 及 Gemini GenerateContent。应用配置后可对话，连接测试会发送一条简短工具请求，可能产生所选服务商用量。地址与模型可按账号在本机记住，密钥仅当前页面暂存，经本站转发到所填服务商，不保存到账号或浏览器存储；刷新、退出或换账号后需重填。自备接口对话无需地图账号，上传和投稿继续登录后在原表单核对；可选站点服务沿用其登录要求。未配置时仍可使用下方功能入口和附件表单。可停止本轮或清空对话，退出／换账号清空对话、附件引用和 API 密钥，刷新页面不保留聊天记录。新功能发布时同步能力清单、工具、说明与回归检查，未接入的操作不会假装可用。</p>
-              <div class="help-actions"><button type="button" class="secondary-button" data-action="agent">打开地图助手</button></div>
-            </div>
+              </div></details><details class="help-step"><summary>模型连接和对话状态</summary><div>
+              <p>选择服务商或自定义公开 HTTPS 接口，支持 OpenAI Chat Completions、Responses、Claude Messages 和 Gemini GenerateContent。填写密钥后可“读取可用模型”，也可按服务商准确 ID 手填。地图工具模式测试两轮合成请求：调用能力查询并回传测试结果，不发送当前对话或附件、不执行地图操作，会产生服务商用量。缺少工具能力的模型可在连接选项选择“仅对话”，此时不能自动操作地图；仅对话测试只发一轮。</p><p>默认每次最多等180秒，可设30–600秒。DeepSeek 官方使用其公开接口，无需第三方中转；测试使用自动工具选择，兼容默认思考模式，完整保留后续请求所需的思考字段。Responses 的加密推理、Claude 思考签名与 Gemini 工具签名也按原协议回传，不作为地图指令。密钥仅本页暂存，经本站转发给所填服务商；记住设置不保存密钥，刷新、退出或换账号后清除。附件不自动发送，对话只在本页保留。</p>
+
+            </div></details><details class="help-step"><summary>接口连接失败怎么办</summary><div><p>先核对协议、准确模型 ID、密钥权限和账户余额；可读取模型列表或换用仅对话模式。地区限制、限流、模型不存在和超时分别提示；不自动把密钥发给另一服务或切换中转。列表接口不开放时仍可手填。支持上述标准协议不代表每家服务商、每个模型、每个地区均已实际联调；专有鉴权或不兼容接口需按服务商规范另行适配。</p></div></details><div class="help-actions"><button type="button" class="secondary-button" data-action="agent">打开地图助手</button></div></div>
           </details>
 
           <details id="help-map" class="help-topic" data-help-section>
             <summary><span>地图浏览与显示<small>底图、图层、视角与地图选点</small></span></summary>
             <div class="help-topic-content">
-              <h3>移动、缩放和回到默认位置</h3>
+              <details class="help-step"><summary>移动、缩放和回到默认位置</summary><div>
               <p>拖动地图移动位置，滚轮、双指缩放或右上角的 ＋／－ 调整比例。点击“华”或右侧准星回到默认位置；登录后设置了个人默认地点时，使用该地点，否则回到上京都。右侧面板按钮可隐藏或显示功能面板。</p>
-              <h3>收起面板，让出地图空间</h3>
-              <p>功能面板、地图图层和交通视图的标题旁均有“收起”按钮，点击后整个面板隐藏，不留标题条；再点击原来的菜单恢复内容与阅读位置。交通视图状态面板从“视图／交通图／组合图”入口恢复，右侧面板按钮也可恢复已收起的面板。收起保留输入、筛选、下载清单、路线和正在进行的测量或框选，地图仍可操作。品牌页收起时暂停自动检查并取消旧查询，恢复后按原有规则继续。关闭按钮仍执行原来的关闭操作。</p>
-              <h3>底图与叠加图层</h3>
+              </div></details><details class="help-step"><summary>收起面板，让出地图空间</summary><div>
+              <p>操作面板内的帮助按钮会临时打开对应说明；“返回操作”或 Esc 可继续原表单，选中对象、地图视角和正在进行的工具保留。搜索中按 Esc 先清除关键词。功能面板、地图图层和交通视图的标题旁均有“收起”按钮，点击后整个面板隐藏，不留标题条；再点击原来的菜单恢复内容与阅读位置。交通视图状态面板从“视图／交通图／组合图”入口恢复，右侧面板按钮也可恢复已收起的面板。收起保留输入、筛选、下载清单、路线和正在进行的测量或框选，地图仍可操作。品牌页收起时暂停自动检查并取消旧查询，恢复后按原有规则继续。关闭按钮仍执行原来的关闭操作。</p>
+              </div></details><details class="help-step"><summary>底图与叠加图层</summary><div>
               <p>打开工具栏中的“视图”（启用地形时显示“地形图”），选择华域标准、深夜、模拟卫星，或 OGF、地形、骑行等底图。华域模拟卫星由地图地物生成，并非实拍；可用“影像注记”控制地名。交通与地形可以分别开关，也可以同时显示；交通还可筛选地铁、电车、铁路和公交站。</p>
-              <h3>倾斜与旋转</h3>
+              </div></details><details class="help-step"><summary>倾斜与旋转</summary><div>
               <p>在支持的矢量底图中，展开“矢量视角”，调整 0°–90° 倾斜角和旋转角，或使用倾斜预设；0° 为俯视，90° 为水平视角，“恢复俯视”回到平面。模拟卫星保持俯视。建筑、树木和桥梁的细节随比例和加载状态显示。大倾角优先加载附近精细建筑，远处或超出容量的区域保留基础建筑；移近后再补充细节，避免一次加载整个远景。</p>
-              <h3>点击地图上的物体</h3>
+              </div></details><details class="help-step"><summary>点击地图上的物体</summary><div>
               <p>开启“点击选择要素”，点击点、道路或面，查看坐标、轮廓与原始属性；重叠时从候选列表选择目标。地点可收藏、设为导航终点、分享，原始物体可“加入下载”。框选、测量或导航选点期间，点击优先完成当前操作。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="map-view">打开视图与图层</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="map-view">打开视图与图层</button></div></div>
           </details>
 
           <details id="help-search-measure" class="help-topic" data-help-section>
             <summary><span>搜索、行政区与测量<small>地名、坐标、上下级区划与量算</small></span></summary>
             <div class="help-topic-content">
-              <h3>搜索地名或坐标</h3>
+              <details class="help-step"><summary>搜索地名或坐标</summary><div>
               <p>在顶部搜索框输入名称并搜索；同名地点按所在地区选择。行政区按自身名称和明确别名识别，不把附带的行政中心名当成省、市的名称；普通搜索可能同时返回相关上级区划，各自保留真实名称和范围。坐标按“纬度,经度”输入，例如 <code>14.634,152.958</code>。最近搜索可再次使用或清空；登录后搜索记录跟随账号同步，收藏地点还可按个人名称、标签查找。</p>
-              <h3>查找品牌和门店</h3>
-              <p>顶部搜索同时提供品牌与店名候选，个人收藏仍优先。打开“品牌”，在“按城市行政边界统计”选择真实边界，默认纳入 brand 标签及未标 brand 的商业设施店名。店名、正式名、语言名称或别名与已有品牌相符，且设施分类兼容时，可识别全名或“品牌＋分店”名称；每个地点注明标签或名称依据。未知店名列为待确认候选，可搜索和定位，不混入品牌总数；不同名称或冲突不强行合并，也不把运营者自动当作品牌。识别来源可选全部、仅标签、仅名称识别或待确认店名。普通公交站、景点及无商业分类的名称不据此推断品牌。</p>
-              <p>城市范围不随地图缩放改变，不要求店名含城市名称，点击品牌或店名可查询该城市地点。“筛选品牌、运营者或分店样本”是文字筛选，匹配数不代表城市总数。“发现当前范围的品牌”仅查询矩形视野。全域目录仅索引至少两个地图要素同名的待确认店名；单独店名可在城市或视野发现。超过数量上限时仅表示已读部分；计数不代表营业状态或完整商业普查。名称识别只在地图查询中使用，不向源数据补写 brand。</p>
-              <p>门店可按所选城市、全球或当前地图范围读取，点击“查看分布”显示位置；选择门店后可收藏或设为导航起终点。道路或关系的图钉可能是几何中心，不代表入口。超过单次 500 个地点或发现范围 2000 个要素时会明确提示，请缩小范围；不把部分结果当作全部门店。</p>
-              <p>品牌页可见且启用自动检查时，当前所选城市统计或门店每两分钟检查一次；未选城市不轮询全图，切换页面、收起面板或进入后台即暂停。目录由独立工作流每三小时重建，打开品牌页时每五分钟检查新版；实际更新受 OGF 同步、服务负载及部署影响。目录生成时间、上游数据时间与门店读取时间分别显示，失败保留上一份结果。品牌功能不改变原有地图三小时数据更新。</p>
-              <h3>品牌和地铁 logo</h3>
-              <p>品牌页的“品牌与地铁 logo · 共享标识”可查看已有标识、开关地图 logo。已接入 OGF 商号索引的 ToDays、aniM、高阳银行和高全达通；近景显示对应 logo；有 brand 和 branch 时名称显示为“品牌 · 分店”，例如“aniM · 津川站前店”，不再重复拼接完整店名；没有分店标签时保留实际名称，地铁保留站名。密集处随比例尺避让。优先使用 brand，缺标时按完整商业名称、分店后缀和明确别名识别；同名无关地点不替换。标识或地点读取失败保留原符号或上一份完整结果。</p>
-              <p>登录后选择品牌、运营者或地铁系统，填写与地图标签一致的完整名称、明确别名、图片和来源，即可公开共享；PNG、JPG、WebP、独立 SVG 最大 8 MiB，等比转为 128×128 PNG。原作者可更新或删除自己的标识，获批品牌管理者可维护对应品牌的标识，管理员可管理全部；被禁止管理某品牌后，原作者也不能再操作该品牌标识。内置标识上传新版后可替代，删除新版会恢复内置版本。地铁按明确 network／operator 和正式线路关系匹配，不按站名猜系统、不改变站点位置、线路颜色或导航；不同系统冲突时保留原换乘符号。</p>
-              <p>已开启地图 logo 时，每两分钟检查共享标识和当前近景地点，后台暂停；只读当前缓冲视窗，不轮询全图。临时连接失败自动限次重试；同一区域的地图样式通知复用正在进行的查询。刷新页面可先恢复同标签页的完整缓存，原始读取时间不延长；点击“刷新 logo”重读目录与当前地点。选择图片先在本机预览，点击公开共享后才上传；助手可打开品牌页，图片仍由用户选择并核对发布。原始标识来源和权利说明在各卡片中保留。</p>
-              <h3>品牌管理者申请与管理员处理</h3>
-              <p>在品牌详情点击“品牌资料 / 申请管理”，或展开“品牌资料与管理者申请”，确认品牌完整名称后填写说明与可选依据。首位申请默认自动通过；同品牌已有其他待审申请或管理者时，后续申请等待站点管理员审核。获批后可维护品牌公开简介、官网及对应 logo，不能修改 OGF 原始标签、其他品牌资料或全站账号。品牌管理者是本站维护权限，不代表已核实官方身份。</p>
-              <p>“我的申请”可查看状态和处理记录、撤回待审申请。站点管理员从账号管理入口或品牌页的“管理员：全部申请”查看谁申请了哪个品牌，包含自动通过的记录，可批准、驳回、撤销权限或禁止管理该品牌。驳回、禁止须填写原因；禁止同时撤销权限并阻止再次申请，解除禁止后需重新申请，不自动恢复权限。申请说明和审核原因仅本人及站点管理员可见；管理者昵称、品牌简介和官网公开。展开品牌管理时每两分钟检查申请与权限，也可手动刷新；收起、离页或后台暂停。收到申请指站内列表记录，不发送邮件。</p>
-              <p>助手可查询品牌公开资料，也可在登录后准备管理申请草稿；必须在原表单核对后提交，已有草稿不会被覆盖。助手不能审批、禁用或自动提交申请，也不会读取私人申请说明。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="brands">打开品牌目录</button></div>
-              <h3>查看行政区和下级区划</h3>
+              <p>顶部搜索优先列出匹配的城市和行政区，地名结果陆续显示，无需等待其他查询。品牌建议只匹配品牌、运营者自身名称和明确别名，不把门店所在城市当作品牌名称；完整品牌页仍支持城市范围发现和分店筛选。选中地点后读取该要素完整范围，重复搜索最多复用五分钟。</p></div></details><details class="help-step"><summary>查看行政区和下级区划</summary><div>
               <p>搜索并选中实际行政区后，可查看边界、添加到行政区组合。点击“查看下级行政层级”，勾选需要的层级再加载；已加载的下级行政区可点击进入，并可查看面积。导出区域、边界和底图的操作见“范围、下载与贴图”。</p>
-              <h3>距离、面积与角度</h3>
+              </div></details><details class="help-step"><summary>距离、面积与角度</summary><div>
               <p>打开“测量”并选择测距或测面积，依次点击地图添加点。测距至少 2 点，面积至少 3 点；结果包含距离或面积、周长及点数。测距时还可查看末段方位角与最近夹角；正北为 0°，顺时针计角。“撤销”退回一步，“完成”结束本次绘制，“清除”重新开始。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="search">前往搜索</button><button class="secondary-button" type="button" data-action="measure">前往测量</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="search">前往搜索</button><button class="secondary-button" type="button" data-action="measure">前往测量</button></div></div>
           </details>
 
           <details id="help-travel" class="help-topic" data-help-section>
             <summary><span>导航、车站与线路图<small>起终点、出行偏好、线路筛选与导出</small></span></summary>
             <div class="help-topic-content">
-              <h3>规划出行</h3>
+              <details class="help-step"><summary>规划出行</summary><div>
               <p>打开“导航”，选择驾车、步行、骑行、公交地铁、铁路或机场接驳。起终点可输入地名、输入“纬度,经度”、点击准星在地图上选点，或从收藏选择；中间的交换按钮可对调起终点。点击“开始规划”后查看候选方案、路线和分步说明。</p>
               <p>组合出行可按推荐、最快、省钱、换乘最少或步行最少比较，并选择自动、步行、骑行或打车接驳。步行、骑行使用已有道路几何估算，时间和费用也为估算。铁路选项中的“推定铁路连接（含规划段）”表示未经确认的连接，可关闭；“允许公交地铁接驳”单独控制市内接驳。</p>
-              <h3>线路显示模板、导入与共享</h3><p>贯通请选择具体方向，展开“贯通运营线路与运行区间”，读取首末站线路后接入完整站序；只按真实站点编号、明确 stop_area 或完整轨道的共同端点连接，共用接点显示一次。可连续接入、撤销最近拼接。“本次运行交路与跳停”可设置大小交路及区间内跳停，完整线路保留，不停靠站置灰、不点灯，下一站只提示停靠站；可恢复全程各站停靠。这是本页用户指定的展示方案，PNG／SVG 与动画一致；线路画在站点下方，灰显站圈保留不透明底色，图内不附底部交路灰字说明，运行方向箭头放在第一行站点上方。不改写实际线路、导航或源终点属性。</p><p>点选地铁站后可点击“制作本站地铁／轨道导视图”，也可在模板中使用地图选站。读取本站真实线路和具体方向，当前站按源编号定位；无数据时显示读取提示，不自动套示例。换乘标识采用各线路自己的颜色和编号，完整线路名保留在提示及导出元数据。</p><p>终点缺失时先看“套用哪条已读线路／方向”：总关系可能包含不同上下行或分期，选择具体关系后读取该方向的 from/to。未标终点不会用站序推算。公交环线两侧均衡排站，只有真实环线才闭合；折返线的圆角、粗细和描边保持一致。无锡园林屏使用浅色宽屏、窄花边牌、连续拱形站灯和独立到站页，长线仍保留全部站序，车厢与门侧继续手动设置。</p><p>本批参考（含新增五张车厢／站台屏，共30张）已对应可选版式：高阳黑黄多线站牌与发车表详情、成都右栏电子牌、深圳蓝黄牌、上海双列纸牌、重庆斜排牌，以及蓝顶、底部彩带、弧顶、三站放大等车厢屏。展开“各城市参考资料”可直接套用。高阳详情按全部站点范围读取实际城市道路背景，线路优先沿直接成员道路几何绘制；无成员几何时虚线仅为站点连线，可重新读取或取消，失败保留旧图；发车表保留原日期条件，不虚构工作日／节假日班表。可展开“车厢、开门与导视预览”设置编组、当前车厢、门侧、门号、状态、出口及设施；这些是本页手动预览，门侧未知保持中性，未填出口／设施不绘制。全线图和车厢／站台页自动切换，含箭头、站灯及开关门动画；可暂停、调速或查看完整静态图。没有真实跳停与通告时不编造，城市名表示结构参考。</p><p>按车站读完后可用“套用哪条已读线路”直接制作单线车载屏。默认开启缺失运营资料模拟补全，可关闭或重新随机；真实值优先，到站时刻按当前设备时间与间隔／时刻表推演，没有间隔则生成模拟参数。图片内不显示模拟字样或底部说明，页面与 SVG 元数据保留补全来源，不代表实时运营；同一条线路分行后只显示一次大号线路编号；站序、终点和环线不随机生成。切换样式复用同一模拟结果，预览可见时整分钟更新时间，后台和输入期间暂停更新。</p><p>共 53 套模板，公交车厢屏可选 LED 全线走马灯、上下交错站名、斜排、折返、闭合回接和邻站放大。可指定当前站、暂停／播放、调节速度及查看完整静态图；放大后也能暂停。减少动态效果偏好下默认暂停，页面后台或离屏暂停。滚动与灯效是手动演示，不代表实时车辆。PNG／SVG 和下载清单保存包含全部已读站点的完整静态图。</p>
-              <p>“线路 → 线路显示模板”提供公交站牌、公交车载前／后路牌、地铁导视、车厢 LED 与 LCD 版式。公交分为横排竖写纸质牌、纵向灯箱、杆挂横牌及 LCD、LED、电子墨水站台屏，本站名、开往方向、下一站、站序与服务信息各有位置；显示范围可改为“同站多线路站牌”，纸质逐线叠放、灯箱分栏、电子牌显示多行到站表。现有 26 种公交结构，另有紧凑横条、左右分区灯箱、横屏多线路看板、双列分卡、枢纽索引和横写双语牌可选；枢纽索引不猜测站台号，英文只取源标签。横屏看板原宽 1920 像素，其他新牌原宽 1440 像素。真实车站可输入站名／OGF 编号，或使用地图点选的车站，读取这个站点所有已登记公交停靠关系及各自完整站序；不依赖视窗范围，不把同名或对向站混入。也可读取具体方向后手动加入。读取失败或取消保留旧站牌；手动增删后按自选清单标注，刷新后不保留；可下载保存。初次可用明确标注的示例；在下方选中真实线路并等候站序读取后自动填入。站序沿用已读取的当前线路方向及分段，不根据城市网络图的裁切结果猜测。</p>
-              <p>轨道具体方向按完整真实轨道连接校正站序，断开或分支则保留关系顺序并提示。全线各站核对明确站体、stop_area 及正式停靠关系，换乘用各线颜色加编号。可展开“贯通运营线路与运行区间”添加多个编号、颜色及起止站，图片与动画显示对应色条和区间说明；该手动标注不改写 OGF、终点属性或导航。可切换模板、修改配色、反向显示和手动预览当前／下一站。公交横版按可读宽度优先排满一行，只有超出容量才分行；站牌保留全部已读取站点，仅保留地铁、铁路、航空等跨方式换乘提示，不列公交互换清单。医院和学校只在有明确标签时用医／学标识，不按站名猜测。轨道线路屏继续显示原换乘信息；车载前／后路牌主要显示终点和下一站。本站是手动选择，公交模板可预览任意已读取站点；初始选中的位置不表示运营首站。运行时间、首末班、票价、运营方优先查线路关系，再查明确上级及匹配的运营方公交服务安排；同级冲突不猜测，不把公司办公时间当线路运营时间。班次间隔与逐班发车时刻分开显示，有时刻表而无间隔时只列发车时刻；长时刻表自动展开，缺项为“未提供”。环线支持 roundtrip、相同起终点、重复闭环端点及名称中的“循环／环线”，明确 roundtrip=no 优先；闭合曲线的主线与回接线采用相同粗细；所有线路的始发和终点以 from/to 属性为准，不按站序猜测；保留终点和本站／下一站，未标终点显示“未提供”，反向预览不改写属性；不以关系首个成员推断运营首站，不额外印“环线”“循环接首站”等说明。多线路之间按排列方式显示横向或纵向分隔线；规则统一用于各城市、各版式、车载牌、轨道模板、线路导视与图片下载。反向只影响预览，不生成另一方向时刻。“本张站牌的运营资料”可补填，只影响本页及图片，并注明用户补填、未核验，不写入 OGF 或模板。导出站牌只保留乘车信息，不显示来源编号、重复线路名、收录统计或“同站多线路”标题；这些查询范围、来源和预览说明保留在页面及 SVG 元数据，示例或人工未核验资料保留简短标记。电子站牌的到站预报、车辆位置及天气尚未接入，不编造分钟数或翻译。</p>
-              <p>下载 PNG（1×／2×／3×）、SVG，或将图片加入统一下载清单。下载模板 JSON 可保存版式并重新导入，JSON 不含当前线路资料。上传接受本站声明式 JSON 或共享模板包，不能直接导入任意图片、RMG／RMP 格式、HTML 或可执行 SVG。</p>
-              <p>“准备共享发布”将模板带入既有数据表单，登录后核对作者、来源和许可，再勾选共享并发布。共享模板库可刷新、分页并读取使用；作者及管理员在数据页维护，修改模板正文时发布新包以保留原件。外部城市参考目录仅作研究，不表示本站已内置对应城市同款版式。</p>
-              <h3>查看线路与车站</h3>
+              </div></details><details class="help-step"><summary>查看线路与车站</summary><div>
               <p>“线路”页下方可按名称搜索公交或轨道线路、筛选类型，查看线路走向和站点。主地图开启交通图层后，可点击车站查看所属线路；是否显示公交站、普通铁路等由交通筛选控制。</p>
-              <h3>城市铁路与轨道交通网</h3>
+              </div></details><details class="help-step"><summary>城市铁路与轨道交通网</summary><div>
               <p>在线路页上方搜索城市，选择有实际行政边界的结果。可分别筛选地铁、轻轨／单轨、有轨电车、市域铁路和普通铁路／城际，调整边界外缓冲，逐条开关线路；点击缩略图可放大、平移和缩放。</p>
               <p>“纳入在建线路”“纳入规划线路”默认关闭；开启后分别以长虚线、点虚线区分，不代表已通车。线路图可显示货运站，但货运站不作为客运导航站点。底图可选择简洁背景、华域或 OGF，和线路一起导出 PNG、SVG 或 GeoJSON。</p>
-              <h3>把线路放入下载清单</h3>
+              </div></details><details class="help-step"><summary>把线路放入下载清单</summary><div>
               <p>可将单条线路或当前可见线路与站点加入下载清单，再到“下载”下方的统一清单导出 GeoJSON、SHP、CSV 或地物图片。清单沿用当前线路、建设状态与范围筛选；线路图数据可能按边界截断，含此类数据时不能导出原始 OSM。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="directions">前往导航</button><button class="secondary-button" type="button" data-action="transit">前往线路</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="directions">前往导航</button><button class="secondary-button" type="button" data-action="transit">前往线路</button></div></div>
           </details>
 
-          <details id="help-ranges" class="help-topic" data-help-section open>
+          <details id="help-ranges" class="help-topic" data-help-section>
             <summary><span>范围、下载与贴图<small>选中一块区域，下载地图或放置自己的图片</small></span></summary>
             <div class="help-topic-content">
               <p class="help-callout">底图、行政区、华夏各级行政区清单、地图物体、动态表格、品牌目录、分店列表、线路站点及线路图可直接下载或加入页面下方的统一清单。选中物体属性区、行政区面积表和页面中新增的语义表格会提供“下载 CSV／加入下载清单”；品牌页可分别导出目录和当前筛选的分店，线路页可导出站点表或当前底图线路图文件。下载页面的“华夏行政区清单”以华夏共和国国家关系为根读取实际行政关系，不用视野范围代替。多项自动合并为 ZIP，并记录来源、可用数据时间与导出时间。新表格可用通用 CSV 导出入口；图表可接入 CSV 数据或 PNG／SVG 图片。把自己的图片放到地图上则选“贴图”；上传范围需在贴图面板中设置。</p>
-              <h3>① 确定范围</h3>
+              <details class="help-step"><summary>① 确定范围</summary><div>
               <p>“华夏行政区清单”优先读取已校验的完整预制清单或本机保存版本，显示其真实源数据与读取时间；预制清单每三小时独立更新，品牌读取失败不会阻塞行政区更新。旧完整快照可先下载，同时在后台检查新版；失败保留旧清单。点击“检查最新数据”可主动读取上游，不用重新等待全部地图加载。行政边界、层级与中心查询最多复用五分钟；主动点击加载会重新读取，失败保留已有完整显示。</p>
               <p>底图下载可用当前视野、四侧坐标或矩形框选确定范围，再选择完整矩形、行政区轮廓或手绘多边形裁切。选中行政区时也可下载一个或多个行政区。勾选“沿海岸线截取”后，可选“仅陆地”（含河流、湖泊及离岛）或“仅海域”（排除陆地、离岛与内陆河湖），与原有图片裁切叠加；PNG／TIF 未选部分透明、JPG 白底。原始行政边界仍保留，矢量包另外提供所选陆地或海域范围 GeoJSON、SHP（所选格式为 SHP 时）及面积表，属于派生结果，不应上传回 OGF。下载清单保存加入时的陆地／海域选择。多边形依次加点，可撤销，再点击“完成范围”；不要画交叉边。物体下载另可直接使用当前视野、矩形、多边形或已选行政区。</p>
               <p>“计算陆地／海域面积”按需读取 OGF 海岸线，分别显示行政区总面积、陆地面积（含内陆水体）与海域面积；已加载下级区划也按同一口径显示，嵌套行政区不相加。数值为制图估算，非官方法定面积。海岸线方向或连接不完整、读取失败时不交付部分结果，可重试。没有海岸线穿过范围时另用 OGF 海陆底图核对归属，并保留其源日期；计算及导出均不改变主地图。</p>
-              <h3>② 下载底图与行政区</h3>
+              </div></details><details class="help-step"><summary>② 下载底图与行政区</summary><div>
               <p>进入“下载 → 底图与行政区”，按需勾选“同步下载底图”，选择华域标准、深夜、模拟卫星或 OGF-Carto US／GB。可独立控制地理坐标信息、行政中心点、高亮边界和建筑模型；OGF 栅格图中已有的建筑或地名无法单独去掉，模拟卫星始终为平面表达。</p>
               <p>华域建筑模型数据遇到临时超时或网络故障时，会对失败分块最多自动重试两次。持续失败仍保留下载清单，不自动关闭建筑或交付缺块图片；可稍后直接再次下载。若主动关闭建筑或修改范围，需要移除旧任务、按新设置重新加入清单。</p>
               <p>图片长边可选 800–8192 像素，或自定义 512–8192 整数像素；界面会显示实际尺寸。格式包含 PNG、JPG、带地理参考的 TIF，以及行政边界 SHP ZIP、OSM XML。按轮廓裁切时，PNG／TIF 外部透明、JPG 外部为白色；更高输出分辨率仍受源数据细节限制。</p>
-              <h3>③ 下载范围内物体或任意选中物体</h3>
+              </div></details><details class="help-step"><summary>③ 下载范围内物体或任意选中物体</summary><div>
               <p>多选行政区时先“添加到行政区组合”；设置好范围、格式和样式后，点击“加入下载清单”。每项保存加入时的范围与选项，之后移动地图不改变该任务；可继续加入其他范围，最后在下方“下载整个清单”。</p>
               <p>切换“地图物体”，选择范围、大类和细分类。建筑可细分住宅、商业、办公、工业等；也可叠加名称关键词、完全匹配，或填写原始标签名与标签值。点击“读取范围内物体”，确认结果后全部加入清单。</p>
               <p>单个物体可在地图上点选、查看候选与属性后“加入下载”。地物可合并导出 GeoJSON、SHP ZIP、CSV 或原始 OSM XML，也可选 PNG、JPG、GeoTIFF 图片。图片提供地图配色、深夜、蓝图、黑白线稿，可选透明、风格底色或华域／OGF 底图，设置名称与分辨率。地物图片独立平面制图，保留完整轮廓、孔洞与多段几何，自动容纳全部选中地物；GeoTIFF 带 EPSG:3857 空间参考，JPG 透明处为白色。渲染风格只影响导出，不改变主地图或原始矢量数据。</p>
               <p>清单去重，可逐项移除或清空；最多 2000 项，其中底图／行政区任务最多 10 项。打包文件上限 256 MiB，过大时减少任务或分辨率后分批下载。读取或下载失败保留清单；清单仅在当前页面会话保留，刷新前先下载保存。</p>
-              <h3>④ 上传图片并调整放置范围</h3>
+              </div></details><details class="help-step"><summary>④ 上传图片并调整放置范围</summary><div>
               <p>先登录，再打开“贴图”、选择图片并设置名称与透明度。可填写西／东经度、南／北纬度后点击“应用坐标”，或点击“框选范围”在地图上绘制；范围与图片会先在本机预览，点击“上传贴图”才保存到账号。</p>
               <ul>
                 <li>画框：按住左键或手指拖动，也可依次点击两个对角点。</li>
@@ -1204,115 +1220,134 @@
                 <li>撤销本次调整：按 Esc 或“取消”，恢复上次确认的范围；未应用的坐标不能上传。</li>
               </ul>
               <p>经度范围 ±180°、纬度范围 ±85°；西小于东、南小于北，单轴跨度不超过 30°。支持 PNG、JPEG、WebP，原图不超过 16 MiB；系统压缩后保存。每账号最多 20 张、合计 10 MiB。保存后可定位、显示／隐藏、重命名、调透明度或删除；贴图仅当前账号可见，上传失败可保留草稿重试。范围编辑在上传前完成。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="download">前往下载</button><button class="secondary-button" type="button" data-action="overlays">前往贴图</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="download">前往下载</button><button class="secondary-button" type="button" data-action="overlays">前往贴图</button></div></div>
           </details>
 
           <details id="help-feature-info" class="help-topic" data-help-section>
             <summary><span>共享词条与属性<small>多人简介、建筑名称、补充属性与管理权限</small></span></summary>
             <div class="help-topic-content">
-              <h3>先选物体，再补充共享资料</h3>
+              <details class="help-step"><summary>先选物体，再补充共享资料</summary><div>
               <p>先在地图点选具体物体，或搜索地点后打开详情，在“共享词条信息”查看投稿。若只选中坐标，请先从候选中选择原始点、线或关系；词条依靠 OGF 类型与编号关联，避免同名对象混淆。所有人可阅读，登录后可新增。私人收藏和个人贴图仍只对自己的账号可见。</p>
-              <h3>简介、名字与自定义属性</h3>
+              </div></details><details class="help-step"><summary>简介、名字与自定义属性</summary><div>
               <p>登录后可添加标题、简介和可选来源链接，文字与署名公开。点击“给建筑／要素加名字”填写 <code>name</code>，或“添加属性”填写用途 <code>building</code>、层数 <code>building:levels</code>、高度、颜色、品牌、开放时间及自定义属性名。只有属性时可不填标题和简介。表格分列 OGF 原值和用户补充值；尚未读取原始标签时会明确标注。顶部搜索可找到简介、建筑名称、属性名和属性值，打开后阅读全部作者的内容。</p>
-              <h3>编辑权限与保存</h3>
+              </div></details><details class="help-step"><summary>编辑权限与保存</summary><div>
               <p>普通用户只能编辑、删除自己发布的信息；管理员可管理全部投稿，保留原作者并记录最后编辑者。每条正文最多 5000 字、标题最多 80 字；属性最多 32 项，同一条内属性名不能重复，属性名最多 80 字、值最多 512 字，整次提交最多 32 KiB。每人同一要素最多 20 条、总计最多 1000 条，每分钟最多发布 5 条。刷新读取最新内容，分页按需加载。保存失败保留表单，内容冲突时先刷新并核对。删除账号会删除自己的投稿。</p>
-              <h3>共享属性与原始地图标签</h3>
+              </div></details><details class="help-step"><summary>共享属性与原始地图标签</summary><div>
               <p>不同作者的同名属性分别保留，不自动覆盖。此处加名字、颜色或高度用于共享详情和检索，不会直接改变 OGF 原始标签、地图注记、三维模型或导航；修改原始地图可使用地图右侧的 OGF 编辑入口。人口表、POI、GDP、地价、通行需求、车次等成批资料请使用相邻的“共享数据包与专题图”。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="search">搜索要素</button><button class="secondary-button" type="button" data-action="account">登录与账号管理</button><button class="secondary-button" type="button" data-action="datasets">上传共享数据包</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="search">搜索要素</button><button class="secondary-button" type="button" data-action="account">登录与账号管理</button><button class="secondary-button" type="button" data-action="datasets">上传共享数据包</button></div></div>
           </details>
 
           <details id="help-datasets" class="help-topic" data-help-section>
             <summary><span>共享数据包与专题图<small>区域数据、来源口径、后台统计与下载</small></span></summary>
             <div class="help-topic-content">
-              <h3>上传一个要素、一座城市或更大范围的数据</h3>
+              <details class="help-step"><summary>上传一个要素、一座城市或更大范围的数据</summary><div>
               <p>打开“数据 → 上传共享数据包”。登录后选择 POI、人口、GDP、地价、通行需求、车次安排或其他类型，填写范围名称、统计日期、单位、时段／口径、来源和许可，选择 UTF-8 CSV、JSON 或 GeoJSON。CSV 模板按数据类型提供；车次模板包含线路、车站、到发时间和开行日，通行需求模板包含起终点与时段。应用不设文件大小、记录数、属性列数、几何顶点数或范围资料容量上限；大范围数据完整校验与保存，不截断。暂不接受 ZIP、Excel 或其他二进制格式，请先转换。</p>
-              <h3>位置、范围与字段</h3>
+              </div></details><details class="help-step"><summary>位置、范围与字段</summary><div>
               <p>CSV 默认识别 longitude／latitude、lon／lat 或经度／纬度，使用 WGS84 经纬度。支持自定义名称、坐标、指标及 OGF 类型／编号列映射。GeoJSON 保留点线面、多部件和孔洞，环须闭合；JSON 可为对象数组或带 records 的对象，属性值支持文字、数字、布尔及空值。范围名称只是覆盖说明，不用名称猜位置。可先搜索并选择真实行政区或原要素，再用“关联当前已选行政区／要素”；只有单条汇总记录缺少几何时才使用关联的原始几何，多行数据不会都被放到行政中心。较大范围可直接使用 GeoJSON 几何。</p>
-              <h3>校验、发布及共享权限</h3>
+              </div></details><details class="help-step"><summary>校验、发布及共享权限</summary><div>
               <p>“校验与预览”在本机后台检查格式、指标、坐标和记录数量，显示前20条；尚未发布。勾选公开共享并发布后，原文件、标准化记录、作者、来源和日期一起保存，游客也能查看、下载和计算。文件含私人信息时请先自行移除。每人可编辑自己数据包的说明或删除自己的包；管理员可管理全部并保留原作者。更换文件、分类或范围另发新包，不覆盖别人的数据。不设应用层数据包数量、账号容量、全站容量或发布频率配额；实际传输、计算与存储仍受托管平台和设备能力影响，失败不发布半包。保存失败保留草稿，退出或换账号清除草稿。删除账号同时删除该账号的共享数据包。</p>
-              <h3>查询、后台统计与专题图</h3>
+              </div></details><details class="help-step"><summary>查询、后台统计与专题图</summary><div>
               <p>目录可按类型及名称／范围／来源查找。打开一份数据包，选择主指标或任意原始字段，以数值分位数设色和比例点、或按类别配色显示在地图；主指标沿用包的单位，其他字段可填写本次专题单位，不把人口单位套给GDP或坐标。俯视及倾斜视角使用同一原几何，收起菜单后专题图继续显示，可手动隐藏。数字零参与统计，缺失值不当零；缺指标或缺位置分别列出，未定位记录仍保留供下载。后台计算有效记录数、算术和、最小值、最大值、平均值及类别数量；算术和不扣除上下级、重复地区和交叠范围，不当作行政总量，不自动换算单位或判定哪位作者的数据更权威。</p>
-              <p>数据包通过统一公开结构接口供后台任务读取。本期已接入的是标准化、统计与专题图计算；GDP、地价、OD和车次原表均可保存、查询、下载和按字段制图，尚不自动校准交通模拟、代替真实运行时刻表或修改 OGF。地图模型、导航、人口守恒及原更新周期继续沿用。</p>
-              <h3>下载原件、数据和专题图</h3>
+              <p>数据包通过统一公开结构接口供后台任务读取。普通统计包可标准化、统计和制图，不自动校准车流或修改 OGF；铁路／城铁／航班时刻表另接入导航候选的班次匹配，规则见“车次、航班与时刻表”。地图模型、导航、人口守恒及原更新周期继续沿用。</p>
+              </div></details><details class="help-step"><summary>下载原件、数据和专题图</summary><div>
               <p>可下载上传原件或包含完整标准化记录及来源资料的 JSON；预览表与统计表可导出 CSV。专题图支持独立 SVG 和1600×1000 PNG，保留来源、日期、单位及许可，未附主地图底图；标准化数据和 SVG 可加入既有下载清单。表格导出仅包含当前实际显示行，完整记录使用数据包下载。格式与 API 说明见维护文档“共享数据包”。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="datasets">打开共享数据</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="datasets">打开共享数据</button></div></div>
           </details>
 
           <details id="help-personal" class="help-topic" data-help-section>
             <summary><span>收藏、个人地点与账号<small>默认位置、经历标签、快捷导航和同步</small></span></summary>
             <div class="help-topic-content">
-              <h3>收藏地点与设置默认位置</h3>
+              <details class="help-step"><summary>收藏地点与设置默认位置</summary><div>
               <p>选中地点后点击“收藏”；在“收藏”页可快速查找、定位或删除。登录后可“添加个人地点”，使用当前选点、地图中心或手填坐标，设置名称，并编辑或删除已有地点。勾选“设为默认位置”用于回到首页；每个账号只有一个默认位置，保存新默认会替换旧默认。分享链接的位置与手动移动优先于登录后的自动定位。</p>
-              <h3>家庭、学校、工作与自定义标签</h3>
+              </div></details><details class="help-step"><summary>家庭、学校、工作与自定义标签</summary><div>
               <p>同一地点可选择家庭、故乡、幼儿园、小学、初中、高中、大学、工作单位等多个标签，同类标签可保存多个地点。自定义标签用逗号、顿号或分号分隔，每地点最多 8 个，每个最多 24 字；可编辑、删除和复用。最多保存 200 个收藏，按名称或标签筛选后可快速设为导航起点、终点，也可在导航页直接选择收藏。</p>
-              <h3>注册、登录与账号同步</h3>
+              </div></details><details class="help-step"><summary>注册、登录与账号同步</summary><div>
               <p>“账号”中注册：用户名 3–32 位，可用中文、字母、数字、下划线或短横线；显示名称可选、最多 40 位；密码 10–128 位。游客的搜索记录与普通收藏保存在当前浏览器，登录时可合并到账号；个人地点、搜索记录和贴图按账号保存。同步失败时查看状态并使用“重试同步”，不要把尚未同步的本机保存当作已同步成功。</p>
-              <h3>资料、密码与用户管理</h3>
+              </div></details><details class="help-step"><summary>资料、密码与用户管理</summary><div>
               <p>登录后可在账号页查看个人数据数量、修改显示名称和密码、退出或删除自己的账号。删除账号会同时删除该账号的个人数据。拥有管理员权限的账号还可查看用户列表和数量，启停账号、调整角色或删除其他账号；普通账号不会显示用户管理入口。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="favorites">前往收藏</button><button class="secondary-button" type="button" data-action="account">前往账号</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="favorites">前往收藏</button><button class="secondary-button" type="button" data-action="account">前往账号</button></div></div>
           </details>
 
           <details id="help-render" class="help-topic" data-help-section>
             <summary><span>渲染设置与模型<small>植被、建筑屋顶、光影日照、桥梁和替代模型</small></span></summary>
             <div class="help-topic-content">
-              <h3>植被与恢复默认</h3>
+              <details class="help-step"><summary>植被与恢复默认</summary><div>
               <p>“设置”可选择经典柱形、双层柱形或自然树冠，调整面状植被密度，单独开关花园花簇。经典样式中普通树木为单层圆柱，花园观赏树保留原先略有偏移的双层树冠；可选“双层柱形”的上下树冠居中对齐。偏好保存在当前浏览器；“恢复默认”恢复站点的原有模型与设置，不删除已经导入的本机文件。</p>
-              <h3>建筑材质与屋顶</h3>
+              </div></details><details class="help-step"><summary>建筑材质与屋顶</summary><div>
               <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和 <code>roof:shape</code> 显示屋顶。支持水平、山墙、高差山墙、单坡、庑殿、半庑殿、单侧庑殿、单侧半庑殿、孟莎、复式、歇山、攒尖、十字脊、锯齿、蝴蝶、尖顶、圆穹、洋葱和弯隆，共 19 种。倾斜近景可查看立体形态，水平式保留平顶；缺少标签、不支持的形状、带孔或不适用的复杂轮廓保留原有模型，不根据名称猜测。</p>
               <p><code>roof:orientation=along</code> 让屋脊沿建筑长边，<code>across</code> 沿短边；<code>roof:direction</code> 优先指定坡面向下的方位，0° 为北、90° 为东，单坡的相反方向会真正交换高低边。未标方向时按轮廓稳定定向，不因拖动或转动地图改变；曲线顶沿真实凸轮廓适配。形状细节缺少标注时是制图示意，墙面和山墙仍使用墙色，坡面独立使用屋顶色；屋顶与日照阴影使用同一几何。</p>
               <p>半庑殿半山墙式 <code>roof:shape=half-hipped</code> 也支持上述换向。如果要用 <code>along/across</code>，请先移除已有的 <code>roof:direction</code>，否则仍以有效方向角为准。以南北／东西对齐的矩形建筑为例：<code>roof:direction=0</code> 或 <code>N</code> 对应东西向屋脊，<code>90</code> 或 <code>E</code> 对应南北向屋脊。方向角用于在原轮廓的两组边之间选向，不会把整个屋面任意旋转出建筑范围；对称半庑殿改成相反方位（如 0°→180°）外观相同。修改后需等待上游同步及当前区域的两分钟建模检查，在倾斜近景中查看。</p>
-              <h3>光影与日照</h3>
+              </div></details><details class="help-step"><summary>光影与日照</summary><div>
               <p>“设置 → 光影与日照”默认开启“跟随现实时间”：按设备所在时区读取当前日期和钟表时间，每分钟更新光照与建筑阴影；跨日自动更新日期，重新打开页面或从后台返回时立即对时。设备时间作为虚构地图的日照参考，太阳方向仍按地图当前纬度估算，不推断虚构城市的真实时区。</p>
               <p>可以选择“手动预览”，也可直接修改日期、时间、拖动滑块，或点击今天／季节日期／清晨正午傍晚快捷按钮，系统会固定在你选择的时刻。手动模式按当地太阳时模拟，12:00 表示太阳正午，不等同于北京时间。点击“回到现实时间”，或重新选择“跟随现实时间”，会同时恢复当前日期、时间及持续自动跟随。环境亮度和明暗对比可分别调节，夜间采用中性弱光。同一日期在南北半球自然呈现不同季节。</p>
               <p>建筑地面阴影可独立开关、调节浓度，近景建筑完整加载后后台生成，早晚拉长、正午缩短，太阳落山后关闭；俯视与倾斜均可查看。阴影按原建筑轮廓、孔洞、高度和已显示的坡屋顶估算，重叠不反复加深，拖动地图时保留上一份完整结果。投影随现有地形贴地，但不计算山体遮光、其他建筑墙面上的投影或反射；局部数据和高度为制图表达，不代表真实天气或工程日照分析。仅用于主地图的华域标准与深夜底图，模拟卫星、OGF 栅格及独立下载不继承。关闭日照恢复原有光照；偏好保存在本机，原先明确保存的关闭和手动设置继续保留。“恢复默认”重新开启跟随现实时间，并恢复亮度与阴影设置。</p>
-              <h3>摩天轮与停车场</h3>
+              </div></details><details class="help-step"><summary>摩天轮与停车场</summary><div>
               <p>近景中，明确标注的摩天轮在倾斜视角显示轮圈、辐条、支架与吊舱，优先读取高度、直径和方向；缺少尺寸时采用示意尺寸。露天停车场显示边界、P 标识及范围内的车位线，并避开已标注停车通道；自动车位线仅为示意，不代表真实布局、车位总数或余位。停车楼沿用已有建筑模型，地下、屋顶及有顶停车区域不生成露天车位。模拟卫星保留原有平面表达。</p>
-              <h3>室外公厕与售卖亭</h3>
+              </div></details><details class="help-step"><summary>室外公厕与售卖亭</summary><div>
               <p>近景倾斜视角中，独立的厕所点可显示小型公厕，商店、咖啡店、快餐、冰淇淋店及餐馆点可显示带遮棚和售卖窗的小亭。仅在建筑与近景底图数据完整后补充，已有建筑或同类设施面覆盖的点，以及明确标为室内、地下、屋顶或其他楼层的点保留原有表达；新模型按完整占地避开已知道路、铁路、水体、建筑、亭子及本批小模型。未标尺寸、方向时可在原点位转向或缩小以适应可用空间，明确标注的参数保持不变；仍放不下时保留原图标。尺寸、外观缺少标注时为制图示意，不代表真实建筑；实际点位、图标、名称和原始数据不变。俯视、模拟卫星或模型失败时继续显示原有标识。</p>
-              <h3>桥梁与立交</h3>
+              </div></details><details class="help-step"><summary>桥梁与立交</summary><div>
               <p>“桥梁渲染”默认关闭；开启后，在华域倾斜视角中根据道路层级与连接生成桥面和缓坡，首次大范围加载需要等待。普通地图俯视仍显示平面道路；模拟中的街道近景会自动显示有效桥面及车道。关闭可恢复原有道路表达；桥面高度和坡度属于地图表达，不是工程测量结果。</p>
-              <h3>交通模拟、人口与停车</h3>
-              <p>开启模拟后，“近景车道”在街道近景显示路面、外侧线、同向白色虚线及双向黄色分界；缩小自动隐藏细节，关闭该显示不改变车辆行驶。车道数优先使用 lanes、lanes:forward/backward，支持单行、反向单行及左右通行；缺失时按有效 width，再按道路等级采用界面列明的固定默认值，不依据建筑间距猜测。未明确分道的窄双向路保留共享路面，不强画两条车道。局部车辆按车道保持间距、路口让行后连续接入下游；区域展示样本按合法车道运行，聚合容量使用同一车道数。信息卡按模拟实际车道索引显示当前位置，不作为导航转向车道建议；车道减少在路口衔接，不模拟沿途自主超车；推算不补写原始地图，不是实测道路宽度或工程车道模型。</p>
-              <p>打开独立“模拟”菜单，手动开启（默认关闭，不保存开关）。选择“城市／省／国家”，输入行政区名称并选中完整边界，可添加 1–4 个行政区，再点“加载所选区域并模拟”。优先复用视野附近已加载的道路和住宅，不足时先读约 1.5 公里邻近范围，显示明确标为局部的预览；不将全市人口塞入街区。全域读取立即开始，与附近预览共用最多两个请求槽，不等待预览完成；完整成功才替换；后台路径计算复用路网索引，保持相同需求与路线。失败或取消保留已有预览／模拟。城市、省和国家均读取完整汽车道路类别，跨区域沿真实连通干道通行；移动地图保留全域计算。点“查看全域”观看路况，放大到街道观看样本汽车。名称按完整名称或明确别名匹配；已填写“市／县／镇”等后缀时，不混入其他类型或仅上级地址相同的候选。城市点会先显示并允许定位，但不能将点周围矩形用作整市范围；缺少完整行政边界时可定位后手动切换“当前街区”。城市点使用独立轻量查询，成功结果在本标签页保留三小时，刷新或网络失败仍可定位；缓存读取不会延长年龄，不缓存失败或空结果。边界查询失败提供重试入口，不表示城市不存在。手机底栏可横向滑动，面板可收起并从“模拟”恢复。</p>
-              <p>人口同时读取 population、population:hx 和实际行政中心成员；上级关系不能提前消耗城市人口点，明确 admin_level、place:hx 及已有的五级以下首府层级用于区分人口范围，城市与县区不因都标 city 而混为一层；capital=yes／2／3／4 仅表示政府驻地，不能把一个城市的人口当作整国或整省人口。社区、街道、区县按层级分配，父子不重复相加。未标人口、缺少道路或设施、父子数据冲突会列出；同一人口查询同时统计未标人口的城市、镇、社区等地名点，地名缺标不代表无人，也不额外增加已知上级总人口。大区剩余人口粗略分到本区住宅道路；设施缺少容量也需估算。工作、学校、商圈、医疗与休闲按用途、时段和距离吸引出行；有可往返的真实道路才分配，断路不会凭空连接。小路、服务路和生活街道可供所在人口及设施首末接入，跨区行程不将内部路作穿行捷径。省级与城市范围均读取完整汽车主路、住宅路、生活街道和服务路，不再仅在枢纽周围补小路；仍受原请求及路网容量限制，超限保留原模拟并提示缩小范围。默认 08:00、1 倍，可选更强情景；这些是假设情景，不是实测交通预测。</p>
-              <p>铁路客站、机场与航站楼单独产生接送／换乘需求，读取容量或年旅客量；缺标时车站吸引力 5000、机场 12000、停留 20 分钟均为示意假设，早晚需求较高。站台、同名重复站点、机场主体与航站楼避免重复放大，人工确认的货运站不生成客运接送需求；未接入真实列车时刻或航班。</p>
-              <p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。局部及城市路网均计算桥梁、高架和隧道。开启模拟会自动启用桥面和近景车道，关闭模拟后恢复原设置；自动桥面不改写已保存偏好。街道近景下俯视和 3D 均可自动显示桥上汽车、车道和路况。优先复用已完整加载的模拟道路及真实节点，补齐桥梁连接和引道，不再等待另一套底图请求；仍须完整桥面高度就绪。没有有效桥面时保留原道路和路况线，不将桥上或地下汽车画到地面。普通地图的桥梁渲染仍默认关闭。模拟期间设置页标明自动开启，近景车道可手动隐藏；2D 不会被强制切成 3D。视野内有隧道时自动显示可收起的桥隧车道图，可选择附近其他隧道，查看双向车道、总数和标签／估算来源；没有样本车也能查看，不要求先跟随。桥面尚在准备时也提供该示意，桥面就绪后自动切为地图标线。车道示意按实际左右通行排列。跟随信息卡不依赖桥梁模型开关，桥梁及隧道均持续显示本方向车道数、当前车道、整条道路总数和标签／估算来源；隧道采用独立车道图，明确标注“非地下实景”：蓝色为所跟车辆，灰色为本路段附近同向的已采样车辆，随车辆位置更新；不把地下道路或汽车投到地面。开启近景车道时，桥上铺装与普通道路采用相同灰色，关闭即恢复原桥面；标线采用相同配色，同向虚线按 3 米实线／3 米空隙连续切分，视窗移动不改变虚线位置；倾斜跟随复用车辆附近缓冲范围，不逐帧重建。</p>
-              <p>区域模拟读取范围内全部建筑，按明确用途、内部设施和用地判断住宅、办公、商业、教育等活动；按占地面积乘有效楼层分配已有标注人口，缺楼层先按扣除底高和屋顶后的有效墙高每 3 米推算，再缺失暂按两层，不额外造人口。用途未标建筑以一半楼面权重分配居民位置，同时作为一般活动地点，这是情景假设，不代表已确认住宅用途；车库、纯屋盖、停用和建筑部件等不重复生成人员活动。真实行政／小区范围及孔洞优先，只有人口点时覆盖真实上级范围，按邻近同级点估计归属，不使用固定半径截断；这不等于正式下级边界。市、街道、村庄人口点按层级归属，细点不能压掉上级剩余人口；没有剩余人口的父点仍约束其子级的位置，避免跨入相邻城市。摘要分别列出已知人口、已接路与未接路人数，以及缺少直接人口的行政区，已知合计不代表完整全省人口。建筑、小区和上级人口逐级扣除，关系成员、建筑与外围用地去重。缺少建筑时采用住宅用地，仍缺失时在该范围合法住宅／服务道路上粗略分配；有建筑但接不上道路的份额保留为未分配，不集中到其他建筑。人口接入按约 400 米归组，最多 512 组；设施最多 1800 组，超限逐级合并并保留全部权重与停车归属。所有可往返的设施组纳入行程，实际路径和距离决定是否有需求；未知人口和不连通地点不会随机造车，也不保证每栋同时有样本车。展开“建筑与人口核算（分区）”可查看各区建筑数、楼面面积、分配人口与未接路人数；根区其余区域单列，分区人口是位置估算，不是官方新统计。一栋楼可分配多人，楼面大小和层数决定相对权重，整个行政区人口保持守恒。</p>
-              <p>已标停车场使用 capacity，缺失暂按 20 位；开场 50% 占用、入口 300 辆／小时及设施周边 800 米选择均为明示假设。满位限制到达并保留道路队列，返程释放已有库存。露天停车面内有真实相连的内部路时，车辆沿路进场、低速驶入示意泊位、保持可见地停留，再驶出返程；保留面边界及孔洞，不代表真实车位布局。可从“模拟排队集中路段与停车场”点“查看停车进出场”定位，列表中“已停车”可选中查看。开场少量已停车样本代表假设的原有占用。缺少相连道路或仅有点位时仍计算停车库存，但不虚构入口；未标停车场处仍为场外停留。聚合返程参考对应停留时长前的需求，样本则到达后实际停留再返家：工作 8 小时、上学 6 小时、购物 15 分钟、就医 45 分钟、休闲及用途未标的一般活动 30 分钟、交通枢纽 20 分钟。不是实际停车余位或逐车停车记录。</p>
-              <p>所选城市必须有完整行政边界；下级社区只有中心点、缺少边界或源边界未闭合时，不再导致整市失败。有有效中心点的下级在真实上级范围内估算人口位置，面板列出缺项，不补画正式边界；没有定位但具有明确上下级关系的已知人口保留为未定位、未分配，不挪到其他建筑。根边界无效、源请求截断或成员坐标缺失仍保留原模拟并提示修正。</p>
-              <p>区域人口、道路、设施与建筑通过同源压缩通道完整传输，有效的完整结果可复用两分钟缓存，源数据时间不会因命中缓存改变；再次加载已有完整区域会主动重读。数据量与功能保持一致，首次查询仍受 OGF 上游响应及网络速度影响；只有四项数据全部通过校验才接管。</p>
-              <p>大范围路网首次下载可能较慢，面板会显示人口、路网、设施或全域建筑四项的接收进度；仍在传输的数据不会因为超过 95 秒被直接丢弃。传输停滞或临时连接失败时最多自动重试两次，保留本轮其他已成功的数据；持续失败会指出具体项目和后台阶段，可再次点击“加载所选区域并模拟”，或取消并保留已有模拟。本地网页的后台程序加载失败时，请确认本地服务仍在运行后刷新。系统不会擅自缩小行政范围。</p>
-              <p>点击汽车或从列表选择，查看用途、起终点、金线、等待与停留，再点跟随。“车辆跟随视角”可随时切换 2D 北向俯视或 3D 沿行驶方向倾斜，切换不会重建模拟。跟随开始时收起功能面板，点击信息卡的“模拟设置”或原菜单可恢复；独立信息卡持续显示所跟车辆编号、道路、模拟车速、前方路线转向及车道数量，并列出当前路段模拟路况、排队估算及周边展示车辆数。跟随中周边汽车按缓冲视野补齐，长道路穿过画面时也会采样，重叠视野保留已有车辆行程；补充数量受已有路段在途量及原预算限制，不增加区域流量。路况颜色保持正常透明度，跟随车继续受同一路段拥堵和排队影响。蓝色车身、光环和“跟随车辆”标记区分其他汽车，路线以较细蓝线显示以便看清分道线。3D 视角将汽车置于画面偏下方，保留前方道路；跟随中按缓冲视窗持续准备标线，不等待镜头停止。拖动地图、Esc 或停止跟随退出；滚轮、双指及信息卡的加减按钮缩放仍保持跟随并保留缩放级别，到达停留自动停止；面板收起后仍能停止。“自定义车辆起点”支持地图选点、地图中心或输入“纬度,经度”，终点留空自动选可达设施，也可手动指定附近道路接入点。先加载模拟路网；起点 100 米内无可用道路、终点不可达或起点缺少安全发车空间时明确提示，不虚构路线。点击“发车并跟随”添加一辆观察车，按既有车道与排队规则行驶，到达结束，可手动结束后重设；不改变人口、区域需求、停车库存或其他车辆的行程。后台暂停且不补算；关闭、底图切换和恢复默认释放资源，原导航、模型及日照独立。仍可切换“当前街区”使用约 850 米已加载路网的精细跟车和路口让行；局部人口不足会提示，不随机巡游。区域加载失败／取消保留现有模拟，跨度和容量过大请减小范围。修改情景时间／强度会重新准备，新版不会清理建筑或改变数据更新周期。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div>
-              <h3>模型替代方案与本机导入</h3>
+              </div></details><details class="help-step"><summary>模型替代方案与本机导入</summary><div>
               <p>可为树木、灌木、花簇、亭子、候车亭、喷泉、墙等选择现有模型或已提供的替代方案。也可导入自己合法取得的 GLB，先预览，再调整朝上轴、旋转和部件后应用；单文件不超过 24 MiB。本机导入只保存在当前浏览器，不随账号跨设备同步，换浏览器时需重新导入。移除文件需要确认。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="settings">前往设置</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="settings">前往设置</button></div></div>
           </details>
 
-          <details id="help-questions" class="help-topic" data-help-section>
+          <details id="help-brands" class="help-topic" data-help-section><summary><span>品牌、门店与 logo<small>统计范围、名称识别、标识上传与品牌管理</small></span></summary><div class="help-topic-content"><details class="help-step"><summary>查找品牌和门店</summary><div>
+              <p>顶部搜索同时提供品牌与店名候选，个人收藏仍优先。打开“品牌”，在“按城市行政边界统计”选择真实边界，默认纳入 brand 标签及未标 brand 的商业设施店名。店名、正式名、语言名称或别名与已有品牌相符，且设施分类兼容时，可识别全名或“品牌＋分店”名称；每个地点注明标签或名称依据。未知店名列为待确认候选，可搜索和定位，不混入品牌总数；不同名称或冲突不强行合并，也不把运营者自动当作品牌。识别来源可选全部、仅标签、仅名称识别或待确认店名。普通公交站、景点及无商业分类的名称不据此推断品牌。</p>
+              <p>城市范围不随地图缩放改变，不要求店名含城市名称，点击品牌或店名可查询该城市地点。“筛选品牌、运营者或分店样本”是文字筛选，匹配数不代表城市总数。“发现当前范围的品牌”仅查询矩形视野。全域目录仅索引至少两个地图要素同名的待确认店名；单独店名可在城市或视野发现。超过数量上限时仅表示已读部分；计数不代表营业状态或完整商业普查。名称识别只在地图查询中使用，不向源数据补写 brand。</p>
+              <p>门店可按所选城市、全球或当前地图范围读取，点击“查看分布”显示位置；选择门店后可收藏或设为导航起终点。道路或关系的图钉可能是几何中心，不代表入口。超过单次 500 个地点或发现范围 2000 个要素时会明确提示，请缩小范围；不把部分结果当作全部门店。</p>
+              <p>品牌页可见且启用自动检查时，当前所选城市统计或门店每两分钟检查一次；未选城市不轮询全图，切换页面、收起面板或进入后台即暂停。目录由独立工作流每三小时重建，打开品牌页时每五分钟检查新版；实际更新受 OGF 同步、服务负载及部署影响。目录生成时间、上游数据时间与门店读取时间分别显示，失败保留上一份结果。品牌功能不改变原有地图三小时数据更新。</p>
+              </div></details><details class="help-step"><summary>品牌和地铁 logo</summary><div>
+              <p>品牌页的“品牌与地铁 logo · 共享标识”可查看已有标识、开关地图 logo。已接入 OGF 商号索引的 ToDays、aniM、高阳银行和高全达通；近景显示对应 logo；有 brand 和 branch 时名称显示为“品牌 · 分店”，例如“aniM · 站前店”，不再重复拼接完整店名；没有分店标签时保留实际名称，地铁保留站名。密集处随比例尺避让。优先使用 brand，缺标时按完整商业名称、分店后缀和明确别名识别；同名无关地点不替换。标识或地点读取失败保留原符号或上一份完整结果。</p>
+              <p>登录后选择品牌、运营者或地铁系统，填写与地图标签一致的完整名称、明确别名、图片和来源，即可公开共享；PNG、JPG、WebP、独立 SVG 最大 8 MiB，等比转为 128×128 PNG。原作者可更新或删除自己的标识，获批品牌管理者可维护对应品牌的标识，管理员可管理全部；被禁止管理某品牌后，原作者也不能再操作该品牌标识。内置标识上传新版后可替代，删除新版会恢复内置版本。地铁按明确 network／operator 和正式线路关系匹配，不按站名猜系统、不改变站点位置、线路颜色或导航；不同系统冲突时保留原换乘符号。</p>
+              <p>独立地图 logo 在原生16级（地址栏约17级）的街道近景才显示，高度至多约22像素、横版宽度至多约32像素；缩小时恢复普通符号，交通视图保留原站点显示层级。已开启地图 logo 时，每两分钟检查共享标识和当前近景地点，后台暂停；只读当前缓冲视窗，不轮询全图。临时连接失败自动限次重试；同一区域的地图样式通知复用正在进行的查询。刷新或新标签页先恢复本机三小时内的公开目录、完整地点和透明图片缓存；窗口扩大先显示已知区域并后台补齐，单个慢图不阻塞其他标识，原始读取时间不延长。地图保留源透明度，不附加实色底托；原图自身背景不会自动抠掉；点击“刷新 logo”重读目录与当前地点。选择图片先在本机预览，点击公开共享后才上传；助手可打开品牌页，图片仍由用户选择并核对发布。原始标识来源和权利说明在各卡片中保留。</p>
+
+              </div></details><details class="help-step"><summary>品牌管理者申请与管理员处理</summary><div>
+              <p>在品牌详情点击“品牌资料 / 申请管理”，或展开“品牌资料与管理者申请”，确认品牌完整名称后填写说明与可选依据。首位申请默认自动通过；同品牌已有其他待审申请或管理者时，后续申请等待站点管理员审核。获批后可维护品牌公开简介、官网及对应 logo，不能修改 OGF 原始标签、其他品牌资料或全站账号。品牌管理者是本站维护权限，不代表已核实官方身份。</p>
+              <p>“我的申请”可查看状态和处理记录、撤回待审申请。站点管理员从账号管理入口或品牌页的“管理员：全部申请”查看谁申请了哪个品牌，包含自动通过的记录，可批准、驳回、撤销权限或禁止管理该品牌。驳回、禁止须填写原因；禁止同时撤销权限并阻止再次申请，解除禁止后需重新申请，不自动恢复权限。申请说明和审核原因仅本人及站点管理员可见；管理者昵称、品牌简介和官网公开。展开品牌管理时每两分钟检查申请与权限，也可手动刷新；收起、离页或后台暂停。收到申请指站内列表记录，不发送邮件。</p>
+              <p>助手可查询品牌公开资料，也可在登录后准备管理申请草稿；必须在原表单核对后提交，已有草稿不会被覆盖。助手不能审批、禁用或自动提交申请，也不会读取私人申请说明。</p>
+
+              </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="brands">打开品牌目录</button></div></div></details>
+<details id="help-timetables" class="help-topic" data-help-section><summary><span>车次、航班与时刻表<small>上传字段、查询、导航匹配及缺失时刻估算</small></span></summary><div class="help-topic-content"><details class="help-step"><summary>查询班次与导航时间</summary><div><p>在“导航 → 铁路／城铁车次与航班”按车次、站点、机场或制式查询，可翻页与下载。出发时间使用设备时区，留空为现在。导航在已有真实路径候选中匹配未来48小时能赶上的共享班次，计入接驳、候车及换乘；没有匹配、已错过或服务失败时沿用默认方案。共享资料保留作者及来源，不代表实时运营或延误预报。</p></div></details><details class="help-step"><summary>上传停靠点与时刻</summary><div><p>在数据页选铁路、城铁或航班时刻表，下载本类型 CSV 模板。每行一个停靠点，同班次至少两站且首站有时间；trip_id 区分班次，stop_sequence 决定顺序，未填按原行序。station 或 stop_id 标识停靠点，arrival／departure 使用 HH:mm；支持只填首站发车，其余待估算。推荐原始 OGF 编号，站名仅在完整候选中唯一时匹配，不合并同名异地站。</p></div></details><details class="help-step"><summary>日期、跨日与时区</summary><div><p>未填写开行条件时默认每日、UTC+08:00。可用 service_date、service_days 及 utc_offset 指定日期、星期和逐站时区；支持24点以上时刻及午夜顺延。上传日期不当作开行日期，原填时间不会被估算覆盖。</p></div></details><details class="help-step"><summary>缺失时刻怎样估算</summary><div><p>铁路复用已确认的连续轨道，结合逐段限速、车辆最高速度、曲率和加减速度，保留中途停站。缺限速及车辆参数时使用明示默认值，可在模板调整；断轨、规划段或未绘制连接不能用直线补齐。航空按机场航程、巡航速度及起降滑行假设估算，不是航空性能计算或工程运行图，不模拟未知坡度、风、调度等条件。估算只作用于本页，不自动发布或改写原文件、OGF、快照。</p></div></details><div class="help-actions"><button type="button" class="secondary-button" data-action="directions">查询班次</button><button type="button" class="secondary-button" data-action="datasets">上传时刻表</button></div></div></details>
+<details id="help-templates" class="help-topic" data-help-section><summary><span>线路站牌与车厢屏<small>选站、模板、贯通交路、动画及导出</small></span></summary><div class="help-topic-content"><details class="help-step"><summary>贯通拼接与交路停靠</summary><div><p>贯通请选择具体方向，展开“贯通运营线路与运行区间”，读取首末站线路后接入完整站序；只按真实站点编号、明确 stop_area 或完整轨道的共同端点连接，共用接点显示一次。可连续接入、撤销最近拼接。“本次运行交路与跳停”可设置大小交路及区间内跳停，完整线路保留，不停靠站置灰、不点灯，下一站只提示停靠站；可恢复全程各站停靠。这是本页用户指定的展示方案，PNG／SVG 与动画一致；线路画在站点下方，灰显站圈保留不透明底色，图内不附底部交路灰字说明，运行方向箭头放在第一行站点上方。不改写实际线路、导航或源终点属性。</p></div></details><details class="help-step"><summary>按地图选站生成</summary><div><p>点选地铁站后可点击“制作本站地铁／轨道导视图”，也可在模板中使用地图选站。读取本站真实线路和具体方向，当前站按源编号定位；无数据时显示读取提示，不自动套示例。换乘标识采用各线路自己的颜色和编号，完整线路名保留在提示及导出元数据。</p></div></details><details class="help-step"><summary>终点与环线</summary><div><p>终点缺失时先看“套用哪条已读线路／方向”：总关系可能包含不同上下行或分期，选择具体关系后读取该方向的 from/to。未标终点不会用站序推算。公交环线两侧均衡排站，只有真实环线才闭合；折返线的圆角、粗细和描边保持一致。无锡园林屏使用浅色宽屏、窄花边牌、连续拱形站灯和独立到站页，长线仍保留全部站序，车厢与门侧继续手动设置。</p></div></details><details class="help-step"><summary>参考版式、城市路网与车厢预览</summary><div><p>本批参考（含新增五张车厢／站台屏，共30张）已对应可选版式：高阳黑黄多线站牌与发车表详情、成都右栏电子牌、深圳蓝黄牌、上海双列纸牌、重庆斜排牌，以及蓝顶、底部彩带、弧顶、三站放大等车厢屏。展开“各城市参考资料”可直接套用。高阳详情按全部站点范围读取实际城市道路背景，线路优先沿直接成员道路几何绘制；无成员几何时虚线仅为站点连线，可重新读取或取消，失败保留旧图；发车表保留原日期条件，不虚构工作日／节假日班表。可展开“车厢、开门与导视预览”设置编组、当前车厢、门侧、门号、状态、出口及设施；这些是本页手动预览，门侧未知保持中性，未填出口／设施不绘制。全线图和车厢／站台页自动切换，含箭头、站灯及开关门动画；可暂停、调速或查看完整静态图。没有真实跳停与通告时不编造，城市名表示结构参考。</p></div></details><details class="help-step"><summary>缺失运营资料模拟补全</summary><div><p>按车站读完后可用“套用哪条已读线路”直接制作单线车载屏。默认开启缺失运营资料模拟补全，可关闭或重新随机；真实值优先，到站时刻按当前设备时间与间隔／时刻表推演，没有间隔则生成模拟参数。图片内不显示模拟字样或底部说明，页面与 SVG 元数据保留补全来源，不代表实时运营；同一条线路分行后只显示一次大号线路编号；站序、终点和环线不随机生成。切换样式复用同一模拟结果，预览可见时整分钟更新时间，后台和输入期间暂停更新。</p></div></details><details class="help-step"><summary>动画与完整静态图</summary><div><p>共 53 套模板，公交车厢屏可选 LED 全线走马灯、上下交错站名、斜排、折返、闭合回接和邻站放大。可指定当前站、暂停／播放、调节速度及查看完整静态图；放大后也能暂停。减少动态效果偏好下默认暂停，页面后台或离屏暂停。滚动与灯效是手动演示，不代表实时车辆。PNG／SVG 和下载清单保存包含全部已读站点的完整静态图。</p></div></details><details class="help-step"><summary>选择线路或整站站牌</summary><div><p>“线路 → 线路显示模板”提供公交站牌、公交车载前／后路牌、地铁导视、车厢 LED 与 LCD 版式。公交分为横排竖写纸质牌、纵向灯箱、杆挂横牌及 LCD、LED、电子墨水站台屏，本站名、开往方向、下一站、站序与服务信息各有位置；显示范围可改为“同站多线路站牌”，纸质逐线叠放、灯箱分栏、电子牌显示多行到站表。现有 26 种公交结构，另有紧凑横条、左右分区灯箱、横屏多线路看板、双列分卡、枢纽索引和横写双语牌可选；枢纽索引不猜测站台号，英文只取源标签。横屏看板原宽 1920 像素，其他新牌原宽 1440 像素。真实车站可输入站名／OGF 编号，或使用地图点选的车站，读取这个站点所有已登记公交停靠关系及各自完整站序；不依赖视窗范围，不把同名或对向站混入。也可读取具体方向后手动加入。读取失败或取消保留旧站牌；手动增删后按自选清单标注，刷新后不保留；可下载保存。初次可用明确标注的示例；在下方选中真实线路并等候站序读取后自动填入。站序沿用已读取的当前线路方向及分段，不根据城市网络图的裁切结果猜测。</p></div></details><details class="help-step"><summary>站序、换乘与运营资料</summary><div><p>轨道具体方向按完整真实轨道连接校正站序，断开或分支则保留关系顺序并提示。全线各站核对明确站体、stop_area 及正式停靠关系，换乘用各线颜色加编号。可展开“贯通运营线路与运行区间”添加多个编号、颜色及起止站，图片与动画显示对应色条和区间说明；该手动标注不改写 OGF、终点属性或导航。可切换模板、修改配色、反向显示和手动预览当前／下一站。公交横版按可读宽度优先排满一行，只有超出容量才分行；站牌保留全部已读取站点，仅保留地铁、铁路、航空等跨方式换乘提示，不列公交互换清单。医院和学校只在有明确标签时用医／学标识，不按站名猜测。轨道线路屏继续显示原换乘信息；车载前／后路牌主要显示终点和下一站。本站是手动选择，公交模板可预览任意已读取站点；初始选中的位置不表示运营首站。运行时间、首末班、票价、运营方优先查线路关系，再查明确上级及匹配的运营方公交服务安排；同级冲突不猜测，不把公司办公时间当线路运营时间。班次间隔与逐班发车时刻分开显示，有时刻表而无间隔时只列发车时刻；长时刻表自动展开，缺项为“未提供”。环线支持 roundtrip、相同起终点、重复闭环端点及名称中的“循环／环线”，明确 roundtrip=no 优先；闭合曲线的主线与回接线采用相同粗细；所有线路的始发和终点以 from/to 属性为准，不按站序猜测；保留终点和本站／下一站，未标终点显示“未提供”，反向预览不改写属性；不以关系首个成员推断运营首站，不额外印“环线”“循环接首站”等说明。多线路之间按排列方式显示横向或纵向分隔线；规则统一用于各城市、各版式、车载牌、轨道模板、线路导视与图片下载。反向只影响预览，不生成另一方向时刻。“本张站牌的运营资料”可补填，只影响本页及图片，并注明用户补填、未核验，不写入 OGF 或模板。导出站牌只保留乘车信息，不显示来源编号、重复线路名、收录统计或“同站多线路”标题；这些查询范围、来源和预览说明保留在页面及 SVG 元数据，示例或人工未核验资料保留简短标记。电子站牌未接入实时到站、车辆位置或天气；开启补全时到站分钟数为模拟值，不生成源数据没有的翻译。</p></div></details><details class="help-step"><summary>导出图片与导入版式</summary><div><p>下载 PNG（1×／2×／3×）、SVG，或将图片加入统一下载清单。下载模板 JSON 可保存版式并重新导入，JSON 不含当前线路资料。上传接受本站声明式 JSON 或共享模板包，不能直接导入任意图片、RMG／RMP 格式、HTML 或可执行 SVG。</p></div></details><details class="help-step"><summary>共享模板与维护权限</summary><div><p>“准备共享发布”将模板带入既有数据表单，登录后核对作者、来源和许可，再勾选共享并发布。共享模板库可刷新、分页并读取使用；作者及管理员在数据页维护，修改模板正文时发布新包以保留原件。外部城市参考目录仅作研究，不表示本站已内置对应城市同款版式。</p></div></details><div class="help-actions"><button type="button" class="secondary-button" data-action="transit">前往线路与模板</button></div></div></details>
+<details id="help-simulation" class="help-topic" data-help-section><summary><span>车流模拟与车辆跟随<small>区域人口、建筑需求、路况、停车及车道</small></span></summary><div class="help-topic-content"><details class="help-step"><summary>车道、分道与估算</summary><div>
+              <p>开启模拟后，“近景车道”在街道近景显示路面、外侧线、同向白色虚线及双向黄色分界；缩小自动隐藏细节，关闭该显示不改变车辆行驶。车道数优先使用 lanes、lanes:forward/backward，支持单行、反向单行及左右通行；缺失时按有效 width，再按道路等级采用界面列明的固定默认值，不依据建筑间距猜测。未明确分道的窄双向路保留共享路面，不强画两条车道。局部车辆按车道保持间距、路口让行后连续接入下游；区域展示样本按合法车道运行，聚合容量使用同一车道数。信息卡按模拟实际车道索引显示当前位置，不作为导航转向车道建议；车道减少在路口衔接，不模拟沿途自主超车；推算不补写原始地图，不是实测道路宽度或工程车道模型。</p>
+              </div></details><details class="help-step"><summary>选择城市与模拟范围</summary><div><p>打开独立“模拟”菜单，手动开启（默认关闭，不保存开关）。选择“城市／省／国家”，输入行政区名称并选中完整边界，可添加 1–4 个行政区，再点“加载所选区域并模拟”。优先复用视野附近已加载的道路和住宅，不足时先读约 1.5 公里邻近范围，显示明确标为局部的预览；不将全市人口塞入街区。全域读取立即开始，与附近预览共用最多两个请求槽，不等待预览完成；完整成功才替换；后台路径计算复用路网索引，保持相同需求与路线。失败或取消保留已有预览／模拟。城市、省和国家均读取完整汽车道路类别，跨区域沿真实连通干道通行；移动地图保留全域计算。点“查看全域”观看路况，放大到街道观看样本汽车。名称按完整名称或明确别名匹配；已填写“市／县／镇”等后缀时，不混入其他类型或仅上级地址相同的候选。城市点会先显示并允许定位，但不能将点周围矩形用作整市范围；缺少完整行政边界时可定位后手动切换“当前街区”。城市点使用独立轻量查询，成功结果在本标签页保留三小时，刷新或网络失败仍可定位；缓存读取不会延长年龄，不缓存失败或空结果。边界查询失败提供重试入口，不表示城市不存在。手机底栏可横向滑动，面板可收起并从“模拟”恢复。</p>
+              </div></details><details class="help-step"><summary>人口来源与出行分配</summary><div><p>人口同时读取 population、population:hx 和实际行政中心成员；上级关系不能提前消耗城市人口点，明确 admin_level、place:hx 及已有的五级以下首府层级用于区分人口范围，城市与县区不因都标 city 而混为一层；capital=yes／2／3／4 仅表示政府驻地，不能把一个城市的人口当作整国或整省人口。社区、街道、区县按层级分配，父子不重复相加。未标人口、缺少道路或设施、父子数据冲突会列出；同一人口查询同时统计未标人口的城市、镇、社区等地名点，地名缺标不代表无人，也不额外增加已知上级总人口。大区剩余人口粗略分到本区住宅道路；设施缺少容量也需估算。工作、学校、商圈、医疗与休闲按用途、时段和距离吸引出行；有可往返的真实道路才分配，断路不会凭空连接。小路、服务路和生活街道可供所在人口及设施首末接入，跨区行程不将内部路作穿行捷径。省级与城市范围均读取完整汽车主路、住宅路、生活街道和服务路，不再仅在枢纽周围补小路；仍受原请求及路网容量限制，超限保留原模拟并提示缩小范围。默认 08:00、1 倍，可选更强情景；这些是假设情景，不是实测交通预测。</p>
+              </div></details><details class="help-step"><summary>车站与机场需求</summary><div><p>铁路客站、机场与航站楼单独产生接送／换乘需求，读取容量或年旅客量；缺标时车站吸引力 5000、机场 12000、停留 20 分钟均为示意假设，早晚需求较高。站台、同名重复站点、机场主体与航站楼避免重复放大，人工确认的货运站不生成客运接送需求；车流需求尚未采用共享列车／航班时刻；导航中的班次匹配独立使用。</p>
+              </div></details><details class="help-step"><summary>路况颜色、桥面与隧道</summary><div><p>大范围按道路等级、车道、容量及下游空间计算聚合在途、排队、待出发量，重点设施集中到达和满停车场可使上游减速；面板列出模拟排队集中路段。绿色／黄色／红色是模拟速度比，线宽表示预计需求。允许汽车通行的已读道路即使零需求也保留细灰线，表示此次未分配到可达行程或暂无在途量，不等于道路缺失或已证实畅通。背景最多 1800 个基础行程样本，近景可再采样最多 1200 个，实际最多绘制 60–1200 辆，优先视窗；样本数与模拟总车数分开，改变绘制预算不改变流量。局部及城市路网均计算桥梁、高架和隧道。开启模拟会自动启用桥面和近景车道，关闭模拟后恢复原设置；自动桥面不改写已保存偏好。街道近景下俯视和 3D 均可自动显示桥上汽车、车道和路况。优先复用已完整加载的模拟道路及真实节点，补齐桥梁连接和引道，不再等待另一套底图请求；仍须完整桥面高度就绪。没有有效桥面时保留原道路和路况线，不将桥上或地下汽车画到地面。普通地图的桥梁渲染仍默认关闭。模拟期间设置页标明自动开启，近景车道可手动隐藏；2D 不会被强制切成 3D。视野内有隧道时自动显示可收起的桥隧车道图，可选择附近其他隧道，查看双向车道、总数和标签／估算来源；没有样本车也能查看，不要求先跟随。桥面尚在准备时也提供该示意，桥面就绪后自动切为地图标线。车道示意按实际左右通行排列。跟随信息卡不依赖桥梁模型开关，桥梁及隧道均持续显示本方向车道数、当前车道、整条道路总数和标签／估算来源；隧道采用独立车道图，明确标注“非地下实景”：蓝色为所跟车辆，灰色为本路段附近同向的已采样车辆，随车辆位置更新；不把地下道路或汽车投到地面。开启近景车道时，桥上铺装与普通道路采用相同灰色，关闭即恢复原桥面；标线采用相同配色，同向虚线按 3 米实线／3 米空隙连续切分，视窗移动不改变虚线位置；倾斜跟随复用车辆附近缓冲范围，不逐帧重建。</p>
+              </div></details><details class="help-step"><summary>建筑面积、楼层与居民位置</summary><div><p>区域模拟读取范围内全部建筑，按明确用途、内部设施和用地判断住宅、办公、商业、教育等活动；按占地面积乘有效楼层分配已有标注人口，缺楼层先按扣除底高和屋顶后的有效墙高每 3 米推算，再缺失暂按两层，不额外造人口。用途未标建筑以一半楼面权重分配居民位置，同时作为一般活动地点，这是情景假设，不代表已确认住宅用途；车库、纯屋盖、停用和建筑部件等不重复生成人员活动。真实行政／小区范围及孔洞优先，只有人口点时覆盖真实上级范围，按邻近同级点估计归属，不使用固定半径截断；这不等于正式下级边界。市、街道、村庄人口点按层级归属，细点不能压掉上级剩余人口；没有剩余人口的父点仍约束其子级的位置，避免跨入相邻城市。摘要分别列出已知人口、已接路与未接路人数，以及缺少直接人口的行政区，已知合计不代表完整全省人口。建筑、小区和上级人口逐级扣除，关系成员、建筑与外围用地去重。缺少建筑时采用住宅用地，仍缺失时在该范围合法住宅／服务道路上粗略分配；有建筑但接不上道路的份额保留为未分配，不集中到其他建筑。人口接入按约 400 米归组，最多 512 组；设施最多 1800 组，超限逐级合并并保留全部权重与停车归属。所有可往返的设施组纳入行程，实际路径和距离决定是否有需求；未知人口和不连通地点不会随机造车，也不保证每栋同时有样本车。展开“建筑与人口核算（分区）”可查看各区建筑数、楼面面积、分配人口与未接路人数；根区其余区域单列，分区人口是位置估算，不是官方新统计。一栋楼可分配多人，楼面大小和层数决定相对权重，整个行政区人口保持守恒。</p>
+              </div></details><details class="help-step"><summary>停车容量与进出场</summary><div><p>已标停车场使用 capacity，缺失暂按 20 位；开场 50% 占用、入口 300 辆／小时及设施周边 800 米选择均为明示假设。满位限制到达并保留道路队列，返程释放已有库存。露天停车面内有真实相连的内部路时，车辆沿路进场、低速驶入示意泊位、保持可见地停留，再驶出返程；保留面边界及孔洞，不代表真实车位布局。可从“模拟排队集中路段与停车场”点“查看停车进出场”定位，列表中“已停车”可选中查看。开场少量已停车样本代表假设的原有占用。缺少相连道路或仅有点位时仍计算停车库存，但不虚构入口；未标停车场处仍为场外停留。聚合返程参考对应停留时长前的需求，样本则到达后实际停留再返家：工作 8 小时、上学 6 小时、购物 15 分钟、就医 45 分钟、休闲及用途未标的一般活动 30 分钟、交通枢纽 20 分钟。不是实际停车余位或逐车停车记录。</p>
+              </div></details><details class="help-step"><summary>边界缺项与人口保留</summary><div><p>所选城市必须有完整行政边界；下级社区只有中心点、缺少边界或源边界未闭合时，不再导致整市失败。有有效中心点的下级在真实上级范围内估算人口位置，面板列出缺项，不补画正式边界；没有定位但具有明确上下级关系的已知人口保留为未定位、未分配，不挪到其他建筑。根边界无效、源请求截断或成员坐标缺失仍保留原模拟并提示修正。</p>
+              </div></details><details class="help-step"><summary>数据传输与缓存</summary><div><p>区域人口、道路、设施与建筑通过同源压缩通道完整传输，有效的完整结果可复用两分钟缓存，源数据时间不会因命中缓存改变；再次加载已有完整区域会主动重读。数据量与功能保持一致，首次查询仍受 OGF 上游响应及网络速度影响；只有四项数据全部通过校验才接管。</p>
+              </div></details><details class="help-step"><summary>加载失败与恢复</summary><div><p>大范围路网首次下载可能较慢，面板会显示人口、路网、设施或全域建筑四项的接收进度；仍在传输的数据不会因为超过 95 秒被直接丢弃。传输停滞或临时连接失败时最多自动重试两次，保留本轮其他已成功的数据；持续失败会指出具体项目和后台阶段，可再次点击“加载所选区域并模拟”，或取消并保留已有模拟。本地网页的后台程序加载失败时，请确认本地服务仍在运行后刷新。系统不会擅自缩小行政范围。</p>
+              </div></details><details class="help-step"><summary>选车、自定义起点与跟随</summary><div><p>点击汽车或从列表选择，查看用途、起终点、金线、等待与停留，再点跟随。“车辆跟随视角”可随时切换 2D 北向俯视或 3D 沿行驶方向倾斜，切换不会重建模拟。跟随开始时收起功能面板，点击信息卡的“模拟设置”或原菜单可恢复；独立信息卡持续显示所跟车辆编号、道路、模拟车速、前方路线转向及车道数量，并列出当前路段模拟路况、排队估算及周边展示车辆数。跟随中周边汽车按缓冲视野补齐，长道路穿过画面时也会采样，重叠视野保留已有车辆行程；补充数量受已有路段在途量及原预算限制，不增加区域流量。路况颜色保持正常透明度，跟随车继续受同一路段拥堵和排队影响。蓝色车身、光环和“跟随车辆”标记区分其他汽车，路线以较细蓝线显示以便看清分道线。3D 视角将汽车置于画面偏下方，保留前方道路；跟随中按缓冲视窗持续准备标线，不等待镜头停止。拖动地图、Esc 或停止跟随退出；滚轮、双指及信息卡的加减按钮缩放仍保持跟随并保留缩放级别，到达停留自动停止；面板收起后仍能停止。“自定义车辆起点”支持地图选点、地图中心或输入“纬度,经度”，终点留空自动选可达设施，也可手动指定附近道路接入点。先加载模拟路网；起点 100 米内无可用道路、终点不可达或起点缺少安全发车空间时明确提示，不虚构路线。点击“发车并跟随”添加一辆观察车，按既有车道与排队规则行驶，到达结束，可手动结束后重设；不改变人口、区域需求、停车库存或其他车辆的行程。后台暂停且不补算；关闭、底图切换和恢复默认释放资源，原导航、模型及日照独立。仍可切换“当前街区”使用约 850 米已加载路网的精细跟车和路口让行；局部人口不足会提示，不随机巡游。区域加载失败／取消保留现有模拟，跨度和容量过大请减小范围。修改情景时间／强度会重新准备，新版不会清理建筑或改变数据更新周期。</p>
+
+              </div></details><details class="help-step"><summary>容量与默认参数</summary><div><p>行政区最多4个，单轴跨度12°，路网40000条／35万节点，超限请缩小范围。局部约850米。每人每小时基准0.22次出发、汽车分担35%、每车1.4人；距离按94%的7公里衰减与6%的45公里衰减混合，只有远处设施时减少出发，不把全部需求分给远处。未标住宅人口时按楼面每人35 m²、利用率80%，住宅用地再按25%覆盖率；缺层数按有效墙高每3米估算，再缺按2层。参数均为未校准假设。</p><p>缺车道标签和有效路宽时，高速单向3道、干线双向8道、主要道路双向6道；独立单向车行道分别4道、3道。普通道路2道，匝道／服务路／生活街道1道。窄双向共享路面，不按建筑间距估算。</p></div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div></div></details>
+<details id="help-questions" class="help-topic" data-help-section>
             <summary><span>常见问题与数据来源<small>搜不到、选不中、加载与下载问题</small></span></summary>
             <div class="help-topic-content">
-              <h3>搜不到地点或城市？</h3>
+              <details class="help-step"><summary>搜不到地点或城市？</summary><div>
               <p>通用搜索可尝试完整地名、别名或直接输入坐标；城市线路图要选择实际行政边界，补全“市／区／县”等后缀有助于缩小范围。如果显示超时或服务失败，稍后重试，这不等于地点不存在。私人地点可先保存为收藏，再用个人名称查询。</p>
-              <h3>点不中目标、点击没有物体？</h3>
+              </div></details><details class="help-step"><summary>点不中目标、点击没有物体？</summary><div>
               <p>先在“视图”中检查“点击选择要素”是否开启，再结束框选、测量或导航选点。放大到能分辨目标的位置，等待读取完成；重叠物体从候选中选择。坐标已选中但物体读取失败时，可点击选点图钉重新识别。</p>
-              <h3>模型、桥梁或图片没有显示？</h3>
+              </div></details><details class="help-step"><summary>模型、桥梁或图片没有显示？</summary><div>
               <p>检查当前底图、比例、视角和对应开关；桥梁需手动启用并使用倾斜视角。大范围或高细节首次加载需要等待，先缩小任务范围通常更快。个人贴图需登录同一账号并勾选显示；调整范围时会返回俯视。</p>
-              <h3>修改地图后，模型多久更新？</h3>
+              </div></details><details class="help-step"><summary>修改地图后，模型多久更新？</summary><div>
               <p>当前视野的建筑、屋顶、亭子、围墙与栅栏约每两分钟检查新数据，缓存有效期按原始抓取时间计算；新数据完整加载后自动替换，失败继续显示已有模型。两分钟是检查周期，实际变化仍需等待 OGF 上游同步和网络请求完成。华域矢量底图的可见瓦片和省级行政标注每五分钟重新核对；上游尚未重建的瓦片仍可能保留旧地物。交通与地形的全国数据继续每三小时重建；其他底图、植被与设施按各自的数据周期更新，不随每次模型检查重抓全图。</p>
-              <h3>下载慢、格式不可选或清单丢了？</h3>
+              </div></details><details class="help-step"><summary>下载慢、格式不可选或清单丢了？</summary><div>
               <p>大范围、高分辨率和大量物体需准备更多数据，可先缩小范围、降低分辨率或分批下载。纯矢量不使用图片分辨率；含线路图派生几何的物体清单不能导出原始 OSM。物体清单不会随账号同步或在刷新后恢复，加入后请及时下载。</p>
-              <h3>我上传的图片会改动公开地图吗？</h3>
+              </div></details><details class="help-step"><summary>我上传的图片会改动公开地图吗？</summary><div>
               <p>贴图与收藏是个人数据，不会更改公开 OGF 地物。右侧铅笔按钮会在新标签页打开 OGF 编辑器，公开地图编辑使用 OGF 自己的账号与规则；华域地图账号与 OGF 账号分别管理。</p>
-              <h3>数据和估算来自哪里？</h3>
+              </div></details><details class="help-step"><summary>数据和估算来自哪里？</summary><div>
               <p>底图、地名和地物来自 OpenGeofiction，搜索、交通与导航使用对应地图数据。不同图层的更新和加载时间可能不同；山体、模拟卫星、模型高度、出行时间和费用含制图或计算估算。可在“关于”及面板底部查看来源与数据许可。</p>
-              <div class="help-actions"><button class="secondary-button" type="button" data-action="about">查看关于与来源</button></div>
-            </div>
+
+            </div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="about">查看关于与来源</button></div></div>
           </details>
         </section>
 
@@ -1329,6 +1364,8 @@
           <a href="https://wiki.opengeofiction.net/index.php/OpenGeofiction:Copyright" target="_blank" rel="noopener noreferrer">OGF 数据许可</a>
         </footer>
       </aside>
+
+      <dialog id="help-dialog" class="help-dialog" aria-labelledby="help-dialog-title"><header class="help-dialog-header"><h2 id="help-dialog-title">使用帮助</h2><button id="help-return" type="button" class="secondary-button">返回操作</button></header><div id="help-dialog-content"></div></dialog>
 
       <section id="transit-atlas-dialog" class="transit-atlas-dialog" role="dialog" aria-modal="true" aria-labelledby="transit-atlas-dialog-title" hidden>
         <canvas id="transit-atlas-dialog-canvas" aria-label="城市铁路与轨道交通真实方位图"></canvas>
@@ -1473,31 +1510,36 @@
     <script src="./feature-data.js?v=7.1-transit-atlas-v2"></script>
     <script src="./download-center.js?v=8.0-data-download-v1"></script>
     <script src="./admin-catalog.js?v=8.0-load-performance-v1"></script>
+    <script src="./place-search.js?v=1"></script>
     <script src="./transit-atlas-options.js?v=7.5-future-stations-v1"></script>
     <script src="./saved-places.js?v=7.1-account-help-v1"></script>
     <script src="./brand-data.js?v=3"></script>
     <script src="./brand-logo-core.js?v=3"></script>
-    <script src="./map-agent-contract.js?v=9.0-direction-top-v1"></script>
-    <script src="./map-agent-providers.js?v=9.0-through-operating-v1"></script>
-    <script src="./map-agent-tools.js?v=9.0-direction-top-v1"></script>
+    <script src="./map-agent-contract.js?v=9.0-provider-compat-v2"></script>
+    <script src="./map-agent-providers.js?v=9.0-provider-compat-v2"></script>
+    <script src="./map-agent-tools.js?v=9.0-simple-ui-v1"></script>
     <script src="./transit-station-data.js?v=references-13"></script>
-    <script src="./app.js?v=9.0-transit-templates-v1"></script>
+    <script src="./app.js?v=9.0-provider-compat-v2"></script>
     <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-simulation.js?v=8.0-auto-structure-lanes-v1"></script>
-    <script src="./map-help.js?v=9.0-shared-data-v1"></script>
+    <script src="./map-help.js?v=9.0-simple-ui-v1"></script>
     <script src="./brand-browser.js?v=8"></script>
-    <script src="./brand-logos.js?v=4"></script>
+    <script src="./brand-logo-cache.js?v=2"></script>
+    <script src="./brand-logos.js?v=5"></script>
     <script src="./brand-management.js?v=1"></script>
     <script src="./overlay-bounds.js?v=7.1-overlay-bounds-v1"></script>
     <script src="./personal-data.js?v=9.0-shared-data-v1"></script>
     <script src="./feature-info.js?v=9.0-brand-management-v1"></script>
-    <script src="./shared-dataset-core.js?v=9.0-shared-data-v1"></script>
+    <script src="./transport-timetable-core.js?v=1"></script>
+    <script src="./transport-timetable-navigation.js?v=1"></script>
+    <script src="./shared-dataset-core.js?v=9.0-timetables-v1"></script>
+    <script src="./transport-timetables.js?v=1"></script>
     <script src="./shared-dataset-theme.js?v=9.0-shared-data-v1"></script>
-    <script src="./shared-datasets.js?v=9.0-rail-family-v1"></script>
+    <script src="./shared-datasets.js?v=9.0-simple-ui-v1"></script>
     <script src="./transit-template-core.js?v=24"></script>
-    <script src="./transit-templates.js?v=22"></script>
-    <script src="./map-agent.js?v=9.0-rail-family-v1"></script>
+    <script src="./transit-templates.js?v=23"></script>
+    <script src="./map-agent.js?v=9.0-provider-compat-v2"></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {readFile, mkdtemp, rm} from "node:fs/promises";
+import {readFile, mkdtemp, rm, rename} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
@@ -412,3 +412,37 @@ namePage.requests.shift().resolve(Response.json(nameSnapshot));await settle();
 assert.equal(namePage.el("brand-location-list").children.length,3,"仅名称识别筛选在详情同样生效，不混入显式标签地点");
 assert.match(namePage.el("brand-detail-status").textContent,/标签 0、名称识别 3/);
 console.log("Brand names, explicit-tag priority, aliases, category exclusions, candidate counts, source filters, literal queries, live cache age, failure retention, cancellation, complete directories, delayed startup and city scopes passed.");
+
+const compact=data.buildSearchIndex(candidate);
+assert.equal(compact.dbTimestamp,candidate.dbTimestamp);assert.equal(compact.generatedAt,candidate.generatedAt);
+assert.deepEqual(data.matchesName(candidate.brands,"津川"),[],"top suggestions ignore sampled city names");
+assert.equal(data.matches(candidate.brands,"津川").length,1,"full brand page retains sampled-city text filter");
+assert.equal(data.matchesName([{name:"aniM",aliases:["阿妮"],count:1,categories:[]}],"阿妮")[0].name,"aniM");
+assert.equal(data.buildSearchIndex(nameCandidate).brands.find(e=>e.candidate).taggedCount,0,"zero attribution counts remain zero");
+const pairDirectory=await mkdtemp(path.join(os.tmpdir(),"huayu-brand-pair-"));
+try{
+ const file=path.join(pairDirectory,"catalog.json"),indexFile=path.join(pairDirectory,"brand-search-index.json");
+ await replaceBrandCatalog(file,candidate);const oldFull=await readFile(file,"utf8"),oldIndex=await readFile(indexFile,"utf8");
+ assert.deepEqual(JSON.parse(oldIndex),compact);
+ await assert.rejects(replaceBrandCatalog(file,{...candidate,generatedAt:"2026-10-27T10:00:00Z"},{move:async(a,b)=>{
+   if(b===indexFile)throw Error("injected rename failure");await rename(a,b);
+ }}),/injected/u);
+ assert.equal(await readFile(file,"utf8"),oldFull);assert.equal(await readFile(indexFile,"utf8"),oldIndex,"pair failure restores both generations");
+}finally{await rm(pairDirectory,{recursive:true,force:true});}
+
+const suggestionPage=brandPage({ready:true,visible:false});
+const suggestionPromise=suggestionPage.window.HuayuBrandBrowser.search('A "B"');
+assert.equal(suggestionPage.requests[0].url,"./brand-search-index.json","unopened brand panel downloads only search index");
+suggestionPage.requests.shift().resolve(Response.json(compact));await suggestionPromise;
+assert.equal(suggestionPage.requests.length,0);
+assert.equal(suggestionPage.el("brand-search-matches").hidden,false);
+suggestionPage.el("brand-search-matches").children[1].dispatchEvent(new Event("click"));
+assert.equal(suggestionPage.requests[0].url,"./brand-catalog.json","full authoritative categories load only on selection");
+suggestionPage.window.HuayuBrandBrowser.clearSearch();
+suggestionPage.requests.shift().resolve(Response.json(candidate));await settle();
+assert.equal(suggestionPage.atlas.getCurrentView(),"place","late catalog lookup cannot reopen a cleared search");
+await suggestionPage.window.HuayuBrandBrowser.search('A "B"');
+suggestionPage.el("brand-search-matches").children[1].dispatchEvent(new Event("click"));await settle();
+assert.equal(suggestionPage.atlas.getCurrentView(),"brands");
+assert.equal(suggestionPage.el("brand-detail-name").textContent,'A "B";.*');
+console.log("Brand search passed: name/alias-only matching, index parity, zero counts, pair rollback, lazy full-detail load and stale selection protection.");

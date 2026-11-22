@@ -38,7 +38,7 @@
       $("upload-status").textContent="正在后台校验文件与坐标…";
       const result=await new Promise((resolve,reject)=>{
         parseReject=reject;
-        parser=new Worker("./shared-dataset-worker.js?v=9.0-shared-data-v1");
+        parser=new Worker("./shared-dataset-worker.js?v=9.0-timetables-v1");
         parser.onmessage=e=>{const p=parser;parser=null;parseReject=null;p?.terminate();if(epoch!==parseEpoch)return reject(Error("本次预览已取消"));e.data.error?reject(Error(e.data.error)):resolve(e.data.result);};
         parser.onerror=()=>{parser?.terminate();parser=null;parseReject=null;reject(Error("文件校验程序未能加载，请刷新重试"));};
         parser.postMessage({content,format,options});
@@ -46,13 +46,18 @@
       $("columns").replaceChildren(...result.columns.map(c=>{const o=el("option");o.value=c;return o;}));
       table($("preview-result"),result.records.slice(0,20).map(r=>r.properties),"上传预览（前20条）",result.columns.slice(0,10));
       $("upload-status").textContent=`校验通过：${result.stats.rows} 条，${result.stats.located} 条有位置，${result.stats.linked} 条关联原要素。尚未上传。`;
+      if(result.timetable)$("upload-status").textContent+=" 已识别 "+result.timetable.tripCount+" 个班次；默认每日／UTC+08:00，缺失时刻待按实际路径估算。";
       return result;
     }
+    function syncKindNote(){
+      $("timetable-note").hidden=!["rail_timetable","urban_timetable","flight_timetable"].includes($("kind").value);
+    }
+    $("kind").addEventListener("change",syncKindNote);
     function clearForm(){
       editEpoch++;cancelParser();$("form").reset();file=null;content="";format="";attachment=null;editing=null;$("date").value=new Date().toLocaleDateString("en-CA");
       $("preview-result").replaceChildren();$("columns").replaceChildren();$("upload-status").textContent="";$("scope-note").textContent="范围名称只作说明；空间定位以文件几何／坐标为准。";
       $("edit-cancel").hidden=true;$("publish").textContent="发布共享数据包";$("file").required=true;
-      for(const id of ["kind","scope-kind","scope-label","use-selection"])$(id).disabled=false;auth();
+      for(const id of ["kind","scope-kind","scope-label","use-selection"])$(id).disabled=false;syncKindNote();auth();
     }
     async function publish(event){
       event.preventDefault();if(busy||!user())return;if(!$("shared").checked){$("upload-status").textContent="请先确认数据公开共享。";return;}
@@ -75,7 +80,7 @@
       try{item=(await request(`/api/datasets/${summary.id}`)).item;}catch(error){if(epoch===accountEpoch&&selection===editEpoch&&active)$("list-status").textContent=message(error);return;}
       if(epoch!==accountEpoch||selection!==editEpoch||busy||!active||!canEdit(item))return;clearForm();editing=item;attachment={...(item.scope.target?{target:item.scope.target}:{}),...(item.scope.geometry?{geometry:item.scope.geometry}:{})};
       for(const [id,k] of [["title","title"],["kind","kind"],["source","source"],["source-url","sourceUrl"],["date","observedDate"],["unit","unit"],["period","period"],["license","license"],["description","description"]])$(id).value=item[k];
-      $("scope-kind").value=item.scope.kind;$("scope-label").value=item.scope.label;$("file").required=false;$("shared").checked=true;
+      syncKindNote();$("scope-kind").value=item.scope.kind;$("scope-label").value=item.scope.label;$("file").required=false;$("shared").checked=true;
       for(const id of ["kind","scope-kind","scope-label","use-selection"])$(id).disabled=true;
       $("edit-cancel").hidden=false;$("publish").textContent="保存数据包资料";$("upload-section").open=true;$("upload-status").textContent="保留原作者与原文件。更换文件、范围或分类请另发新包。";auth();$("title").focus();
     }
@@ -175,6 +180,10 @@
       if(c.perspective&&c.vector)c.vector.fitBounds([[bounds.getWest(),bounds.getSouth()],[bounds.getEast(),bounds.getNorth()]],{padding:60,maxZoom:17});else c.map.fitBounds(bounds,{padding:[35,35],maxZoom:18});
     }
     function template(){
+      if(["rail_timetable","urban_timetable","flight_timetable"].includes($("kind").value)){
+        const columns=["trip_id","stop_sequence","stop_id","station","arrival","departure","service_date","service_days","utc_offset","route_id","vehicle_speed_kmh","acceleration_mps2","deceleration_mps2","lateral_acceleration_mps2","dwell_seconds"];
+        root.HuayuDownloadCenter.download(new Blob(["\uFEFF",columns.join(","),"\r\n"],{type:"text/csv;charset=utf-8"}),tools.KINDS[$("kind").value]+"模板.csv");return;
+      }
       const metric={population:"population",gdp:"gdp",land_price:"land_price",demand:"trips",schedule:"frequency"}[$("kind").value]||"value";
       const columns=["name","longitude","latitude","osm_type","osm_id",metric];
       if($("kind").value==="poi")columns.push("amenity","shop","category");
@@ -221,7 +230,7 @@
         if(signal?.aborted)throw new DOMException("已取消","AbortError");
         const account=accountEpoch;
         atlas.openView("datasets",{preservePerspective:true});$("upload-section").open=true;
-        $("title").value=meta.title||selected.name;$("kind").value=meta.kind||"other";$("scope-label").value=meta.scopeLabel||"";
+        $("title").value=meta.title||selected.name;$("kind").value=meta.kind||"other";syncKindNote();$("scope-label").value=meta.scopeLabel||"";
         $("source").value=meta.source||"";$("unit").value=meta.unit||"";$("shared").checked=false;
         if(["feature","region","large"].includes(meta.scopeKind)){$("scope-kind").value=meta.scopeKind;attachment=null;$("scope-note").textContent="范围仅为本数据包的说明，未关联地图选中物体。";}
         for(const [key,id] of [["description","description"],["license","license"],["sourceUrl","source-url"]])if(typeof meta[key]==="string")$(id).value=meta[key];
