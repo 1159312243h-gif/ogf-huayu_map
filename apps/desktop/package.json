@@ -3,7 +3,10 @@
   "version": "9.0.0",
   "private": true,
   "description": "华域地图桌面应用",
-  "author": "Huayu Atlas contributors",
+  "author": {
+    "name": "Huayu Atlas contributors",
+    "email": "249743200+1159312243h-gif@users.noreply.github.com"
+  },
   "license": "UNLICENSED",
   "main": "main.cjs",
   "scripts": {
@@ -53,7 +56,8 @@
         "deb"
       ],
       "category": "Education",
-      "icon": "icons/icon-512.png"
+      "icon": "icons/icon-512.png",
+      "syncDesktopName": true
     },
     "mac": {
       "target": [
@@ -61,7 +65,14 @@
       ],
       "category": "public.app-category.education",
       "icon": "icons/icon-512.png"
-    }
+    },
+    "publish": null
   },
-  "packageManager": "pnpm@11.25.0"
+  "packageManager": "pnpm@11.25.0",
+  "homepage": "https://ogf-atlas.pages.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1159312243h-gif/ogf-huayu_map.git"
+  },
+  "desktopName": "huayu-atlas.desktop"
 }

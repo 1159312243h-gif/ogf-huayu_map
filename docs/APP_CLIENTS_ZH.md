@@ -41,7 +41,7 @@
 pnpm install --frozen-lockfile --ignore-scripts
 node node_modules/electron/install.js
 pnpm start
-pnpm run dist -- --win nsis --x64
+pnpm run dist --win nsis --x64
 ```
 Linux用 `--linux AppImage deb --x64`；macOS用 `--mac dmg`，在对应系统构建。依赖和官方 Electron 运行时需要联网；版本锁定，不在生产机器自动升级依赖。
 
