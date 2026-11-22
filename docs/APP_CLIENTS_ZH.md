@@ -67,4 +67,4 @@ iOS需macOS和Xcode，先在 `apps/ios` 运行 `xcodegen generate`，再打开�
 独立分支第二轮构建45023064114已通过应用、帮助、助手检查，Windows沙箱启动及NSIS、Linux AppImage／Deb、macOS DMG、Android编译及lint均成功；iOS按用户选择使用PWA，原生archive本轮跳过。编译与启动检查不替代各手机型号的完整实机验收。产物位于GitHub Actions，公开下载另行核对。
 
 app-publish.yml仅由明确手动触发，锁定本仓库、来源提交和已通过的平台任务；完整文件先计算SHA-256、创建新的预发布草稿并上传，再核对GitHub端文件大小、摘要和标签确实指向构建提交，最后按显式publish选项公开。重名产物与旧发布不覆盖。安装包保存在GitHub Releases，源码仓库不提交二进制安装包；构建产物自动保留三天。校验入口为scripts/test-native-packages.mjs。
-\nGitHub草稿尚未创建公开标签，草稿资源临时使用untagged地址。草稿阶段严格校验目标提交、文件名、大小和远端SHA-256；公开后再强制核对实际标签和正式下载URL。可复用完全相同的已验证草稿，不覆盖已公开发布；对应两阶段结果回归保留全部校验要求。\n
+\nGitHub草稿尚未创建公开标签，草稿资源临时使用untagged地址。草稿阶段严格校验目标提交、文件名、大小和远端SHA-256；公开后再强制核对实际标签和正式下载URL。可复用完全相同的已验证草稿，不覆盖已公开发布；对应两阶段结果回归保留全部校验要求。\n\n## 本批公开下载\n\n预发布[apps-v9.0.0-preview.1](https://github.com/1159312243h-gif/ogf-huayu_map/releases/tag/apps-v9.0.0-preview.1)已公开，发布任务45025950207成功；来源864dd770c01bee601a75b830b44386a6c3280609。五个安装文件及其远端大小、SHA-256、正式标签与URL均已核对：Windows x64 NSIS、Linux x64 AppImage／Deb、Android通用测试APK、macOS ARM64 DMG。站点目录保留原始构建清单时间，不冒充OGF数据更新时间；iOS按用户选择使用主屏幕安装版。桌面包未正式签名／公证，Android为测试签名；尚未完成全部设备实机验收。\n
