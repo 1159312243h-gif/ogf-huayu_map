@@ -2,9 +2,16 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
-    <link rel="icon" href="data:," />
+    <link rel="icon" href="./app-icons/icon-192.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./app-icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="华域地图" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="stylesheet" href="./app-platform.css?v=1" />
     <meta name="description" content="华域地图：在同一页面搜索 OpenGeofiction 地名、规划道路路线并查看公共交通线路。" />
     <title>华域地图</title>
     <link rel="preconnect" href="https://tiles05.opengeofiction.net" crossorigin />
@@ -1331,7 +1338,7 @@
               </div></details><details class="help-step"><summary>容量与默认参数</summary><div><p>行政区最多4个，单轴跨度12°，路网40000条／35万节点，超限请缩小范围。局部约850米。每人每小时基准0.22次出发、汽车分担35%、每车1.4人；距离按94%的7公里衰减与6%的45公里衰减混合，只有远处设施时减少出发，不把全部需求分给远处。未标住宅人口时按楼面每人35 m²、利用率80%，住宅用地再按25%覆盖率；缺层数按有效墙高每3米估算，再缺按2层。参数均为未校准假设。</p><p>缺车道标签和有效路宽时，高速单向3道、干线双向8道、主要道路双向6道；独立单向车行道分别4道、3道。普通道路2道，匝道／服务路／生活街道1道。窄双向共享路面，不按建筑间距估算。</p></div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div></div></details>
 <details id="help-questions" class="help-topic" data-help-section>
             <summary><span>常见问题与数据来源<small>搜不到、选不中、加载与下载问题</small></span></summary>
-            <div class="help-topic-content">
+            <div class="help-topic-content"><details class="help-step"><summary>安装到电脑、安卓、iPhone 或 iPad</summary><div><p>打开“关于 → 安装到设备”，或进入各系统安装页。Windows、Linux、macOS、Android 可使用支持安装的浏览器；iOS 在 Safari 分享菜单中选择“添加到主屏幕”。PWA 与原生安装包分别提供，安装包仅在构建和发布核验后上架下载；iOS 原生包需要有效苹果签名。</p><p>应用共用网站的地图、导航、三维模型、模拟、共享资料和 AI 接口。账号数据仍保存在原线上 D1，首次在各客户端登录同一地图账号；本机模型、设置、未发布草稿与 AI 密钥不会自动同步。密钥仍仅本页暂存。地图与在线查询需要联网，断网页不代表已有完整离线地图；更新沿用两分钟建模、五分钟检查及三小时重建。</p><p>手机原生客户端导出时使用系统文件保存窗口；取消不表示已经保存。Windows、Linux、macOS 由桌面保存窗口处理；PWA 由浏览器处理下载。尚未接入应用商店分发、全量离线地图或后台持续定位。</p><div class="help-actions"><button class="secondary-button" type="button" data-action="about">安装应用</button></div></div></details>
               <details class="help-step"><summary>搜不到地点或城市？</summary><div>
               <p>通用搜索可尝试完整地名、别名或直接输入坐标；城市线路图要选择实际行政边界，补全“市／区／县”等后缀有助于缩小范围。如果显示超时或服务失败，稍后重试，这不等于地点不存在。私人地点可先保存为收藏，再用个人名称查询。</p>
               </div></details><details class="help-step"><summary>点不中目标、点击没有物体？</summary><div>
@@ -1352,6 +1359,7 @@
         </section>
 
         <section id="about-view" class="panel-view" data-view="about" hidden>
+<div class="app-install-card"><h3>在设备上使用</h3><p>地图、账号与共享数据共用线上服务；安装后可从桌面或主屏幕打开。</p><div class="app-install-actions"><button id="app-install" class="primary-button" type="button">安装到设备</button><a class="secondary-button" href="./apps.html" target="_blank" rel="noopener">各系统安装方式</a></div><p id="app-install-status" role="status"></p></div>
           <div class="source-note"><i data-lucide="info" aria-hidden="true"></i><span>关于华域地图</span></div>
           <div class="about-copy">
             <p>华域地图的底图与地名来自 OpenGeofiction。搜索、道路路线和公共交通数据均在本页面内加载与绘制。</p>
@@ -1492,6 +1500,7 @@
 
     <dialog id="line-template-dialog" class="line-template-dialog" aria-labelledby="line-template-dialog-title"><header><strong id="line-template-dialog-title">线路显示图预览</strong><button id="line-template-large-motion-toggle" type="button" class="text-button" hidden>暂停动画</button><button id="line-template-close" type="button" class="text-button">关闭</button></header><div><div id="line-template-large-motion" hidden></div><img id="line-template-large-image" alt="放大线路显示图" /></div></dialog>
     <noscript>此地图需要启用 JavaScript。</noscript>
+    <script src="./app-platform.js?v=1"></script>
     <script src="./leaflet.js"></script>
     <script src="./lucide.min.js"></script>
     <script src="./terrain-perspective.js?v=7.1-huayu-model-options-v1"></script>
@@ -1519,7 +1528,7 @@
     <script src="./map-agent-providers.js?v=9.0-provider-compat-v2"></script>
     <script src="./map-agent-tools.js?v=9.0-simple-ui-v1"></script>
     <script src="./transit-station-data.js?v=references-13"></script>
-    <script src="./app.js?v=9.0-provider-compat-v2"></script>
+    <script src="./app.js?v=9.0-app-clients-v1"></script>
     <script src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
     <script src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>

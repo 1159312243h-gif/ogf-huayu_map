@@ -328,3 +328,8 @@ npm run verify:online
 ### AI接口兼容
 
 助手支持OpenAI Chat Completions、Responses、Claude Messages及Gemini；DeepSeek官方预设使用 https://api.deepseek.com，可读取实际可用模型。连接测试验证两轮工具往返，兼容思考模式；不支持工具的模型可选仅对话。等待默认180秒，可在连接选项调整；错误区分余额、模型、地区与超时。密钥仍只保留本页，不自动切换中转或重试付费请求。预设／协议回归不代表每个服务商和模型已实际付费联调。详细规范见 docs/MAP_AGENT_ZH.md。
+
+
+### 跨平台应用（9.0-app-clients-v1）
+
+新增可安装PWA与Windows／Linux／macOS桌面、Android及iOS原生工程，共用现有地图功能、线上账号和共享资料。地图及查询仍需联网，不宣称已完成全量离线或应用商店发布。安装入口在“关于”；移动原生客户端适配系统文件选择与完整分块保存，桌面保留沙箱与上下文隔离。构建、签名、安装包下载及实机验收状态分别确认，iOS正式分发需要苹果签名。构建步骤、权限与限制见[应用端说明](docs/APP_CLIENTS_ZH.md)，运行node scripts/test-app-clients.mjs验证。

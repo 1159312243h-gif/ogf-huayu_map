@@ -29,6 +29,11 @@ async function listFiles(directory) {
   return nested.flat().sort((left, right) => left.localeCompare(right));
 }
 
+const appClientsTest = await runCheck([path.join(root, "scripts", "test-app-clients.mjs")]);
+assert.equal(appClientsTest.status, 0, "应用安装与原生接口检查失败");
+const nativePackagesTest = await runCheck([path.join(root, "scripts", "test-native-packages.mjs")]);
+assert.equal(nativePackagesTest.status, 0, "应用安装包完整性检查失败");
+
 const manifestLines = (await fs.readFile(path.join(root, "release", "SHA256.txt"), "utf8"))
   .trim().split(/\r?\n/u).filter(Boolean);
 const manifest = new Map(manifestLines.map((line) => {

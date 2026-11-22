@@ -203,3 +203,8 @@ DeepSeek 官方默认思考模式不接受 required 或指定函数的 tool_choi
 余额不足、地区拒绝、模型不存在、限流、参数拒绝、截断与超时分别显示安全提示及可选HTTP状态；不透传原始服务商错误体、密钥或认证头。MAP_AGENT_TOOL_MODE、MAP_AGENT_TIMEOUT_SECONDS可为可选站点服务设置同样范围。用户接口配置不能由模型改写；账号切换清空密钥和模型目录。测试参见 scripts/test-map-agent-providers.mjs、scripts/test-map-agent-client.mjs。没有真实付费密钥时仅验证协议及合成上游，不宣称已逐服务商完成付费联调或保证所有模型／地区可访问。
 
 官方依据（2026-11-22读取）：[DeepSeek思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[Chat Completions参数](https://api-docs.deepseek.com/api/create-chat-completion/)。
+
+
+## 跨平台应用（2026-11-22）
+
+get_app_status通过真实HuayuApp.status()返回当前平台、独立窗口、原生文件保存、安装提示可用性和需联网状态；不读取账号、密钥或本机文件，不自动安装或承诺签名及商店发布。原助手、地图、上传和系统保存共用原真实处理器；原生应用需配套页面后使用。安装说明位于常见问题及关于入口，详见[应用端说明](APP_CLIENTS_ZH.md)。

@@ -1,0 +1,71 @@
+name: Publish application packages
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful native build run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact native build commit SHA
+        required: true
+        type: string
+      release_tag:
+        description: New app preview release tag
+        required: true
+        default: apps-v9.0.0-preview.1
+        type: string
+      publish:
+        description: Make verified packages publicly downloadable
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  actions: read
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - name: Validate exact successful build and repository identity
+        run: |
+          node --input-type=module <<'NODE'
+          const id=process.env.BUILD_RUN,sha=process.env.SOURCE_SHA,repo=process.env.GITHUB_REPOSITORY;
+          if(!/^\d+$/u.test(id)||!/^apps-v\d+\.\d+\.\d+-preview\.\d+$/u.test(process.env.RELEASE_TAG)||!/^[a-f0-9]{40}$/u.test(sha)||repo!=="1159312243h-gif/ogf-huayu_map")throw Error("Invalid publish scope");
+          const get=async path=>{const r=await fetch("https://api.github.com/repos/"+repo+path,{headers:{Authorization:"Bearer "+process.env.GH_TOKEN,Accept:"application/vnd.github+json"}});if(!r.ok)throw Error("Build lookup failed");return r.json();};
+          const run=await get("/actions/runs/"+id),workflow=await get("/actions/workflows/"+run.workflow_id),jobs=await get("/actions/runs/"+id+"/jobs");
+          if(run.head_sha!==sha||run.head_repository.full_name!==repo||!["main","codex/app-clients"].includes(run.head_branch)||workflow.path!==".github/workflows/app-build.yml"||run.status!=="completed")throw Error("Build identity mismatch");
+          for(const pattern of [/^checks$/u,/^android$/u,/^desktop .*Windows-x64/u,/^desktop .*Linux-x64/u]){
+            const matches=jobs.jobs.filter(job=>pattern.test(job.name));
+            if(matches.length!==1||matches[0].conclusion!=="success")throw Error("Required build has not passed");
+          }
+          console.log("Verified native source commit and all required platform jobs");
+          NODE
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+          path: native-artifacts
+      - name: Hash complete application files and prepare download index
+        run: node scripts/index-native-packages.mjs native-artifacts native-release "$RELEASE_TAG" "$SOURCE_SHA"
+      - name: Create a new draft and upload complete packages
+        run: gh release create "$RELEASE_TAG" native-release/* --target "$SOURCE_SHA" --prerelease --draft --title "华域地图应用测试版 9.0" --notes-file native-release/RELEASE_NOTES.md
+      - name: Verify remote file sizes, SHA-256 digests and exact tag
+        run: node scripts/verify-native-release.mjs native-release/app-releases.json
+      - name: Publish verified application release
+        if: inputs.publish
+        run: gh release edit "$RELEASE_TAG" --draft=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Huayu-verified-download-index
+          path: |
+            native-release/app-releases.json
+            native-release/SHA256SUMS.txt
+          if-no-files-found: error

@@ -176,3 +176,23 @@
 
 /transport-timetables.js
   Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app-sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+  Service-Worker-Allowed: /
+
+/app-platform.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app-platform.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app-releases.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/apps.html
+  Cache-Control: public, max-age=0, must-revalidate

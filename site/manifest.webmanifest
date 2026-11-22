@@ -1,0 +1,29 @@
+{
+  "id": "/",
+  "name": "华域地图",
+  "short_name": "华域地图",
+  "description": "地图、交通导航、三维模型、模拟和共享资料",
+  "lang": "zh-CN",
+  "start_url": "/?app=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "standalone"
+  ],
+  "background_color": "#f3f6f5",
+  "theme_color": "#17685d",
+  "icons": [
+    {
+      "src": "/app-icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
