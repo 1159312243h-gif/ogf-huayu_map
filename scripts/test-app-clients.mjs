@@ -89,3 +89,5 @@ const tool=globalThis.HuayuAgentTools.create({atlas:{}});
 assert.equal((await tool.execute("get_app_status",{})).platform,"android","助手实际调用客户端处理器");
 delete globalThis.HuayuApp;
 console.log("App checks passed: explicit installation, byte-exact Android/iOS streaming, cancellation/failure, cache isolation, native origin guards and real assistant status.");
+
+await import("./test-app-downloads.mjs");

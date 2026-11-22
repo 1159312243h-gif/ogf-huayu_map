@@ -55,13 +55,17 @@ jobs:
           path: native-artifacts
       - name: Hash complete application files and prepare download index
         run: node scripts/index-native-packages.mjs native-artifacts native-release "$RELEASE_TAG" "$SOURCE_SHA"
+      - name: Reuse only an identical verified draft
+        id: existing
+        run: node scripts/verify-native-release.mjs native-release/app-releases.json --probe
       - name: Create a new draft and upload complete packages
+        if: steps.existing.outputs.exists != 'true'
         run: gh release create "$RELEASE_TAG" native-release/* --target "$SOURCE_SHA" --prerelease --draft --title "华域地图应用测试版 9.0" --notes-file native-release/RELEASE_NOTES.md
       - name: Verify remote file sizes, SHA-256 digests and exact tag
         run: node scripts/verify-native-release.mjs native-release/app-releases.json
       - name: Publish verified application release
         if: inputs.publish
-        run: gh release edit "$RELEASE_TAG" --draft=false
+        run: node scripts/verify-native-release.mjs native-release/app-releases.json --publish
       - uses: actions/upload-artifact@v4
         with:
           name: Huayu-verified-download-index

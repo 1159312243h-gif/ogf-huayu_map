@@ -1,10 +1,10 @@
 # 华域地图
 
-本次构建：修复 DeepSeek 官方思考模式的工具调用兼容，支持 Chat Completions、Responses、Claude 与 Gemini，增加真实模型列表和仅对话模式；包含界面精简、14组帮助、共享车次／航班、品牌透明 logo 恢复及地名优先搜索。详见 [本次发布说明](docs/RELEASE_9_0_PROVIDER_COMPAT_ZH.md)。模型接口已通过协议回归，未逐服务商使用真实密钥付费联调。
+本次构建增加跨平台应用支持：Windows、Linux、macOS 原生测试包与 Android APK 已通过构建，iOS 按用户选择使用 Safari 主屏幕安装版。各端共用网站的地图功能、线上账号和共享资料，在线查询需要联网。安装及下载见[应用安装页](https://ogf-atlas.pages.dev/apps.html)，架构、构建、签名和验收记录见[应用端说明](docs/APP_CLIENTS_ZH.md)。原有 AI 接口兼容、共享数据、模型渲染与交通功能继续保留。
 
-**当前项目版本：9.0** · 发布构建：`9.0-provider-compat-v2`（9.0.0，2026-11-22）
+**当前项目版本：9.0** · 发布构建：`9.0-app-clients-v1`（9.0.0，2026-11-22）
 
-[打开华域地图](https://ogf-atlas.pages.dev/?release=9.0-provider-compat-v2) · [本次线路模板更新](docs/RELEASE_9_0_TRANSIT_TEMPLATES_ZH.md) · [9.0 发布说明](docs/RELEASE_9_0_ZH.md) · [品牌功能更新](docs/RELEASE_9_0_BRANDS_ZH.md) · [共享数据格式与 API](docs/SHARED_DATASETS_ZH.md) · [维护规则](docs/MAP_RULES_ZH.md)
+[打开华域地图](https://ogf-atlas.pages.dev/?release=9.0-app-clients-v1) · [本次线路模板更新](docs/RELEASE_9_0_TRANSIT_TEMPLATES_ZH.md) · [9.0 发布说明](docs/RELEASE_9_0_ZH.md) · [品牌功能更新](docs/RELEASE_9_0_BRANDS_ZH.md) · [共享数据格式与 API](docs/SHARED_DATASETS_ZH.md) · [维护规则](docs/MAP_RULES_ZH.md)
 
 9.0 增加共享词条与共享数据。点选地图物体后，登录用户可补充简介、建筑名称和自定义属性；“数据”菜单可上传一个要素、一座城市、省、国家或更大范围的结构化资料，并生成专题图。所有人均可阅读、检索和下载共享内容，作者只管理自己的投稿或数据包，管理员可管理全部并保留原作者。
 
