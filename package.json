@@ -36,6 +36,10 @@
     "test:transit-templates": "node scripts/test-transit-templates.mjs",
     "test:timetables": "node scripts/test-transport-timetables.mjs",
     "timetables:sync": "node scripts/sync-transport-timetables.mjs",
-    "test:ui": "node scripts/test-panel-help.mjs"
+    "test:ui": "node scripts/test-panel-help.mjs",
+    "apps:prepare": "node scripts/prepare-apps.mjs",
+    "test:apps": "node scripts/test-app-clients.mjs",
+    "apps:desktop": "npm --prefix apps/desktop start",
+    "apps:desktop:build": "npm --prefix apps/desktop run dist"
   }
 }

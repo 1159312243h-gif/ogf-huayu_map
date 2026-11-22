@@ -1,0 +1,16 @@
+.app-install-card {border:1px solid var(--line,#dce4e0);border-radius:12px;padding:16px;margin:12px 0;display:grid;gap:10px}
+.app-install-card h3,.app-install-card p {margin:0}
+.app-install-card p {font-size:13px;line-height:1.65;color:var(--muted,#587069)}
+.app-install-card .app-install-actions {display:flex;gap:8px;flex-wrap:wrap}
+.app-install-card [role=status] {min-height:1.6em}
+html {--app-safe-top:env(safe-area-inset-top,0px);--app-safe-bottom:env(safe-area-inset-bottom,0px);--app-safe-left:env(safe-area-inset-left,0px);--app-safe-right:env(safe-area-inset-right,0px)}
+@supports(height:100dvh) {html,body,.app-shell{height:100dvh}}
+@media(max-width:680px) {
+  .side-rail {height:calc(64px + var(--app-safe-bottom));padding-bottom:calc(4px + var(--app-safe-bottom));padding-left:max(10px,var(--app-safe-left));padding-right:max(10px,var(--app-safe-right))}
+  .topbar {top:calc(10px + var(--app-safe-top));left:max(10px,var(--app-safe-left));right:max(10px,var(--app-safe-right))}
+  .place-panel,.transit-map-panel,.map-view-menu {bottom:calc(144px + var(--app-safe-bottom));left:max(8px,var(--app-safe-left));right:max(8px,var(--app-safe-right))}
+  .place-panel {max-height:min(59dvh,520px,calc(100dvh - 252px - var(--app-safe-top) - var(--app-safe-bottom)))}
+  .transit-map-panel {max-height:min(46dvh,390px,calc(100dvh - 252px - var(--app-safe-top) - var(--app-safe-bottom)))}
+  .map-view-menu {max-height:calc(100dvh - 176px - var(--app-safe-top) - var(--app-safe-bottom))}
+  input,select,textarea {font-size:16px}
+}

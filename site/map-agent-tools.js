@@ -20,6 +20,7 @@
     }
     const handlers={
       get_capabilities:async()=>({version:contract.version,panels:contract.panels,tools:contract.tools.map(({name,description,effect})=>({name,description,effect}))}),
+      get_app_status:async()=>{if(!root.HuayuApp)throw Error("应用适配模块尚未加载");return root.HuayuApp.status();},
       get_map_context:async()=>{
         const view=atlas.getDatasetContext?.(),camera=view?.perspective&&view.vector||atlas.map;
         const c=camera.getCenter(),b=camera.getBounds(),f=atlas.getSelectedFeature();

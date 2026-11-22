@@ -8,3 +8,16 @@ work/terrain-refresh-cache/
 .env
 .env.*
 *.log
+
+# Native application outputs and local signing material
+apps/**/dist/
+apps/**/build/
+apps/**/.gradle/
+apps/**/local.properties
+apps/**/*.xcodeproj/
+apps/**/*.xcworkspace/
+apps/**/*.xcuserstate
+*.jks
+*.keystore
+*.p12
+*.mobileprovision

@@ -1,0 +1,85 @@
+name: Build native applications
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/app-clients]
+permissions:
+  contents: read
+concurrency:
+  group: huayu-native-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - run: node scripts/prepare-apps.mjs --check
+      - run: node scripts/test-app-clients.mjs
+      - run: node scripts/test-panel-help.mjs
+      - run: node scripts/test-map-agent.mjs
+  desktop:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, target: "--win nsis --x64", name: Windows-x64}
+          - {os: ubuntu-24.04, target: "--linux AppImage deb --x64", name: Linux-x64}
+          - {os: macos-14, target: "--mac dmg", name: macOS}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - uses: pnpm/action-setup@v4
+        with: {version: 11.25.0}
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - run: pnpm run dist -- ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Huayu-${{ matrix.name }}-unsigned
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.AppImage
+            apps/desktop/dist/*.deb
+            apps/desktop/dist/*.dmg
+          if-no-files-found: error
+  android:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 17}
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: "8.11.1"}
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - run: gradle -p apps/android --no-daemon :app:assembleDebug :app:lintDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Huayu-Android-test
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+  ios:
+    needs: checks
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: apps/ios
+      - run: xcodebuild -project apps/ios/HuayuAtlas.xcodeproj -scheme HuayuAtlas -configuration Release -sdk iphoneos -archivePath apps/ios/build/HuayuAtlas.xcarchive archive CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Huayu-iOS-unsigned-archive
+          path: apps/ios/build/HuayuAtlas.xcarchive
+          if-no-files-found: error

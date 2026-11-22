@@ -2197,6 +2197,7 @@ function createMapAgentContract() {
   const kinds=["poi","population","gdp","land_price","demand","schedule","rail_timetable","urban_timetable","flight_timetable","other"];
   const defs=[
     ["get_capabilities","查看当前版本可用功能。连接设置支持 Chat Completions、Responses、Claude、Gemini；仅对话模式不发送工具，模型不能更改接口或密钥。新增功能必须同步本清单；不能承诺未接入的操作。",object({}),"read"],
+    ["get_app_status","读取当前实际客户端类型、是否以应用窗口运行、安装提示可用性和系统文件保存支持；应用共用网站账号与在线数据。不会自动安装、下载、读取本机文件或泄露账号与密钥；iOS签名、商店发布及完整离线地图不由此工具完成。",object({}),"read"],
     ["get_map_context","读取当前地图视窗和用户选中的公开地图物体，返回可复用 ref。不会读取收藏、家庭地址或私人贴图。",object({}),"read"],
     ["search_places","通过现有 OGF 搜索查找地点、行政区、坐标或附近设施；同名行政区优先。搜索先读名称和位置，定位时按原始编号补齐完整几何。结果有来源及 ref；重名须交由用户选择。",object({query:string(160)},["query"]),"read"],
     ["locate_place","使用搜索或地图上下文返回的 ref 定位真实物体并显示详情，不接受模型编造的坐标。",object({ref:string(40)},["ref"]),"view"],
