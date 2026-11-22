@@ -27,4 +27,6 @@ for(const bad of [{url:"https://evil.example/setup.exe"},{url:"https://github.co
  assert.match(result.textContent,/暂时无法读取/u);assert.doesNotMatch(result.textContent,/Windows x64/u,"损坏清单不交付部分成功列表");
 }
 console.log("App downloads passed: verified links, file sizes/signing, collapsed hashes, honest empty/failure states and complete-only rendering.");
-\nconst shipped=JSON.parse(await readFile(new URL("../site/app-releases.json",import.meta.url),"utf8"));\nif(shipped.items.length){const actual=await render(shipped);assert.equal(actual.children.length,shipped.items.length);for(const item of shipped.items)assert.ok(actual.textContent.includes(item.label),"每个已发布安装包都应实际显示");}\n
+
+const shipped=JSON.parse(await readFile(new URL("../site/app-releases.json",import.meta.url),"utf8"));
+if(shipped.items.length){const actual=await render(shipped);assert.equal(actual.children.length,shipped.items.length);for(const item of shipped.items)assert.ok(actual.textContent.includes(item.label),"每个已发布安装包都应实际显示");}
