@@ -17,6 +17,7 @@ public class MainActivity extends Activity {
     private static final String ORIGIN = "https://ogf-atlas.pages.dev";
     private static final String START = ORIGIN + "/?app=native";
     private WebView web;
+    private LocalAssets local;
     private LinearLayout layout;
     private ValueCallback<Uri[]> fileInput;
     private JavaScriptReplyProxy finishReply;
@@ -38,6 +39,7 @@ public class MainActivity extends Activity {
                 insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
             return insets.consumeSystemWindowInsets();
         });
+        try { local=new LocalAssets(this); } catch(Exception error) { local=null; }
         web = new WebView(this);
         layout.addView(web, new LinearLayout.LayoutParams(-1, -1));
         WebSettings settings = web.getSettings();
@@ -60,7 +62,16 @@ public class MainActivity extends Activity {
                 try { handle(new JSONObject(message.getData()), reply); }
                 catch (Exception error) { reply(reply, "", false, null, "文件保存请求无效"); }
             });
+        if(WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)&&WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST)){
+            ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(new ServiceWorkerClientCompat(){
+                @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest request){return local==null?null:local.intercept(request);}
+            });
+        }
         web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request){return local==null?null:local.intercept(request);}
+            @Override public void onPageFinished(WebView view,String url){
+                if(local!=null&&trusted(url))view.evaluateJavascript("window.huayuAndroid=Object.freeze({localAssets:true,bundledPublicData:true,assetRevision:"+JSONObject.quote(local.revision)+"});",null);
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String value = request.getUrl().toString();
                 if (trusted(value)) return false;
@@ -193,6 +204,8 @@ public class MainActivity extends Activity {
             finally {cancelExport();}
         }
     }
+    @Override protected void onPause(){web.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();if(web!=null)web.onResume();}
     @Override protected void onSaveInstanceState(Bundle state) {web.saveState(state);super.onSaveInstanceState(state);}
     @Override public void onBackPressed() {if(web.canGoBack())web.goBack();else super.onBackPressed();}
     @Override protected void onDestroy() {cancelExport();if(fileInput!=null)fileInput.onReceiveValue(null);web.destroy();super.onDestroy();}

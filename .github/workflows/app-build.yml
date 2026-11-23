@@ -12,6 +12,9 @@ on:
       - apps/**
       - site/app-*
       - site/manifest.webmanifest
+      - site/app-cache-*
+      - scripts/prepare-desktop.mjs
+      - scripts/test-desktop-local.mjs
       - scripts/prepare-apps.mjs
       - scripts/test-app-clients.mjs
       - .github/workflows/app-build.yml
@@ -27,6 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: 24}
+      - run: node scripts/prepare-desktop.mjs --check
       - run: node scripts/prepare-apps.mjs --check
       - run: node scripts/test-app-clients.mjs
       - run: node scripts/test-panel-help.mjs
@@ -55,7 +59,9 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: node node_modules/electron/install.js
       - run: pnpm run smoke
-        if: runner.os == 'Windows'
+        if: runner.os != 'Linux'
+      - run: xvfb-run --auto-servernum pnpm run smoke
+        if: runner.os == 'Linux'
       - run: pnpm run dist ${{ matrix.target }} --publish never
       - uses: actions/upload-artifact@v4
         with:
@@ -72,6 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - run: node scripts/prepare-desktop.mjs --mobile
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: 17}
       - uses: android-actions/setup-android@v3

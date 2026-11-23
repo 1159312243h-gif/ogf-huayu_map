@@ -196,3 +196,9 @@
 
 /apps.html
   Cache-Control: public, max-age=0, must-revalidate
+
+/desktop-assets.json
+  Cache-Control: public, max-age=0, must-revalidate
+
+/app-cache-*
+  Cache-Control: public, max-age=0, must-revalidate

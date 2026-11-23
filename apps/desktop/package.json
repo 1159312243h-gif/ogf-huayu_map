@@ -1,6 +1,6 @@
 {
   "name": "huayu-atlas-desktop",
-  "version": "9.0.0",
+  "version": "9.0.3",
   "private": true,
   "description": "华域地图桌面应用",
   "author": {
@@ -12,7 +12,9 @@
   "scripts": {
     "start": "electron .",
     "smoke": "electron . --smoke-test",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "predist": "node ../../scripts/prepare-desktop.mjs --bundle",
+    "presmoke": "node ../../scripts/prepare-desktop.mjs --bundle"
   },
   "devDependencies": {
     "electron": "45.4.1",
@@ -27,7 +29,11 @@
       "preload.cjs",
       "offline.html",
       "app.json",
-      "icons/**"
+      "icons/**",
+      "local-client.cjs",
+      "renderer/**",
+      "tile-cache.cjs",
+      "cache-policy.cjs"
     ],
     "directories": {
       "output": "dist"

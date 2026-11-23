@@ -21,3 +21,8 @@ apps/**/*.xcuserstate
 *.keystore
 *.p12
 *.mobileprovision
+
+# Generated complete desktop resources; sources remain in site/.
+apps/desktop/renderer/
+
+apps/android/app/src/main/assets/huayu/

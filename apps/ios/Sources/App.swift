@@ -44,6 +44,10 @@ final class AtlasController: UIViewController, WKNavigationDelegate, WKUIDelegat
         ])
         web.load(URLRequest(url: startURL))
     }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // Recover only a terminated view, preserving same-origin authentication and system file handling.
+        webView.reload()
+    }
     private func trusted(_ url: URL?) -> Bool {
         guard let url else { return false }
         return url.scheme == "https" && url.host == origin && (url.port == nil || url.port == 443)

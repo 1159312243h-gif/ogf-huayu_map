@@ -4,6 +4,7 @@ import {createReadStream} from "node:fs";
 import {createHash} from "node:crypto";
 const [input,output,tag,sourceSha]=process.argv.slice(2),repo=process.env.GITHUB_REPOSITORY;
 if(!input||!output||!/^apps-v\d+\.\d+\.\d+-preview\.\d+$/u.test(tag||"")||!/^[a-f0-9]{40}$/u.test(sourceSha||"")||repo!=="1159312243h-gif/ogf-huayu_map")throw Error("Invalid application release scope");
+const version=tag.match(/^apps-v(\d+\.\d+\.\d+)-/u)[1];
 const root=path.resolve(input),destination=path.resolve(output);
 await fs.mkdir(destination,{recursive:true});
 async function files(directory){const list=[];for(const item of await fs.readdir(directory,{withFileTypes:true})){const absolute=path.join(directory,item.name);if(item.isSymbolicLink())throw Error("Unexpected artifact link");if(item.isDirectory())list.push(...await files(absolute));else if(item.isFile())list.push(absolute);}return list;}
@@ -13,7 +14,8 @@ for(const file of artifacts){
  const original=path.basename(file),extension=path.extname(file),android=extension===".apk";
  if(!android&&!/^Huayu-Atlas-[a-zA-Z0-9._-]+$/u.test(original))throw Error("Unexpected application filename");
  if(android&&original!=="app-debug.apk")throw Error("Unexpected Android artifact");
- const filename=android?"Huayu-Atlas-9.0.0-android-test.apk":original;
+ const filename=android?"Huayu-Atlas-"+version+"-android-test.apk":original;
+ if(!android&&!original.startsWith("Huayu-Atlas-"+version+"-"))throw Error("Application version does not match release tag");
  if(names.has(filename))throw Error("Repeated application artifact");names.add(filename);
  const platform=android?"android":extension===".exe"?"windows":extension===".dmg"?"macos":"linux";
  const arch=android?"通用":/(?:arm64|aarch64)/u.test(original)?"arm64":/(?:x64|x86_64|amd64)/u.test(original)?"x64":null;
@@ -22,7 +24,7 @@ for(const file of artifacts){
  const sha256=hash.digest("hex"),size=(await fs.stat(file)).size;
  await fs.copyFile(file,path.join(destination,filename),fs.constants.COPYFILE_EXCL);
  items.push({platform,arch,label:({windows:"Windows",linux:"Linux",macos:"macOS",android:"Android"})[platform]+" "+arch+" · 测试版"+(extension===".deb"?"（Deb）":extension===".AppImage"?"（AppImage）":""),
-  version:"9.0.0",bytes:size,sha256,url:"https://github.com/"+repo+"/releases/download/"+tag+"/"+filename,filename,signed:android,signing:android?"Android开发测试签名":"未签名／未公证",sourceSha});
+  version,bytes:size,sha256,url:"https://github.com/"+repo+"/releases/download/"+tag+"/"+filename,filename,signed:android,signing:android?"Android开发测试签名":"未签名／未公证",sourceSha});
 }
 for(const platform of ["windows","linux","android"])if(!items.some(item=>item.platform===platform))throw Error("Required application missing: "+platform);
 const manifest={schema:"huayu-app-releases-v1",release:tag,sourceSha,generatedAt:new Date().toISOString(),items};

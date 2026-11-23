@@ -6,8 +6,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: "90000"
-    MARKETING_VERSION: "9.0.0"
+    CURRENT_PROJECT_VERSION: "90003"
+    MARKETING_VERSION: "9.0.3"
 targets:
   HuayuAtlas:
     type: application

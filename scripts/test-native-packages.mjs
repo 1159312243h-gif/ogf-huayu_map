@@ -26,6 +26,7 @@ try{
  for(const item of index.items){const bytes=await readFile(path.join(output,item.filename));assert.equal(item.sha256,createHash("sha256").update(bytes).digest("hex"));assert.equal(item.bytes,bytes.length);assert.equal(item.sourceSha,source);assert.ok(item.url.startsWith("https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/"));}
  assert.ok(index.items.some(item=>item.filename==="Huayu-Atlas-9.0.0-android-test.apk"));
  assert.notEqual(run(path.join(directory,"bad"),"../bad").status,0,"不接受任意发布标签");
+ assert.notEqual(run(path.join(directory,"wrong-version"),"apps-v9.0.1-preview.1").status,0,"发布标签不得把旧版本包标为新版本");
  assert.notEqual(run(output).status,0,"不能覆盖旧的校验产物");
  await rm(path.join(input,"app-debug.apk"));
  assert.notEqual(run(path.join(directory,"missing")).status,0,"缺平台不能准备发布");

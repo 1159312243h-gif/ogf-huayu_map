@@ -4,7 +4,7 @@ import {readFile} from "node:fs/promises";
 import {createHash} from "node:crypto";
 const read=relative=>readFile(new URL("../"+relative,import.meta.url),"utf8");
 const code=await read("site/app-platform.js");
-function page({native=false,ios=false,failChunk=false,desktop=null}={}) {
+function page({native=false,ios=false,failChunk=false,desktop=null,local=false}={}) {
  const events=new Map(),elements=new Map([["app-install",{textContent:"",addEventListener(){}}],["app-install-status",{textContent:""}]]);
  const doc={readyState:"complete",getElementById:id=>elements.get(id),addEventListener(type,handler){events.set(type,handler);}};
  class Anchor {click(){this.clicked=true;}}
@@ -12,7 +12,7 @@ function page({native=false,ios=false,failChunk=false,desktop=null}={}) {
   location:{origin:"https://ogf-atlas.pages.dev",href:"https://ogf-atlas.pages.dev/"},
   navigator:{userAgent:"test"},matchMedia:()=>({matches:false}),isSecureContext:false,
   addEventListener(type,handler){events.set(type,handler);},setTimeout,clearTimeout,btoa:value=>Buffer.from(value,"binary").toString("base64")};
- if(desktop)root.huayuDesktop={platform:desktop,version:"9.0.0"};
+ if(desktop)root.huayuDesktop={platform:desktop,version:"9.0.1",localAssets:local,assetRevision:local?"a".repeat(64):null,bundledPublicData:local};
  const sent=[],chunks=[];let nativeResult={cancelled:false};
  const reply=payload=>{sent.push(payload);if(payload.action==="begin")return {ok:true,result:"task-1"};
   if(payload.action==="chunk"){if(failChunk)return {ok:false,error:"磁盘写入失败"};chunks.push(Buffer.from(payload.data,"base64"));}
@@ -24,6 +24,7 @@ function page({native=false,ios=false,failChunk=false,desktop=null}={}) {
 }
 const desktopClient=page({desktop:"win32"});
 assert.equal(desktopClient.root.HuayuApp.status().platform,"windows");assert.equal(desktopClient.root.HuayuApp.status().nativeFileSave,true);
+const localized=page({desktop:"win32",local:true});assert.equal(localized.root.HuayuApp.status().localAssets,true);assert.equal(localized.root.HuayuApp.status().assetRevision,"a".repeat(64));assert.equal(desktopClient.root.HuayuApp.status().localAssets,false);
 const browser=page();
 assert.equal(browser.root.HuayuApp.status().native,false);
 const anchor=new browser.root.HTMLAnchorElement();anchor.click();assert.equal(anchor.clicked,true,"浏览器原下载不被替换");
@@ -48,26 +49,7 @@ for(const options of [{native:true},{ios:true}]){
 const broken=page({native:true,failChunk:true});
 await assert.rejects(broken.root.HuayuApp.saveBlob(new Blob(["data"]),"失败.csv"),/磁盘/);
 assert.ok(broken.sent.some(m=>m.action==="cancel"));assert.ok(!broken.sent.some(m=>m.action==="finish"),"半文件不进入成功保存");
-const handlers={},cached=[],deleted=[];
-const fallback=new Response("offline");
-const sw={location:{origin:"https://ogf-atlas.pages.dev"},clients:{claim:async()=>{}},skipWaiting:async()=>{},
- addEventListener(name,callback){handlers[name]=callback;}};
-const caches={open:async()=>({addAll:async files=>cached.push(...files),match:async()=>fallback}),
- keys:async()=>["huayu-install-v0","building-model-cache","other-private-cache"],delete:async key=>deleted.push(key)};
-vm.runInNewContext(await read("site/app-sw.js"),{self:sw,caches,URL,Response,fetch:async()=>{throw Error("offline");}});
-await new Promise(resolve=>handlers.install({waitUntil:promise=>promise.then(resolve)}));
-assert.deepEqual(cached.sort(),["/app-icons/icon-192.png","/app-icons/icon-512.png","/app-offline.html"].sort());
-await new Promise(resolve=>handlers.activate({waitUntil:promise=>promise.then(resolve)}));
-assert.deepEqual(deleted,["huayu-install-v0"],"不能删除模型或私人缓存");
-for(const request of [
- {method:"POST",url:"https://ogf-atlas.pages.dev/api/datasets",mode:"cors"},
- {method:"GET",url:"https://ogf-atlas.pages.dev/api/auth/session",mode:"navigate"},
- {method:"GET",url:"https://ogf-atlas.pages.dev/terrain-preload.json.gz",mode:"cors"},
- {method:"GET",url:"https://ogf-atlas.pages.dev/app.js",mode:"cors"},
- {method:"GET",url:"https://elsewhere.example/",mode:"navigate"}
-]){let caught=false;handlers.fetch({request,respondWith(){caught=true;}});assert.equal(caught,false,"服务工作线程不能接管原数据路径");}
-let navigation;handlers.fetch({request:{method:"GET",url:"https://ogf-atlas.pages.dev/?panel=search",mode:"navigate"},respondWith(p){navigation=p;}});
-assert.equal(await navigation,fallback);
+await import("./test-app-cache.mjs");
 const cfg=JSON.parse(await read("apps/app.json")),release=JSON.parse(await read("release.json"));
 assert.equal(cfg.origin,release.productionUrl);
 const manifest=JSON.parse(await read("site/manifest.webmanifest"));
@@ -91,3 +73,4 @@ delete globalThis.HuayuApp;
 console.log("App checks passed: explicit installation, byte-exact Android/iOS streaming, cancellation/failure, cache isolation, native origin guards and real assistant status.");
 
 await import("./test-app-downloads.mjs");
+await import("./test-desktop-local.mjs");

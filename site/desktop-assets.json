@@ -1,0 +1,1526 @@
+{
+  "schema": "huayu-desktop-assets-v1",
+  "runtime": 1,
+  "version": "9.0.3",
+  "revision": "df1ff0511ee01cbd82020b1ed1a056a558008caceeaf96c875ad866794bed247",
+  "files": [
+    {
+      "path": "BUILDING_MODEL_VERSION.md",
+      "bytes": 12914,
+      "sha256": "babe9c42380c1b00f5fce32be4c993048d5083507dc0614413717ab2a51dc176",
+      "kind": "code"
+    },
+    {
+      "path": "HUAYU_RENDERING_ROADMAP.md",
+      "bytes": 23250,
+      "sha256": "f584afb4b998c01c76eab6d43ff6ec162f168c2f3296d549db7b1aef944e5b0c",
+      "kind": "code"
+    },
+    {
+      "path": "README.md",
+      "bytes": 160014,
+      "sha256": "97bb4afd6d8db05abb9581102da4e4690a658ac1a6346ded1baf283d4717f432",
+      "kind": "code"
+    },
+    {
+      "path": "VERSION.txt",
+      "bytes": 213636,
+      "sha256": "a72151bb045489b48e8b62789f50d05f5aea100ccf12d1fd80c8542bcddeb1d8",
+      "kind": "code"
+    },
+    {
+      "path": "admin-catalog.js",
+      "bytes": 6674,
+      "sha256": "432aa396a0f2ee3d12d8a22d6c0724ea6945d127842f9b6fa07c7b3245fdec26",
+      "kind": "code"
+    },
+    {
+      "path": "airports.json",
+      "bytes": 23956,
+      "sha256": "478828e8b7cd6c0a991c6a6a2bc2d529566492a06da9060192db80ca4d7d45cb",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:56:42.396Z",
+      "decodedBytes": 23956,
+      "decodedSha256": "478828e8b7cd6c0a991c6a6a2bc2d529566492a06da9060192db80ca4d7d45cb"
+    },
+    {
+      "path": "app-cache-policy.js",
+      "bytes": 2477,
+      "sha256": "e2002ddbd6b2450987d969d198db324d3e0a6f6b6274fd302a2be21dbf804830",
+      "kind": "code"
+    },
+    {
+      "path": "app-cache-version.js",
+      "bytes": 93,
+      "sha256": "ba226035e2afd585c7610b468639db8f036e04ec1b5dc524d7a7024b65838c82",
+      "kind": "code"
+    },
+    {
+      "path": "app-downloads.js",
+      "bytes": 2406,
+      "sha256": "bb2b92a042c6536f06a76a5286ce80d1488e303b52e16002d8cdba9346db98b1",
+      "kind": "code"
+    },
+    {
+      "path": "app-icons/icon-192.png",
+      "bytes": 1343,
+      "sha256": "40ca0c3c6456092f2d7edbabe43849a603c902d0b1f8ff715a14a0ea02e7f954",
+      "kind": "code"
+    },
+    {
+      "path": "app-icons/icon-512.png",
+      "bytes": 4624,
+      "sha256": "978e6d5ecc6e30e723fa157b4b22140aa710275cd17677ff31012bd2561ac533",
+      "kind": "code"
+    },
+    {
+      "path": "app-offline.html",
+      "bytes": 800,
+      "sha256": "969aff23e5e250682945d764d47f7bd0d0fb46f60d9c5ded5f76d8f01316fa60",
+      "kind": "code"
+    },
+    {
+      "path": "app-platform.css",
+      "bytes": 1531,
+      "sha256": "d53994b623104a5ecd9edb57d08741064d065081d80bad3f1f2c8c6e9e6dcfc6",
+      "kind": "code"
+    },
+    {
+      "path": "app-platform.js",
+      "bytes": 8119,
+      "sha256": "e7d0c275a24d149a9dc384cc2583bfc7b301c637fa2d5b01983d35cda1ebb2ac",
+      "kind": "code"
+    },
+    {
+      "path": "app-releases.json",
+      "bytes": 3038,
+      "sha256": "412c4ea2388cd3de22fc7d6604e7ad6da39dacd1a35c9298d279a03e2c64a560",
+      "kind": "data",
+      "sourceTime": "2026-11-22T12:56:26.867Z",
+      "decodedBytes": 3038,
+      "decodedSha256": "412c4ea2388cd3de22fc7d6604e7ad6da39dacd1a35c9298d279a03e2c64a560"
+    },
+    {
+      "path": "app-sw.js",
+      "bytes": 9139,
+      "sha256": "f79cc6ef95ec7c19719f0c4749fc176c56c7242917ffac98541cbe2ec44b9f5d",
+      "kind": "code"
+    },
+    {
+      "path": "app.js",
+      "bytes": 1869009,
+      "sha256": "5d9a479f283a3b4a606fefa4fee789a414af142abe5cd65ddc7df3749802abf8",
+      "kind": "code"
+    },
+    {
+      "path": "apps.html",
+      "bytes": 2418,
+      "sha256": "60f20faf3c76525afb63685d394793974565fdc5941a598fe6aaad119d545cd1",
+      "kind": "code"
+    },
+    {
+      "path": "brand-browser.css",
+      "bytes": 1805,
+      "sha256": "7b473a69ac0be0f1ea34ee10968a6449b88eacf1ee80f5876c0200b6632267e1",
+      "kind": "code"
+    },
+    {
+      "path": "brand-browser.js",
+      "bytes": 36987,
+      "sha256": "078992b01efe7727b6abbfa9dc81653684e23fb8cd278621a5705880b4f5049f",
+      "kind": "code"
+    },
+    {
+      "path": "brand-catalog.json",
+      "bytes": 7762247,
+      "sha256": "49cdec2b001f53edb900327180ab08c88cbccdbb8fa8429b99da528f149c3fb3",
+      "kind": "data",
+      "sourceTime": "2026-11-22T20:21:06Z",
+      "decodedBytes": 7762247,
+      "decodedSha256": "49cdec2b001f53edb900327180ab08c88cbccdbb8fa8429b99da528f149c3fb3"
+    },
+    {
+      "path": "brand-data.js",
+      "bytes": 16982,
+      "sha256": "42c9d116a710ac4b2d36ed3520ff05e4eb6d28a584e02ab8f57de6d3f29f7c26",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logo-cache.js",
+      "bytes": 3758,
+      "sha256": "8d765a0e5c3596a0245a3b6082d678ed1cc51ece11fd1bf0b963c85ea1e6dfb5",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logo-core.js",
+      "bytes": 10520,
+      "sha256": "d834fce9dbe30d7ab703ab20f33852e856673113cc61545974b967c3236956c5",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos.css",
+      "bytes": 1825,
+      "sha256": "dc4629f77898ad71c01331d308281ec55b132073a954bb423b47d3ef96efb3c5",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos.js",
+      "bytes": 30202,
+      "sha256": "1f3ddcfeb534367ae579eb197c749f0aa1fcb69dd239ead6af8895a843dd5fa0",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos.json",
+      "bytes": 2777,
+      "sha256": "48bf85755c3ea6f221abf5cc0e4f715b155c0b55ab5fc854740d6201f00ba6c5",
+      "kind": "data",
+      "sourceTime": "2026-10-27T15:35:26.802Z",
+      "decodedBytes": 2777,
+      "decodedSha256": "48bf85755c3ea6f221abf5cc0e4f715b155c0b55ab5fc854740d6201f00ba6c5"
+    },
+    {
+      "path": "brand-logos/ATTRIBUTION.md",
+      "bytes": 896,
+      "sha256": "67db1db5e720cc896bc833b3d818e4b9be1891ce33f009f8bb01d21645ff1118",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos/logo-738230fb8235.webp",
+      "bytes": 11824,
+      "sha256": "52b23485e31da217ab6c9d9b75f8bd47333c5938ac16fde63a2828c1ce084638",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos/logo-8e1d3c06f609.webp",
+      "bytes": 5028,
+      "sha256": "fe3da71fd69f499b11db435e602c9c453311518be3dcf1ad0cd36569fbd37f3f",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos/logo-d66eede2363d.webp",
+      "bytes": 4582,
+      "sha256": "b4ef2632ba7ae9c81a8502541b0e38ccccb36cf6943149d1452d72ae5bf195d0",
+      "kind": "code"
+    },
+    {
+      "path": "brand-logos/logo-e632ebfe248a.webp",
+      "bytes": 4992,
+      "sha256": "62262404b1c4947cc44301c4d7f70bc0cde96091cbd2b4b8dcd2db5723d6de53",
+      "kind": "code"
+    },
+    {
+      "path": "brand-management.js",
+      "bytes": 17152,
+      "sha256": "cd9b9addf4a2add49ea5236e42e7aac33604e75f5f20c9e333dfc09f9a6335e5",
+      "kind": "code"
+    },
+    {
+      "path": "brand-search-index.json",
+      "bytes": 3727069,
+      "sha256": "4e5ffdafc613a4ea4c00cb9fcfd7f051f705f9feffeba4c769309447359d38ee",
+      "kind": "data",
+      "sourceTime": "2026-11-22T20:21:06Z",
+      "decodedBytes": 3727069,
+      "decodedSha256": "4e5ffdafc613a4ea4c00cb9fcfd7f051f705f9feffeba4c769309447359d38ee"
+    },
+    {
+      "path": "bridge-models.js",
+      "bytes": 73705,
+      "sha256": "789699d5c550efbdd2116a40719f22b0608a8def53c6729f4faa4a71ccb6c67c",
+      "kind": "code"
+    },
+    {
+      "path": "building-roofs.js",
+      "bytes": 30611,
+      "sha256": "776bc85d725cb8fd4a2f956580c03f8912a6c63dc68ac57cf65206e7fc51087a",
+      "kind": "code"
+    },
+    {
+      "path": "building-tiles.js",
+      "bytes": 9359,
+      "sha256": "c4cd55618f4397e764b3091eead72ed9fbb0e618edfee89c67feed3f720efb91",
+      "kind": "code"
+    },
+    {
+      "path": "coastline-client.js",
+      "bytes": 1567,
+      "sha256": "9d991431737f0629cf8b3bc041e0a8fc89402db1981c4319b705fe22a03fe1ed",
+      "kind": "code"
+    },
+    {
+      "path": "coastline-worker.js",
+      "bytes": 2047,
+      "sha256": "71e7b027a7215eeb7b3b0e0fbe0ee3051757406bf407b7f9d78c24b4d916d625",
+      "kind": "code"
+    },
+    {
+      "path": "coastline.js",
+      "bytes": 8510,
+      "sha256": "1ed37d2de8f5bcf7f237e0fbb275841983eb9784e945ba4b1017e703f51b55ad",
+      "kind": "code"
+    },
+    {
+      "path": "download-center.js",
+      "bytes": 8031,
+      "sha256": "69a1d2ea6cd3a5562ffc4a825fe7463b47822a2ac844deab89f68f165a560375",
+      "kind": "code"
+    },
+    {
+      "path": "facility-models.js",
+      "bytes": 38574,
+      "sha256": "484443a92f5b11b9b34fbeb6801923ac1a328fda1364f417af29b5ea3f97f489",
+      "kind": "code"
+    },
+    {
+      "path": "feature-data.js",
+      "bytes": 20718,
+      "sha256": "d8bb38aa4cfaabddc4b98cdc670ad6f7f402acbdf7d4e64d10725119b01fe8c4",
+      "kind": "code"
+    },
+    {
+      "path": "feature-info.js",
+      "bytes": 19045,
+      "sha256": "d0de8e46a35d077ead8769dbc1db6ee478d5f5cb37a5590047ed4e7c4ed59a6d",
+      "kind": "code"
+    },
+    {
+      "path": "huaxia-admin-catalog.json",
+      "bytes": 391366,
+      "sha256": "270797877d19344bf00c0a47188d37a1c413cdc0deca1e7752053213146b5cb0",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:46:16Z",
+      "decodedBytes": 391366,
+      "decodedSha256": "270797877d19344bf00c0a47188d37a1c413cdc0deca1e7752053213146b5cb0"
+    },
+    {
+      "path": "huayu-basemap-sample.png",
+      "bytes": 11193,
+      "sha256": "1fa7ecfb826ea147463ddfb961b6215dcb14fbc0a9a639734d454c70c09edf48",
+      "kind": "code"
+    },
+    {
+      "path": "huayu-night-basemap-sample.png",
+      "bytes": 25489,
+      "sha256": "74a945955d1ad796dad6d2eb1d1278986e95f200df8b74d2bdbf432e71e94942",
+      "kind": "code"
+    },
+    {
+      "path": "huayu-night-style.json",
+      "bytes": 75078,
+      "sha256": "184018baa6300643ff6b9a33eb1fccfdd2ef42d8a94144f44bb839cd0469e945",
+      "kind": "code"
+    },
+    {
+      "path": "huayu-satellite-sample.svg",
+      "bytes": 653,
+      "sha256": "70fc135a1cb70ca8fc60abdf9c8b176a9a238b44d742234783b5cda0cfb2908f",
+      "kind": "code"
+    },
+    {
+      "path": "huayu-style.json",
+      "bytes": 75068,
+      "sha256": "324ad93e1fec9a5890be688021dc93822d26b86aacf06bf0a0e4d2d5d9bc2dd7",
+      "kind": "code"
+    },
+    {
+      "path": "index.html",
+      "bytes": 224218,
+      "sha256": "705dd0d9fdb881ce5d50171fcaf3cc9163b25996116c8c3ea73b12cf146b4203",
+      "kind": "code"
+    },
+    {
+      "path": "leaflet-base.css",
+      "bytes": 4029,
+      "sha256": "47c378df52b2746f8124508800c5264b03aa1670cddd1a9823e63745b9247ded",
+      "kind": "code"
+    },
+    {
+      "path": "leaflet-maplibre-gl.js",
+      "bytes": 9296,
+      "sha256": "1e6cf8cb3eb5fd909879aa1bf36a383fb506c9a5b2dbbfababce65a294dd1fcb",
+      "kind": "code"
+    },
+    {
+      "path": "leaflet.js",
+      "bytes": 147552,
+      "sha256": "db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a",
+      "kind": "code"
+    },
+    {
+      "path": "lucide.min.js",
+      "bytes": 357796,
+      "sha256": "3411692820cb8d47543f69496aa25fd603a358f4498046f41c508a5a3342210e",
+      "kind": "code"
+    },
+    {
+      "path": "manifest.webmanifest",
+      "bytes": 636,
+      "sha256": "af5c229adde0e8bcdd9ece63b62005cdfb22251c08abaf5c7a7e8f46f96709a8",
+      "kind": "code"
+    },
+    {
+      "path": "map-agent-contract.js",
+      "bytes": 14938,
+      "sha256": "e17a589a7b9e5a629680e638db3fdf010d18fe30dee74dff05d99c4a61947aa9",
+      "kind": "code"
+    },
+    {
+      "path": "map-agent-providers.js",
+      "bytes": 16102,
+      "sha256": "12b01fa32a9af24b47c926c0173c6af4232ca35a1a47d4481dce0200cc626d44",
+      "kind": "code"
+    },
+    {
+      "path": "map-agent-tools.js",
+      "bytes": 13592,
+      "sha256": "0a2b38ee3cfd30067bd90f8b156d121a6706546b663a348fe3e3b8b1a63b86ce",
+      "kind": "code"
+    },
+    {
+      "path": "map-agent.js",
+      "bytes": 20164,
+      "sha256": "37a749b6ff8f7c8b3d328bdc89fea33121e89bef201415454c5f767f11328133",
+      "kind": "code"
+    },
+    {
+      "path": "map-export.js",
+      "bytes": 15155,
+      "sha256": "16bedd5130099aaee494663b69e9114fd255727c3ecf8e02dac27cc5d5ba7e85",
+      "kind": "code"
+    },
+    {
+      "path": "map-help.js",
+      "bytes": 4832,
+      "sha256": "f04bcc606804ed8b0e595ea8e9f701891d862e27a19f01446154dd48c55748c9",
+      "kind": "code"
+    },
+    {
+      "path": "maplibre-gl.css",
+      "bytes": 70024,
+      "sha256": "ab1e70d59ec40465bae7e7030da2f3ccf28133fd502e62bd598eefbadfd7a732",
+      "kind": "code"
+    },
+    {
+      "path": "maplibre-gl.js",
+      "bytes": 1056837,
+      "sha256": "45a9b07a9189ce56054c620a947ccf41e291e58c95e9b61533b740aaa65ee5cb",
+      "kind": "code"
+    },
+    {
+      "path": "model-assets.js",
+      "bytes": 16750,
+      "sha256": "42f27c7e84b01c45cc1ea720a58262be65b352ce5de5d5bd061af9718d2457b9",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/ATTRIBUTION.md",
+      "bytes": 6747,
+      "sha256": "4dd878f05ee96ab15ce5d83cef15a9a8cfef24aba6c66401b36af7ad98fb99b4",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/BufferGeometryUtils.js",
+      "bytes": 31931,
+      "sha256": "b5e8c014cb944b32f514170d7e06ac89efa69a55e86fc3bca1fa70c4897394d0",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/GLTFLoader.js",
+      "bytes": 108540,
+      "sha256": "edcb7447b93565a0404b6d13180d52e06f283d701b82f55a8e0d2c8250655a9f",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/birch-trees-7d8f84d32933.glb",
+      "bytes": 1943404,
+      "sha256": "7d8f84d3293378360ae60ee4119651b0d24588176d0973ea6c31527b433bb6c1",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/bush-lods-30d53435a011.glb",
+      "bytes": 3531632,
+      "sha256": "30d53435a011b0d26359d0239c664a19b450a5deccdcd212c03e697a7d7a0b70",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/chain-link-fence-4b29d53d5eb7.glb",
+      "bytes": 2655680,
+      "sha256": "4b29d53d5eb7d184e6e325a690297b93722626cd3159bb092a05a35e897f8b02",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/column-wall-6b86ed6a07b9.glb",
+      "bytes": 575876,
+      "sha256": "6b86ed6a07b932b86ebf3559c835f83b7bfd6f65f8f5bd708d3b2abfd7fc9d0f",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/daisy-flowers-db0938cbb142.glb",
+      "bytes": 16688,
+      "sha256": "db0938cbb142214e38ff84ca8eb95ec401c55ee0188919d60a8d66f82197ca12",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/gazebo-a78915c7791f.glb",
+      "bytes": 152952,
+      "sha256": "a78915c7791f3f4989ea50a57f37124362d051ed50b051c80c0695f8cf214b30",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/nz-bus-shelter-573132bb9b36.glb",
+      "bytes": 77412,
+      "sha256": "573132bb9b36025e928bbeb6b6d4e067ef46ef83d2b5e7b90109b2230d5d186c",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/pine-branches-91d731cf5f76.glb",
+      "bytes": 3446832,
+      "sha256": "91d731cf5f76ed7f4508617feabdf44ec9a44c1ac2c46660517ad114da8cebf8",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/pingyao-reference-3b14a33b1fab.glb",
+      "bytes": 909868,
+      "sha256": "3b14a33b1fab773d83aea2abaf6c1c77da21a6e18df9eee5a3de33e85260346d",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/assets/stone-fountain-61d267352852.glb",
+      "bytes": 4443784,
+      "sha256": "61d267352852a9aa1729f13e5836a80379f2a4d9579e07aba343c01362ccd23c",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/bundled-candidates.json",
+      "bytes": 8650,
+      "sha256": "56b4bf06a9843c43bc346f84d4d2f0972d14ec64f8d962c608f42b952f184aa3",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/foliage-mipmaps.js",
+      "bytes": 4108,
+      "sha256": "658c801d6b3fbb33c0813b1302c0e88f68a742827cfcd89b7750c5e9c22bf86f",
+      "kind": "code"
+    },
+    {
+      "path": "model-import/runtime.js",
+      "bytes": 12975,
+      "sha256": "14e23c5432d3f64ddb139e3838bedef290fa94d8f9e637cac2b3ab6d45dfc7e7",
+      "kind": "code"
+    },
+    {
+      "path": "model-options.js",
+      "bytes": 10360,
+      "sha256": "6a76be3012788777e55604b7aba2b06db96ac2d4e055991bad3131747cccbae1",
+      "kind": "code"
+    },
+    {
+      "path": "overlay-bounds.js",
+      "bytes": 11083,
+      "sha256": "18dc69a90581e561dd10f965918f6524cb97ecd071a8e46dbfdae847b1a6e0a8",
+      "kind": "code"
+    },
+    {
+      "path": "personal-data.js",
+      "bytes": 40399,
+      "sha256": "81162a3eb7829f3e846877e52a6b1675fd642c18cd51c3b291f32bbaf6079d7e",
+      "kind": "code"
+    },
+    {
+      "path": "place-search.js",
+      "bytes": 4084,
+      "sha256": "4c47203efe1daca56e15682f678e5e0fd137e2aaaea984e032b9e5b679de5090",
+      "kind": "code"
+    },
+    {
+      "path": "railway-connections.json",
+      "bytes": 3769377,
+      "sha256": "799206d88a090ae5bd5228924fee7a69754216c530f13845633a34d8ddc84cb9",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:56:51.916Z",
+      "decodedBytes": 3769377,
+      "decodedSha256": "799206d88a090ae5bd5228924fee7a69754216c530f13845633a34d8ddc84cb9"
+    },
+    {
+      "path": "railway-routing.json",
+      "bytes": 11240713,
+      "sha256": "37d8ddaa9da6b174b0d33b7914cfe86cfab5c269d52d8c4797d78276d611fe65",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:54:51.295Z",
+      "decodedBytes": 11240713,
+      "decodedSha256": "37d8ddaa9da6b174b0d33b7914cfe86cfab5c269d52d8c4797d78276d611fe65"
+    },
+    {
+      "path": "saved-places.js",
+      "bytes": 13374,
+      "sha256": "102970edddbc2559a0554113f7dbc47d28258602b622462f2ff73df32211cc3d",
+      "kind": "code"
+    },
+    {
+      "path": "shared-dataset-core.js",
+      "bytes": 11354,
+      "sha256": "b407ceedb5251091dba4f50c9e02606c2192ae0bde05b1b9310df172c5a9a7c3",
+      "kind": "code"
+    },
+    {
+      "path": "shared-dataset-theme.js",
+      "bytes": 4383,
+      "sha256": "f1318c68c1efcf1ec0afe2ef96a8fd1869af3a2c03972fabf1eb3292c99c47ee",
+      "kind": "code"
+    },
+    {
+      "path": "shared-dataset-worker.js",
+      "bytes": 499,
+      "sha256": "a002bde5bc2d4840a9ddf12f939c27c6dbd00e0ad86f2093e7a959298793f046",
+      "kind": "code"
+    },
+    {
+      "path": "shared-datasets.js",
+      "bytes": 27981,
+      "sha256": "539701d62badb2b706e6afc2b2f4a71bd0f1973eddd4e14662be13070e9f34b7",
+      "kind": "code"
+    },
+    {
+      "path": "station-access.json",
+      "bytes": 4914989,
+      "sha256": "1a5fe4ed94bc5507e6a1f7192a86e146b70ea132cc8942295d5c3e2c2854c038",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:56:36.396Z",
+      "decodedBytes": 4914989,
+      "decodedSha256": "1a5fe4ed94bc5507e6a1f7192a86e146b70ea132cc8942295d5c3e2c2854c038"
+    },
+    {
+      "path": "structure-models.js",
+      "bytes": 23155,
+      "sha256": "fb235230b1882992cfc5cc91b84a08714e351c2a0b25716e3b4d56a93abdea31",
+      "kind": "code"
+    },
+    {
+      "path": "styles.css",
+      "bytes": 107716,
+      "sha256": "796b416d5129c24963c43257cbadbeda99b9c76f19690f6a57b44d3a98b4a4b4",
+      "kind": "code"
+    },
+    {
+      "path": "sunlight-shadows.js",
+      "bytes": 14459,
+      "sha256": "f402adc1bb016194a45083d27ef99589608f1a91bca9e8d8926ed136181dd76c",
+      "kind": "code"
+    },
+    {
+      "path": "sunlight.js",
+      "bytes": 12801,
+      "sha256": "54d5169cd78453fb580c45926e72e7030f6114727eb9b9abf247a3cd9e7c5772",
+      "kind": "code"
+    },
+    {
+      "path": "terrain-perspective.js",
+      "bytes": 44826,
+      "sha256": "79f461c90208812066c4d9018fe1c2ad3eb3d613ddc5526c32a4b0d627e4d95a",
+      "kind": "code"
+    },
+    {
+      "path": "terrain-preload-chunks/context-d46ac6664fc2e46b.json.gz",
+      "bytes": 9221347,
+      "sha256": "d46ac6664fc2e46b9025513f02b74b7bf7548765dd2f58acfc2fc7b11462f468",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 36959683,
+      "decodedSha256": "db3c111994ad287b7d3acf69dba145b1b61ab038bb56d95bc1fb2297cf896dc2"
+    },
+    {
+      "path": "terrain-preload-chunks/f--1-35-b5372f70580a5590.json.gz",
+      "bytes": 22009,
+      "sha256": "b5372f70580a55905137bc3035cddd872a9043fa0a10a87336c78dd32a353ef7",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 70998,
+      "decodedSha256": "71797b425a972d718b2461ac15214969599a3c499d302eaeb6b689745bb5d30e"
+    },
+    {
+      "path": "terrain-preload-chunks/f--1-36-c9f357d1cbbda477.json.gz",
+      "bytes": 19122,
+      "sha256": "c9f357d1cbbda4776f2064484e8c02e798663794d78e4de191a5547fe0a8f297",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 54202,
+      "decodedSha256": "410c2d90fc9ab7f12a1159ce3bf0ca218fdf151fe83be4c366395a379e22e6c7"
+    },
+    {
+      "path": "terrain-preload-chunks/f--1-37-80b3887c64dba239.json.gz",
+      "bytes": 19662,
+      "sha256": "80b3887c64dba239f684c8993e49e2566cb422ad5e57d4b555f1d4d5463ee0dc",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 55006,
+      "decodedSha256": "d6bec069417662969627b92a8a6a944e5cf59e6bfe1069c638407f5674e9c75c"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-35-29a8e6028c2a2ff8.json.gz",
+      "bytes": 52127,
+      "sha256": "29a8e6028c2a2ff8b6f7f469c207c213d3669ee86a8bf67db5722a3558b0efce",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 201089,
+      "decodedSha256": "2a46dae02cfdf4d7a6e984d82dc41a6c3ca8c90eae2cf82098df33deabf2c446"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-36-8dc1b51a34e6b8f8.json.gz",
+      "bytes": 99722,
+      "sha256": "8dc1b51a34e6b8f8a865140a20e5e21d7f630ac84ef63dd8cd4ff6e1f1d61588",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 314715,
+      "decodedSha256": "d2e27758604c27fb8940e8ff6617efc286a2703336f266581439da64b60b8de6"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-37-63776f65f67a11ac.json.gz",
+      "bytes": 102178,
+      "sha256": "63776f65f67a11ac6323450f57885785995fdfd368cbff6fd702990ed577de78",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 318131,
+      "decodedSha256": "fbaed364614c62beb7c100cdf5354e8e3bb46087d2c95357663bb95a4bcfc0ea"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-38-a8edc3883ef355a7.json.gz",
+      "bytes": 89123,
+      "sha256": "a8edc3883ef355a7cd6a68c39fddeec78780e7ca3107000d220fef622d29b2e9",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 360448,
+      "decodedSha256": "398aca544ac3a3704630434c1521a22638b95a823d34a8d9cd6b4143d4533f76"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-39-5bdfbf8f6abf59a0.json.gz",
+      "bytes": 67030,
+      "sha256": "5bdfbf8f6abf59a0b0c3e705be99ef9030430da68665fb8ea0fd2a219b16c53f",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 246109,
+      "decodedSha256": "4032a3b44c521edb88d9002f0d01b884d60a0408b64551f1932a987b8edcb887"
+    },
+    {
+      "path": "terrain-preload-chunks/f-0-40-2747bdc09ad34012.json.gz",
+      "bytes": 2116,
+      "sha256": "2747bdc09ad34012e5865010c1ca90f2d21e7fbfd51ed93b589aa39d0c93ab71",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 5776,
+      "decodedSha256": "c639e5bfc4650c0b9471532a01242f44d4ba37804e7ea274ee4d927e87d84e1c"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-34-7b6889ec398cc986.json.gz",
+      "bytes": 33017,
+      "sha256": "7b6889ec398cc98668fc45cd8e903b62b6d4324cd5b53cacb52b52ddb7389ce2",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 113612,
+      "decodedSha256": "b7d16cd33c847fdc2563c4bd7024080b7de3e406b8f9c20051ad0c0b0b8af091"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-35-dca357d10d925516.json.gz",
+      "bytes": 520797,
+      "sha256": "dca357d10d92551624fc98b272ce2b2da3292b184f1666b56d497c0e11efaaf6",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1972258,
+      "decodedSha256": "450d9f47c34711a4503d478975dcfc3856ef9546243d4274bf90a4855c98cd64"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-36-b4d7573d1d3d3e98.json.gz",
+      "bytes": 175603,
+      "sha256": "b4d7573d1d3d3e98584da11d766364521cbfbdffb93f473cc34fdc72bb6ff699",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 654472,
+      "decodedSha256": "8f17f75d44d9723e35ceabc56a198dccd1b65d69cc7f87856832005cdd64b5df"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-37-148ffbab5034f78f.json.gz",
+      "bytes": 160450,
+      "sha256": "148ffbab5034f78f51962a89c6407b9d0d5bccb308a60663537b08139f213dcd",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 531531,
+      "decodedSha256": "a0b9e0a8c49777df75beed3b371b646d130eeadc1017699a7d2a1ff218c9ef7c"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-38-5a840cb7f0d1720c.json.gz",
+      "bytes": 517852,
+      "sha256": "5a840cb7f0d1720c083d7473b3ef35b7a6776152894f84198d3d0c6100bc907d",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1883933,
+      "decodedSha256": "9e678bc8ad966a85563999bd68e7c68f5b72bc49fb6bc611de4418da2dac2a7a"
+    },
+    {
+      "path": "terrain-preload-chunks/f-1-39-87932797cd9f3f18.json.gz",
+      "bytes": 342179,
+      "sha256": "87932797cd9f3f18a973b9636cb3b1f7bbe78be24ccdf0851cdbbf1555d31ba9",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1346206,
+      "decodedSha256": "2bfa274979eb20cc660f6307b75ef3a4b49ea93079e8f4ad8f04fb0579874686"
+    },
+    {
+      "path": "terrain-preload-chunks/f-14-36-d31a47fa3c077019.json.gz",
+      "bytes": 143762,
+      "sha256": "d31a47fa3c07701946e81e6fa8b551915bd709a00714a36c42512408efef365e",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 473992,
+      "decodedSha256": "c1d2861bc0d6bb4aa386f868756a436014d63912e4ac58b45e62b0822bb43607"
+    },
+    {
+      "path": "terrain-preload-chunks/f-14-37-dd93a5c5189d0756.json.gz",
+      "bytes": 171060,
+      "sha256": "dd93a5c5189d075626fbea928b271c505a460fadd5ee6ff104d6e406a8babc4b",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 641008,
+      "decodedSha256": "4eebbf8719f20ae4b1d3f269d8e6f9868175061c00b369da8a0e3bbbd5ac616e"
+    },
+    {
+      "path": "terrain-preload-chunks/f-15-36-1878ba8f3a59e5b5.json.gz",
+      "bytes": 5965,
+      "sha256": "1878ba8f3a59e5b56d66bd3b21096b7ce331f5d9f63288d6872cdb4ba0ee79cb",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 16962,
+      "decodedSha256": "f4d6aaa1d6354533d7acf4e728fd9ccaacf5545ec8c87ed1a5d069e1e28b23e4"
+    },
+    {
+      "path": "terrain-preload-chunks/f-15-37-396f2fd7906cc5d4.json.gz",
+      "bytes": 5965,
+      "sha256": "396f2fd7906cc5d43aa9d6c1696a69cfc1eee7bf04cef9b41092b8e57c679efb",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 16962,
+      "decodedSha256": "e231e30528dd5ae2f9cea4b47f8f5c3b713ed6ba24552b264fc81389f3f7e24c"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-34-ca4f1418aa42d79a.json.gz",
+      "bytes": 33110,
+      "sha256": "ca4f1418aa42d79ab1022c16983d1c6e51adeec17740f2b09c23c0ddd2f499f5",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 114851,
+      "decodedSha256": "fad5d4c57e27627d7458c60d5c2ad9ccf464da357e24782876bab38382e792f0"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-35-2dd5ace9bb34b1f4.json.gz",
+      "bytes": 337509,
+      "sha256": "2dd5ace9bb34b1f49034e9f4df9fbe62175c1cb043ba85f0b47306d00e586ca3",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1353155,
+      "decodedSha256": "b13bc6d40ec90b0afd9776878a6f59dfdf3dc445fc39179d8e47ed200c9ea2bf"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-36-25085f319ce04a18.json.gz",
+      "bytes": 453811,
+      "sha256": "25085f319ce04a18ed2de7953dcf48c65dc15fc700d8512d8a6f2adf5f5020d2",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1592207,
+      "decodedSha256": "31e9d18b9cf24c76ba6dbf8b9e4d3f210979a77ea3d8077beec58d9cff577713"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-37-33744e374820bb6b.json.gz",
+      "bytes": 1079828,
+      "sha256": "33744e374820bb6bedee844a378cb338c735328e7a1f988783249e0356fceeaf",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 4029393,
+      "decodedSha256": "bb22739682f812f13bdf9f2cf5b63a3e67eff32ed55fb82d2103e2d08cea312c"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-38-e29586916fb0edea.json.gz",
+      "bytes": 4159486,
+      "sha256": "e29586916fb0edea6724c1b7442b5e40eb694fba69a48108f8cb0d50648ad3df",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 19118249,
+      "decodedSha256": "dcf7e7be645b35ab8e05e0b9c14d90a7d739dbca8395a2e7328d6f46fd4a3ced"
+    },
+    {
+      "path": "terrain-preload-chunks/f-2-39-d710da8cf7f7d231.json.gz",
+      "bytes": 1211943,
+      "sha256": "d710da8cf7f7d231c380fbf37707a90ed881a183d288c4becef6d791a2223a57",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 4569068,
+      "decodedSha256": "5fd5aa62a71b22df4215bc40d86eeb6aed1a1b857de40a86cb4274d72aee891b"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-34-2d14076036ad1cfd.json.gz",
+      "bytes": 29088,
+      "sha256": "2d14076036ad1cfdc2bd38391f993865e196abaaae33a61a453ad509b626fbf6",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 86258,
+      "decodedSha256": "1ca5578255f7a68a9dd9e15a8a60578281b2d3cd3b0288b16846412f1238e84f"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-35-19fcd34282cdb14d.json.gz",
+      "bytes": 1699579,
+      "sha256": "19fcd34282cdb14d9cf9bea2b2fc1a0874d6775e58444842b4675ed2f82e9ef3",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 7605121,
+      "decodedSha256": "e27bc3c574ba6f457071772a19c94cc78e8d7360b3b98ba8685f6ea0718b26b0"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-36-fefd6f8772760738.json.gz",
+      "bytes": 2371379,
+      "sha256": "fefd6f87727607383b6f9c88be9bd2342662637506d9cf8d65a88f2b9cb0ea63",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 8574123,
+      "decodedSha256": "e51e8a6192ead7ba644e926697787452d87562966c2d52a283b71df6ffb7d503"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-37-5f7503b4d4511db9.json.gz",
+      "bytes": 2534360,
+      "sha256": "5f7503b4d4511db9188d1767b50967b9edc717fd597608b3ad383bfb9f5cb393",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 10538475,
+      "decodedSha256": "55b58bbae29c44c11423c38d331d9fb00b1437e52926ac94299914c76a5e7211"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-38-892eced716256a94.json.gz",
+      "bytes": 1062254,
+      "sha256": "892eced716256a942849cad61a441bc41c62c9daa2b6746941b7daa79ef15201",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 3959502,
+      "decodedSha256": "91bea90392aba9072e07ac657178b07c648dc3acdd7f65f1f1084c4e21c63b99"
+    },
+    {
+      "path": "terrain-preload-chunks/f-3-39-c5f9f63a552c2c81.json.gz",
+      "bytes": 404347,
+      "sha256": "c5f9f63a552c2c81fd89ee600708e34b45af7a57e47311e45cf3cf29b5c5e751",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1537843,
+      "decodedSha256": "0d467c9f25e2426c8df338dae5774bd4fca39d3b8114fe2a768bd057fb1aff46"
+    },
+    {
+      "path": "terrain-preload-chunks/f-4-34-bc6e74c8eed0dffc.json.gz",
+      "bytes": 95717,
+      "sha256": "bc6e74c8eed0dffc2a31861127c4d1c1601f8853b42c56f7ebbf9c224f3c5317",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 372980,
+      "decodedSha256": "44388be3c02863d5d60419ab2e6e89f8f6c67b70440d91c7a7b660abd3c23970"
+    },
+    {
+      "path": "terrain-preload-chunks/f-4-35-f479817c232673ae.json.gz",
+      "bytes": 718173,
+      "sha256": "f479817c232673aedc9501099fd0e18457fc8d2de39e189fe8ba5a44412385aa",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 2642911,
+      "decodedSha256": "a0fe88d18a86ca3c32bf781fe023a13c60a6d2071f25cabcb650c316c1553530"
+    },
+    {
+      "path": "terrain-preload-chunks/f-4-36-757363db061737b9.json.gz",
+      "bytes": 1032586,
+      "sha256": "757363db061737b9d147fc1bd3b2f091dea0a9d4eaf0ffccfe9e5ae68e2cb660",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 3858190,
+      "decodedSha256": "54ce9fc2a7975484965280f2d58c1b11a7dc5107ff3e64a242ab459039c8c856"
+    },
+    {
+      "path": "terrain-preload-chunks/f-4-37-63a6fec41addf871.json.gz",
+      "bytes": 1128820,
+      "sha256": "63a6fec41addf87181fb77c932fbb867519d7b8168cec9831cbc41c99c99b1d8",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 4495136,
+      "decodedSha256": "0c6f55cacf5d4912d5f3ea9cfd521e301e04649c85600a438162adacfccc5f4d"
+    },
+    {
+      "path": "terrain-preload-chunks/f-4-38-35b78fee3301fa25.json.gz",
+      "bytes": 40501,
+      "sha256": "35b78fee3301fa25e8aebccaafb7429f7d39f3a24bfe38f6f344c09fd63c0d72",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 140396,
+      "decodedSha256": "3c2de5975c5cd28ef12ad1591171d7516b404faf8817cca23511e97d0d5e46bf"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-34-192d4565162c80dd.json.gz",
+      "bytes": 100811,
+      "sha256": "192d4565162c80ddb1b480635087b222cac45a4e07d5532bffd211b509f78105",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 365546,
+      "decodedSha256": "332aca3fcd30e55ef2a3dd37250cc8cd4145c73e6eff288707ca9ac1cf9c4eb8"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-35-52bddc2fd24e5168.json.gz",
+      "bytes": 659475,
+      "sha256": "52bddc2fd24e5168b53dd24bf422061d310fa3b54f9c5e8bfb2fb1c563aeac69",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 2580560,
+      "decodedSha256": "d3ede243c3d652b774c0848b16156defa9e75b4e5d792dfac4e006be0d7d082d"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-36-bc4012e89375edf3.json.gz",
+      "bytes": 411766,
+      "sha256": "bc4012e89375edf3bf6417e7b9bca2923f797ba49f2f641afa8c9e29fbe6118f",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1477950,
+      "decodedSha256": "54e233199ac710c0b92081bead56e36dce7686eb52fed351a6478e49dad92f2d"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-37-b7b79341a08d8468.json.gz",
+      "bytes": 1073957,
+      "sha256": "b7b79341a08d846880d76135ae1f01ce36c919d7fe2b795f0d9555f5dd5f6eb3",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 3939756,
+      "decodedSha256": "23c535d8976c79033f57ccc955ba979b891b0a3944c68bc768d24f3ef1c6881e"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-38-a5726c8720585881.json.gz",
+      "bytes": 253537,
+      "sha256": "a5726c872058588157f867566b60e0e39912d5cc5407625d7f61fadd72ecadf8",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 919147,
+      "decodedSha256": "c75fe8bfeca73bdf51460663d48e90011bbb105f08751365841d49723ef713bf"
+    },
+    {
+      "path": "terrain-preload-chunks/f-5-39-c183bbd3d2106bc5.json.gz",
+      "bytes": 205629,
+      "sha256": "c183bbd3d2106bc57a0a9f3c2b0f38ba07996b6ed5b4b290032c6a09702af571",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 725799,
+      "decodedSha256": "074c24e5a01da55797937818224ffa943106b17a1c0595e85135332b7acd4203"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-35-4704feb06b3fa3ef.json.gz",
+      "bytes": 474044,
+      "sha256": "4704feb06b3fa3ef37facabb7522e0ad735211e8a5caff9b46345742217b2cfd",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1751888,
+      "decodedSha256": "a4a5b2f2dc16620fbe309b389b2fb3c4b2c7699a077acd63a39d1752481f99ad"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-36-ce079f36ff7031a4.json.gz",
+      "bytes": 96294,
+      "sha256": "ce079f36ff7031a4bc1eeebd0a9134f6182bcbe2ddf738f7d6c403da8e807c7a",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 321377,
+      "decodedSha256": "04274de19eb3d01100dd1dbe72b0616e730030e112aa54fcf5d5d575911008f5"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-37-bd9b24a4673806eb.json.gz",
+      "bytes": 136722,
+      "sha256": "bd9b24a4673806eb0050c878a75242ba3828de96e0e8503d2ecf91a02958ddc4",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 487459,
+      "decodedSha256": "db7a178d1dcf65720df23640535075fb553a9ab14de26590f0145d1df9a186ea"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-38-d5d18a80970d68eb.json.gz",
+      "bytes": 1577019,
+      "sha256": "d5d18a80970d68ebb03ecb9441865fff8704a33148f12979f0c14da354117671",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 5737575,
+      "decodedSha256": "07ec3c473906995865c2f949bd8b96678f8f5a2b00617de9bb3939cc99a200fe"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-39-3eaf42d8629e114a.json.gz",
+      "bytes": 2046005,
+      "sha256": "3eaf42d8629e114a0b9983d9274f31716c0435c7b2b5837552c9fe53a45b1855",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 7505949,
+      "decodedSha256": "b15eb6225c84bdb5cfce5750c235a001fe235e4d2a287193b53414714f7ea1e4"
+    },
+    {
+      "path": "terrain-preload-chunks/f-6-40-30107e3f89d16b98.json.gz",
+      "bytes": 616016,
+      "sha256": "30107e3f89d16b98e7adfb4cb651cdfbfc9815b5573007728332c5385b6baf88",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 2818445,
+      "decodedSha256": "498ae86c57d3260f3f181ffeab1840e805223efaed3e7cd1f79f634c3d10bd16"
+    },
+    {
+      "path": "terrain-preload-chunks/f-7-39-c6571f2cd071966c.json.gz",
+      "bytes": 234722,
+      "sha256": "c6571f2cd071966c4558a76a6531eb004ead2a8374a940f20102cd09ab5056b7",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 815887,
+      "decodedSha256": "d28a978fafd622161a55884cc943cb104ce74b246306d5a20441626659125d75"
+    },
+    {
+      "path": "terrain-preload-chunks/f-7-40-8203d9b3676b1b35.json.gz",
+      "bytes": 1273663,
+      "sha256": "8203d9b3676b1b353be8cb75a870fb09384cbccfc471624d7cfd26bed6c90434",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 4955784,
+      "decodedSha256": "040d2d7b1bff2adb1f0a0d729c162ec763f29fa08210a131844ec78707493871"
+    },
+    {
+      "path": "terrain-preload-chunks/f-8-34-f8b580eb21e5e363.json.gz",
+      "bytes": 73833,
+      "sha256": "f8b580eb21e5e363421f865363346cc3e7b7a3939b40b10ec6f9916247799237",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 240832,
+      "decodedSha256": "f4e3d3ebd93f31c7ebb6cb9588aa1087944195ce554a1dbf8d9aafbf62db9a3b"
+    },
+    {
+      "path": "terrain-preload-chunks/f-8-35-d393fa8c8e7a3280.json.gz",
+      "bytes": 273188,
+      "sha256": "d393fa8c8e7a3280960627f44ff8ffa144daa04e25525b5369992ae9f559b5bc",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 1073903,
+      "decodedSha256": "6eec465ecc0c4b9376f45e87cfcb8d26b959d5ebb9aab9a466d438d0bfcd2f36"
+    },
+    {
+      "path": "terrain-preload-chunks/f-8-36-755148239db9dcd7.json.gz",
+      "bytes": 148713,
+      "sha256": "755148239db9dcd7773cbdd4eaf9ebbff2dc67bf06ec3985a9e76736c2341f6e",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 615867,
+      "decodedSha256": "406423a4c3fc3d28f48b3fc78ea046b40e04e1ad4f57b4be9aefd581364f0f22"
+    },
+    {
+      "path": "terrain-preload-chunks/f-8-37-dff29ba043c1968b.json.gz",
+      "bytes": 3918,
+      "sha256": "dff29ba043c1968b21bf7e087ea14f4c7da236139ec0e1e0b201485d6ed98be4",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 12351,
+      "decodedSha256": "7750011f3fecaf2d06be07057ae02525a01967f4944313f94ce2be787a13008d"
+    },
+    {
+      "path": "terrain-preload-chunks/f-8-40-b6163bb599aa2ca8.json.gz",
+      "bytes": 1020928,
+      "sha256": "b6163bb599aa2ca81e37f2394ca833957a964705664194c53bb5667282c5f10a",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 4238603,
+      "decodedSha256": "1f3d64b845f1da3293daeb2f90f5c02a92305311e4385a298be821be7636c8e9"
+    },
+    {
+      "path": "terrain-preload-chunks/f-9-34-bbf406ba5ca8b2b8.json.gz",
+      "bytes": 44963,
+      "sha256": "bbf406ba5ca8b2b8b189e5576cee9366842d1f903d50c1ae94832d7c7c57fb1b",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 134290,
+      "decodedSha256": "9f92ed38ccbbab0a0a83c8d85f6811a21ce10adb58ed45c07cefd91da5ac7e08"
+    },
+    {
+      "path": "terrain-preload-chunks/f-9-35-7a9b33621bee69ce.json.gz",
+      "bytes": 58423,
+      "sha256": "7a9b33621bee69cec0d5e4bd7a41643b52fccabcba86258e83ca19e0200ed145",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 189724,
+      "decodedSha256": "1875d5e3b76b12e217620975bfa5fd09be0a3a101bc2be3690cfe512bb9d68a6"
+    },
+    {
+      "path": "terrain-preload-chunks/f-9-36-5a44f09123c8eb8f.json.gz",
+      "bytes": 99363,
+      "sha256": "5a44f09123c8eb8fe6ec3290be37c532976a7c2b80a2f1da65eb40c18fbd57e1",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 414086,
+      "decodedSha256": "20175e90cca5fa01f9aeb8357cd36c2b1256b385cb6a8de39311d7c032662e87"
+    },
+    {
+      "path": "terrain-preload-chunks/f-9-41-85ff715b9b08d6d3.json.gz",
+      "bytes": 212084,
+      "sha256": "85ff715b9b08d6d3d29e37f99439187c8d9b7da4dce8d0238cd758a3e94bc98e",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 924175,
+      "decodedSha256": "42bbda1ba5888352575fa499e0a0e4002136a2b71a62d58179e7a9db3f80309c"
+    },
+    {
+      "path": "terrain-preload-manifest.json",
+      "bytes": 13589,
+      "sha256": "f1fd11d9dd7f75fd8d50b617ae7aadbcc3507b1834db0c3b14c590c29ec860b4",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 13589,
+      "decodedSha256": "f1fd11d9dd7f75fd8d50b617ae7aadbcc3507b1834db0c3b14c590c29ec860b4"
+    },
+    {
+      "path": "terrain-preload.json.gz",
+      "bytes": 17879103,
+      "sha256": "2c1059142ed723d70be418d6490275817d67602bb4f08f2148f056e7ab0ed00f",
+      "kind": "data",
+      "sourceTime": "2026-11-23T02:47:46.176Z",
+      "decodedBytes": 72694037,
+      "decodedSha256": "db1c02ebd6357f155e4fe038c82855ce284135b7d36f1fbb4ef1f496c9c7a6c0"
+    },
+    {
+      "path": "terrain-render-cache/-1-17-7299db9253f8cf63.json.gz",
+      "bytes": 37482,
+      "sha256": "e8b2c7b3ad736f635d6c42724ab0c078612330c9a47420e753f4ae5845631f3f",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 201927,
+      "decodedSha256": "2e70120867bccc4fc3304891dcbec475b32cc85932eb15bc4123aa16b8f8b2f7"
+    },
+    {
+      "path": "terrain-render-cache/-1-18-0f0765e97ee01481.json.gz",
+      "bytes": 25144,
+      "sha256": "40c23525b9270a55189dea12bbccad2017ace13356b8c09edc950cab642c9cee",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 93403,
+      "decodedSha256": "bee2047e32d820a61188d7fdc449c65485d1117ddb484249bed64277fbe62576"
+    },
+    {
+      "path": "terrain-render-cache/0-17-d9f9bb60eda87c07.json.gz",
+      "bytes": 844618,
+      "sha256": "89a4a1eeafdef8c8113fb5412d278caa753019da60be04c65679fc1f21dfb0df",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 5050374,
+      "decodedSha256": "e1e4d60f34961cef02f9b2a09ef306a6d667aa41fd564ddb795960d33f7d0ff7"
+    },
+    {
+      "path": "terrain-render-cache/0-18-c7d585b590d58e16.json.gz",
+      "bytes": 654930,
+      "sha256": "32e70ae4ad7e1ea90d29a42539e0180652bd2a441885eeb5a0e97be11ab7840f",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 3718669,
+      "decodedSha256": "55deb441785ac01c6d6a6493f7f484a52bf97498206f003d30e6ce86132b3982"
+    },
+    {
+      "path": "terrain-render-cache/0-19-3f856fbac483f05f.json.gz",
+      "bytes": 1149794,
+      "sha256": "dc1786dc33204880987b3bfde0f29fc2f275c93f3d929ade20c62116d81bb4d7",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 6229729,
+      "decodedSha256": "2e9961d4caeccb99085903e20469c0cb4dee6e6e22441e33f8f35e47ebbb9673"
+    },
+    {
+      "path": "terrain-render-cache/1-17-265db132be7d03d8.json.gz",
+      "bytes": 2059522,
+      "sha256": "1b00d352d870abf948398a1349490c15452f032c318a90d2b169e5064b63a435",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 11593547,
+      "decodedSha256": "366d5c293162e18fbdd5fb441d43d9ee57955073bea628fc99471c5e6d645f87"
+    },
+    {
+      "path": "terrain-render-cache/1-18-a9e6e810de123850.json.gz",
+      "bytes": 5774308,
+      "sha256": "968a23cd0047285fbe5aa1bc7b5702f720a988f2317f3dc6093d7a9bfed30aee",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 23988165,
+      "decodedSha256": "24338c5c3e49a94d6f702a4b7027e30257f0df9f28b61cbfa8d56b737bd12e44"
+    },
+    {
+      "path": "terrain-render-cache/1-19-9c5d166f5a44d402.json.gz",
+      "bytes": 5542471,
+      "sha256": "8ffa533093bcccfa612c122892cce3a538d9d9c08507d97a4babdc60f2dd7319",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 23096349,
+      "decodedSha256": "ade89f5a20eea42c503e483bea8013845fc7c8b87eef4b40f7395b4ce11f9d6d"
+    },
+    {
+      "path": "terrain-render-cache/2-17-93ff9ebcb47fdfc6.json.gz",
+      "bytes": 1707611,
+      "sha256": "320f665cbe18827af49c83aaef36716d7a1f8115ef71bf9b949a29540df9eff5",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 8320078,
+      "decodedSha256": "f27a9fb88c0b9a978f36e9e729db041bde15c181ed07f41e65bbbddd267d1594"
+    },
+    {
+      "path": "terrain-render-cache/2-18-86972bf7e5cca3a8.json.gz",
+      "bytes": 3405341,
+      "sha256": "27346a077f37898d190f573133842f1148842d3babd5dcda7cfb1f4ad57b112e",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 14837791,
+      "decodedSha256": "b2c3e28ad80a2b8e075dcbe4ea10700cf0c7f090bbbbcc4b32aac719000ed01b"
+    },
+    {
+      "path": "terrain-render-cache/2-19-001904c53602cc1c.json.gz",
+      "bytes": 776593,
+      "sha256": "b5b47c5cfdedcaabeb0ce198af50dc108827cd59f63257900bb9aa9170d846eb",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 4611885,
+      "decodedSha256": "38d9869da5635edc23a6f42642e0f2a3be06cbb0aefa69b36257ee7ead909b4b"
+    },
+    {
+      "path": "terrain-render-cache/3-17-90e4d06614510da6.json.gz",
+      "bytes": 763129,
+      "sha256": "7a08b92ab9369db03aac436dd7aa63282a5b76cbf8920c9f0701b03045cf65d7",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 4499235,
+      "decodedSha256": "12739837e327253e78c9313d0cb528882f91d2c9f84f8af60e70a8cc62c830cb"
+    },
+    {
+      "path": "terrain-render-cache/3-18-979571613e496369.json.gz",
+      "bytes": 531898,
+      "sha256": "fb5380d0fab22a48d1049768585cc69b420cd1e68671bdb2cad6a5503e74e10b",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 3674231,
+      "decodedSha256": "26a3e4313b166ae78d0d6b9d7fb764d77d83ac7ce7c0670f3106184cbb558c67"
+    },
+    {
+      "path": "terrain-render-cache/3-19-a978e8e9813f287f.json.gz",
+      "bytes": 4000305,
+      "sha256": "2255400c5b11295dcc5bc09a3d78baec65e31ff23e0de07560fe9ffef1cd20ff",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 16464150,
+      "decodedSha256": "bcabdcdb3c904e9a0c9e81ebfb359737e25fb4b3ef8ab0791b7f5099427df8a1"
+    },
+    {
+      "path": "terrain-render-cache/3-20-ccb1c338b5b0e231.json.gz",
+      "bytes": 2122003,
+      "sha256": "8cae181f2fc5ab124fa71759f4a03f90e838799da2c8b3c73dc34fd66bd46cf8",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 10530119,
+      "decodedSha256": "559bca5fd1b6408bd36d467d8e7c1f4ebc4228a1e4a60b586386f78f189b9bb5"
+    },
+    {
+      "path": "terrain-render-cache/4-17-a0387ebac448d62c.json.gz",
+      "bytes": 616212,
+      "sha256": "2cc0037ed815ecf7c8f3348e13bc16dfebce34ae302d4f12f66f4b1fd717f0fb",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 4110371,
+      "decodedSha256": "8763b14bee838a6d8d040e9350c48876258101d5fdcb5c08a0ad30a308aea5aa"
+    },
+    {
+      "path": "terrain-render-cache/4-18-27bdd445515ebb93.json.gz",
+      "bytes": 520260,
+      "sha256": "cf67ed5b5264cffcf7c760290ed0b4f65aec239f18af5aa09e9c21f04e22c555",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 3834402,
+      "decodedSha256": "41ca7bf44018fd5dc77fcfe1795f5be50a3576fc1749a0201e2aa365a0035829"
+    },
+    {
+      "path": "terrain-render-cache/4-20-0b2847549a4076b4.json.gz",
+      "bytes": 1495918,
+      "sha256": "12572e501578676d38393967af1ff3c7ef24e684480e642a85eb54766e21c014",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 8026419,
+      "decodedSha256": "00ffc7b2b534b0a5b1238014b893d20b747ffb54668acb989c1ad89bb64622ce"
+    },
+    {
+      "path": "terrain-render-cache/7-18-10315e6d4fe581c7.json.gz",
+      "bytes": 555251,
+      "sha256": "2e3ba0a223b8578bf5ef22d68d4afccc436c51e6668c2fda7c05078156ed9195",
+      "kind": "data",
+      "sourceTime": null,
+      "decodedBytes": 3792771,
+      "decodedSha256": "c58cf3fb4db517e563b30c184904e934ef11f45c8c121f586c0c4fa2f4594a1e"
+    },
+    {
+      "path": "three-0.160.1.module.min.js",
+      "bytes": 670681,
+      "sha256": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6",
+      "kind": "code"
+    },
+    {
+      "path": "three-LICENSE.txt",
+      "bytes": 1081,
+      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-camera.js",
+      "bytes": 3386,
+      "sha256": "d9cb4aba879afa554f2f042b292912c87377f4bf3f894f3b1cf823a970a9f816",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-core.js",
+      "bytes": 30940,
+      "sha256": "a7ce80c2e49fad68b5e8d221f562c744ae695a73c7c48d7a92348ca4facd0c0b",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-demand.js",
+      "bytes": 14835,
+      "sha256": "f9c769d17df2b398374a6bf74df08987fb7630b306c6f61f77951aab64267467",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-protocol.js",
+      "bytes": 3964,
+      "sha256": "3a77095ba441d6a604c379e3c2c4ccba5c242263184588a41aeee42f5a8c3eb0",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-regional-core.js",
+      "bytes": 43379,
+      "sha256": "04cafc617a6064c632b512fb167442e60b6fe4248634bf67dbd138b2722fc187",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-regional-sites.js",
+      "bytes": 15974,
+      "sha256": "3c230039993b22d7e839c1b9fde8aad297949a1226e5e3fbd3fa4840d25d166b",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-regions.js",
+      "bytes": 31342,
+      "sha256": "d11bccf4c0a8a15549c4f4299aa982db70dc6d0b92082b2e55ea8ec484d327d0",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-simulation.js",
+      "bytes": 76459,
+      "sha256": "622a779368c50f0666d24ed5756fc5d3f60e2495a1a714532579821c29c4d825",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-surfaces.js",
+      "bytes": 9428,
+      "sha256": "a929e400238982f35224e6dbad2b86797998abf435bba4bf0722b7c04243eb74",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-trip.js",
+      "bytes": 6177,
+      "sha256": "7a08959d0399e74afd1d9c6b73bb7a3cd5488ca9ccfc3fe8a8ecf1f06804e213",
+      "kind": "code"
+    },
+    {
+      "path": "traffic-worker.js",
+      "bytes": 6907,
+      "sha256": "62802aa0add6982d167fae4d08092feffe8bd0b4924cc6c22e73bab4266cefb2",
+      "kind": "code"
+    },
+    {
+      "path": "transit-atlas-options.js",
+      "bytes": 7734,
+      "sha256": "673416de7944ccf712e17dffb2401cbd3921cee2e64cb2ef1b0f953c6a6c7483",
+      "kind": "code"
+    },
+    {
+      "path": "transit-preload.json",
+      "bytes": 3014897,
+      "sha256": "a0ee7d1732a202aa7bc6686ee83851eb14b9d3e34d690b9f4e3cced7c71830d1",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:56:52.210Z",
+      "decodedBytes": 3014897,
+      "decodedSha256": "a0ee7d1732a202aa7bc6686ee83851eb14b9d3e34d690b9f4e3cced7c71830d1"
+    },
+    {
+      "path": "transit-relations.json",
+      "bytes": 7630084,
+      "sha256": "839ff9c047b8197bbd9bdcdf267db2769dc5b60648063bd2698b868943152f38",
+      "kind": "data",
+      "sourceTime": "2026-11-23T01:54:46.131Z",
+      "decodedBytes": 7630084,
+      "decodedSha256": "839ff9c047b8197bbd9bdcdf267db2769dc5b60648063bd2698b868943152f38"
+    },
+    {
+      "path": "transit-services.json",
+      "bytes": 8876,
+      "sha256": "b275bd3f4bc0bb6f2e328776be5f86c983f3ec8ef316d34f831b731df82fbbff",
+      "kind": "code"
+    },
+    {
+      "path": "transit-station-data.js",
+      "bytes": 44718,
+      "sha256": "69998c66efec762625e8b6897a7007ad65e5c8deca107197c3cdd5dce5df28f6",
+      "kind": "code"
+    },
+    {
+      "path": "transit-template-core.js",
+      "bytes": 152761,
+      "sha256": "2e2fc2e566e4d29a1834171584f17d64c237bed7ec765a8e0c3624ad64f07508",
+      "kind": "code"
+    },
+    {
+      "path": "transit-template-references.json",
+      "bytes": 16215,
+      "sha256": "1c1bbc2ec4a18f150229f8751eb834cb4058e2426885b6ffde04fdc18d0090c5",
+      "kind": "code"
+    },
+    {
+      "path": "transit-templates.css",
+      "bytes": 4076,
+      "sha256": "9b7355fdb6b24ae10d680cc8774ba4c2abe4c5943cf294f5f1e04af517f910b2",
+      "kind": "code"
+    },
+    {
+      "path": "transit-templates.js",
+      "bytes": 60955,
+      "sha256": "a1ecd7906070e96aa1d3abff81219f68cdd4ce26333fa2a8789b2ce8283f21c4",
+      "kind": "code"
+    },
+    {
+      "path": "transport-timetable-core.js",
+      "bytes": 11316,
+      "sha256": "3ee2e4a82bef647035bfa9cc71542cb1686da437601740212e9ea3526c1eb48b",
+      "kind": "code"
+    },
+    {
+      "path": "transport-timetable-navigation.js",
+      "bytes": 5275,
+      "sha256": "dd913f3864bd9931b90a8f8315c3b629a350cf82f3bb12be369946302a2c0cbb",
+      "kind": "code"
+    },
+    {
+      "path": "transport-timetables.js",
+      "bytes": 6954,
+      "sha256": "7be796c075d9f19acefd25e8e21ef4600d732d42aba9c6e9167016063198d14c",
+      "kind": "code"
+    },
+    {
+      "path": "vegetation-models.js",
+      "bytes": 23094,
+      "sha256": "eb3d5b02734b3c691e08562d75cb39af478a7785c664bfd721209caf9dc47fd7",
+      "kind": "code"
+    },
+    {
+      "path": "vendor/polygon-clipping-0.15.7.js",
+      "bytes": 29106,
+      "sha256": "7f8619e84a86ce8dd400c9b50430e9c8cf8f26027b19eeb479f109f5c1a9d688",
+      "kind": "code"
+    },
+    {
+      "path": "vendor/polygon-clipping-LICENSE.md",
+      "bytes": 1327,
+      "sha256": "864ae9e4ed75e1571a3bcf5dc9070264213445b32e7e2af5bf60eba46fb656d0",
+      "kind": "code"
+    }
+  ]
+}

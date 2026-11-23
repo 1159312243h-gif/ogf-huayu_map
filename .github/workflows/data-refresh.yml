@@ -125,6 +125,8 @@ jobs:
             site/terrain-preload-manifest.json \
             site/terrain-preload-chunks \
             site/terrain-render-cache \
+            site/desktop-assets.json \
+            site/app-cache-version.js \
             release/SHA256.txt
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

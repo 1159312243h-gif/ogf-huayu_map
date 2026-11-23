@@ -4,11 +4,15 @@
   const desktop=root.huayuDesktop?.platform;
   const mobile=Boolean(android?.postMessage||ios?.postMessage);
   const platform=android?.postMessage?"android":ios?.postMessage?"ios":({win32:"windows",darwin:"macos",linux:"linux"}[desktop]||desktop||"web");
+  let cacheStatus={ready:false,revision:null};
   const pending=new Map();let serial=0,installPrompt=null,saving=false;
   const installed=()=>Boolean(desktop||mobile||root.matchMedia?.("(display-mode: standalone)").matches||root.navigator?.standalone);
   const report=(message)=>{const el=doc.getElementById("app-install-status");if(el)el.textContent=message;root.HuayuAtlas?.showToast?.(message);};
   function status() {return {platform,installed:installed(),native:mobile||Boolean(desktop),canPromptInstall:Boolean(installPrompt),
-    nativeFileSave:mobile||Boolean(desktop),onlineRequired:true,accountService:"existing-same-origin",automaticInstall:false};}
+    nativeFileSave:mobile||Boolean(desktop),onlineRequired:true,accountService:"existing-same-origin",automaticInstall:false,localAssets:Boolean(root.huayuDesktop?.localAssets||root.huayuAndroid?.localAssets||cacheStatus.ready),
+    assetRevision:root.huayuDesktop?.assetRevision||root.huayuAndroid?.assetRevision||cacheStatus.revision||null,bundledPublicData:Boolean(root.huayuDesktop?.bundledPublicData||root.huayuAndroid?.bundledPublicData),
+    offlineProgramReady:Boolean(root.huayuDesktop?.localAssets||root.huayuAndroid?.localAssets||cacheStatus.ready),sharedData:"live-api",
+    programUpdates:root.huayuDesktop?.localAssets?"verified-on-restart":cacheStatus.ready?"complete-cache-on-restart":"online-page"};}
   function receive(value) {
     let message;try{message=typeof value==="string"?JSON.parse(value):value;}catch{return;}
     const task=pending.get(message?.id);if(!task)return;pending.delete(message.id);root.clearTimeout(task.timer);
@@ -73,15 +77,21 @@
   }
   function render(){
     const button=doc.getElementById("app-install");if(button)button.textContent=installed()?"应用已安装":"安装到设备";
-    const label=doc.getElementById("app-install-status");if(label&&!label.textContent)label.textContent=installed()?"当前在应用窗口运行；地图与共享数据需要联网。":"Windows、Linux、macOS、Android 可从支持的浏览器安装；iOS 使用 Safari 添加到主屏幕。";
+    const label=doc.getElementById("app-install-status");if(label&&!label.textContent)label.textContent=installed()?(root.huayuDesktop?.localAssets?"本机加载程序与内置公开快照；联网检查数据新版，账号与共享查询需要网络。":"当前在应用窗口运行；地图与共享数据需要联网。"):"Windows、Linux、macOS、Android 可从支持的浏览器安装；iOS 使用 Safari 添加到主屏幕。";
   }
   root.addEventListener("beforeinstallprompt",event=>{event.preventDefault();installPrompt=event;render();});
   root.addEventListener("appinstalled",()=>{installPrompt=null;report("华域地图已安装");render();});
   function init(){
     doc.getElementById("app-install")?.addEventListener("click",()=>{void install().catch(()=>report("安装未完成，请使用浏览器安装菜单"));});
     render();
-    if(!mobile&&!desktop&&root.isSecureContext&&"serviceWorker" in root.navigator)
-      root.navigator.serviceWorker.register("/app-sw.js",{scope:"/",updateViaCache:"none"}).catch(()=>{});
+    if(!desktop&&root.isSecureContext&&"serviceWorker" in root.navigator){
+      let registration;const configure=()=>{const worker=root.navigator.serviceWorker.controller;if(worker){worker.postMessage({type:"huayu:cache-config",nativeSeed:Boolean(android?.postMessage)});const channel=new MessageChannel();channel.port1.onmessage=e=>{cacheStatus=e.data||cacheStatus;channel.port1.close();render();};worker.postMessage({type:"huayu:cache-status"},[channel.port2]);}};
+      root.navigator.serviceWorker.addEventListener("controllerchange",configure);
+      root.navigator.serviceWorker.addEventListener("message",event=>{if(event.data?.type==="huayu:public-data-updated")root.dispatchEvent(new CustomEvent("huayu:public-data-updated",{detail:{name:event.data.name}}));});
+      root.navigator.serviceWorker.register("/app-sw.js",{scope:"/",updateViaCache:"none"}).then(r=>{registration=r;configure();return root.navigator.serviceWorker.ready;}).then(configure).catch(()=>{});
+      const check=()=>{if(!doc.hidden)void registration?.update().catch(()=>{});};root.addEventListener("online",check);doc.addEventListener("visibilitychange",check);
+      const timer=root.setInterval(check,300000);root.addEventListener("pagehide",()=>root.clearInterval(timer),{once:true});
+    }
   }
   root.HuayuApp=Object.freeze({status,install,saveBlob});
   if(doc.readyState==="loading")doc.addEventListener("DOMContentLoaded",init,{once:true});else init();

@@ -16,6 +16,8 @@ async function listFiles(directory) {
   return nested.flat().sort((left, right) => left.localeCompare(right));
 }
 
+await (await import("./prepare-desktop.mjs")).prepareDesktop();
+
 const lines = [];
 for (const file of await listFiles(site)) {
   const body = await fs.readFile(file);

@@ -31,5 +31,6 @@ emit("site/app-icons/icon-192.png",small);emit("site/app-icons/icon-512.png",lar
 emit("apps/desktop/icons/icon-512.png",large);
 emit("apps/ios/Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png",ios);
 emit("apps/ios/Sources/Assets.xcassets/AppIcon.appiconset/Contents.json",JSON.stringify({images:[{filename:"icon-1024.png",idiom:"universal",platform:"ios",size:"1024x1024"}],info:{author:"xcode",version:1}},null,2)+"\n");
+emit("apps/desktop/cache-policy.cjs",fs.readFileSync(path.join(root,"site/app-cache-policy.js")));
 emit("apps/desktop/app.json",fs.readFileSync(path.join(root,"apps/app.json")));
 console.log(check?"Application assets match":"Application assets prepared");

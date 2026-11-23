@@ -62,7 +62,7 @@ jobs:
             echo "Repository changed during refresh; keep the published catalog and retry next run."
             exit 1
           fi
-          git add site/brand-catalog.json site/brand-search-index.json site/huaxia-admin-catalog.json release/SHA256.txt
+          git add site/brand-catalog.json site/brand-search-index.json site/huaxia-admin-catalog.json site/desktop-assets.json site/app-cache-version.js release/SHA256.txt
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
