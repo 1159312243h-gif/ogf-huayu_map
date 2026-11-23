@@ -1,4 +1,14 @@
 华域地图 v9.0
+Release date: 2026-11-23
+Cloudflare Pages project: ogf-atlas
+Build: 9.0-render-performance-v1
+Included: shared vehicle active-prefix updates and bounded bridge lookups, unchanged roof GPU/material reuse and change-only facility redraws. Preserve original geometry, colours, shadows, traffic demand, lane budgets, APIs and refresh policies.
+Measured: identical 600-car CPU preparation median 7.104 to 5.161 ms in seven alternating Node runs; this is not a whole-map FPS guarantee. Desktop/mobile-size roof PNGs are byte-identical; full regressions and isolated Windows offline startup passed.
+Existing 9.0.3 native packages receive shared program changes through complete verified updates on reopen; no new installer version or all-device physical test is claimed. Deployment and online hashes are checked separately. OGF source timestamps remain unchanged.
+
+Previous build metadata:
+
+华域地图 v9.0
 Release date: 2026-11-22
 Cloudflare Pages project: ogf-atlas
 Build: 9.0-provider-compat-v2

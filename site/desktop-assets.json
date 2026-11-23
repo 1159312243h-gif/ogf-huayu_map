@@ -2,7 +2,7 @@
   "schema": "huayu-desktop-assets-v1",
   "runtime": 1,
   "version": "9.0.3",
-  "revision": "8e1deba9eaaa70bff83fe37acb3c1ee09b76841b99c9042a1f823fa7ceebe17b",
+  "revision": "044c5a6685e347d7d9f17843b4d562a101979dcc995958ebff099e2c49b6d63f",
   "files": [
     {
       "path": "BUILDING_MODEL_VERSION.md",
@@ -24,8 +24,8 @@
     },
     {
       "path": "VERSION.txt",
-      "bytes": 213636,
-      "sha256": "a72151bb045489b48e8b62789f50d05f5aea100ccf12d1fd80c8542bcddeb1d8",
+      "bytes": 214538,
+      "sha256": "ae1d1a95a8af5d54b74f588988e295c1f79c6f97abaf2efe04d3621677d4596d",
       "kind": "code"
     },
     {
@@ -52,7 +52,7 @@
     {
       "path": "app-cache-version.js",
       "bytes": 93,
-      "sha256": "6fd410438a84beb07aa71945823027edeb3e59003c03909ce0d8a4f46d1aee99",
+      "sha256": "98997ad4d83a8ce37cea3c5d37c47c09cf0c0d8d930a986a65d3c5391f6c0ec1",
       "kind": "code"
     },
     {
@@ -231,8 +231,8 @@
     },
     {
       "path": "building-roofs.js",
-      "bytes": 30611,
-      "sha256": "776bc85d725cb8fd4a2f956580c03f8912a6c63dc68ac57cf65206e7fc51087a",
+      "bytes": 31576,
+      "sha256": "7ee99b9f1daa39eda4927ba900c2f86b645508e7b693b707b9cb7803b804b0bf",
       "kind": "code"
     },
     {
@@ -267,8 +267,8 @@
     },
     {
       "path": "facility-models.js",
-      "bytes": 38574,
-      "sha256": "484443a92f5b11b9b34fbeb6801923ac1a328fda1364f417af29b5ea3f97f489",
+      "bytes": 39438,
+      "sha256": "1f20eb5260b04b3f724a8b2184bd49513e8117b0c8cb9c8f81e50ce65963b4c1",
       "kind": "code"
     },
     {
@@ -324,8 +324,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 224275,
-      "sha256": "537ef9130eb56250d8013f03439eb38ecb326c1dc02c96ceb6c1e84aaa8e25a3",
+      "bytes": 224506,
+      "sha256": "2eed4cb8512f8c02af16a2bc026b2ab9d94978561f406b31f1eeba36eaeb94f4",
       "kind": "code"
     },
     {
@@ -1404,14 +1404,14 @@
     },
     {
       "path": "traffic-simulation.js",
-      "bytes": 76459,
-      "sha256": "622a779368c50f0666d24ed5756fc5d3f60e2495a1a714532579821c29c4d825",
+      "bytes": 76769,
+      "sha256": "f63031c9c5c0ae4f7a6c0181fcb2a8a3615a2c4d06c241abdb86d0298da13fd3",
       "kind": "code"
     },
     {
       "path": "traffic-surfaces.js",
-      "bytes": 9428,
-      "sha256": "a929e400238982f35224e6dbad2b86797998abf435bba4bf0722b7c04243eb74",
+      "bytes": 9479,
+      "sha256": "cdfaa8575ffd9327c05991c7d92109390e2ccdbf5ec0db64910a0e14681eba14",
       "kind": "code"
     },
     {

@@ -344,3 +344,7 @@ Windows／Linux／macOS构建内置地图程序、完整功能脚本与现有公
 桌面三系统与Android共用完整资源清单，iPhone/iPad主屏幕版首次联网准备完整程序缓存；完整校验后才切换版本。普通数据检查交付最新响应、失败保留旧完整快照，账号和用户共享API继续在线查询；不保证全球离线或网络故障下实时可达。帮助与助手真实状态同步，构建和发布结果另行核实。
 
 9.0.3全平台测试包已通过构建和摘要校验：[统一安装入口](https://ogf-atlas.pages.dev/apps.html)，[GitHub发布](https://github.com/1159312243h-gif/ogf-huayu_map/releases/tag/apps-v9.0.3-preview.1)。Windows／Linux／macOS通过实际离线程序启动，Android通过编译和lint；iPhone/iPad为主屏幕版，Safari及各设备实机验收仍需继续。
+
+### 2026-11-23 渲染复测与优化
+
+共用前端减少无关桥面查询、稳定帧车辆缓冲上传、相同屋顶资源重建及设施空转帧，保留原模型、颜色、车流需求与更新周期。固定600辆车的七轮交替测量中，CPU准备中位数7.10→5.16 ms／帧；此数字不代表整图帧率或所有设备提速。方法、完整检查与发布状态见[渲染复测记录](docs/PERFORMANCE_9_0_RENDER_ZH.md)。

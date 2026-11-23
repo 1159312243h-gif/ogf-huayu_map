@@ -561,7 +561,7 @@ buildingOwnerState.contextData={type:"FeatureCollection",features:[]};
 syncBuildingOwners(buildingMap,buildingOwnerState,true);
 assert.deepEqual(buildingLayerFilters.get("building-3d"),["all",true,["!",modelInsideExpression(detailCoverage)]],
   "源数据刷新移除的跨窗建筑不能被所有权缓存永久保留");
-assert.ok(index.includes('building-roofs.js?v=8.0-smooth-render-v1')
+assert.ok(index.includes('building-roofs.js?v=9.0-render-performance-v1')
   && app.includes("function huayuBuildingMaterialColor")
   && app.includes("function huayuBuildingRoofProperties")
   && app.includes("syncHuayuBuildingRoofs(glMap);")

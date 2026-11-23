@@ -6,6 +6,7 @@
   let laneRequest=0,laneTimer=0,laneBounds=null,laneWorker=null,laneResult=null;
   let bridgeRequest=0,bridgeResult=null,bridgeWorker=null,bridgeIndex=null,bridgeBounds=null,bridgeAt=0,bridgeTimer=0;
   const colors = ["#e5e0d5", "#d2674f", "#50869b", "#e4b85c", "#78847b", "#9c8eaf"];
+  const carParts = [[4.2,1.75,0.85,0.65],[2.15,1.5,0.65,1.38],[3.6,1.9,0.35,0.23]];
   let enabled = false, paused = false, selected = null, following = false, worker = null, generation = 0;
   let lanesBeforeSimulation=null;
   let bridgeSource=null,simulationBridgeRoads=[];
@@ -417,7 +418,7 @@
           const haloGeometry=new T.RingGeometry(2.8,3.2,40),haloMaterial=new T.MeshBasicMaterial({color:"#188aff",transparent:true,opacity:.85,depthTest:true,depthWrite:false,side:T.DoubleSide,toneMapped:false});
           const halo=new T.Mesh(haloGeometry,haloMaterial);halo.visible=false;scene.add(halo);
           graphics = {T,renderer,scene,camera,parts,halo,resources:[box,bodyMaterial,glass,tires,haloGeometry,haloMaterial],dummy:new T.Object3D(),
-            color:new T.Color(),projection:new T.Matrix4(),transform:new T.Matrix4()};
+            color:new T.Color(),projection:new T.Matrix4(),transform:new T.Matrix4(),scaleVector:new T.Vector3(),clip:new T.Vector3()};
         },
         render(gl,args) {
           if (!graphics || !latest || !center || document.hidden || mapInstance.getZoom()<10.5) return;
@@ -425,7 +426,7 @@
           const g = graphics, T = g.T;
           if(g.originKey!==center){g.originKey=center;g.origin=root.maplibregl.MercatorCoordinate.fromLngLat(center);g.scale=g.origin.meterInMercatorCoordinateUnits();}
           const origin=g.origin,scale=g.scale;
-          g.transform.makeTranslation(origin.x,origin.y,0).scale(new T.Vector3(scale,-scale,scale));
+          g.transform.makeTranslation(origin.x,origin.y,0).scale(g.scaleVector.set(scale,-scale,scale));
           g.projection.fromArray(args?.defaultProjectionData?.mainMatrix || args?.projectionMatrix || args);
           g.camera.projectionMatrix.copy(g.projection).multiply(g.transform);
           const old=previousVehicles;
@@ -451,20 +452,24 @@
             const x = (mc.x-origin.x)/scale, y = -(mc.y-origin.y)/scale, z=elevation+0.12;
             let delta = car.angle-p.angle; while(delta>Math.PI)delta-=2*Math.PI; while(delta<-Math.PI)delta+=2*Math.PI;
             const angle = p.angle+delta*t, d=g.dummy;
-            [[4.2,1.75,0.85,0.65],[2.15,1.5,0.65,1.38],[3.6,1.9,0.35,0.23]].forEach((size,k)=>{
+            carParts.forEach((size,k)=>{
               d.position.set(x,y,z+size[3]);d.rotation.set(0,0,angle);d.scale.set(size[0],size[1],size[2]);d.updateMatrix();
               g.parts[k].setMatrixAt(n,d.matrix);
             });
             g.color.set(car.id===selected ? "#087dff" : colors[car.id%colors.length]);g.parts[0].setColorAt(n,g.color);
-            const clip = new T.Vector3(x,y,z+1).applyMatrix4(g.camera.projectionMatrix);
+            const clip = g.clip.set(x,y,z+1).applyMatrix4(g.camera.projectionMatrix);
             if(car.id===selected){g.halo.position.set(x,y,z+.035);g.halo.visible=true;
               if(following&&clip.z>=-1&&clip.z<=1){ui.marker.hidden=false;ui.marker.style.left=`${canvasBox.left-(overlayBox?.left||0)+(clip.x+1)*canvasBox.width/2}px`;ui.marker.style.top=`${canvasBox.top-(overlayBox?.top||0)+(1-clip.y)*canvasBox.height/2}px`;
                 ui.marker.querySelector("i").style.transform=`rotate(${90-angle*180/Math.PI-mapInstance.getBearing()}deg)`;}}
             if(clip.z>=-1&&clip.z<=1) projected.push({id:car.id,x:(clip.x+1)*rect.clientWidth/2,y:(1-clip.y)*rect.clientHeight/2});
             n++;
           }
-          g.drawn=n;g.drawnOthers=n-(g.halo.visible?1:0);g.drawnBridge=bridgeCars;g.parts.forEach(mesh=>{mesh.count=n;mesh.instanceMatrix.needsUpdate=true;});
-          if(g.parts[0].instanceColor)g.parts[0].instanceColor.needsUpdate=true;
+          g.drawn=n;g.drawnOthers=n-(g.halo.visible?1:0);g.drawnBridge=bridgeCars;g.parts.forEach(mesh=>{mesh.count=n;if(n){
+            mesh.instanceMatrix.clearUpdateRanges();mesh.instanceMatrix.addUpdateRange(0,n*16);mesh.instanceMatrix.needsUpdate=true;
+          }});
+          if(n&&g.parts[0].instanceColor){const attribute=g.parts[0].instanceColor;
+            attribute.clearUpdateRanges();attribute.addUpdateRange(0,n*3);attribute.needsUpdate=true;
+          }
           root.HuayuSunlight?.applyScene(mapInstance,g.scene);
           g.renderer.resetState();g.renderer.setViewport(0,0,gl.drawingBufferWidth,gl.drawingBufferHeight);
           const bridgeTransform=root.HuayuBridgeModels?.get(mapInstance)?.transform;

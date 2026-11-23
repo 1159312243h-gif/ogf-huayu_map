@@ -262,6 +262,24 @@ for(let i=wallStart;i<wallStart+wallGroup.count;i++) {
 }
 const roofColor=new THREE.Color("#654321"),meshColors=renderController.geometry.attributes.color;
 assert.ok(Math.abs(meshColors.getX(0)-roofColor.r)<1e-6,"屋顶坡面继续独立使用屋顶颜色");
+// Re-reading an equal complete snapshot must keep all GPU resources. Real
+// colour/height/shape changes still replace geometry while materials stay valid.
+const completeMesh=renderController.mesh,completeGeometry=renderController.geometry;
+const roofMaterial=renderController.material,wallMaterial=renderController.wallMaterial;
+let replacedGeometryDisposals=0;completeGeometry.addEventListener('dispose',()=>replacedGeometryDisposals++);
+for(let i=0;i<3;i++){
+  renderController.update(structuredClone({type:'FeatureCollection',features:[explicitAndMaterial]}),options);renderController.build();
+  assert.equal(renderController.mesh,completeMesh,'equal complete data must reuse the full mesh');
+  assert.equal(renderController.geometry,completeGeometry);assert.equal(renderController.material,roofMaterial);assert.equal(renderController.wallMaterial,wallMaterial);
+}
+assert.equal(replacedGeometryDisposals,0);
+const recoloured=structuredClone(explicitAndMaterial);recoloured.properties['roof:colour']='#abcdef';
+renderController.update({type:'FeatureCollection',features:[recoloured]},options);renderController.build();
+assert.notEqual(renderController.geometry,completeGeometry,'real roof colour changes cannot be suppressed');
+assert.equal(replacedGeometryDisposals,1,'only replaced geometry is released');
+assert.equal(renderController.material,roofMaterial);assert.equal(renderController.wallMaterial,wallMaterial);
+assert.ok(Math.abs(renderController.geometry.attributes.color.getX(0)-new THREE.Color('#abcdef').r)<1e-6);
+renderController.update({type:'FeatureCollection',features:[explicitAndMaterial]},options);renderController.build();
 const uniforms=renderController.wallMaterial.uniforms;
 assert.ok(Math.abs(uniforms.wallLightPosition.value.x-0.5)<1e-6);
 assert.ok(Math.abs(uniforms.wallLightPosition.value.y-0.3)<1e-6,"转动地图时山墙灯光须跟随原生墙体");

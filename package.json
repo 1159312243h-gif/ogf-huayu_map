@@ -40,6 +40,7 @@
     "apps:prepare": "node scripts/prepare-apps.mjs",
     "test:apps": "node scripts/test-app-clients.mjs && node scripts/test-native-packages.mjs",
     "apps:desktop": "npm --prefix apps/desktop start",
-    "apps:desktop:build": "npm --prefix apps/desktop run dist"
+    "apps:desktop:build": "npm --prefix apps/desktop run dist",
+    "benchmark:traffic-render": "node scripts/benchmark-traffic-render.mjs"
   }
 }

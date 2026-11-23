@@ -1338,7 +1338,7 @@
               </div></details><details class="help-step"><summary>容量与默认参数</summary><div><p>行政区最多4个，单轴跨度12°，路网40000条／35万节点，超限请缩小范围。局部约850米。每人每小时基准0.22次出发、汽车分担35%、每车1.4人；距离按94%的7公里衰减与6%的45公里衰减混合，只有远处设施时减少出发，不把全部需求分给远处。未标住宅人口时按楼面每人35 m²、利用率80%，住宅用地再按25%覆盖率；缺层数按有效墙高每3米估算，再缺按2层。参数均为未校准假设。</p><p>缺车道标签和有效路宽时，高速单向3道、干线双向8道、主要道路双向6道；独立单向车行道分别4道、3道。普通道路2道，匝道／服务路／生活街道1道。窄双向共享路面，不按建筑间距估算。</p></div></details><div class="help-actions"><button class="secondary-button" type="button" data-action="simulation">前往模拟</button></div></div></details>
 <details id="help-questions" class="help-topic" data-help-section>
             <summary><span>常见问题与数据来源<small>搜不到、选不中、加载与下载问题</small></span></summary>
-            <div class="help-topic-content"><details class="help-step"><summary>安装到电脑、安卓、iPhone 或 iPad</summary><div><p>打开“关于 → 安装到设备”，或进入各系统安装页。Windows、Linux、macOS、Android 可使用支持安装的浏览器；iOS 在 Safari 分享菜单中选择“添加到主屏幕”。PWA 与原生安装包分别提供，安装包仅在构建和发布核验后上架下载；iOS 原生包需要有效苹果签名。</p><p>桌面与Android本地版内置程序和公开快照；iPhone/iPad主屏幕版首次联网准备完整程序缓存。联网检查新版，完整程序校验后重新打开生效。账号、上传、用户共享内容与即时查询仍在线读取，重新打开数据或投稿面板会检查最新列表；未访问底图仍需联网；缓存保留原始日期，不等于完整离线地图。</p><p>应用共用网站的地图、导航、三维模型、模拟、共享资料和 AI 接口。账号数据仍保存在原线上 D1，首次在各客户端登录同一地图账号；本机模型、设置、未发布草稿与 AI 密钥不会自动同步。密钥仍仅本页暂存。地图与在线查询需要联网，断网页不代表已有完整离线地图；更新沿用两分钟建模、五分钟检查及三小时重建。</p><p>手机原生客户端导出时使用系统文件保存窗口；取消不表示已经保存。Windows、Linux、macOS 由桌面保存窗口处理；PWA 由浏览器处理下载。尚未接入应用商店分发、全量离线地图或后台持续定位。</p><div class="help-actions"><button class="secondary-button" type="button" data-action="about">安装应用</button></div></div></details>
+            <div class="help-topic-content"><details class="help-step"><summary>安装到电脑、安卓、iPhone 或 iPad</summary><div><p>打开“关于 → 安装到设备”，或进入各系统安装页。Windows、Linux、macOS、Android 可使用支持安装的浏览器；iOS 在 Safari 分享菜单中选择“添加到主屏幕”。PWA 与原生安装包分别提供，安装包仅在构建和发布核验后上架下载；iOS 原生包需要有效苹果签名。</p><p>桌面与Android本地版内置程序和公开快照；iPhone/iPad主屏幕版首次联网准备完整程序缓存。联网检查新版，完整程序校验后重新打开生效。账号、上传、用户共享内容与即时查询仍在线读取，重新打开数据或投稿面板会检查最新列表；未访问底图仍需联网；缓存保留原始日期，不等于完整离线地图。</p><p>渲染复用未变化的屋顶与设施资源，车辆按实际显示数量更新绘制数据。首次模型、着色器准备及全域模拟计算仍需要时间，实际流畅度也受设备图形性能影响。</p><p>应用共用网站的地图、导航、三维模型、模拟、共享资料和 AI 接口。账号数据仍保存在原线上 D1，首次在各客户端登录同一地图账号；本机模型、设置、未发布草稿与 AI 密钥不会自动同步。密钥仍仅本页暂存。地图与在线查询需要联网，断网页不代表已有完整离线地图；更新沿用两分钟建模、五分钟检查及三小时重建。</p><p>手机原生客户端导出时使用系统文件保存窗口；取消不表示已经保存。Windows、Linux、macOS 由桌面保存窗口处理；PWA 由浏览器处理下载。尚未接入应用商店分发、全量离线地图或后台持续定位。</p><div class="help-actions"><button class="secondary-button" type="button" data-action="about">安装应用</button></div></div></details>
               <details class="help-step"><summary>搜不到地点或城市？</summary><div>
               <p>通用搜索可尝试完整地名、别名或直接输入坐标；城市线路图要选择实际行政边界，补全“市／区／县”等后缀有助于缩小范围。如果显示超时或服务失败，稍后重试，这不等于地点不存在。私人地点可先保存为收藏，再用个人名称查询。</p>
               </div></details><details class="help-step"><summary>点不中目标、点击没有物体？</summary><div>
@@ -1508,11 +1508,11 @@
     <script defer src="./sunlight-shadows.js?v=7.5-roof-only-v1"></script>
     <script defer src="./sunlight.js?v=7.5-realtime-sunlight-v1"></script>
     <script defer src="./vegetation-models.js?v=7.5-sunlight-v1"></script>
-    <script defer src="./facility-models.js?v=8.0-traffic-regions-v3"></script>
+    <script defer src="./facility-models.js?v=9.0-render-performance-v1"></script>
     <script defer src="./structure-models.js?v=8.0-view-performance-v1"></script>
     <script defer src="./model-options.js?v=7.1-huayu-model-options-v1"></script>
     <script defer src="./building-tiles.js?v=8.0-building-tiles-v1"></script>
-    <script defer src="./building-roofs.js?v=8.0-smooth-render-v1"></script>
+    <script defer src="./building-roofs.js?v=9.0-render-performance-v1"></script>
     <script defer src="./bridge-models.js?v=8.0-auto-structure-lanes-v1"></script>
     <script defer src="./map-export.js?v=8.0-building-tiles-v1"></script>
     <script defer src="./coastline-client.js?v=2"></script>
@@ -1528,11 +1528,11 @@
     <script defer src="./map-agent-providers.js?v=9.0-provider-compat-v2"></script>
     <script defer src="./map-agent-tools.js?v=9.0-simple-ui-v1"></script>
     <script defer src="./transit-station-data.js?v=references-13"></script>
-    <script defer src="./app.js?v=9.0-app-clients-v1"></script>
-    <script defer src="./traffic-surfaces.js?v=8.0-auto-structure-lanes-v1"></script>
+    <script defer src="./app.js?v=9.0-render-performance-v1"></script>
+    <script defer src="./traffic-surfaces.js?v=9.0-render-performance-v1"></script>
     <script defer src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script defer src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>
-    <script defer src="./traffic-simulation.js?v=8.0-auto-structure-lanes-v1"></script>
+    <script defer src="./traffic-simulation.js?v=9.0-render-performance-v1"></script>
     <script defer src="./map-help.js?v=9.0-simple-ui-v1"></script>
     <script defer src="./brand-browser.js?v=8"></script>
     <script defer src="./brand-logo-cache.js?v=2"></script>

@@ -424,9 +424,8 @@
     }
 
     build() {
-      this.clearMesh();
       const first = this.items[0]?.triangles[0]?.points[0];
-      if (!first) { this.origin = null; return; }
+      if (!first) { this.clearMesh(); this.origin = null; return; }
       const T = this.T;
       this.origin = root.maplibregl.MercatorCoordinate.fromLngLat(first);
       this.scale = this.origin.meterInMercatorCoordinateUnits();
@@ -474,22 +473,36 @@
       for(const batch of [batches.roof,batches.wall])for(const triangle of batch)for(const vertex of triangle.vertices) {
         positions.push(...vertex);colors.push(...triangle.rgb);heights.push(...triangle.heights);wallNormals.push(...triangle.normal);
       }
-      if (!positions.length) return;
+      if (!positions.length) { this.clearMesh(); return; }
+      const roofVertices=batches.roof.length*3;
+      const identical=(values,attribute)=>attribute?.array.length===values.length
+        && values.every((value,index)=>Math.fround(value)===attribute.array[index]);
+      // Compare the final GPU values, including native wall colours and heights.
+      // Equal replacement snapshots must not discard a complete mesh/program.
+      const attributes=this.geometry?.attributes;
+      this.elevations=elevations;this.terrainActive=Boolean(this.map.getTerrain?.());
+      if(this.mesh && this.geometry.groups[0]?.count===roofVertices
+        && identical(positions,attributes.position) && identical(colors,attributes.color)
+        && identical(heights,attributes.wallHeights)
+        && wallNormals.every((value,index)=>index<roofVertices*3 || Math.fround(value)===attributes.normal.array[index])) {
+        this.updateWallLighting();return;
+      }
       const geometry = new T.BufferGeometry();
       geometry.setAttribute("position", new T.Float32BufferAttribute(positions, 3));
       geometry.setAttribute("color", new T.Float32BufferAttribute(colors, 3));
       geometry.setAttribute("wallHeights", new T.Float32BufferAttribute(heights, 2));
       geometry.computeVertexNormals();
-      const roofVertices=batches.roof.length*3;
       for(let i=roofVertices;i<positions.length/3;i++)geometry.attributes.normal.setXYZ(i,...wallNormals.slice(i*3,i*3+3));
       geometry.addGroup(0,roofVertices,0);geometry.addGroup(roofVertices,batches.wall.length*3,1);
-      const material = new T.MeshLambertMaterial({vertexColors: true, side: T.DoubleSide,
+      const material = this.material || new T.MeshLambertMaterial({vertexColors: true, side: T.DoubleSide,
         polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1});
       material.depthTest = true; material.depthWrite = true;
-      this.wallMaterial = new T.RawShaderMaterial({vertexShader:WALL_VERTEX_SHADER,fragmentShader:WALL_FRAGMENT_SHADER,
+      this.wallMaterial ||= new T.RawShaderMaterial({vertexShader:WALL_VERTEX_SHADER,fragmentShader:WALL_FRAGMENT_SHADER,
         side:T.DoubleSide,uniforms:{wallLightPosition:{value:new T.Vector3()},wallLightColor:{value:new T.Vector3(1,1,1)},
           wallLightIntensity:{value:.5},wallVerticalGradient:{value:1},wallOpacity:{value:1}},
         blending:T.CustomBlending,blendSrc:T.OneFactor,blendDst:T.OneMinusSrcAlphaFactor,depthTest:true,depthWrite:true});
+      if(this.mesh)this.scene.remove(this.mesh);
+      this.geometry?.dispose();
       this.mesh = new T.Mesh(geometry, [material,this.wallMaterial]); this.mesh.frustumCulled = false;
       this.geometry = geometry; this.material = material; this.scene.add(this.mesh);
       this.elevations = elevations; this.terrainActive = Boolean(this.map.getTerrain?.());

@@ -16,7 +16,7 @@
     return {origin,sx,cells,xy,roadIds};
   }
   function locate(surface,id,coordinate){
-    if(!surface||id===undefined)return null;
+    if(!surface||id===undefined||surface.roadIds&&!surface.roadIds.has(String(id)))return null;
     const p=surface.xy(coordinate),cx=Math.floor(p[0]/32),cy=Math.floor(p[1]/32),seen=new Set();let best=null,distance=Infinity;
     for(let x=cx-2;x<=cx+2;x++)for(let y=cy-2;y<=cy+2;y++)for(const span of surface.cells.get(`${id}:${x}:${y}`)||[]){
       if(seen.has(span))continue;seen.add(span);const {a,b}=span,dx=b[0]-a[0],dy=b[1]-a[1],length2=dx*dx+dy*dy;

@@ -305,7 +305,7 @@
       if(contextChanged || this.features!==features && (this.features.length || features.length || !this.prepared)){
         this.features=features;this.dirty=true;this.revision++;
       }
-      if(contextChanged && !this.interacting)this.position();
+      if(contextChanged && !this.interacting && this.position())this.map.triggerRepaint();
       this.schedule();
     }
     schedule() {
@@ -366,6 +366,7 @@
     }
     async apply() {
       const map=this.map;if(!this.alive || !(map.style && map.getLayersOrder ? map.getLayersOrder().length : map.getStyle?.()?.layers?.length) || this.interacting)return;
+      const wasEnabled=Boolean(this.layer?.enabled);let repaint=false;
       if(this.dirty && !this.preparing && this.failedRevision!==this.revision) {
         const revision=this.revision,features=this.features,context=this.options.context;this.preparing=true;
         try {const result=await this.prepare();if(!this.alive || revision!==this.revision)return;
@@ -395,16 +396,16 @@
       wanted=!this.options.satellite && map.getPitch()>0.5 && map.getZoom()>=14 && hasModels();
       if(this.layer)this.layer.enabled=wanted;
       if(this.layer && wanted && (this.meshDirty || this.sceneNight!==this.options.night)) {
-        try {this.build();this.meshDirty=false;this.sceneNight=this.options.night;}
+        try {this.build();this.meshDirty=false;this.sceneNight=this.options.night;repaint=true;}
         catch(error){this.layer.enabled=false;this.failed=true;console.warn("Ferris wheel models unavailable; keeping map symbols.",error);}
       }
-      if(this.layer?.enabled)this.position();
+      if(this.layer?.enabled && this.position())repaint=true;
       const element=root.document?.getElementById("map");
       if(element){element.dataset.huayuFerrisWheels=String(this.layer?.enabled && !this.failed ? this.prepared.wheels.length : 0);
         element.dataset.huayuParkingSpaces=String(flat ? 0 : this.prepared.spaces);
         element.dataset.huayuOutdoorFacilities=String(this.layer?.enabled && !this.failed && map.getZoom()>=17
           && this.preparedContext===this.options.context ? this.prepared.small?.length || 0 : 0);}
-      map.triggerRepaint();
+      if(repaint || wasEnabled!==Boolean(this.layer?.enabled))map.triggerRepaint();
     }
     async start() {
       this.starting=true;
@@ -505,33 +506,42 @@
       }
     }
     position() {
-      if(!this.origin)return;
+      if(!this.origin)return false;
+      let changed=false;
       for(const {group,wheel} of this.groups || []) {
         const p=root.maplibregl.MercatorCoordinate.fromLngLat(wheel.center),ratio=p.meterInMercatorCoordinateUnits()/this.scale;
         const elevation=this.map.getTerrain?.() ? this.map.queryTerrainElevation(wheel.center) : 0;
-        group.visible=Number.isFinite(elevation);if(!group.visible)continue;
-        group.position.set((p.x-this.origin.x)/this.scale,-(p.y-this.origin.y)/this.scale,(elevation+wheel.base)*ratio);group.scale.setScalar(ratio);
+        const visible=Number.isFinite(elevation);if(group.visible!==visible)changed=true;
+        group.visible=visible;if(!visible)continue;
+        const x=(p.x-this.origin.x)/this.scale,y=-(p.y-this.origin.y)/this.scale,z=(elevation+wheel.base)*ratio;
+        if(group.position.x!==x || group.position.y!==y || group.position.z!==z || group.scale.x!==ratio)changed=true;
+        group.position.set(x,y,z);group.scale.setScalar(ratio);
       }
-      const T=this.T,placements=new Map(),object=new T.Object3D();
+      const T=this.T,placements=new Map(),object=this.positionObject ||= new T.Object3D(),changedItems=new Set();
       const displayedItems=new Set((this.facilityBatches||[]).flatMap(batch=>batch.items.map(part=>part.item)));
       for(const item of displayedItems) {
         const p=root.maplibregl.MercatorCoordinate.fromLngLat(item.center),ratio=p.meterInMercatorCoordinateUnits()/this.scale;
         const elevation=this.map.getTerrain?.() ? this.map.queryTerrainElevation(item.center) : 0;
         placements.set(item,{x:(p.x-this.origin.x)/this.scale,y:-(p.y-this.origin.y)/this.scale,z:(elevation+item.base)*ratio,
-          ratio,visible:Number.isFinite(elevation) && this.map.getZoom()>=17 && !this.meshDirty && this.preparedContext===this.options.context});
+          ratio,angle:item.angle,visible:Number.isFinite(elevation) && this.map.getZoom()>=17 && !this.meshDirty && this.preparedContext===this.options.context});
+        const next=placements.get(item),previous=this.placements?.get(item);
+        if(!previous || Object.keys(next).some(key=>!Object.is(next[key],previous[key])))changedItems.add(item);
       }
       for(const {mesh,items} of this.facilityBatches || []) {
+        let upload=false;
         items.forEach((part,i)=>{
+          if(!changedItems.has(part.item))return;upload=true;
           const p=placements.get(part.item),a=part.item.angle,cos=Math.cos(a),sin=Math.sin(a),[x,y,z]=part.position;
           object.position.set(p.x+(x*cos-y*sin)*p.ratio,p.y+(x*sin+y*cos)*p.ratio,p.visible ? p.z+z*p.ratio : 0);
           object.rotation.set(0,0,a);object.scale.fromArray(part.scale).multiplyScalar(p.visible ? p.ratio : 0);
           object.updateMatrix();mesh.setMatrixAt(i,object.matrix);
-        });mesh.instanceMatrix.needsUpdate=true;
+        });if(upload){mesh.instanceMatrix.needsUpdate=true;changed=true;}
       }
+      this.placements=placements;return changed;
     }
     clear(){for(const {group} of this.groups || []){this.scene?.remove(group);group.children.forEach(mesh=>mesh.dispose());}
       for(const {mesh} of this.facilityBatches || []){this.scene?.remove(mesh);mesh.dispose();}this.facilityBatches=[];
-      this.resources?.forEach(r=>r.dispose());this.groups=[];this.resources=[];this.origin=null;}
+      this.resources?.forEach(r=>r.dispose());this.groups=[];this.resources=[];this.origin=null;this.placements=null;}
     release(){this.clear();this.renderer?.dispose();this.renderer=null;}
     stopWorker(){this.worker?.terminate();this.worker=null;for(const task of this.pending?.values() || []){root.clearTimeout(task.timer);task.reject(new Error("facility worker stopped"));}this.pending?.clear();}
     destroy(){this.alive=false;root.clearTimeout(this.timer);this.unbind?.();this.stopWorker();this.map.off("terrain",this.onTerrain);

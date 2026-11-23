@@ -1,0 +1,93 @@
+{
+  "sourceCommit": "506c5bf3e4f8b8051081e959d54034e2b1063752",
+  "cases": [
+    {
+      "options": {
+        "count": 12
+      },
+      "geometry": {
+        "signature": "68a7bd340d021caca0db2f36f5a84152f61f8d4e8a9eefade55d7ecd97e64168",
+        "drawn": 12,
+        "drawnOthers": 11,
+        "drawnBridge": 0,
+        "projected": {
+          "count": 12,
+          "sha256": "49f726952b2316a3b8bc723a22033c19ffdb995328305e49a0f521c3c2362bc4"
+        },
+        "halo": true,
+        "markerHidden": true
+      }
+    },
+    {
+      "options": {
+        "count": 600
+      },
+      "geometry": {
+        "signature": "e9ede9757191023dc6695aae1d45b67fb6eb0425bbefefb68446e65309b897d0",
+        "drawn": 600,
+        "drawnOthers": 599,
+        "drawnBridge": 36,
+        "projected": {
+          "count": 600,
+          "sha256": "d64fa3480a5c9a995fd446e350dff4dc5ac53f3fdba32f5acdb0a72327503087"
+        },
+        "halo": true,
+        "markerHidden": true
+      }
+    },
+    {
+      "options": {
+        "count": 1200,
+        "selected": 17
+      },
+      "geometry": {
+        "signature": "5160fa8dc72ba44e5748994c1bad89d72fc7f7a16199fb30ae8f040607135d1f",
+        "drawn": 1164,
+        "drawnOthers": 1163,
+        "drawnBridge": 70,
+        "projected": {
+          "count": 1164,
+          "sha256": "9cbe115db8ad68d382fea6ba7acf6e4d22fea09243eac50c059ce5c69c23ed68"
+        },
+        "halo": true,
+        "markerHidden": true
+      }
+    },
+    {
+      "options": {
+        "count": 240,
+        "following": true
+      },
+      "geometry": {
+        "signature": "e4e017b03d2ca24777d553a1469be00e8699186ce5516d28b54d49207a0b4e29",
+        "drawn": 240,
+        "drawnOthers": 239,
+        "drawnBridge": 14,
+        "projected": {
+          "count": 240,
+          "sha256": "2aa38ba87dc561faaf186449848a6b1937dadbcc7fbef823e3d1f81c2fbdc5e4"
+        },
+        "halo": true,
+        "markerHidden": false
+      }
+    },
+    {
+      "options": {
+        "count": 600,
+        "paused": true
+      },
+      "geometry": {
+        "signature": "1945082933237def256b1b9e2faa41bb793a1a47c497ced4fd87031ab69e7acc",
+        "drawn": 600,
+        "drawnOthers": 599,
+        "drawnBridge": 36,
+        "projected": {
+          "count": 600,
+          "sha256": "6d526a3352ffeaf60146f0d537a4afd896e8e993e3366b5e731da4dcdcb7039c"
+        },
+        "halo": true,
+        "markerHidden": true
+      }
+    }
+  ]
+}

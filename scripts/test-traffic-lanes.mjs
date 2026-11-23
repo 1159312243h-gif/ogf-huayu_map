@@ -218,3 +218,5 @@ check("the actual worker prepares bounded lanes while paused without downloading
   w.onmessage({data:{action:'pause',paused:true}});assert.equal(messages.at(-1).time,before);
 });
 console.log(JSON.stringify({status:'passed',cases}));
+
+await import("./test-traffic-render.mjs");
