@@ -30,6 +30,6 @@ for(const platform of ["windows","linux","android"])if(!items.some(item=>item.pl
 const manifest={schema:"huayu-app-releases-v1",release:tag,sourceSha,generatedAt:new Date().toISOString(),items};
 await fs.writeFile(path.join(destination,"app-releases.json"),JSON.stringify(manifest,null,2)+"\n",{flag:"wx"});
 await fs.writeFile(path.join(destination,"SHA256SUMS.txt"),items.map(item=>item.sha256+"  "+item.filename).join("\n")+"\n",{flag:"wx"});
-const notes="华域地图首批应用测试包\n\n应用共用线上地图、账号与共享资料，使用需要联网。iPhone、iPad本批使用Safari添加到主屏幕。\n\nWindows／Linux／macOS为未签名或未公证测试包；Android为开发测试签名，尚未完成各类实机验收或商店上架。请核对SHA256SUMS.txt。原生组件升级需新包，地图功能与数据沿用网站更新。\n\n构建来源："+sourceSha+"\n";
+const notes="华域地图应用测试版 "+version+"\n\nWindows／Linux／macOS及Android内置程序和本批公开快照，联网检查数据新版，更新失败保留完整旧数据；共享账号、简介、数据包、logo与班次继续使用同一线上服务。iPhone／iPad使用Safari添加到主屏幕，首次联网准备完整程序缓存。未访问底图、即时查询及共享操作仍需联网，不是全球离线地图。\n\n桌面包未正式签名／公证；Android为开发测试签名。构建和自动化回归不代替全部手机／发行版实机验收，未上架应用商店。请核对SHA256SUMS.txt。原生运行环境升级仍需新包；完整程序更新校验后重开启用。\n\n构建来源："+sourceSha+"\n";
 await fs.writeFile(path.join(destination,"RELEASE_NOTES.md"),notes,{flag:"wx"});
 console.log(JSON.stringify(manifest,null,2));
