@@ -74,3 +74,5 @@ console.log("App checks passed: explicit installation, byte-exact Android/iOS st
 
 await import("./test-app-downloads.mjs");
 await import("./test-desktop-local.mjs");
+
+await import("./test-shared-client-refresh.mjs");

@@ -213,3 +213,5 @@ get_app_status通过真实HuayuApp.status()返回当前平台、独立窗口、�
 桌面本地化后get_app_status继续调用真实HuayuApp.status，新增localAssets、assetRevision、bundledPublicData、programUpdates；仅在实际桌面预加载声明本地资源时返回真值。主屏幕版和旧客户端不冒充本地化；内置公开快照不代表已缓存任意范围底图或离线可用账号。助手不自动安装、更新或清理缓存。
 
 全平台9.0.3：get_app_status增加offlineProgramReady与sharedData，真实报告桌面／Android内置资源或主屏幕完整缓存状态；未准备完成返回false。共享API绕过本机程序缓存，不宣称所有地区离线、立即同步或所有设备已实测。
+
+助手打开数据／投稿原面板时，重新激活会核对最新线上列表，保留既有草稿及失败前完整内容，不等于自动发布或对全站实时推送。

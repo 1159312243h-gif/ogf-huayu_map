@@ -242,7 +242,7 @@
         try{return await parse();}finally{signal?.removeEventListener("abort",cancel);}
       },
       setActive(value){const next=Boolean(value);if(active===next)return;active=next;
-      if(active){auth();if(!loaded)loadList();}else{reading?.abort();detailReading?.abort();themeReading?.abort();readEpoch++;detailEpoch++;themeEpoch++;editEpoch++;cancelParser();}}});
+      if(active){auth();loadList();}else{reading?.abort();detailReading?.abort();themeReading?.abort();readEpoch++;detailEpoch++;themeEpoch++;editEpoch++;cancelParser();}}});
     clearForm();root.HuayuSharedDatasets.setActive(atlas.getCurrentView()==="datasets"&&!document.getElementById("tool-panel").classList.contains("is-hidden"));
     if(new URLSearchParams(location.search).get("panel")==="datasets")atlas.openView("datasets",{preservePerspective:true});
   }

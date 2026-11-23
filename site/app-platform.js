@@ -10,7 +10,7 @@
   const report=(message)=>{const el=doc.getElementById("app-install-status");if(el)el.textContent=message;root.HuayuAtlas?.showToast?.(message);};
   function status() {return {platform,installed:installed(),native:mobile||Boolean(desktop),canPromptInstall:Boolean(installPrompt),
     nativeFileSave:mobile||Boolean(desktop),onlineRequired:true,accountService:"existing-same-origin",automaticInstall:false,localAssets:Boolean(root.huayuDesktop?.localAssets||root.huayuAndroid?.localAssets||cacheStatus.ready),
-    assetRevision:root.huayuDesktop?.assetRevision||root.huayuAndroid?.assetRevision||cacheStatus.revision||null,bundledPublicData:Boolean(root.huayuDesktop?.bundledPublicData||root.huayuAndroid?.bundledPublicData),
+    assetRevision:root.huayuDesktop?.assetRevision||cacheStatus.revision||root.huayuAndroid?.assetRevision||null,bundledPublicData:Boolean(root.huayuDesktop?.bundledPublicData||root.huayuAndroid?.bundledPublicData),
     offlineProgramReady:Boolean(root.huayuDesktop?.localAssets||root.huayuAndroid?.localAssets||cacheStatus.ready),sharedData:"live-api",
     programUpdates:root.huayuDesktop?.localAssets?"verified-on-restart":cacheStatus.ready?"complete-cache-on-restart":"online-page"};}
   function receive(value) {

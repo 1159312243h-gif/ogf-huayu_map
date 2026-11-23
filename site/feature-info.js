@@ -269,7 +269,7 @@
       search,clearSearch,setActive(value) {
       const wasActive = active; active = Boolean(value);
       if (!active) {readEpoch++; readController?.abort(); readController = null; $("refresh").disabled = false; $("more").disabled = false;}
-      if (active && !wasActive && feature && !loaded) load();
+      if (active && !wasActive && feature) load();
     }});
     window.addEventListener("huayu:feature-selected",selectionChanged);
     window.addEventListener("huayu:account-changed",syncAccount);
