@@ -76,3 +76,5 @@ await import("./test-app-downloads.mjs");
 await import("./test-desktop-local.mjs");
 
 await import("./test-shared-client-refresh.mjs");
+
+await import("./test-web-startup.mjs");

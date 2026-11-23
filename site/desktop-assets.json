@@ -2,7 +2,7 @@
   "schema": "huayu-desktop-assets-v1",
   "runtime": 1,
   "version": "9.0.3",
-  "revision": "044c5a6685e347d7d9f17843b4d562a101979dcc995958ebff099e2c49b6d63f",
+  "revision": "c844c3e9f0d83d79f84f06f2499147679542aef38ec898a6a6f82d6b5c26e062",
   "files": [
     {
       "path": "BUILDING_MODEL_VERSION.md",
@@ -24,8 +24,8 @@
     },
     {
       "path": "VERSION.txt",
-      "bytes": 214538,
-      "sha256": "ae1d1a95a8af5d54b74f588988e295c1f79c6f97abaf2efe04d3621677d4596d",
+      "bytes": 215223,
+      "sha256": "82f5242b645c857695f14bdcc3928fa3ec55f3e71b0db0261fcbc7031b147c1d",
       "kind": "code"
     },
     {
@@ -52,7 +52,7 @@
     {
       "path": "app-cache-version.js",
       "bytes": 93,
-      "sha256": "98997ad4d83a8ce37cea3c5d37c47c09cf0c0d8d930a986a65d3c5391f6c0ec1",
+      "sha256": "965f2d9f4c491bda85217334538c456b5763daa1988c32b1fa29af72a281bff4",
       "kind": "code"
     },
     {
@@ -108,8 +108,8 @@
     },
     {
       "path": "app.js",
-      "bytes": 1869009,
-      "sha256": "5d9a479f283a3b4a606fefa4fee789a414af142abe5cd65ddc7df3749802abf8",
+      "bytes": 1870479,
+      "sha256": "7d689450c98297513e09ce7673f0b60812e1eaa368b30cc4f967df17599366dd",
       "kind": "code"
     },
     {
@@ -120,8 +120,8 @@
     },
     {
       "path": "brand-browser.css",
-      "bytes": 1805,
-      "sha256": "7b473a69ac0be0f1ea34ee10968a6449b88eacf1ee80f5876c0200b6632267e1",
+      "bytes": 1739,
+      "sha256": "1f6d232fa28866a5d4d7d5338602351dbd68556f5f5bddc5b290489c8e68408d",
       "kind": "code"
     },
     {
@@ -324,8 +324,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 224506,
-      "sha256": "2eed4cb8512f8c02af16a2bc026b2ab9d94978561f406b31f1eeba36eaeb94f4",
+      "bytes": 225680,
+      "sha256": "de129cd81eb1a49ba5cbb522577a493606c59cc14338fe8bb9f140f807112267",
       "kind": "code"
     },
     {
@@ -392,6 +392,12 @@
       "path": "map-help.js",
       "bytes": 4832,
       "sha256": "f04bcc606804ed8b0e595ea8e9f701891d862e27a19f01446154dd48c55748c9",
+      "kind": "code"
+    },
+    {
+      "path": "map-startup.js",
+      "bytes": 2116,
+      "sha256": "7aafd25a61d79c0ff8e2258392c3234c5f8a1ae7f2adcec596aa3663788a4f3e",
       "kind": "code"
     },
     {
@@ -597,8 +603,8 @@
     },
     {
       "path": "styles.css",
-      "bytes": 107716,
-      "sha256": "796b416d5129c24963c43257cbadbeda99b9c76f19690f6a57b44d3a98b4a4b4",
+      "bytes": 107742,
+      "sha256": "a6540ca5ce962881c023312fb79bd141687a0a906fa606a2c728ae82606ed708",
       "kind": "code"
     },
     {

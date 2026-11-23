@@ -19,6 +19,5 @@ button.brand-card {width:100%;cursor:pointer;}
 .brand-search-matches {margin:12px 0;padding-bottom:12px;border-bottom:1px solid var(--line);}
 .brand-search-matches h2 {font-size:13px;margin:8px 0;}
 @media (max-width:680px) {
-  .rail-actions {grid-template-columns:repeat(12,minmax(0,1fr));}
   .brand-filters {grid-template-columns:1fr 1fr;}
 }

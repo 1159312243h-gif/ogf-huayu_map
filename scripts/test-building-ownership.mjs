@@ -182,5 +182,7 @@ assert.equal((await rejected.promise).data,original,"failed worker transfer pres
 assert.ok(app.includes("transformRequest: isHuayuBasemapId(id) ? window.HuayuBuildingTiles?.request"));
 assert.ok(app.includes("transformRequest: window.HuayuBuildingTiles?.request"),"independent Huayu exports use the same tile normalization");
 const index=await readFile(new URL("../site/index.html",import.meta.url),"utf8");
-assert.ok(index.indexOf('./building-tiles.js?v=')<index.indexOf('./app.js?v='),"tile protocol loads before the app");
+const scripts=[...index.matchAll(/<script\b[^>]*src="([^"]+)"[^>]*>/gu)].map(match=>match[1]);
+assert.ok(scripts.findIndex(src=>src.startsWith('./building-tiles.js?v='))>=0
+  && scripts.findIndex(src=>src.startsWith('./building-tiles.js?v='))<scripts.findIndex(src=>src.startsWith('./app.js?v=')),"tile protocol executes before the app; preload discovery does not change script order");
 console.log("Building ownership passed: native MVT batch splitting, exact vertices/holes/tags, complete windows, genuine crossing buildings, worker protocol, cancellation and fallback.");

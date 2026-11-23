@@ -1,6 +1,15 @@
 华域地图 v9.0
 Release date: 2026-11-23
 Cloudflare Pages project: ogf-atlas
+Build: 9.0-web-startup-v1
+Fixed: mobile menu fixed-column override, vector download blocking the whole initial map, missing slow-load/error feedback. Original raster fallback and controls initialise first; optional vector startup has bounded waits and explicit retry. Preserve saved preference and newer user selections.
+Validated: actual stalled-vector and retry browser scenarios at widths 360,390,430,680,1100; no hidden/overlapping menu entries or page exceptions. Shared program update and original data refresh policies remain unchanged. Deployment independently verified.
+
+Previous build metadata:
+
+华域地图 v9.0
+Release date: 2026-11-23
+Cloudflare Pages project: ogf-atlas
 Build: 9.0-render-performance-v1
 Included: shared vehicle active-prefix updates and bounded bridge lookups, unchanged roof GPU/material reuse and change-only facility redraws. Preserve original geometry, colours, shadows, traffic demand, lane budgets, APIs and refresh policies.
 Measured: identical 600-car CPU preparation median 7.104 to 5.161 ms in seven alternating Node runs; this is not a whole-map FPS guarantee. Desktop/mobile-size roof PNGs are byte-identical; full regressions and isolated Windows offline startup passed.

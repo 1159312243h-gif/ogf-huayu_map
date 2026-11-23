@@ -1140,14 +1140,9 @@
   try {
     satelliteAnnotationsEnabled = window.localStorage.getItem(SATELLITE_ANNOTATIONS_STORAGE_KEY) === "true";
   } catch {}
-  if (BASEMAP_STYLES[selectedBasemapId]?.kind === "vector") {
-    try {
-      await prepareVectorBasemap(selectedBasemapId);
-    } catch {
-      selectedBasemapId = "carto";
-      try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, selectedBasemapId); } catch {}
-    }
-  }
+  // Initialise the working map and menus before optional vector downloads.
+  // Preserve the user's choice while the original raster fallback is visible.
+  const initialVectorBasemapId = BASEMAP_STYLES[selectedBasemapId]?.kind === "vector" ? selectedBasemapId : null;
   let transitNetworkRequestId = 0;
   let transitBusRequestId = 0;
   let transitNetworkData = null;
@@ -1300,6 +1295,7 @@
     opacity: 1,
   });
   installBasemapTileFallback(lowResolutionTileLayer, "high", TILE_URL);
+  lowResolutionTileLayer.on("tileload",()=>{document.getElementById("map").dataset.mapPainted="true";window.HuayuMapStartup?.ready({baseOnly:true});});
   lowResolutionTileLayer.addTo(map);
 
   function createBasemapTileLayer(id) {
@@ -1331,12 +1327,17 @@
         }
         timeout = window.setTimeout(() => {
           if (!ready && selectedBasemapId === id) {
-            showToast("Vector 加载超时，已切回 OGF-Carto US");
-            setBasemapStyle("carto");
+            showToast("矢量底图暂未就绪，先保留基础地图");
+            const fallbackRequest = basemapStyleRequestId + 1;
+            void setBasemapStyle("carto", {temporary:true}).then(() => {
+              if(basemapStyleRequestId!==fallbackRequest)return;
+              window.HuayuMapStartup?.failed("矢量底图资源暂未就绪，基础地图仍保留；可点击重试。",()=>setBasemapStyle(id,{initial:true}));
+            });
           }
         }, 15000);
         glMap.once("load", () => {
           ready = true;
+          document.getElementById("map").dataset.mapPainted="true";window.HuayuMapStartup?.ready();
           if (timeout) window.clearTimeout(timeout);
           syncPublishedTransitStationLayers(glMap);
           if (isHuayuBasemapId(id)) {
@@ -1410,14 +1411,16 @@
       }
       const link = document.createElement("link");
       link.id = "maplibre-stylesheet";
+      link.dataset.mapOptional = "true";
       link.rel = "stylesheet";
       link.href = "./maplibre-gl.css?v=5.24.0";
+      const timer=window.setTimeout(()=>{link.remove();reject(new Error("VECTOR_STYLE_TIMEOUT"));},12000);
       link.addEventListener("load", () => {
-        link.dataset.loaded = "true";
+        window.clearTimeout(timer);link.dataset.loaded = "true";
         resolve();
       }, { once: true });
       link.addEventListener("error", (error) => {
-        link.remove();
+        window.clearTimeout(timer);link.remove();
         reject(error);
       }, { once: true });
       document.head.append(link);
@@ -1427,10 +1430,12 @@
       return new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = src;
+        script.dataset.mapOptional = "true";
         script.async = false;
-        script.addEventListener("load", resolve, { once: true });
+        const timer=window.setTimeout(()=>{script.remove();reject(new Error("VECTOR_SCRIPT_TIMEOUT"));},12000);
+        script.addEventListener("load", ()=>{window.clearTimeout(timer);resolve();}, { once: true });
         script.addEventListener("error", (error) => {
-          script.remove();
+          window.clearTimeout(timer);script.remove();
           reject(error);
         }, { once: true });
         document.head.append(script);
@@ -1449,7 +1454,7 @@
 
   let baseTileLayer;
   try {
-    baseTileLayer = createBasemapTileLayer(selectedBasemapId);
+    baseTileLayer = createBasemapTileLayer(initialVectorBasemapId ? "carto" : selectedBasemapId);
     baseTileLayer.addTo(map);
   } catch {
     selectedBasemapId = "carto";
@@ -34012,8 +34017,8 @@
 
   let basemapStyleRequestId = 0;
 
-  async function setBasemapStyle(id) {
-    if (!Object.hasOwn(BASEMAP_STYLES, id) || id === selectedBasemapId) return;
+  async function setBasemapStyle(id, options = {}) {
+    if (!Object.hasOwn(BASEMAP_STYLES, id) || id === selectedBasemapId && !options.initial) return;
     const previousBasemapId = selectedBasemapId;
     const perspectiveSnapshot = BASEMAP_STYLES[previousBasemapId]?.kind === "vector"
       && BASEMAP_STYLES[id]?.kind === "vector"
@@ -34036,6 +34041,7 @@
       }
       if (requestId !== basemapStyleRequestId) return;
       showToast(`${BASEMAP_STYLES[id].label} 无法加载，已保留当前底图`);
+      if(options.initial)window.HuayuMapStartup?.failed("矢量组件暂未加载成功，基础地图仍可使用；可点击重试。",()=>setBasemapStyle(id,{initial:true}));
       updateMapViewControls();
       return;
     }
@@ -34043,7 +34049,7 @@
     const previousLayer = baseTileLayer;
     baseTileLayer = nextLayer;
     selectedBasemapId = id;
-    try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, id); } catch {}
+    if(!options.temporary)try { window.localStorage.setItem(BASEMAP_STORAGE_KEY, id); } catch {}
     try { map.removeLayer(previousLayer); } catch {}
     if (perspectiveSnapshot && id !== "huayu-satellite") {
       enterVectorPerspectiveMode(perspectiveSnapshot.pitch, perspectiveSnapshot.bearing, {
@@ -36340,4 +36346,6 @@
     showToast,
   });
   window.dispatchEvent(new CustomEvent("huayu:map-ready"));
+  window.HuayuMapStartup?.stage("正在加载底图；基础地图就绪后可直接浏览。 ");
+  if(initialVectorBasemapId)void setBasemapStyle(initialVectorBasemapId,{initial:true});
 })();
