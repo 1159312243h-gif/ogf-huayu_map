@@ -60,6 +60,14 @@ jobs:
       - run: node node_modules/electron/install.js
       - run: pnpm run smoke
         if: runner.os != 'Linux'
+      - name: Prepare Linux sandbox helper for the isolated startup check
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sandbox_path="$(node -p "require('node:path').join(require('node:path').dirname(require('electron')), 'chrome-sandbox')")"
+          test -f "$sandbox_path"
+          sudo chown root:root "$sandbox_path"
+          sudo chmod 4755 "$sandbox_path"
       - run: xvfb-run --auto-servernum pnpm run smoke
         if: runner.os == 'Linux'
       - run: pnpm run dist ${{ matrix.target }} --publish never
