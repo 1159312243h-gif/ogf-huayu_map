@@ -342,3 +342,5 @@ Windows／Linux／macOS构建内置地图程序、完整功能脚本与现有公
 ### 全平台加载与更新9.0.3
 
 桌面三系统与Android共用完整资源清单，iPhone/iPad主屏幕版首次联网准备完整程序缓存；完整校验后才切换版本。普通数据检查交付最新响应、失败保留旧完整快照，账号和用户共享API继续在线查询；不保证全球离线或网络故障下实时可达。帮助与助手真实状态同步，构建和发布结果另行核实。
+
+9.0.3全平台测试包已通过构建和摘要校验：[统一安装入口](https://ogf-atlas.pages.dev/apps.html)，[GitHub发布](https://github.com/1159312243h-gif/ogf-huayu_map/releases/tag/apps-v9.0.3-preview.1)。Windows／Linux／macOS通过实际离线程序启动，Android通过编译和lint；iPhone/iPad为主屏幕版，Safari及各设备实机验收仍需继续。

@@ -104,3 +104,10 @@ Windows、Linux、macOS桌面工程内置完整公开前端（HTML、地图引�
 生成Android资源用node scripts/prepare-desktop.mjs --mobile，桌面用--bundle，构建目录忽略且不提交二进制；三小时工作流同步desktop-assets.json与app-cache-version.js。程序缓存标识由实际代码内容确定，数据更新不重装完整程序。公开浏览器传输缓存192MiB，不清理用户／模型存储，存储不可用继续联网。所有脚本采用defer并行下载，保留既有执行顺序、模块和功能。回归scripts/test-app-cache.mjs与原应用、帮助、助手、完整地图检查。
 
 Linux离线启动CI在临时执行器中按Electron要求为下载的chrome-sandbox设置root属主及4755权限，不使用--no-sandbox、不开关用户系统安全策略；发行包仍保留沙箱。不同Linux发行版的AppImage执行及命名空间限制需用户设备实测，另提供Deb安装包。
+
+
+### 9.0.3已验证构建与公开下载
+
+2026-11-23构建45107218461（来源9459f9854276dc554b10551415874c8a2954b508）中，Windows、Linux及macOS实际离线启动和原生打包均通过，Android编译与lint通过，iOS原生按用户选择跳过。Linux首轮因CI沙箱辅助程序权限失败，修复后保留沙箱并通过。浏览器实际390×844验证完整缓存安装、断网重开、共享API直通和无横向溢出；该浏览器验证不冒充Safari或手机真机。
+
+发布45107868510已成功，五个新包见[apps-v9.0.3-preview.1](https://github.com/1159312243h-gif/ogf-huayu_map/releases/tag/apps-v9.0.3-preview.1)：Windows x64 EXE、Linux x64 AppImage和DEB、macOS ARM64 DMG、Android通用测试APK。原始构建清单的字节数、SHA-256、实际远端标签与全部正式下载URL另行核验后写入站点目录，不覆盖旧发布。桌面包未正式签名／公证，Android仍为测试签名；没有完成全部设备实测，不宣称上架商店或全球离线。

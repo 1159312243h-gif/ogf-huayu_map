@@ -1,73 +1,73 @@
 {
   "schema": "huayu-app-releases-v1",
-  "release": "apps-v9.0.0-preview.1",
-  "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609",
-  "generatedAt": "2026-11-22T12:56:26.867Z",
+  "release": "apps-v9.0.3-preview.1",
+  "sourceSha": "9459f9854276dc554b10551415874c8a2954b508",
+  "generatedAt": "2026-11-23T03:46:52.414Z",
   "items": [
     {
       "platform": "android",
       "arch": "通用",
       "label": "Android 通用 · 测试版",
-      "version": "9.0.0",
-      "bytes": 1165517,
-      "sha256": "761b963ada1c7132e1b9ef5c1f5f1b318e52ae625639f8d10fcab5b026445aa6",
-      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.0-preview.1/Huayu-Atlas-9.0.0-android-test.apk",
-      "filename": "Huayu-Atlas-9.0.0-android-test.apk",
+      "version": "9.0.3",
+      "bytes": 139147104,
+      "sha256": "b4a9a866932c4ac09badebf52e163e96ccd06163370de081a09560c0a26925bb",
+      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.3-preview.1/Huayu-Atlas-9.0.3-android-test.apk",
+      "filename": "Huayu-Atlas-9.0.3-android-test.apk",
       "signed": true,
       "signing": "Android开发测试签名",
-      "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609"
+      "sourceSha": "9459f9854276dc554b10551415874c8a2954b508"
     },
     {
       "platform": "linux",
       "arch": "x64",
       "label": "Linux x64 · 测试版（Deb）",
-      "version": "9.0.0",
-      "bytes": 100988860,
-      "sha256": "652c11f5915e199c568341c567a628045965c26873132b315fd900063b56d9e3",
-      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.0-preview.1/Huayu-Atlas-9.0.0-linux-amd64.deb",
-      "filename": "Huayu-Atlas-9.0.0-linux-amd64.deb",
+      "version": "9.0.3",
+      "bytes": 216556276,
+      "sha256": "716989ab8c774a032a59fdca406b94495103e7d69de736b1b956bb01efc1d64b",
+      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.3-preview.1/Huayu-Atlas-9.0.3-linux-amd64.deb",
+      "filename": "Huayu-Atlas-9.0.3-linux-amd64.deb",
       "signed": false,
       "signing": "未签名／未公证",
-      "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609"
+      "sourceSha": "9459f9854276dc554b10551415874c8a2954b508"
     },
     {
       "platform": "linux",
       "arch": "x64",
       "label": "Linux x64 · 测试版（AppImage）",
-      "version": "9.0.0",
-      "bytes": 125663651,
-      "sha256": "15a9406694233581f16c68e7b55fb01790bee321919e139c07d513f0bc3c1b6b",
-      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.0-preview.1/Huayu-Atlas-9.0.0-linux-x86_64.AppImage",
-      "filename": "Huayu-Atlas-9.0.0-linux-x86_64.AppImage",
+      "version": "9.0.3",
+      "bytes": 243304821,
+      "sha256": "cb5804a16da41e638e601bb8b2ddb3c03907a125039075dc771a34e50bd6b0c4",
+      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.3-preview.1/Huayu-Atlas-9.0.3-linux-x86_64.AppImage",
+      "filename": "Huayu-Atlas-9.0.3-linux-x86_64.AppImage",
       "signed": false,
       "signing": "未签名／未公证",
-      "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609"
+      "sourceSha": "9459f9854276dc554b10551415874c8a2954b508"
     },
     {
       "platform": "windows",
       "arch": "x64",
       "label": "Windows x64 · 测试版",
-      "version": "9.0.0",
-      "bytes": 121285753,
-      "sha256": "ae79173723fe678c5455c605fc1295e00a1e83afca20e53e174f63f0c7f8e96d",
-      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.0-preview.1/Huayu-Atlas-9.0.0-win-x64.exe",
-      "filename": "Huayu-Atlas-9.0.0-win-x64.exe",
+      "version": "9.0.3",
+      "bytes": 234834106,
+      "sha256": "d3fd0416b97ff78751636bc4bc36a68f02bd352153071d655441f36de55820cf",
+      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.3-preview.1/Huayu-Atlas-9.0.3-win-x64.exe",
+      "filename": "Huayu-Atlas-9.0.3-win-x64.exe",
       "signed": false,
       "signing": "未签名／未公证",
-      "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609"
+      "sourceSha": "9459f9854276dc554b10551415874c8a2954b508"
     },
     {
       "platform": "macos",
       "arch": "arm64",
       "label": "macOS arm64 · 测试版",
-      "version": "9.0.0",
-      "bytes": 120553865,
-      "sha256": "b41098ea614ac47b2d2b7f24ed94b146ed5d2a04d8b17df3d6240ae86debd40d",
-      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.0-preview.1/Huayu-Atlas-9.0.0-mac-arm64.dmg",
-      "filename": "Huayu-Atlas-9.0.0-mac-arm64.dmg",
+      "version": "9.0.3",
+      "bytes": 238107542,
+      "sha256": "95a30f93865ad2b2eabe661e8ea27bf7c82f9c0c2979b441d9fae0cd6863b959",
+      "url": "https://github.com/1159312243h-gif/ogf-huayu_map/releases/download/apps-v9.0.3-preview.1/Huayu-Atlas-9.0.3-mac-arm64.dmg",
+      "filename": "Huayu-Atlas-9.0.3-mac-arm64.dmg",
       "signed": false,
       "signing": "未签名／未公证",
-      "sourceSha": "864dd770c01bee601a75b830b44386a6c3280609"
+      "sourceSha": "9459f9854276dc554b10551415874c8a2954b508"
     }
   ]
 }

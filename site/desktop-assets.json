@@ -2,7 +2,7 @@
   "schema": "huayu-desktop-assets-v1",
   "runtime": 1,
   "version": "9.0.3",
-  "revision": "df1ff0511ee01cbd82020b1ed1a056a558008caceeaf96c875ad866794bed247",
+  "revision": "628ca902fa9d3b0d84213be9908ec305bbaec6d22ef7a2505f87b02a94ffe67f",
   "files": [
     {
       "path": "BUILDING_MODEL_VERSION.md",
@@ -52,7 +52,7 @@
     {
       "path": "app-cache-version.js",
       "bytes": 93,
-      "sha256": "ba226035e2afd585c7610b468639db8f036e04ec1b5dc524d7a7024b65838c82",
+      "sha256": "a5f9566ce56026b274c1e51c8df4daa4a658ff2c8d5eafb2fb984d9c2c680c0c",
       "kind": "code"
     },
     {
@@ -93,12 +93,12 @@
     },
     {
       "path": "app-releases.json",
-      "bytes": 3038,
-      "sha256": "412c4ea2388cd3de22fc7d6604e7ad6da39dacd1a35c9298d279a03e2c64a560",
+      "bytes": 3040,
+      "sha256": "82f63e8f17ea868327ec5cb8172f25527d5f8aede63a7cc566cb86177c5c9f1a",
       "kind": "data",
-      "sourceTime": "2026-11-22T12:56:26.867Z",
-      "decodedBytes": 3038,
-      "decodedSha256": "412c4ea2388cd3de22fc7d6604e7ad6da39dacd1a35c9298d279a03e2c64a560"
+      "sourceTime": "2026-11-23T03:46:52.414Z",
+      "decodedBytes": 3040,
+      "decodedSha256": "82f63e8f17ea868327ec5cb8172f25527d5f8aede63a7cc566cb86177c5c9f1a"
     },
     {
       "path": "app-sw.js",
@@ -114,8 +114,8 @@
     },
     {
       "path": "apps.html",
-      "bytes": 2418,
-      "sha256": "60f20faf3c76525afb63685d394793974565fdc5941a598fe6aaad119d545cd1",
+      "bytes": 2628,
+      "sha256": "83a94b8428194f4aa33ba93b38db39b6134e7cb843f82caddc863601d11a754f",
       "kind": "code"
     },
     {
