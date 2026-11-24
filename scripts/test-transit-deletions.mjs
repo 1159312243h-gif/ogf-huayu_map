@@ -99,3 +99,30 @@ assert.equal(emptyTile.authoritative,true);
 tileRealm.fetch=async()=>new Response(JSON.stringify({elements:[],remark:"timeout"}));
 assert.equal((await tileRealm.fetchTransitSnapshotTiles("rail",{},1000)).complete,false,"partial/error responses cannot certify coverage");
 console.log("Actual traffic tile loader passed: complete empty packets, stale retry deadline and partial/error rejection.");
+
+const modeOnly=["subway","light_rail","monorail"].map((type,i)=>({type:"node",id:100+i,tags:{[type]:"yes"}}));
+const modePayload={osm3s:payload.osm3s,elements:[...modeOnly,{type:"count",tags:{nodes:"3",ways:"0",relations:"0",total:"3"}}]};
+const modes=await verifySources(modeOnly.map(({type,id})=>({type,id,role:"station"})),{cachePrefix:path.join(directory,"modes"),fetchImpl:async url=>{
+ assert.ok(String(url).includes("overpass"),"existing urban mode tags must not trigger removal confirmation");return {ok:true,json:async()=>modePayload};
+}});
+assert.equal(modes.verification.removed.length,0);
+assert.equal(modes.current.size,3);
+console.log("Station source classification passed: subway, light-rail and monorail mode-only tags remain valid under the existing collector rules.");
+
+// Regression for the real Kadah failure: positive area way IDs in the national
+// railway table must not become node API lookups.
+const areaRun=path.join(directory,"routing-area"),areaRoot=path.join(areaRun,"outputs/ogf-atlas");
+fs.mkdirSync(areaRoot,{recursive:true});fs.mkdirSync(path.join(areaRun,"work"),{recursive:true});
+const areaStation={type:"way",id:39110112,tags:{railway:"station",name:"Arsbe"},center:{lat:57.5,lon:148.3}};
+const areaRoute={type:"relation",id:4,tags:{type:"route",route:"train"}};
+const areaPacket={generatedAt:packet.generatedAt,snapshots:[{id:"kadah",network:{format:2,routeTable:[[4,"train"]],
+ lines:[[11,[[57,148],[58,149]],[0]]],stops:[],displayStops:[]}}]};
+fs.writeFileSync(path.join(areaRoot,"transit-preload.json"),JSON.stringify(areaPacket));
+fs.writeFileSync(path.join(areaRoot,"transit-relations.json"),JSON.stringify({snapshots:[{id:"kadah",elements:[areaStation,areaRoute]}]}));
+fs.writeFileSync(path.join(areaRoot,"railway-routing.json"),JSON.stringify({coverage:{},stations:[[39110112,57.5,148.3,"Arsbe"]]}));
+const areaBody={osm3s:payload.osm3s,elements:[areaStation,areaRoute,{type:"count",tags:{nodes:"0",ways:"1",relations:"1",total:"2"}}]};
+fs.writeFileSync(path.join(areaRun,"mock.cjs"),"global.fetch=async(url,options)=>{if(!String(options.body).includes('39110112'))throw Error('station ID missing');if(String(options.body).includes('node%28id'))throw Error('area queried as node');return {ok:true,json:async()=>("+JSON.stringify(areaBody)+")};};");
+const areaEntry=spawnSync(process.execPath,["--require",path.join(areaRun,"mock.cjs"),new URL("./data-update/builders/verify-transit-current-sources.cjs",import.meta.url).pathname.replace(/^\/([A-Z]:)/u,"$1")],{cwd:areaRun,encoding:"utf8",windowsHide:true,env:{...process.env,OGF_UPDATER_RELAY:"0"}});
+assert.equal(areaEntry.status,0,areaEntry.stderr||areaEntry.stdout);
+assert.equal(JSON.parse(fs.readFileSync(path.join(areaRoot,"railway-routing.json"))).stations.length,1);
+console.log("National area station passed: actual current-source builder queries the original way, never a same-number node.");

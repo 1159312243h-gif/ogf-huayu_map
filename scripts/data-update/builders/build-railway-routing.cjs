@@ -98,12 +98,13 @@ const {refreshRailwayWays, assertBaselineRetention} = require("./refresh-railway
   const missingSourceIds = sourceIds.filter(id => !validIds.has(id) && !invalidSourceWayIdSet.has(id));
   const stations = new Map();
   const places = new Map();
-  const addStation = (id, lat, lon, name, sourceLat = lat, sourceLon = lon) => {
+  const addStation = (id, lat, lon, name, sourceLat = lat, sourceLon = lon, sourceReference = null) => {
     const label = String(name || "").trim();
     if (id == null || !Number.isFinite(lat) || !Number.isFinite(lon) || !label
       || /(?:未命名|待命名|无名(?:站|车站)|\bunnamed\b|\bunknown\b)/iu.test(label)) return;
     stations.set(String(id), [id, lat, lon, label,
-      Number.isFinite(sourceLat) ? sourceLat : lat, Number.isFinite(sourceLon) ? sourceLon : lon]);
+      Number.isFinite(sourceLat) ? sourceLat : lat, Number.isFinite(sourceLon) ? sourceLon : lon,
+      /^(?:node|way|relation):[1-9]\d*$/u.test(String(sourceReference)) ? sourceReference : null]);
   };
   for (const snapshot of relationSnapshots) {
     for (const station of snapshot.elements || []) {
@@ -113,7 +114,10 @@ const {refreshRailwayWays, assertBaselineRetention} = require("./refresh-railway
         || ["no", "private"].includes(String(tags.access || "").toLowerCase())
         || ["yes", "true", "1"].includes(String(tags.disused || tags.abandoned || "").toLowerCase())) continue;
       addStation(station.id, Number(station.lat ?? station.center?.lat),
-        Number(station.lon ?? station.center?.lon), tags.name);
+        Number(station.lon ?? station.center?.lon), tags.name,
+        Number(station.lat ?? station.center?.lat), Number(station.lon ?? station.center?.lon),
+        tags["ogf_atlas:source_id"] || (/^(?:node|way|relation):[1-9]\d*$/u.test(tags["ogf_atlas:source"] || "")
+          ? tags["ogf_atlas:source"] : station.type+":"+station.id));
     }
   }
   const preloadPath = "outputs/ogf-atlas/transit-preload.json";
@@ -123,7 +127,7 @@ const {refreshRailwayWays, assertBaselineRetention} = require("./refresh-railway
       const network = snapshot.network;
       if (network?.format !== 2) return;
       (network.stops || []).filter((stop) => stop[9] === 1).forEach((stop) =>
-        addStation(stop[0], stop[1], stop[2], stop[5], stop[3], stop[4]));
+        addStation(stop[0], stop[1], stop[2], stop[5], stop[3], stop[4], stop[10]));
     });
   }
   const stationSnapshots = ["work/jinchuan-rail-stations-live-20260921.json"];
@@ -135,7 +139,7 @@ const {refreshRailwayWays, assertBaselineRetention} = require("./refresh-railway
         || tags.subway === "yes" || tags.tram === "yes" || tags.train === "no"
         || ["no", "private"].includes(String(tags.access || "").toLowerCase())
         || ["yes", "true", "1"].includes(String(tags.disused || tags.abandoned || "").toLowerCase())) return;
-      addStation(station.id, Number(station.lat), Number(station.lon), tags.name);
+      addStation(station.id, Number(station.lat), Number(station.lon), tags.name, Number(station.lat), Number(station.lon), "node:"+station.id);
     });
   });
   const placeSnapshots = ["work/huaxia-railway-direction-places-live-20260922.json"];

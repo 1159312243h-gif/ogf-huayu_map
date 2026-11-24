@@ -22,7 +22,8 @@ function applicable(element, role) {
   if (role === "route") return ["route", "route_master"].includes(t.type) && routeTypes.has(t.route || t.route_master);
   return ["station", "halt", "tram_stop", "stop"].includes(t.railway) || t.station === "subway"
     || ["station", "platform", "stop_position"].includes(t.public_transport)
-    || t.highway === "bus_stop" || t.amenity === "bus_station" || t.train === "yes";
+    || t.highway === "bus_stop" || t.amenity === "bus_station" || t.train === "yes"
+    || t.subway === "yes" || t.light_rail === "yes" || t.monorail === "yes";
 }
 function validate(payload, refs) {
   if (payload?.remark || !Array.isArray(payload?.elements) || !Number.isFinite(Date.parse(payload.osm3s?.timestamp_osm_base)))
@@ -143,6 +144,8 @@ async function run() {
   const aliases = aliasesFor(relations.snapshots);
   const resolveStop = value => aliases.get("node:"+value) || ref(value);
   const stationTypes = new Map(relations.snapshots.flatMap(s => s.elements.filter(e => applicable(e,"station")).map(e => [String(e.id),e.type])));
+  const resolveRoutingStation = station => ref(station[6]) || aliases.get("node:"+station[0])
+    || (stationTypes.has(String(station[0])) ? {type:stationTypes.get(String(station[0])),id:Number(station[0])} : ref(station[0]));
   const memberIds = new Set(relations.snapshots.flatMap(s => s.elements.filter(e =>
     e.type === "relation" && applicable(e,"route")).flatMap(e => (e.members || []).map(m => m.type+":"+m.ref))));
   const refs=[];
@@ -152,7 +155,7 @@ async function run() {
   }
   const knownSources = new Set(refs.map(key));
   for (const station of routing.stations || []) {
-    const original = resolveStop(station[0]);
+    const original = resolveRoutingStation(station);
     if (!original) throw Error("Missing current source identity for railway station: " + station[0]);
     const source={...original,role:"station"};
     if(!knownSources.has(key(source)))refs.push(source);
@@ -161,7 +164,7 @@ async function run() {
   reconcile(preload,relations,result);
   assertReconciled(preload,relations);
   const removed = new Set(result.verification.removed.map(key));
-  routing.stations = routing.stations.filter(s => !removed.has(key(resolveStop(s[0]))));
+  routing.stations = routing.stations.filter(s => !removed.has(key(resolveRoutingStation(s))));
   routing.coverage.currentStationVerification = result.verification;
   // All proofs must succeed before either candidate is written; published files are replaced later by the existing atomic gate.
   fs.writeFileSync(root+"transit-preload.json",JSON.stringify(preload));
