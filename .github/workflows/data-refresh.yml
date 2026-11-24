@@ -156,6 +156,10 @@ jobs:
             .data-update/latest-report.json
             .data-update/runs/*/report.json
             .data-update/runs/*/logs/*.log
+            .data-update/runs/*/outputs/ogf-atlas/app.js
+            .data-update/runs/*/outputs/ogf-atlas/transit-preload.json
+            .data-update/runs/*/outputs/ogf-atlas/transit-relations.json
+            .data-update/runs/*/outputs/ogf-atlas/transit-services.json
           if-no-files-found: warn
           retention-days: 14
 

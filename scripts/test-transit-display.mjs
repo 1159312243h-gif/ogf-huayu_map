@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
+import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {Worker} from "node:worker_threads";
 import {performance} from "node:perf_hooks";
 
-const app = await readFile(new URL("../site/app.js", import.meta.url), "utf8");
+const snapshotDirectory = process.argv[2] ? path.dirname(path.resolve(process.argv[2]))
+  : fileURLToPath(new URL("../site/", import.meta.url));
+const app = await readFile(path.join(snapshotDirectory, "app.js"), "utf8");
 // A reused frame must honour an explicit refresh. A pending old viewport must
 // not replace a cached complete frame after the user returns into its bounds.
 const frames = [], timers = new Map();
@@ -122,8 +126,8 @@ for (const zoom of [12, 15, 12, 9, 12]) {
   assert.equal(actualRenderer._container.width, 2 * size.x * 1.4,
     "retina canvas keeps CSS coordinates separate from physical pixels");
 }
-const rules = JSON.parse(await readFile(new URL("../site/transit-services.json", import.meta.url), "utf8"));
-const payload = JSON.parse(await readFile(new URL("../site/transit-preload.json", import.meta.url), "utf8"));
+const rules = JSON.parse(await readFile(path.join(snapshotDirectory, "transit-services.json"), "utf8"));
+const payload = JSON.parse(await readFile(path.join(snapshotDirectory, "transit-preload.json"), "utf8"));
 const runtime = vm.createContext({window:{location:{search:""}}, URLSearchParams, performance,
   __rules:rules, console});
 vm.runInContext(`${app.slice(0,app.indexOf("  const elements ="))}
@@ -298,7 +302,7 @@ assert.equal(api.mergeTransitStopsForDisplay([pair[0],{...pair[1],name:"测试�
   "different exact names remain independent even when their suffix-stripped complex keys match");
 api.setRules(rules);
 data = api.getTransitDisplayNetwork(network);
-const relationPayload = JSON.parse(await readFile(new URL("../site/transit-relations.json",import.meta.url),"utf8"));
+const relationPayload = JSON.parse(await readFile(path.join(snapshotDirectory, "transit-relations.json"),"utf8"));
 for (const [snapshotId,names] of [["huaxia",["白旸","灿菊","君竹","环光中心","光阳","建兴门"]],
   ["longchuan-ar925",["端宁","灿西火车站","鹤涛路","文化广场","天通苑","高铁龙川北站"]]]) {
   const restored = api.hydrateTransitNetwork(payload.snapshots.find(s=>s.id===snapshotId).network);
@@ -318,6 +322,12 @@ for (const [snapshotId,names] of [["huaxia",["白旸","灿菊","君竹","环光�
     const directIds = new Set(elements.filter(e=>e.type==="relation"&&["route","route_master"].includes(e.tags?.type))
       .flatMap(e=>(e.members||[]).filter(m=>m.type==="node").map(m=>String(m.ref))));
     const hasDirect = sources.some(s=>directIds.has(String(s.sourceId??s.id)));
+    if (hasDirect && !directIds.has(String(station[0].sourceId??station[0].id))) {
+      console.error(JSON.stringify({stationAnchorFailure:{snapshotId,name,
+        chosen:{id:station[0].id,sourceId:station[0].sourceId,displaySourceIds:station[0].displaySourceIds},
+        sources:sources.map(s=>({id:s.id,sourceId:s.sourceId,lat:s.lat,lon:s.lon,
+          directNode:directIds.has(String(s.sourceId??s.id)),routes:s.routes.map(r=>r.id)}))}}));
+    }
     if (hasDirect) assert.ok(directIds.has(String(station[0].sourceId??station[0].id)),
       `${name}: an unrelated POI never becomes the anchor just because it arrived first`);
     const details = api.transitStationDetailRoutes(station[0]);
@@ -757,3 +767,19 @@ try {
 }
 console.log(JSON.stringify({status:"passed",sourceStops:network.stops.length,displayStops:data.stops.length,
   gaoyangGaoping:gaoping.length,jintieGaoping:1,cachedViewportLookups:500,lookupMs:+lookupMs.toFixed(1),workerParity:true}));
+
+// Node and station-area memberships can both be formal. A route stop node
+// remains the anchor independent of raw source order and aggregated aliases.
+{
+ const route={id:700,type:"subway",identity:"subway:formal",label:"formal",color:"#336699"};
+ const node={id:701,sourceId:701,name:"同站锚点",lat:14,lon:152,isRail:true,routes:[route],displaySystem:"metro"};
+ const area={...node,id:"way:702",sourceId:"way:702",lat:14.0001};
+ const poi={...node,id:703,sourceId:703,lat:14.0002,displaySourceIds:["703","701"]};
+ const context={routesForStop:()=>[route],routesForSource:key=>["node:701","way:702"].includes(key)?[route]:[]};
+ for(const sources of [[poi,area,node],[area,node,poi],[node,poi,area]]){
+  const merged=api.mergeTransitStopsForDisplay(sources,context);assert.equal(merged.length,1);
+  assert.equal(merged[0].sourceId,701,"actual formal node must precede both formal area and alias-only POI");
+ }
+ assert.equal(api.mergeTransitStopsForDisplay([poi,area],context)[0].sourceId,"way:702","formal area remains the anchor when no formal node exists");
+}
+console.log("Formal source anchor passed: nodes, areas, unrelated POIs, alias provenance and source order.");

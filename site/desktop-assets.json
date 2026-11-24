@@ -2,7 +2,7 @@
   "schema": "huayu-desktop-assets-v1",
   "runtime": 1,
   "version": "9.0.3",
-  "revision": "8ea7bc2bcfdb7c03b284cbc3b55b849707684e14f4859cf6f29a895cac61a9c7",
+  "revision": "8a6d16ba061bdfafb1b77c7c4af156c9481a5f9234132428fb8948557c26e455",
   "files": [
     {
       "path": "BUILDING_MODEL_VERSION.md",
@@ -52,7 +52,7 @@
     {
       "path": "app-cache-version.js",
       "bytes": 93,
-      "sha256": "62feb6bbc3914eb5a9ef8b0067888f1d3e9547989116a410323b52a1fb11597a",
+      "sha256": "7d4bd86d1ff4239011f98963210681f99a179992ac6e6bc4d5f7ed3e41d30a9a",
       "kind": "code"
     },
     {
@@ -108,8 +108,8 @@
     },
     {
       "path": "app.js",
-      "bytes": 1875357,
-      "sha256": "8796526661338ca17d653907269d1aa56a54d111d6d34ba32f0c7000b8392cff",
+      "bytes": 1876386,
+      "sha256": "c51aca3fba3bb50320b6601703b0eab4995ce85ccaa68a64ab7977be90a89226",
       "kind": "code"
     },
     {
@@ -324,8 +324,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 225968,
-      "sha256": "425dd46027b8d55273c05ad07bc9490e75578aedc1880953033209ab2f103480",
+      "bytes": 226046,
+      "sha256": "2e33d2a600475a484bc7a2414ff1e6c47d2149217816b3ebe1fafc78856f5e17",
       "kind": "code"
     },
     {

@@ -378,7 +378,26 @@ async function prepareRun(runDirectory) {
   return { stagedSite, work, baseline };
 }
 
+export async function refreshCandidateProgram(stagedSite, sourceSite = site) {
+  const manifest = JSON.parse(await fs.readFile(path.join(sourceSite,"desktop-assets.json"),"utf8"));
+  assert.ok(Array.isArray(manifest.files), "Missing public program manifest");
+  const files = [...new Map([...manifest.files.filter(file => file.kind === "code"),
+    {path:"_worker.js",kind:"code"}].map(file => [file.path,file])).values()].sort((a,b) => a.path.localeCompare(b.path));
+  assert.ok(files.some(file => file.path === "app.js") && files.some(file => file.path === "_worker.js"), "Missing current candidate runtime");
+  const fingerprint = createHash("sha256");
+  for (const file of files) {
+    assert.ok(typeof file.path === "string" && !path.isAbsolute(file.path) && !/[\\:]/u.test(file.path) && !file.path.split("/").includes(".."), "Unsafe program path");
+    const source = path.join(sourceSite,file.path), target = path.join(stagedSite,file.path);
+    const bytes = await fs.readFile(source);
+    fingerprint.update(file.path); fingerprint.update(bytes);
+    await fs.mkdir(path.dirname(target),{recursive:true});
+    await fs.writeFile(target,bytes);
+  }
+  return fingerprint.digest("hex");
+}
+
 async function buildCandidate(runDirectory, stagedSite, resume = false) {
+  const programFingerprint = await refreshCandidateProgram(stagedSite);
   const logDirectory = path.join(runDirectory, "logs");
   const stepDirectory = path.join(runDirectory, "steps");
   await fs.mkdir(stepDirectory, { recursive: true });
@@ -388,6 +407,7 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     }
   }
   const pipelineHash = createHash("sha256");
+  pipelineHash.update(programFingerprint);
   for (const name of (await fs.readdir(path.join(runDirectory, "work")))
     .filter(isBuilderInput).sort()) {
     pipelineHash.update(name);

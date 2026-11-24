@@ -126,3 +126,36 @@ const areaEntry=spawnSync(process.execPath,["--require",path.join(areaRun,"mock.
 assert.equal(areaEntry.status,0,areaEntry.stderr||areaEntry.stdout);
 assert.equal(JSON.parse(fs.readFileSync(path.join(areaRoot,"railway-routing.json"))).stations.length,1);
 console.log("National area station passed: actual current-source builder queries the original way, never a same-number node.");
+
+// An already completed relation-loader promise must not pin the old generation.
+let releaseOld,relationChecks=0,coverageChecks=0;
+const currentRelation={type:"relation",id:44};
+const relationRealm=vm.createContext({Date,Promise,Map,Set,Array,transitPreloadGeneratedAt:1,
+ transitPreloadSnapshots:[{id:"test",elements:[],network:{lines:[{}]}}],transitRelationsPreloaded:false,
+ transitRelationsPreloadPromise:null,transitServicePreloadPromise:Promise.resolve(),TRANSIT_PRELOAD_URL:"preload",TRANSIT_RELATIONS_URL:"relations",
+ railwayRoutingData:null,activeTransitPreloadSnapshotId:"test",transitNetworkRequestId:1,transitBusRequestId:1,
+ transitNetworkLoading:true,transitBusLoading:true,mapViewMode:"transit",transitAtlasCity:null,transitAtlasSourceLoad:null,
+ vectorPerspectiveActive:false,selectedTransitId:null,transitNetworkData:null,map:{getCenter:()=>({})},
+ setTransitRefreshState:()=>{},applyTransitPreloadForPoint:()=>true,
+ hydrateTransitPreloadSnapshots:()=>[{id:"test",elements:[],network:{lines:[{}]}}],
+ scheduleTransitCoverageRefresh:()=>coverageChecks++,scheduleTransitRelationsRefresh:()=>relationChecks++,
+ filterVerifiedTransitSources:x=>x,enrichTransitRelationTypes:()=>{},enrichTransitNetworkRouteMetadata:()=>{},
+ reconcileConfirmedPublicTransitRailStations:()=>{},invalidateTransitRoutingCaches:()=>{},
+ fetchJson:async (url,timeout,options)=>{
+   if(url==="preload")return {generatedAt:"2026-11-24T00:00:00Z"};
+   assert.equal(options.cache,"no-cache");return new Promise(resolve=>{releaseOld=resolve;});
+ }});
+for(const name of ["preloadTransitNetwork","preloadTransitRelations","ensureTransitRelationsLoaded"])
+ vm.runInContext(app.match(new RegExp('  async function '+name+'\\([^]*?\\n  \\}',"u"))[0],relationRealm);
+const oldRelations=relationRealm.ensureTransitRelationsLoaded();
+await relationRealm.preloadTransitNetwork({revalidate:true});
+assert.equal(relationRealm.transitRelationsPreloadPromise,null);
+assert.equal(relationChecks,1);assert.equal(coverageChecks,1);
+relationRealm.fetchJson=async (url,timeout,options)=>{assert.equal(options.cache,"no-cache");return {snapshots:[{id:"test",elements:[currentRelation]}]};};
+assert.equal(await relationRealm.ensureTransitRelationsLoaded(),true);
+const currentPromise=relationRealm.transitRelationsPreloadPromise;
+releaseOld({snapshots:[{id:"test",elements:[{type:"relation",id:4}]}]});
+assert.equal(await oldRelations,false);
+assert.equal(relationRealm.transitPreloadSnapshots[0].elements[0].id,44);
+assert.equal(relationRealm.transitRelationsPreloadPromise,currentPromise,"late old request cannot clear the new relation loader");
+console.log("Generation relation refresh passed: real preload invalidation, actual no-cache relation read and late-response/promise guards.");

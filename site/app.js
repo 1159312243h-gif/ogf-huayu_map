@@ -4411,8 +4411,15 @@
     // even when a live packet lists those POIs before the actual route member.
     const sources = stops.flatMap(splitTransitStationDisplaySystems);
     if (context) {
-      const priorities = new Map(sources.map((stop) => [stop,
-        stop.displaySystem === "metro" && context.routesForStop(stop).length ? 1 : 0]));
+      const priorities = new Map(sources.map((stop) => {
+        const sourceId = String(stop.sourceId ?? stop.id);
+        const sourceKey = /^(?:node|way|relation):/u.test(sourceId) ? sourceId : "node:" + sourceId;
+        const direct = context.routesForSource ? context.routesForSource(sourceKey) : context.routesForStop(stop);
+        // A formal stop node anchors the same station before its formal area;
+        // an area still wins over unrelated nearby POIs when no node exists.
+        return [stop, stop.displaySystem === "metro" && direct.length
+          ? sourceKey.startsWith("node:") ? 2 : 1 : 0];
+      }));
       sources.sort((a, b) => priorities.get(b) - priorities.get(a));
     }
     sources.forEach((stop) => {
@@ -4693,7 +4700,8 @@
     const routesForStop = (stop) => uniqueTransitRoutes((stop.displaySourceIds || [stop.id, stop.sourceId])
       .filter((id) => id !== undefined && id !== null).flatMap((id) =>
         memberships.get(/^\w+:/u.test(String(id)) ? String(id) : `node:${id}`) || []));
-    return { canonical, routesForStop };
+    const routesForSource = (sourceKey) => uniqueTransitRoutes(memberships.get(sourceKey) || []);
+    return { canonical, routesForStop, routesForSource };
   }
 
   function alignMetroDisplayStops(stops, lines, context) {
@@ -10233,7 +10241,10 @@
         await ensureRailwayRoutingLoaded({revalidate: true, preloadGeneration: generatedAt});
       }
       if (revalidate && Number.isFinite(generatedAt) && generatedAt <= transitPreloadGeneratedAt
-        && transitPreloadSnapshots.length) return true;
+        && transitPreloadSnapshots.length) {
+        if (!transitRelationsPreloaded && mapViewMode === "transit") scheduleTransitRelationsRefresh();
+        return true;
+      }
       const nextSnapshots = hydrateTransitPreloadSnapshots(payload);
       if (!nextSnapshots.length) throw new Error("EMPTY_TRANSIT_PRELOAD");
       const previousSnapshotId = activeTransitPreloadSnapshotId;
@@ -10243,6 +10254,7 @@
       transitNetworkLoading = false;
       transitBusLoading = false;
       setTransitRefreshState(false);
+      transitRelationsPreloadPromise = null;
       transitPreloadSnapshots = nextSnapshots;
       transitPreloadGeneratedAt = Number.isFinite(generatedAt) ? generatedAt : Date.now();
       transitRelationsPreloaded = transitPreloadSnapshots.some((snapshot) => snapshot.elements.length);
@@ -10253,7 +10265,10 @@
       const applied = applyTransitPreloadForPoint(map.getCenter());
       transitPreloadLoaded = applied && transitPreloadSnapshots.some((snapshot) => snapshot.network?.lines?.length);
       if (!transitPreloadLoaded && !revalidate) throw new Error("NO_TRANSIT_SNAPSHOT_FOR_VIEW");
-      if (revalidate && applied && mapViewMode === "transit") scheduleTransitCoverageRefresh(0);
+      if (revalidate && applied && mapViewMode === "transit") {
+        scheduleTransitCoverageRefresh(0);
+        scheduleTransitRelationsRefresh();
+      }
       if (transitAtlasCity && !transitAtlasSourceLoad) {
         transitAtlasSourcesUnavailable = !transitAtlasSourceSnapshots(transitAtlasCity).length;
         rebuildTransitAtlasModel();
@@ -10293,8 +10308,10 @@
   }
 
   async function preloadTransitRelations() {
+    const generation = transitPreloadGeneratedAt;
     try {
-      const payload = await fetchJson(TRANSIT_RELATIONS_URL, 30000);
+      const payload = await fetchJson(TRANSIT_RELATIONS_URL, 30000, {cache:"no-cache"});
+      if (generation !== transitPreloadGeneratedAt) return false;
       const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [payload];
       snapshots.forEach((relationSnapshot) => {
         if (!Array.isArray(relationSnapshot.elements)) return;
@@ -10352,8 +10369,9 @@
     if (!transitRelationsPreloadPromise) {
       transitRelationsPreloadPromise = preloadTransitRelations();
     }
-    const loaded = await transitRelationsPreloadPromise;
-    if (!loaded) transitRelationsPreloadPromise = null;
+    const pending = transitRelationsPreloadPromise;
+    const loaded = await pending;
+    if (!loaded && transitRelationsPreloadPromise === pending) transitRelationsPreloadPromise = null;
     return loaded;
   }
 
