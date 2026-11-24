@@ -8,6 +8,8 @@ on:
     paths:
       - .github/workflows/data-refresh.yml
       - scripts/probe-updater-relay.mjs
+      - scripts/run-scheduled-data-update.mjs
+      - scripts/test-scheduled-data-update.mjs
       - scripts/update-all-data.mjs
       - scripts/test-data-updater.mjs
       - scripts/data-update/builders/**

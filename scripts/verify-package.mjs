@@ -423,7 +423,9 @@ assert.ok(worker.includes(`TERRAIN_TILE_ZOOM = ${release.expectedTerrainTileZoom
 assert.ok(worker.includes(`TRANSIT_TILE_ZOOMS = Object.freeze({ rail: ${release.expectedTransitRailTileZoom}, bus: ${release.expectedTransitBusTileZoom} })`)
   && worker.includes(`TRANSIT_REFRESH_SECONDS = ${release.expectedTransitRefreshSeconds}`)
   && worker.includes("fetchTransitTile")
-  && worker.includes("huayu-transit-tile-v2-area-stations")
+  && worker.includes("validateTransitTilePayload(payload)")
+  && worker.includes("incomplete_transit_count")
+  && worker.includes("huayu-transit-tile-v3-complete-source")
   && worker.includes('"X-OGF-Transit-Policy": "snapshot-3h"'),
 "Worker 缺少轨道与公交三小时分片缓存");
 assert.ok(app.includes('fetchTransitSnapshotTiles("rail", bounds, 18000)')
@@ -1341,7 +1343,7 @@ assert.ok(app.includes("function transitStationPointElement(item)")
   && app.includes('nwr["railway"~"^(station|halt|tram_stop)$"]')
   && worker.includes('nwr["railway"~"^(station|halt|tram_stop)$"]')
   && worker.includes(".railStations out body center;")
-  && worker.includes('huayu-transit-tile-v2-area-stations'),
+  && worker.includes('huayu-transit-tile-v3-complete-source'),
 "交通实时分片必须查询并归一化以 way/relation 绘制的车站，并绕开旧节点专用缓存");
 const mergeTransitSnapshotElementsSource = app.match(/function mergeTransitSnapshotElements\(packets\) \{[\s\S]*?\n  \}/)?.[0];
 assert.ok(mergeTransitSnapshotElementsSource, "无法读取交通分片要素合并函数");

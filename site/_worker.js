@@ -279,7 +279,8 @@ function transitTileOverpassQuery(kind, bounds) {
       + `(nwr["railway"~"^(station|halt|tram_stop)$"](${bbox});nwr["station"="subway"](${bbox});`
       + `nwr["subway"="yes"](${bbox});nwr["public_transport"="station"](${bbox});)->.railStations;`
       + `(.railMasters;.railRoutes;);out body;(.railWays;.railInfrastructure;);out body geom;`
-      + `.routeStopNodes out body;.railStations out body center;`;
+      + `.routeStopNodes out body;.railStations out body center;`
+      + `(.railMasters;.railRoutes;.railWays;.railInfrastructure;.routeStopNodes;.railStations;);out count;`;
   }
   return `[out:json][timeout:15];(node["highway"="bus_stop"](${bbox});node["amenity"="bus_station"](${bbox});`
     + `node["public_transport"="station"]["bus"="yes"](${bbox});`
@@ -287,7 +288,7 @@ function transitTileOverpassQuery(kind, bounds) {
     + `node["public_transport"="stop_position"]["bus"="yes"](${bbox});)->.busStops;`
     + `rel(bn.busStops)["type"="route"]["route"="bus"]->.busRoutes;`
     + `rel(br.busRoutes)["type"="route_master"]->.busMasters;`
-    + `(.busStops;.busRoutes;.busMasters;);out body;`;
+    + `(.busStops;.busRoutes;.busMasters;);out body;out count;`;
 }
 
 function buildingJsonResponse(body, status, headers = {}) {
@@ -810,6 +811,18 @@ function transitTileClientResponse(response, cacheStatus) {
   });
 }
 
+function validateTransitTilePayload(payload) {
+  if (payload?.remark || !Array.isArray(payload?.elements)
+    || !Number.isFinite(Date.parse(payload.osm3s?.timestamp_osm_base))) throw new Error("incomplete_transit_source");
+  const counts = payload.elements.filter(item => item.type === "count");
+  const items = [...new Map(payload.elements.filter(item => ["node","way","relation"].includes(item.type))
+    .map(item => [item.type + ":" + item.id, item])).values()];
+  if (counts.length !== 1 || Number(counts[0].tags?.total) !== items.length
+    || ["node","way","relation"].some(type => Number(counts[0].tags?.[type+"s"]) !== items.filter(item => item.type === type).length))
+    throw new Error("incomplete_transit_count");
+  return {...payload, verifiedComplete:true};
+}
+
 async function loadTransitTileOnce(cacheKey, kind, z, x, y) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TRANSIT_QUERY_TIMEOUT_MS[kind]);
@@ -844,7 +857,8 @@ async function loadTransitTileOnce(cacheKey, kind, z, x, y) {
       error.responseStatus = 502;
       throw error;
     }
-    const response = buildingJsonResponse(body, 200, {
+    payload = validateTransitTilePayload(payload);
+    const response = buildingJsonResponse(JSON.stringify(payload), 200, {
       "Cache-Control": `public, max-age=0, s-maxage=${TRANSIT_RETENTION_SECONDS}`,
       "X-OGF-Transit-Fetched-At": new Date().toISOString(),
       "X-OGF-Transit-Tile": `${kind}/${z}/${x}/${y}`,
@@ -1236,7 +1250,7 @@ async function fetchTransitTile(request, context, kind, z, x, y) {
   }
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
-  cacheUrl.searchParams.set("schema", "huayu-transit-tile-v2-area-stations");
+  cacheUrl.searchParams.set("schema", "huayu-transit-tile-v3-complete-source");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const cached = await caches.default.match(cacheKey);
   if (cached) {
@@ -3430,9 +3444,10 @@ async function fetchUpdaterSource(request,environment,context){
   // expired leases on arrival as well, so old streams cannot lock future jobs.
   for(const lease of updaterRelayLeases)if(lease.expiresAt<=Date.now())lease.abort();
   if(updaterRelayLeases.size>=2)return new Response(null,{status:429,headers:{"Retry-After":"10","Cache-Control":"no-store","x-huayu-source-error":"relay-concurrency"}});
-  let finished=false,lease;const controller=new AbortController();
+  let finished=false,lease,settleStream;const controller=new AbortController();
+  const streamLifetime=new Promise(resolve=>{settleStream=resolve;});
   let timer;const abort=()=>controller.abort();
-  const finish=()=>{if(finished)return;finished=true;updaterRelayLeases.delete(lease);clearTimeout(timer);request.signal.removeEventListener("abort",onAbort);};
+  const finish=()=>{if(finished)return;finished=true;updaterRelayLeases.delete(lease);clearTimeout(timer);request.signal.removeEventListener("abort",onAbort);settleStream();};
   const onAbort=()=>{abort();finish();};
   lease={expiresAt:Date.now()+240000,abort:onAbort};updaterRelayLeases.add(lease);
   request.signal.addEventListener("abort",onAbort,{once:true});timer=setTimeout(onAbort,240000);if(request.signal.aborted)onAbort();
@@ -3456,7 +3471,15 @@ async function fetchUpdaterSource(request,environment,context){
       bytes+=value.length;if(bytes>64*1024*1024)throw Error("source_response_too_large");output.enqueue(value);
     }catch(error){abort();finish();output.error(error);}},async cancel(){abort();finish();await reader.cancel().catch(()=>{});}});
     const identity=request.headers.get("x-huayu-source-encoding")==="identity";
-    const compression=identity?new TransformStream():new CompressionStream("gzip");
+    // Serve identity directly. A redundant JS pass-through can terminate early
+    // under the edge runtime, leaving a partial JSON response and stale lease.
+    if(identity){
+      context?.waitUntil?.(streamLifetime);
+      return new Response(stream,{headers:{"Content-Type":"application/json; charset=UTF-8",
+        "Cache-Control":"no-store, no-transform","x-huayu-source-route":"github-oidc",
+        "x-huayu-source-method":sourceMethod,"x-huayu-source-encoding":"identity"},encodeBody:"manual"});
+    }
+    const compression=new CompressionStream("gzip");
     // Keep the entire source-to-compressor pipe alive, including its final
     // cleanup. An unobserved pipeThrough promise can outlive the fetch handler.
     const transfer=stream.pipeTo(compression.writable).catch(()=>{abort();}).finally(finish);

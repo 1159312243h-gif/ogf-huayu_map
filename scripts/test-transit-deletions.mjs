@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import vm from "node:vm";
+import {spawnSync} from "node:child_process";
+import sourcePolicy from "./data-update/builders/verify-transit-current-sources.cjs";
+const {verifySources,reconcile,validate,sourceRef,assertReconciled}=sourcePolicy;
+const directory=fs.mkdtempSync(path.join(os.tmpdir(),"huayu-transit-deletions-"));
+const refs=[{type:"node",id:1,role:"station"},{type:"node",id:2,role:"station"},
+  {type:"way",id:3,role:"station"},{type:"relation",id:4,role:"route"},{type:"relation",id:5,role:"route"}];
+const elements=[{type:"node",id:1,tags:{railway:"station"}},{type:"way",id:3,tags:{landuse:"residential"}},
+  {type:"relation",id:4,tags:{type:"route",route:"subway"}}];
+const payload={osm3s:{timestamp_osm_base:"2026-11-24T00:00:00Z"},elements:[...elements,
+  {type:"count",tags:{nodes:"1",ways:"1",relations:"1",total:"3"}}]};
+let calls=0;
+const result=await verifySources(refs,{cachePrefix:path.join(directory,"good"),fetchImpl:async url=>{
+  calls++;return String(url).includes("overpass")?{ok:true,json:async()=>payload}
+    :String(url).includes("/way/3")?{status:200,json:async()=>({elements:[elements[1]]})}:{status:410};
+}});
+assert.equal(calls,4);
+assert.deepEqual(result.verification.removed.map(e=>[e.type,e.id,e.reason,e.status]),
+  [["node",2,"deleted",410],["relation",5,"deleted",410],["way",3,"no-longer-transit",200]]);
+assert.throws(()=>validate({...payload,remark:"timed out"},refs),/Incomplete/);
+assert.throws(()=>validate({...payload,elements:elements},refs),/count/);
+assert.throws(()=>validate({...payload,elements:[...payload.elements,elements[0]]},refs),/count/);
+for(const status of [404,429,500])await assert.rejects(verifySources(refs,{cachePrefix:path.join(directory,"fail"+status),
+  fetchImpl:async url=>String(url).includes("overpass")?{ok:true,json:async()=>payload}:{status}}),/Official transit verification/);
+await assert.rejects(verifySources(refs,{cachePrefix:path.join(directory,"partial"),fetchImpl:async url=>String(url).includes("overpass")
+  ?{ok:true,json:async()=>payload}:{status:200,json:async()=>({elements:[]})}}),/Incomplete official/);
+const stop=id=>[id,14,152,14,152,"Station "+id,1,0,[0,1],0,id,[0,1]];
+const snapshots=["city","province","country"].map(id=>({id,network:{format:2,routeTable:[[4,"subway"],[5,"train"]],
+  lines:[[11,[[14,152],[15,153]],[0,1]],[12,[[14,152],[15,153]],[1]]],displayTracks:[],stops:[stop(1),stop(2)],displayStops:[stop(1),stop(2)]}}));
+const relations={snapshots:snapshots.map(({id})=>({id,elements:[...elements,{type:"relation",id:5},
+  {type:"relation",id:6,members:[{type:"node",ref:1},{type:"node",ref:2}]}]}))};
+const preload={snapshots};reconcile(preload,relations,result);
+assertReconciled(preload,relations);
+assert.deepEqual(sourceRef({type:"node",id:-1000,tags:{"ogf_atlas:source":"way:3"}}),{type:"way",id:3});
+const areaPreload={snapshots:[{id:"area",network:{routeTable:[[4,"subway"]],lines:[],stops:[[-1000,14,152,14,152,"area",1,0,[0],0,-1000]]}}]};
+const areaRelations={snapshots:[{id:"area",elements:[{type:"node",id:-1000,tags:{"ogf_atlas:source":"way:3"}}]}]};
+reconcile(areaPreload,areaRelations,result);
+assert.equal(areaPreload.snapshots[0].network.stops.length,0,"synthetic station must follow original way deletion/class change");
+assert.equal(areaRelations.snapshots[0].elements.length,0);
+for(const s of snapshots){assert.deepEqual(s.network.stops.map(s=>s[0]),[1]);assert.deepEqual(s.network.displayStops.map(s=>s[0]),[1]);
+ assert.deepEqual(s.network.lines.map(l=>[l[0],l[2]]),[[11,[0]]]);assert.deepEqual(s.network.stops[0][8],[0]);assert.deepEqual(s.network.stops[0][11],[0]);}
+for(const s of relations.snapshots){assert.ok(!s.elements.some(e=>e.id===5));assert.equal(s.elements.find(e=>e.id===6).members.length,1);}
+const app=fs.readFileSync(new URL("../site/app.js",import.meta.url),"utf8");
+const clock=Date.parse("2026-11-24T01:00:00Z"),period=3*3600000;
+const context=vm.createContext({Date:class extends Date{static now(){return clock;}},Set,Map,Array,
+  transitPreloadSnapshots:snapshots,applyStationInterchangeOverrides:n=>n,mergeTransitStops:s=>s,
+  uniqueTransitRoutes:r=>[...new Map(r.map(r=>[r.id,r])).values()]});
+for(const name of ["huayuSourceRefreshAt","filterVerifiedTransitSources","transitNetworkBeforeSourceUpdate","mergeTransitDisplaySources","mergeTransitNetworks"])
+ vm.runInContext(app.match(new RegExp('  function '+name+'\\([^]*?\\n  \\}',"u"))[0],context);
+const response=headers=>({headers:new Headers(headers)});
+assert.equal(context.huayuSourceRefreshAt(response({"X-OGF-Transit-Cache":"STALE","X-OGF-Transit-Refresh-After":"30"}),"Transit",period),clock+30000);
+assert.equal(context.huayuSourceRefreshAt(response({"X-OGF-Transit-Fetched-At":new Date(clock-period+45000).toISOString()}),"Transit",period),clock+45000);
+assert.equal(context.huayuSourceRefreshAt(response({"X-OGF-Basemap-Refresh-After":"20"}),"Basemap",period),clock+20000);
+assert.equal(context.filterVerifiedTransitSources([{type:"node",id:2},{type:"relation",id:5},{type:"node",id:1}]).length,1,"old live tiles cannot revive confirmed deleted IDs");
+const r1={id:4},r2={id:44};
+const base={lines:[{id:"oldjoined",routes:[r1]},{id:"outside",routes:[r2]}],stops:[{id:1,routes:[r1,r2]}],routeCount:2};
+const updated={lines:[{id:"newjoined",routes:[r1]}],stops:[{id:1,routes:[r1],name:"updated"}],source:"live"};
+const merged=context.mergeTransitNetworks(base,updated,[{type:"relation",id:4},{type:"node",id:1}]);
+assert.deepEqual(Array.from(merged.lines,l=>l.id),["outside","newjoined"]);
+assert.equal(merged.stops.length,1);assert.equal(merged.stops[0].name,"updated");
+assert.deepEqual(Array.from(merged.stops[0].routes,r=>r.id).sort(),[4,44],"keep memberships outside the returned source query");
+const partial=context.mergeTransitNetworks(base,updated);
+assert.ok(partial.lines.some(l=>l.id==="oldjoined"),"partial responses preserve previous full geometry");
+assert.equal(base.lines.length,2,"refresh does not mutate the previous complete network");
+console.log("Transit deletion regressions passed: all regions, official 410/200 proofs, no deletion on partial/error, returned-source replacement, stale 30s retry, original source age and tombstones.");
+
+// Exercise the actual staged builder, including compact IDs, synthetic sources and railway supplements.
+const run=path.join(directory,"entry"),root=path.join(run,"outputs/ogf-atlas");
+fs.mkdirSync(root,{recursive:true});fs.mkdirSync(path.join(run,"work"),{recursive:true});
+const packet={generatedAt:"2026-11-23T00:00:00Z",snapshots:["city","province","country"].map(id=>({id,network:{format:2,
+ routeTable:[[4,"subway"],[5,"train"]],lines:[[11,[[14,152],[15,153]],[0,1]]],stops:[stop(1),stop(2)],displayStops:[stop(1),stop(2)]}}))};
+fs.writeFileSync(path.join(root,"transit-preload.json"),JSON.stringify(packet));
+fs.writeFileSync(path.join(root,"transit-relations.json"),JSON.stringify({snapshots:packet.snapshots.map(({id})=>({id,elements:[...elements]}))}));
+fs.writeFileSync(path.join(root,"railway-routing.json"),JSON.stringify({coverage:{},stations:[[1,14,152,"keep"],[2,14,152,"remove"]]}));
+const entryPayload={...payload,elements:[elements[0],elements[2],{type:"count",tags:{nodes:"1",ways:"0",relations:"1",total:"2"}}]};
+fs.writeFileSync(path.join(run,"mock.cjs"),
+ "global.fetch=async url=>String(url).includes('overpass')?{ok:true,json:async()=>("+JSON.stringify(entryPayload)+")}:{status:410};");
+const entry=spawnSync(process.execPath,["--require",path.join(run,"mock.cjs"),new URL("./data-update/builders/verify-transit-current-sources.cjs",import.meta.url).pathname.replace(/^\/([A-Z]:)/u,"$1")],{cwd:run,encoding:"utf8",windowsHide:true,env:{...process.env,OGF_UPDATER_RELAY:"0"}});
+assert.equal(entry.status,0,entry.stderr||entry.stdout);
+const written=JSON.parse(fs.readFileSync(path.join(root,"transit-preload.json")));
+assert.equal(written.generatedAt,packet.generatedAt,"source-generation timestamp is not rewritten by verification");
+assert.ok(written.snapshots.every(s=>s.network.stops.length===1&&s.network.routeTable.length===1));
+assert.equal(JSON.parse(fs.readFileSync(path.join(root,"railway-routing.json"))).stations.length,1);
+console.log("Actual staged deletion builder passed, including matching routing station supplement and unchanged generation time.");
+
+const tileRealm=vm.createContext({Date:class extends Date{static now(){return clock;}},AbortSignal,Set,Map,
+ TRANSIT_LIVE_COVERAGE_REFRESH_MS:period,transitSnapshotTiles:()=>[{z:10,x:1,y:1}],
+ mergeTransitSnapshotElements:packets=>packets.flatMap(p=>p.payload.elements),
+ fetch:async()=>new Response(JSON.stringify({verifiedComplete:true,elements:[]}),{headers:{"X-OGF-Transit-Cache":"STALE","X-OGF-Transit-Refresh-After":"30"}})});
+for(const name of ["huayuSourceRefreshAt","fetchTransitSnapshotTiles"])vm.runInContext(app.match(new RegExp('  (?:async )?function '+name+'\\([^]*?\\n  \\}',"u"))[0],tileRealm);
+const emptyTile=await tileRealm.fetchTransitSnapshotTiles("rail",{},1000);
+assert.equal(emptyTile.complete,true,"a genuinely complete empty packet is still a successful refresh");
+assert.equal(emptyTile.refreshAt,clock+30000,"actual tile loader must carry the edge deadline to coverage expiry");
+assert.equal(emptyTile.authoritative,true);
+tileRealm.fetch=async()=>new Response(JSON.stringify({elements:[],remark:"timeout"}));
+assert.equal((await tileRealm.fetchTransitSnapshotTiles("rail",{},1000)).complete,false,"partial/error responses cannot certify coverage");
+console.log("Actual traffic tile loader passed: complete empty packets, stale retry deadline and partial/error rejection.");

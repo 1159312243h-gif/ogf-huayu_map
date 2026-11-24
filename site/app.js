@@ -4578,7 +4578,8 @@
     const fromSource = (stop, node) => {
       const systems = transitStationDisplaySystems(node, [...(directSystems.get(String(node.id)) || [])]);
       return { ...stop,
-        id: node.id, sourceId: node.sourceElementType ? `${node.sourceElementType}:${node.sourceElementId}` : node.id,
+        id: node.id, sourceId: node.sourceElementType ? `${node.sourceElementType}:${node.sourceElementId}`
+          : transitNodeOriginalSource(node),
         name: node.tags?.name || stop.name,
         // Use the original facility position for display; the routing stop
         // keeps its existing projection onto the appropriate railway track.
@@ -10236,6 +10237,12 @@
       const nextSnapshots = hydrateTransitPreloadSnapshots(payload);
       if (!nextSnapshots.length) throw new Error("EMPTY_TRANSIT_PRELOAD");
       const previousSnapshotId = activeTransitPreloadSnapshotId;
+      // Results started against the previous generation cannot merge back after replacement.
+      transitNetworkRequestId += 1;
+      transitBusRequestId += 1;
+      transitNetworkLoading = false;
+      transitBusLoading = false;
+      setTransitRefreshState(false);
       transitPreloadSnapshots = nextSnapshots;
       transitPreloadGeneratedAt = Number.isFinite(generatedAt) ? generatedAt : Date.now();
       transitRelationsPreloaded = transitPreloadSnapshots.some((snapshot) => snapshot.elements.length);
@@ -10291,6 +10298,7 @@
       const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [payload];
       snapshots.forEach((relationSnapshot) => {
         if (!Array.isArray(relationSnapshot.elements)) return;
+        relationSnapshot.elements = filterVerifiedTransitSources(relationSnapshot.elements);
         enrichTransitRelationTypes(relationSnapshot.elements);
         let snapshot = transitPreloadSnapshots.find((item) => item.id === relationSnapshot.id);
         if (!snapshot) {
@@ -10548,16 +10556,24 @@
     const tiles = transitSnapshotTiles(kind, bounds);
     const responses = await Promise.all(tiles.map(async (tile) => {
       try {
-        const payload = await fetchJson(`/api/transit/${kind}/${tile.z}/${tile.x}/${tile.y}.json`, timeoutMs);
+        const response = await fetch(`/api/transit/${kind}/${tile.z}/${tile.x}/${tile.y}.json`, {
+          headers: {Accept: "application/json"}, signal: AbortSignal.timeout(timeoutMs), cache: "no-cache",
+        });
+        if (!response.ok) throw new Error("TRANSIT_TILE_HTTP_" + response.status);
+        const payload = await response.json();
+        if (payload.remark) throw new Error("INCOMPLETE_TRANSIT_TILE");
+        const refreshAt = huayuSourceRefreshAt(response, "Transit", TRANSIT_LIVE_COVERAGE_REFRESH_MS);
         if (!Array.isArray(payload?.elements)) throw new Error("INCOMPLETE_TRANSIT_TILE");
-        return { tile, payload };
+        return { tile, payload, refreshAt };
       } catch {
         return null;
       }
     }));
     const packets = responses.filter(Boolean);
     return { packets, complete: packets.length === tiles.length && tiles.length > 0,
-      elements: mergeTransitSnapshotElements(packets) };
+      elements: mergeTransitSnapshotElements(packets),
+      refreshAt: packets.reduce((at, packet) => Math.min(at, packet.refreshAt), Infinity),
+      authoritative: packets.every(packet => packet.payload.verifiedComplete === true) };
   }
 
   function transitLiveCoverageContains(point) {
@@ -10669,7 +10685,8 @@
       else if (!baseNetwork) payload = await fetchJson(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`, 22000);
       else throw new Error("TRANSIT_TILE_REFRESH_PENDING");
       if (requestId !== transitNetworkRequestId || selectedTransitId) return;
-      enrichTransitRelationTypes(payload.elements || []);
+      payload.elements = filterVerifiedTransitSources(payload.elements || []);
+      enrichTransitRelationTypes(payload.elements);
       const infrastructureWays = (payload.elements || []).filter((item) => item.type === "way"
         && ["rail", "narrow_gauge"].includes(item.tags?.railway)
         && !item.tags?.service);
@@ -10677,10 +10694,10 @@
       if (requestId !== transitNetworkRequestId || selectedTransitId) return;
       network.stationDataUnavailable = false;
       network.source = "live";
-      transitNetworkData = baseNetwork ? mergeTransitNetworks(baseNetwork, network) : network;
+      transitNetworkData = baseNetwork ? mergeTransitNetworks(baseNetwork, network, cached.complete && cached.authoritative ? payload.elements : []) : network;
       transitNetworkBounds = baseNetwork && baseBounds ? baseBounds : bounds;
       if (cached.complete) {
-        rememberTransitLiveCoverage(bounds);
+        rememberTransitLiveCoverage(bounds, cached.refreshAt);
         transitCoverageRetryDelay = TRANSIT_COVERAGE_RETRY_MIN_MS;
         scheduleTransitCoverageRefresh(transitLiveCoverageRefreshDelay(map.getCenter()));
       } else {
@@ -10755,21 +10772,21 @@
       if (requestId !== transitBusRequestId || transitNetworkData !== targetNetwork) return;
       const successfulResponses = responses.filter(Boolean);
       if (!successfulResponses.length) throw new Error("BUS_STOP_QUERY_FAILED");
-      const busElements = successfulResponses.flatMap((response) => response.payload.elements || []);
+      const busElements = filterVerifiedTransitSources(successfulResponses.flatMap((response) => response.payload.elements || []));
       enrichTransitRelationTypes(busElements);
       const busNetwork = await collectTransitNetworkInBackground(busElements, busBounds, true);
       if (requestId !== transitBusRequestId || transitNetworkData !== targetNetwork) return;
-      transitNetworkData.displayStops = mergeTransitDisplaySources(transitNetworkData, busNetwork);
-      transitNetworkData.stops = mergeTransitStops([...transitNetworkData.stops, ...busNetwork.stops]);
+      transitNetworkData = mergeTransitNetworks(transitNetworkData, busNetwork,
+        cached.complete && cached.authoritative ? busElements : []);
       transitNetworkData.includeBus = true;
       invalidateTransitRoutingCaches();
       if (cached.complete || successfulResponses.length === requestBounds.length) {
-        transitBusCoverageBounds.push({ bounds: busBounds, refreshAt: Date.now() + TRANSIT_LIVE_COVERAGE_REFRESH_MS });
+        transitBusCoverageBounds.push({ bounds: busBounds, refreshAt: cached.complete ? cached.refreshAt : Date.now() + TRANSIT_LIVE_COVERAGE_REFRESH_MS });
         transitBusRetryAt = 0;
       } else {
         transitBusCoverageBounds.push(...successfulResponses.map((response) => ({
           bounds: response.bounds,
-          refreshAt: Date.now() + TRANSIT_LIVE_COVERAGE_REFRESH_MS,
+          refreshAt: response.refreshAt || Date.now() + TRANSIT_LIVE_COVERAGE_REFRESH_MS,
         })));
         transitBusRetryAt = Date.now() + 8000;
         window.clearTimeout(transitBusRetryTimer);
@@ -10882,7 +10899,7 @@
     const functions = [
       addRouteMembership, alignTransitSampleOrientation, applyPublicTransitRailSystem,
       applyStationInterchangeOverrides, applyTransitRefCorrection, averageTransitGeometries, clamp,
-      collapseJoinedParallelTransitLines, collapseParallelTransitLines, collectTransitNetwork,
+      collapseJoinedParallelTransitLines, collapseParallelTransitLines, collectTransitNetwork, transitNodeOriginalSource,
       usesJinchuanDoubleTracks,
       distanceMeters, findTransitRelationForRoute, getTransitColor, hasUrbanTrainRoute,
       invalidateTransitDisplayNetwork, isBusStopNode, isMainlineStationNode,
@@ -10978,6 +10995,11 @@
         stopTransitCollectionWorker(error);
       }
     });
+  }
+
+  function transitNodeOriginalSource(node) {
+    const source = node.tags?.["ogf_atlas:source_id"] || node.tags?.["ogf_atlas:source"];
+    return /^(?:node|way|relation):[1-9]\d*$/u.test(String(source || "")) ? source : node.id;
   }
 
   function collectTransitNetwork(items, bounds, includeBus, railInfrastructure = []) {
@@ -11137,7 +11159,8 @@
         const routes = [...uniqueMemberships, ...inferredRailRoutes];
         return {
           id: node.id,
-          sourceId: node.sourceElementType ? `${node.sourceElementType}:${node.sourceElementId}` : node.id,
+          sourceId: node.sourceElementType ? `${node.sourceElementType}:${node.sourceElementId}`
+          : transitNodeOriginalSource(node),
           lat: isRail ? nearest.lat : node.lat,
           lon: isRail ? nearest.lon : node.lon,
           sourceLat: node.lat,
@@ -11192,7 +11215,7 @@
       repairedIds.add(node.id);
       repairedStops.push({
         id: node.id,
-        sourceId: node.id,
+        sourceId: transitNodeOriginalSource(node),
         lat: nearest.lat,
         lon: nearest.lon,
         sourceLat: node.lat,
@@ -11261,7 +11284,7 @@
       }
       additions.push({
         id: node.id,
-        sourceId: node.id,
+        sourceId: transitNodeOriginalSource(node),
         lat: nearest.lat,
         lon: nearest.lon,
         sourceLat: node.lat,
@@ -11292,7 +11315,38 @@
     return [...sources.values()];
   }
 
-  function mergeTransitNetworks(base, update) {
+  function filterVerifiedTransitSources(items) {
+    const removed = new Set(transitPreloadSnapshots.flatMap(snapshot =>
+      (snapshot.currentSourceVerification?.removed || []).map(source => source.type + ":" + source.id)));
+    return items.filter(item => !removed.has(item.type + ":" + item.id)
+      && !removed.has(item.tags?.["ogf_atlas:source_id"] || item.tags?.["ogf_atlas:source"])).map(item =>
+      Array.isArray(item.members) ? {...item, members: item.members.filter(member =>
+        !removed.has(member.type + ":" + member.ref))} : item);
+  }
+
+  function transitNetworkBeforeSourceUpdate(base, items) {
+    if (!items.length) return base;
+    const routes = new Set(items.filter(item => item.type === "relation").map(item => String(item.id)));
+    const sources = new Set(items.map(item => item.type + ":" + item.id));
+    const keepRoutes = values => (values || []).filter(route => !routes.has(String(route.id)));
+    const stops = values => (values || []).map(stop => ({...stop,
+      routes:keepRoutes(stop.routes), displayRoutes:keepRoutes(stop.displayRoutes)})).filter(stop => {
+      const source = String(stop.sourceId ?? stop.id);
+      // A bus-only query cannot erase the same source station's railway memberships.
+      return stop.routes.length || !sources.has(/^(node|way|relation):/u.test(source) ? source : "node:" + source);
+    });
+    const lines = values => (values || []).map(line => ({...line, routes:keepRoutes(line.routes)}))
+      .filter(line => line.routes.length);
+    return {...base, lines:lines(base.lines), displayTracks:lines(base.displayTracks),
+      stops:stops(base.stops), displayStops:stops(base.displayStops || base.stops),
+      displayRelations:(base.displayRelations || []).filter(item => !routes.has(String(item.id)))};
+  }
+
+  function mergeTransitNetworks(base, update, sourceElements = []) {
+    // Complete returned relation geometry replaces its former memberships and joined lines.
+    // Missing IDs alone are never treated as deletion; verified tombstones come from the rebuild.
+    base = transitNetworkBeforeSourceUpdate(base, sourceElements);
+    const previousStops = new Map(base.stops.map(stop => [String(stop.id), stop]));
     const lines = new Map(base.lines.map((line) => [String(line.id), line]));
     update.lines.forEach((line) => lines.set(String(line.id), line));
     const displayTracks = new Map((base.displayTracks || []).map((line) => [String(line.id), line]));
@@ -11303,7 +11357,14 @@
       displayTracks: [...displayTracks.values()],
       displayRelations: [...new Map([...(base.displayRelations || []), ...(update.displayRelations || [])]
         .map((relation) => [String(relation.id), relation])).values()],
-      stops: mergeTransitStops([...base.stops, ...update.stops]),
+      stops: mergeTransitStops([...new Map([...base.stops, ...update.stops].map(stop => [String(stop.id), stop]))
+        .values()].map(stop => {
+          const previous = previousStops.get(String(stop.id));
+          return previous && previous !== stop ? {...previous, ...stop,
+            isRail:Boolean(previous.isRail || stop.isRail), isBus:Boolean(previous.isBus || stop.isBus),
+            routes:uniqueTransitRoutes([...(previous.routes || []), ...(stop.routes || [])]),
+            displayRoutes:uniqueTransitRoutes([...(previous.displayRoutes || []), ...(stop.displayRoutes || [])])} : stop;
+        })),
       displayStops: mergeTransitDisplaySources(base, update),
       routeCount: Math.max(base.routeCount || 0, update.routeCount || 0),
       includeBus: Boolean(base.includeBus || update.includeBus),
@@ -20209,6 +20270,17 @@
     return fetchJson(url, 12000);
   }
 
+  function huayuSourceRefreshAt(response, kind, lifetimeMs) {
+    const now = Date.now();
+    const value = response.headers.get("X-OGF-" + kind + "-Refresh-After");
+    const remaining = value === null ? NaN : Number(value);
+    const fetchedAt = Date.parse(response.headers.get("X-OGF-" + kind + "-Fetched-At") || "");
+    const stale = response.headers.get("X-OGF-" + kind + "-Cache") === "STALE";
+    const ageBound = Number.isFinite(fetchedAt) ? Math.min(now, fetchedAt) + lifetimeMs : now + lifetimeMs;
+    return stale ? now + 30000 : Math.max(now + 1000, Math.min(ageBound,
+      Number.isFinite(remaining) && remaining >= 0 ? now + remaining * 1000 : ageBound));
+  }
+
   async function fetchJson(url, timeoutMs, options = {}) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -27998,9 +28070,8 @@
             payload,
             source: `edge-${cacheStatus}`,
             loadedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
-            // The edge can refresh frequently for new visitors without forcing an
-            // already complete viewport to redraw while somebody is using it.
-            refreshAt: Date.now() + defaultRefreshMs,
+            // Preserve original source age and follow the edge retry deadline.
+            refreshAt: huayuSourceRefreshAt(response, "Basemap", defaultRefreshMs),
           };
         }
         if (apiResponded) throw new Error(`LIVE_BASEMAP_TILE_HTTP_${response.status}`);
@@ -35693,7 +35764,7 @@
       if (!uniqueStops.has(key)) {
         uniqueStops.set(key, {
           id: node.id,
-          sourceId: node.id,
+          sourceId: transitNodeOriginalSource(node),
           lat: displayPoint.lat,
           lon: displayPoint.lon,
           sourceLat: node.lat,

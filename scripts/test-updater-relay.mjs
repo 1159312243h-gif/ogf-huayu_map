@@ -161,3 +161,22 @@ try {
  for(let i=0;i<5;i++){const req=request();req.headers.set("x-huayu-source-encoding","identity");const r=await isolated.fetch(req,{},{waitUntil:p=>work.push(p)});assert.equal(r.status,200);assert.equal(r.headers.get("content-encoding"),null);assert.equal(r.headers.get("x-huayu-source-encoding"),"identity");assert.equal(await r.text(),raw);await Promise.all(work);}
  console.log("Updater identity transport passed: original bytes and source time, tracked EOF and sequential slot cleanup without a JavaScript gzip stage; legacy gzip tests remain.");
 }finally{globalThis.fetch=nativeFetch;}
+
+// Identity reads must not use a JavaScript TransformStream at the edge.
+{
+ const nativeTransform=globalThis.TransformStream,work=[];let served=0;
+ try{
+  globalThis.TransformStream=class{constructor(){throw Error("identity used redundant transform");}};
+  globalThis.fetch=async url=>url==="https://token.actions.githubusercontent.com/.well-known/jwks"?Response.json({keys:[jwk]}):new Response(new ReadableStream({
+   async start(c){c.enqueue(new TextEncoder().encode(raw.slice(0,10)));await new Promise(r=>setTimeout(r,5));c.enqueue(new TextEncoder().encode(raw.slice(10)));c.close();}
+  }));
+  const isolated=(await import("../site/_worker.js?direct-identity-response")).default;
+  for(let i=0;i<8;i++){
+   const req=request();req.headers.set("x-huayu-source-encoding","identity");
+   const r=await isolated.fetch(req,{},{waitUntil:p=>work.push(p)});
+   assert.equal(r.status,200);assert.equal(await r.text(),raw);await Promise.all(work);served++;
+  }
+  assert.equal(served,8,"complete multi-chunk responses release slots before following requests");
+ }finally{globalThis.TransformStream=nativeTransform;globalThis.fetch=nativeFetch;}
+ console.log("Updater direct identity passed: no redundant JS transform, complete delayed multi-chunk JSON, tracked EOF and released slots.");
+}

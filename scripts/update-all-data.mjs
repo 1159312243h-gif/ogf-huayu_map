@@ -7,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import railwayRefresh from "./data-update/builders/refresh-railway-ways.cjs";
+import transitCurrentSources from "./data-update/builders/verify-transit-current-sources.cjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
@@ -262,6 +263,7 @@ export function compareCounts(candidate, baseline, minimumRatio, label) {
 }
 
 export function validateAll(candidateDatasets, baselineDatasets = null) {
+  transitCurrentSources.assertReconciled(candidateDatasets["transit-preload.json"], candidateDatasets["transit-relations.json"]);
   const counts = {};
   for (const name of datasetNames) counts[name] = validateDataset(name, candidateDatasets[name]);
   const routing = candidateDatasets["railway-routing.json"];
@@ -442,11 +444,12 @@ async function buildCandidate(runDirectory, stagedSite, resume = false) {
     step("repair-explicit-mainline-interchanges.cjs", "--write"),
     step("reconcile-compact-transit-stations.cjs"),
     step("package-public-transit-rail-infrastructure.cjs", "--write"),
-    step("build-station-access.cjs"),
     step("build-huaxia-airports.cjs", ...(resume ? ["--resume"] : [])),
     step("build-rail-connections.cjs"),
     step("enforce-transit-service-rules.cjs"),
     step("preserve-transit-display-stations.cjs"),
+    step("verify-transit-current-sources.cjs"),
+    step("build-station-access.cjs"),
   ]) await run(item);
   await runTask("validate-transit-route-indexes", async () => {
     validateDataset("transit-preload.json", await readDatasetFile(path.join(stagedSite, "transit-preload.json")));

@@ -9,6 +9,7 @@ import "./test-terrain-request.mjs";
 import "./test-scheduled-data-update.mjs";
 import "./test-updater-relay.mjs";
 import "./test-railway-refresh.mjs";
+import "./test-transit-deletions.mjs";
 import { compareCounts, semanticHash, validateDataset, validateAll, readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

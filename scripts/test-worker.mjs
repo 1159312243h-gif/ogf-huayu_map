@@ -35,7 +35,8 @@ globalThis.fetch = async (url, options = {}) => {
   }
   return new Response(JSON.stringify({
     version: 0.6,
-    elements: [{ type: "node", id: 1, lat: 14.6, lon: 152.9, tags: { place: "town", name: "测试镇" } }],
+    ...(query.includes("out count;") ? {osm3s:{timestamp_osm_base:new Date().toISOString()}} : {}),
+    elements: [{ type: "node", id: 1, lat: 14.6, lon: 152.9, tags: { place: "town", name: "测试镇" } }, ...(query.includes("out count;") ? [{type:"count",tags:{nodes:"1",ways:"0",relations:"0",total:"1"}}] : [])],
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
 
@@ -303,7 +304,7 @@ try {
   assert.equal(railTransitHit.headers.get("x-ogf-transit-cache"), "HIT");
   assert.equal(upstreamQueries.length, transitQueriesAfterMiss);
 
-  const railTransitCacheKey = [...cache.keys()].find((key) => key.includes("huayu-transit-tile-v2-area-stations")
+  const railTransitCacheKey = [...cache.keys()].find((key) => key.includes("huayu-transit-tile-v3-complete-source")
     && key.includes("/transit/rail/"));
   assert.ok(railTransitCacheKey, "rail transit tile should be retained in the edge cache");
   const retainedRailTransit = cache.get(railTransitCacheKey);
@@ -318,6 +319,16 @@ try {
   assert.ok(waitUntilPromises.length > 0, "stale transit tile should refresh in the background");
   await Promise.all(waitUntilPromises.splice(0));
   assert.equal(upstreamQueries.length, transitQueriesAfterMiss + 1);
+
+  const goodTransit=cache.get(railTransitCacheKey);
+  const expiredTransitHeaders=new Headers(goodTransit.headers);
+  expiredTransitHeaders.set("X-OGF-Transit-Fetched-At",new Date(Date.now()-4*3600000).toISOString());
+  cache.set(railTransitCacheKey,new Response(await goodTransit.clone().text(),{headers:expiredTransitHeaders}));
+  partialNextUpstream=true;
+  const keptTransit=await worker.fetch(new Request(railTransitUrl),{ASSETS:assets},context);
+  assert.equal(keptTransit.headers.get("x-ogf-transit-cache"),"STALE");
+  await Promise.all(waitUntilPromises.splice(0));
+  assert.equal(await cache.get(railTransitCacheKey).clone().text(),await goodTransit.clone().text(),"timeout cannot overwrite a complete cached traffic tile");
 
   const busTransit = await worker.fetch(
     new Request("https://example.test/api/transit/bus/12/3787/1879.json"), { ASSETS: assets }, context);

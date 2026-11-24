@@ -70,3 +70,22 @@ assert.throws(() => validateDataset("transit-preload.json", invalid), /显示.*�
   "candidate validation must reject broken display indexes before starting terrain work");
 console.log(JSON.stringify({status: "passed", builders: 2, checks: ["display identity", "routing retained",
   "current display retained", "other snapshots retained", "early validation"]}));
+
+// Sequential legacy area-station IDs are local to a generation. The current
+// packet can reuse that number for a different way, without hiding the old way.
+await fs.mkdir(path.join(directory,"baseline"),{recursive:true});
+await write(path.join(directory,"baseline/transit-relations.json"),{snapshots:[{id:"huaxia",elements:[
+ {type:"node",id:-1000000000,tags:{"ogf_atlas:source":"way:71"}}
+]}]});
+await write(path.join(baselineDirectory,"transit-preload.json"),packet({format:2,routeTable:baselineRoutes,
+ lines:[[10,[[10,150],[10,150.001]],[2]]],stops:[stop(-1000000000,"旧面站",[2],[4])]}));
+const reused=stop(-1000000000,"新面站",[0],null);reused[10]="way:72";
+await write(path.join(staged,"transit-preload.json"),packet({format:2,routeTable:[metro],
+ lines:[[11,[[10,150],[10,150.001]],[0]]],stops:[reused]}));
+execFileSync(process.execPath,[path.join(builders,"restore-v215-railway-stations.cjs")],{cwd:directory,stdio:"pipe"});
+const translated=JSON.parse(await fs.readFile(path.join(staged,"transit-preload.json"),"utf8")).snapshots[0].network.stops;
+assert.equal(translated.length,2);
+assert.equal(translated.find(s=>s[5]==="新面站")[10],"way:72");
+assert.equal(translated.find(s=>s[5]==="旧面站")[10],"way:71");
+assert.notEqual(translated[0][0],translated[1][0]);
+console.log("Legacy station source passed: reused synthetic IDs are translated against their own generation, preserving distinct real sources.");

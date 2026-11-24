@@ -26,6 +26,25 @@ function routeKey(route) {
 }
 
 const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+// Legacy area-station IDs were sequential within each build and can be reused
+// for another source after a deletion. Translate using that baseline's own raw
+// relations before comparing or restoring, never the new generation's aliases.
+if (fs.existsSync("baseline/transit-relations.json")) {
+  const oldRelations = JSON.parse(fs.readFileSync("baseline/transit-relations.json", "utf8"));
+  for (const snapshot of baseline.snapshots) {
+    const raw = oldRelations.snapshots.find(item => item.id === snapshot.id)?.elements || [];
+    const sources = new Map(raw.map(item => [item.id,
+      item.tags?.["ogf_atlas:source_id"] || item.tags?.["ogf_atlas:source"]]));
+    for (const stop of snapshot.network?.stops || []) {
+      if (stop[0] >= 0) continue;
+      const source = /^(?:way|relation):[1-9]\d*$/u.test(String(stop[10])) ? stop[10] : sources.get(stop[0]);
+      const match = String(source || "").match(/^(way|relation):([1-9]\d*)$/u);
+      if (!match) throw Error("Missing original area-station source: " + stop[0]);
+      stop[0] = -(match[1] === "way" ? 100000000000 : 200000000000) - Number(match[2]);
+      stop[10] = source;
+    }
+  }
+}
 const target = JSON.parse(fs.readFileSync(targetPath, "utf8"));
 const baselineRail = JSON.parse(fs.readFileSync(baselineRailPath, "utf8"));
 const targetRail = JSON.parse(fs.readFileSync(targetRailPath, "utf8"));

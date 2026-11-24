@@ -1,4 +1,13 @@
 华域地图 v9.0
+Release date: 2026-11-24
+Cloudflare Pages project: ogf-atlas
+Build: 9.0-transit-source-refresh-v1
+Fix: shared source-age deadlines, 30-second stale retries, authoritative relation replacement, cross-generation request guards and verified station/route deletion in all snapshot regions. Original rendering, manual transit rules and two-minute/five-minute/three-hour policies remain.
+Validation, live source audit, upload and deployment are recorded separately; this metadata does not confirm publication. Existing source timestamps are preserved.
+
+Previous build metadata:
+
+华域地图 v9.0
 Release date: 2026-11-23
 Cloudflare Pages project: ogf-atlas
 Build: 9.0-web-startup-v1
