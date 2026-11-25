@@ -30,3 +30,8 @@ await fs.writeFile(logfile,'fetch failed');calls=0;
 assert.equal(await runScheduledUpdate(root,{now:()=>now,log:()=>{},wait:async()=>{},execute:async()=>{calls++;return 1;}}),1);
 assert.equal(calls,2,'persistent transient errors have exactly one automatic retry');
 console.log('Scheduled recovery passed: one same-generation transient retry, unchanged source age, no retry for permissions/count/proof failures, and bounded persistent failure.');
+
+
+await fs.writeFile(logfile,'SyntaxError: Expected comma or closing brace after property value in JSON at position 31719');calls=0;
+assert.equal(await runScheduledUpdate(root,{now:()=>now,log:()=>{},wait:async()=>{},execute:async()=>{calls++;return calls===1?1:0;}}),0);
+assert.equal(calls,2,'an exhausted JSON parse failure keeps its type for the single bounded generation recovery');

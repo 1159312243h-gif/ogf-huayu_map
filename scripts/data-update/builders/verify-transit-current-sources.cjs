@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const {createHash} = require("node:crypto");
 const {fetchWithRetry} = require("./overpass-network.cjs");
+const {recoverSourceBody} = require("./source-body-recovery.cjs");
 const types = new Set(["node", "way", "relation"]);
 const routeTypes = new Set(["train", "subway", "light_rail", "monorail", "tram", "bus", "trolleybus", "ferry"]);
 const key = ref => ref.type + ":" + ref.id;
@@ -53,10 +54,13 @@ async function verifySources(requested, options = {}) {
         const ids = batch.filter(r => r.type === type).map(r => r.id);
         return ids.length ? type + '(id:' + ids.join(',') + ');' : '';
       }).join('') + ');out body center;out count;';
-      const r = await fetch("https://overpass.opengeofiction.net/api/interpreter", {method:"POST",
-        headers:{"content-type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(120000)});
-      if (!r.ok) throw Error("Current transit source HTTP " + r.status);
-      payload = await r.json(); validate(payload,batch); save(file,payload);
+      payload = await recoverSourceBody(async () => {
+        const r = await fetch("https://overpass.opengeofiction.net/api/interpreter", {method:"POST",
+          headers:{"content-type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({data:query}),signal:AbortSignal.timeout(120000)});
+        if (!r.ok) throw Error("Current transit source HTTP " + r.status);
+        return r.json();
+      }, {wait:options.wait});
+      validate(payload,batch); save(file,payload);
     }
     const byId = new Map(validate(payload,batch).map(e => [key(e),e]));
     sourceTimestamps.push(payload.osm3s.timestamp_osm_base);
@@ -67,9 +71,11 @@ async function verifySources(requested, options = {}) {
         let official;
         if (fs.existsSync(officialFile)) official = JSON.parse(fs.readFileSync(officialFile,"utf8"));
         else {
-          const r = await fetch("https://opengeofiction.net/api/0.6/" + source.type + "/" + source.id + ".json",{signal:AbortSignal.timeout(60000)});
-          if (![200,410].includes(r.status)) throw Error("Official transit verification HTTP " + r.status + ": " + key(source));
-          official = {status:r.status,checkedAt:new Date().toISOString(),payload:r.status===410?null:await r.json()};
+          official = await recoverSourceBody(async () => {
+            const r = await fetch("https://opengeofiction.net/api/0.6/" + source.type + "/" + source.id + ".json",{signal:AbortSignal.timeout(60000)});
+            if (![200,410].includes(r.status)) throw Error("Official transit verification HTTP " + r.status + ": " + key(source));
+            return {status:r.status,checkedAt:new Date().toISOString(),payload:r.status===410?null:await r.json()};
+          }, {wait:options.wait});
         }
         status = official.status;
         if (![200,410].includes(status) || !Number.isFinite(Date.parse(official.checkedAt))) throw Error("Invalid official transit proof");
@@ -173,4 +179,4 @@ async function run() {
   console.log(JSON.stringify({status:"verified",checked:result.verification.checkedSources.length,removed:result.verification.removed}));
 }
 module.exports={ref,sourceRef,validate,verifySources,reconcile,assertReconciled};
-if(require.main===module)run().catch(e=>{console.error(e.message);process.exitCode=1;});
+if(require.main===module)run().catch(e=>{console.error(e.name+": "+e.message);process.exitCode=1;});

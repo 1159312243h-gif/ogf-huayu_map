@@ -159,3 +159,36 @@ assert.equal(await oldRelations,false);
 assert.equal(relationRealm.transitPreloadSnapshots[0].elements[0].id,44);
 assert.equal(relationRealm.transitRelationsPreloadPromise,currentPromise,"late old request cannot clear the new relation loader");
 console.log("Generation relation refresh passed: real preload invalidation, actual no-cache relation read and late-response/promise guards.");
+
+
+// The actual national verifier must reread a truncated transport body before
+// caching it, without accepting count errors or weakening official deletion proof.
+const singlePacket={osm3s:payload.osm3s,elements:[elements[0],{type:'count',tags:{nodes:'1',ways:'0',relations:'0',total:'1'}}]};
+let bodyReads=0;const bodyQueries=[],bodySignals=[],bodyWaits=[];
+const recoveredBody=await verifySources([refs[0]],{cachePrefix:path.join(directory,'body-recovery'),wait:async ms=>bodyWaits.push(ms),fetchImpl:async(_url,init)=>{
+ bodyQueries.push(init.body.get('data'));bodySignals.push(init.signal);
+ return ++bodyReads<3?new Response('{"elements":[{"type":"node"'):Response.json(singlePacket);
+}});
+assert.equal(bodyReads,3);assert.equal(new Set(bodyQueries).size,1);assert.equal(new Set(bodySignals).size,3);
+assert.deepEqual(bodyWaits,[10000,20000]);assert.equal(recoveredBody.current.size,1);
+assert.deepEqual(recoveredBody.verification.sourceTimestamps,[payload.osm3s.timestamp_osm_base]);
+const cachedBodyFiles=fs.readdirSync(directory).filter(name=>name.startsWith('body-recovery-'));
+assert.equal(cachedBodyFiles.length,1);validate(JSON.parse(fs.readFileSync(path.join(directory,cachedBodyFiles[0]),'utf8')),[refs[0]]);
+let deniedBodyReads=0;
+await assert.rejects(verifySources([refs[0]],{cachePrefix:path.join(directory,'body-denied'),wait:async()=>assert.fail('permission errors must not retry'),fetchImpl:async()=>{deniedBodyReads++;return new Response(null,{status:403});}}),/HTTP 403/);
+assert.equal(deniedBodyReads,1);
+let invalidBodyReads=0;
+await assert.rejects(verifySources([refs[0]],{cachePrefix:path.join(directory,'body-invalid-count'),wait:async()=>assert.fail('count errors must not retry'),fetchImpl:async()=>{invalidBodyReads++;return Response.json({...singlePacket,elements:[elements[0],{type:'count',tags:{nodes:'2',ways:'0',relations:'0',total:'2'}}]});}}),/count/);
+assert.equal(invalidBodyReads,1);
+let persistentBodyReads=0;
+await assert.rejects(verifySources([refs[0]],{cachePrefix:path.join(directory,'body-persistent'),wait:async()=>{},fetchImpl:async()=>{persistentBodyReads++;return new Response('{');}}),SyntaxError);
+assert.equal(persistentBodyReads,3);assert.ok(!fs.readdirSync(directory).some(name=>name.startsWith('body-persistent-')),'never persist a partial packet');
+const noSourcesPacket={osm3s:payload.osm3s,elements:[{type:'count',tags:{nodes:'0',ways:'0',relations:'0',total:'0'}}]};
+let officialBodyReads=0;const officialBodyUrls=[],officialBodyWaits=[];
+const officialRecovered=await verifySources([refs[1]],{cachePrefix:path.join(directory,'official-body-recovery'),wait:async ms=>officialBodyWaits.push(ms),fetchImpl:async url=>{
+ if(String(url).includes('overpass'))return Response.json(noSourcesPacket);
+ officialBodyUrls.push(String(url));return ++officialBodyReads<3?new Response('{'):Response.json({elements:[{type:'node',id:2,tags:{railway:'station'}}]});
+}});
+assert.equal(officialBodyReads,3);assert.equal(new Set(officialBodyUrls).size,1);assert.deepEqual(officialBodyWaits,[10000,20000]);
+assert.equal(officialRecovered.current.size,1);assert.equal(officialRecovered.verification.removed.length,0);assert.equal(officialRecovered.verification.officialChecks[0].status,200);
+console.log('National source body recovery passed: identical reads, fresh deadlines, original source time, three-attempt cap, verified-only caches, official proof and fatal permission/count errors.');
