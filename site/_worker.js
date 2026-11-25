@@ -206,7 +206,7 @@ function liveBasemapOverpassQuery(bounds, zoom) {
   if (zoom < 13) {
     return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
       + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});)->.roads;`
-      + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
+      + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;out count;`;
   }
   const highwaySelector = zoom <= 13
     ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
@@ -237,7 +237,7 @@ function liveBasemapOverpassQuery(bounds, zoom) {
     + `(node["natural"~"^(peak|volcano)$"]["name"](${bbox});`
     + `node["amenity"="university"]["name"](${bbox});)->.basemapImportantLabels;`
     + `(.basemapWays;.basemapRelations;.basemapPlaces;${zoom >= 15 ? ".basemapTrees;.basemapGardens;" : ""}.basemapImportantLabels;`
-    + `way(r.basemapRelations););out body geom;`;
+    + `way(r.basemapRelations););out body geom;out count;`;
 }
 
 function terrainOverpassQuery(bounds) {
@@ -550,20 +550,45 @@ async function fetchStructureTile(request, context, z, x, y) {
   }
 }
 
-async function loadLiveBasemapTileOnce(cacheKey, z, x, y, policy) {
+function validateHuayuBasemapPayload(payload) {
+  if (payload?.remark || !Array.isArray(payload?.elements)
+    || !Number.isFinite(Date.parse(payload.osm3s?.timestamp_osm_base))) throw Error("incomplete_basemap_source");
+  const counts = payload.elements.filter(element => element.type === "count");
+  const elements = payload.elements.filter(element => element.type !== "count");
+  if (counts.length !== 1 || ["total", "nodes", "ways", "relations"].some(key => !/^\d+$/u.test(String(counts[0].tags?.[key] ?? "")))
+    || Number(counts[0].tags?.total) !== elements.length
+    || elements.some(element => !["node", "way", "relation"].includes(element.type)
+      || !Number.isSafeInteger(element.id) || element.id <= 0)
+    || new Set(elements.map(element => element.type + ":" + element.id)).size !== elements.length
+    || ["node", "way", "relation"].some(type => Number(counts[0].tags?.[type + "s"])
+      !== elements.filter(element => element.type === type).length)) throw Error("incomplete_basemap_count");
+  return payload;
+}
+
+async function loadLiveBasemapTileOnce(cacheKey, z, x, y, policy, deadline) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), z <= 13 ? 50000 : LIVE_BASEMAP_QUERY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
   try {
     const query = liveBasemapOverpassQuery(buildingTileBounds(z, x, y), z);
-    const upstream = await fetch(OGF_OVERPASS_URL, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-      body: `data=${encodeURIComponent(query)}`,
-      signal: controller.signal,
-    });
+    let upstream;
+    try {
+      upstream = await fetch(OGF_OVERPASS_URL, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      // A short read-only query can recover from a failed POST connection on
+      // the same official endpoint, within the original request deadline.
+      if (controller.signal.aborted || encodeURIComponent(query).length > 7000) throw error;
+      upstream = await fetch(`${OGF_OVERPASS_URL}?data=${encodeURIComponent(query)}`, {
+        headers: {Accept:"application/json"}, signal:controller.signal,
+      });
+    }
     if (!upstream.ok) {
       const error = new Error("overpass_error");
       error.responseStatus = 502;
@@ -579,18 +604,20 @@ async function loadLiveBasemapTileOnce(cacheKey, z, x, y, policy) {
       error.responseStatus = 502;
       throw error;
     }
-    if (!Array.isArray(payload?.elements)) {
-      const error = new Error("invalid_overpass_payload");
-      error.responseStatus = 502;
-      throw error;
+    try { validateHuayuBasemapPayload(payload); }
+    catch (error) { error.responseStatus = 502; throw error; }
+    const previous = await caches.default.match(cacheKey);
+    const previousSourceTime = Date.parse(previous?.headers.get("X-OGF-Basemap-Source-Time") || "");
+    if (Date.parse(payload.osm3s.timestamp_osm_base) < previousSourceTime) {
+      throw Object.assign(Error("basemap_source_time_regressed"), {responseStatus:502});
     }
-
     const fetchedAt = new Date().toISOString();
     const response = buildingJsonResponse(body, 200, {
       "Cache-Control": `public, max-age=0, s-maxage=${policy.retentionSeconds}`,
       "X-OGF-Basemap-Fetched-At": fetchedAt,
       "X-OGF-Basemap-Tile": `${z}/${x}/${y}`,
       "X-OGF-Basemap-Policy": policy.name,
+      "X-OGF-Basemap-Source-Time": payload.osm3s.timestamp_osm_base,
     });
     await caches.default.put(cacheKey, response.clone());
     return response;
@@ -600,12 +627,15 @@ async function loadLiveBasemapTileOnce(cacheKey, z, x, y, policy) {
 }
 
 async function loadLiveBasemapTile(cacheKey, z, x, y, policy) {
+  const deadline = Date.now() + (z <= 13 ? 50000 : LIVE_BASEMAP_QUERY_TIMEOUT_MS);
   try {
-    return await loadLiveBasemapTileOnce(cacheKey, z, x, y, policy);
+    return await loadLiveBasemapTileOnce(cacheKey, z, x, y, policy, deadline);
   } catch (error) {
     if (!LIVE_BASEMAP_SNAPSHOT_TILE_ZOOMS.has(z) && !ROAD_OVERVIEW_TILE_ZOOMS.has(z)) throw error;
+    if (Date.now() + 1000 >= deadline || !([429, 500, 502, 503, 504].includes(error.upstreamStatus)
+      || error instanceof TypeError && error.message === "fetch failed")) throw error;
     await new Promise((resolve) => setTimeout(resolve, 600));
-    return loadLiveBasemapTileOnce(cacheKey, z, x, y, policy);
+    return loadLiveBasemapTileOnce(cacheKey, z, x, y, policy, deadline);
   }
 }
 
@@ -644,6 +674,7 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
   const policy = liveBasemapCachePolicy(z);
   const cacheUrl = new URL(request.url);
   cacheUrl.search = "";
+  cacheUrl.searchParams.set("complete", "basemap-v1");
   cacheUrl.searchParams.set("schema", z < 13 ? "huayu-road-overview-v2-tunnels" : z === 13 ? "huayu-live-basemap-v11-tunnels"
     : z >= 15 ? "huayu-live-basemap-v9-garden-nodes" : "huayu-live-basemap-v8-progressive-terrain");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
@@ -654,9 +685,15 @@ async function fetchLiveBasemapTile(request, context, z, x, y) {
     if (ageSeconds < policy.refreshSeconds) {
       return liveBasemapClientResponse(cached, "HIT", policy);
     }
-    const refresh = refreshLiveBasemapTile(cacheKey, z, x, y, policy);
-    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
-    return liveBasemapClientResponse(cached, "STALE", policy);
+    // Revalidate within the request lifetime. A waitUntil-only query can be
+    // terminated by the platform's 30s background limit, leaving the same old
+    // snapshot indefinitely. On failure retain the complete previous packet.
+    try {
+      const response = await refreshLiveBasemapTile(cacheKey, z, x, y, policy);
+      return liveBasemapClientResponse(response, "REFRESH", policy);
+    } catch {
+      return liveBasemapClientResponse(cached, "STALE", policy);
+    }
   }
 
   try {

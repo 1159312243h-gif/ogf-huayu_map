@@ -853,6 +853,10 @@
     waterway: "ogf-atlas-huayu-live-waterway",
     roadCasing: "ogf-atlas-huayu-live-road-casing",
     road: "ogf-atlas-huayu-live-road",
+    roadNameMajor: "ogf-atlas-huayu-live-road-name-major",
+    roadNameMinor: "ogf-atlas-huayu-live-road-name-minor",
+    roadNamePath: "ogf-atlas-huayu-live-road-name-path",
+    waterwayName: "ogf-atlas-huayu-live-waterway-name",
     tunnelCasing: "ogf-atlas-huayu-live-tunnel-casing",
     tunnel: "ogf-atlas-huayu-live-tunnel",
     railway: "ogf-atlas-huayu-live-railway",
@@ -900,7 +904,7 @@
   const HUAYU_LIVE_BASEMAP_TILE_CACHE_LIMIT = 72;
   const HUAYU_LIVE_BASEMAP_MAX_VISIBLE_TILES = 64;
   const HUAYU_LIVE_BASEMAP_SNAPSHOT_CACHE_MS = 3 * 60 * 60 * 1000;
-  const HUAYU_LIVE_BASEMAP_DETAIL_CACHE_MS = 3 * 60 * 60 * 1000;
+  const HUAYU_LIVE_BASEMAP_DETAIL_CACHE_MS = 2 * 60 * 1000;
   const HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS = [
     "landcover-sand",
     "landuse-residential", "landuse-commercial", "landuse-retail", "landuse-industrial",
@@ -920,6 +924,7 @@
     "bridge-trunk", "bridge-motorway",
     "railway-transit", "railway-transit-hatching", "railway-service", "railway-service-hatching",
     "railway", "railway-hatching",
+    "highway-name-major", "highway-name-minor", "highway-name-path", "waterway-name",
   ];
   const HUAYU_LIVE_BUILDING_SOURCE = "ogf-atlas-huayu-live-buildings";
   const HUAYU_LIVE_BUILDING_LAYER = "ogf-atlas-huayu-live-buildings";
@@ -26431,6 +26436,32 @@
       .forEach((id) => glMap.moveLayer(id, anchor));
   }
 
+  function ensureHuayuLiveBasemapLabels(glMap, addLayer) {
+    const definitions = [
+      ["highway-name-major", HUAYU_LIVE_BASEMAP_LAYERS.roadNameMajor, "road",
+        ["in", ["get", "featureClass"], ["literal", ["motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary", "tertiary"]]]],
+      ["highway-name-minor", HUAYU_LIVE_BASEMAP_LAYERS.roadNameMinor, "road",
+        ["in", ["get", "featureClass"], ["literal", ["minor", "service"]]]],
+      ["highway-name-path", HUAYU_LIVE_BASEMAP_LAYERS.roadNamePath, "road", ["==", ["get", "featureClass"], "path"]],
+      ["waterway-name", HUAYU_LIVE_BASEMAP_LAYERS.waterwayName, "waterway", true],
+    ];
+    let styleLayers;
+    definitions.forEach(([publishedId, id, kind, filter]) => {
+      if (glMap.getLayer(id)) return;
+      // The lightweight order/category view intentionally omits typography.
+      // Serialize the actual style once, only when installing missing labels.
+      styleLayers ||= glMap.getStyle()?.layers || [];
+      const original = styleLayers.find(layer => layer.id === publishedId);
+      if (!original) return;
+      addLayer({id, type:"symbol", source:HUAYU_LIVE_BASEMAP_SOURCE,
+        minzoom:Math.max(original.minzoom || 0, huayuLiveBasemapMinimumZoom()),
+        ...(original.maxzoom === undefined ? {} : {maxzoom:original.maxzoom}),
+        filter:["all", ["==", ["get", "renderKind"], kind], ["!=", ["get", "name"], ""], filter],
+        layout:{...JSON.parse(JSON.stringify(original.layout || {})), visibility:"none"},
+        paint:JSON.parse(JSON.stringify(original.paint || {}))}, publishedId);
+    });
+  }
+
   function ensureHuayuLiveBasemapLayers(glMap) {
     if (!(glMap?.style ? glMap.getLayersOrder().length : glMap?.getStyle?.()?.layers?.length)) return false;
     const palette = huayuOverlayPalette(glMap);
@@ -26513,6 +26544,9 @@
         glMap.moveLayer(definition.id, beforeId);
       }
     };
+    // Labels follow the same complete source as their roads/rivers. Reusing
+    // the published typography avoids leaving old names above new geometry.
+    ensureHuayuLiveBasemapLabels(glMap, addLayer);
     const landColor = ["match", ["get", "featureClass"],
       "residential", palette.liveLandResidential,
       "commercial", palette.liveLandCommercial,
@@ -27136,6 +27170,18 @@
     mapElement.dataset.huayuTerrainElevationPoints = String(huayuTerrainPreload?.data.heightField?.mountainObservations || 0);
     mapElement.dataset.huayuLiveBasemapUpdatedAt = state.loadedAt
       ? new Date(state.loadedAt).toISOString() : "";
+    const sourceTimes = visibleKeys.map(key => state.tileCache.get(key)?.sourceTime).filter(Number.isFinite);
+    mapElement.dataset.huayuLiveBasemapSourceTime = sourceTimes.length
+      ? new Date(Math.min(...sourceTimes)).toISOString() : "";
+    mapElement.dataset.huayuLiveBasemapNamedRoads = String((state.groundRenderFeatures || [])
+      .filter(feature => feature.properties?.renderKind === "road" && feature.properties.name).length);
+    mapElement.dataset.huayuLiveBasemapRoadLabelState = JSON.stringify([
+      HUAYU_LIVE_BASEMAP_LAYERS.roadNameMajor, HUAYU_LIVE_BASEMAP_LAYERS.roadNameMinor,
+      HUAYU_LIVE_BASEMAP_LAYERS.roadNamePath, HUAYU_LIVE_BASEMAP_LAYERS.waterwayName,
+    ].filter(id => state.glMap.getLayer(id)).map(id => ({id,
+      visibility:state.glMap.getLayoutProperty(id,"visibility"),
+      text:state.glMap.getLayoutProperty(id,"text-field"),
+      font:state.glMap.getLayoutProperty(id,"text-font")})));
   }
 
   function huayuLiveBasemapKeysReady(state, keys) {
@@ -27181,9 +27227,12 @@
     if (state.sportsRenderSignature === signature) return;
     const features = [];
     const seen = new Set();
-    loadedEntries.forEach(([, entry]) => {
+    const authority = huayuBasemapSourceAuthority(loadedEntries.map(([key, entry]) => ({key, entry})));
+    loadedEntries.sort((a, b) => authority.compare({key:b[0], entry:b[1]}, {key:a[0], entry:a[1]}));
+    loadedEntries.forEach(([tileKey, entry]) => {
       (entry.data?.features || []).forEach((feature) => {
         if (!feature.properties?.sportsArea && !feature.properties?.sportsMarking) return;
+        if (!authority.accepts(feature, {key:tileKey, entry})) return;
         const key = String(feature.id
           || `${feature.properties?.osmType}:${feature.properties?.osmId}:${feature.properties?.sportsMarking || "area"}`);
         if (seen.has(key)) return;
@@ -27191,7 +27240,7 @@
         features.push(feature);
       });
     });
-    if (!features.length) return;
+    if (!features.length && !huayuLiveBasemapPrimaryReady(state)) return;
     source.setData({ type: "FeatureCollection", features });
     state.sportsDataReady = true;
     state.sportsFeatureCount = features.length;
@@ -27209,6 +27258,87 @@
       south: Math.max(-85, bounds.south - latitudePadding),
       north: Math.min(85, bounds.north + latitudePadding),
     };
+  }
+
+  function huayuBasemapSourceAuthority(entries) {
+    const compare = (a, b) => {
+      const left = a.entry, right = b.entry;
+      const time = Number.isFinite(left.sourceTime) && Number.isFinite(right.sourceTime)
+        ? left.sourceTime - right.sourceTime : (left.loadedAt || 0) - (right.loadedAt || 0);
+      return time || Number(String(a.key).split("/")[0]) - Number(String(b.key).split("/")[0]) || 0;
+    };
+    const complete = entries.filter(item => item.entry.verifiedComplete && item.entry.sourceIds instanceof Set)
+      .map(item => {
+        const [z, x, y] = String(item.key).split("/").map(Number);
+        return {...item, z, bounds: [z, x, y].every(Number.isFinite)
+          ? huayuLiveBuildingTileBounds({z, x, y}) : null};
+      }).filter(item => item.bounds).sort((a, b) => compare(b, a));
+    const sourceKey = feature => {
+      const p = feature.properties || {};
+      return p.osmType && (p.sourceOsmId || p.osmId) ? `${p.osmType}:${p.sourceOsmId || p.osmId}` : null;
+    };
+    const key = feature => {
+      const kind = feature.properties?.renderKind, id = sourceKey(feature);
+      // These whole source geometries can have different snapshot prefixes.
+      // Tree instances, sports markings and mountain parts retain their own IDs.
+      return id && ["water", "waterway", "road", "railway", "place"].includes(kind)
+        ? `${kind}:${id}` : String(feature.id || `${kind}:${id}`);
+    };
+    const boundsCache = new WeakMap();
+    const featureBounds = feature => {
+      if (boundsCache.has(feature)) return boundsCache.get(feature);
+      const bounds = {west:Infinity, east:-Infinity, south:Infinity, north:-Infinity};
+      const visit = coordinates => {
+        if (!Array.isArray(coordinates)) return;
+        if (typeof coordinates[0] === "number") {
+          const [x, y] = coordinates;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          bounds.west = Math.min(bounds.west, x); bounds.east = Math.max(bounds.east, x);
+          bounds.south = Math.min(bounds.south, y); bounds.north = Math.max(bounds.north, y);
+        } else coordinates.forEach(visit);
+      };
+      visit(feature.geometry?.coordinates);
+      boundsCache.set(feature, bounds);
+      return bounds;
+    };
+    const accepts = (feature, origin) => {
+      const p = feature.properties || {}, id = sourceKey(feature);
+      if (!id || p.reliefRole === "surface"
+        || !["water", "waterway", "road", "railway", "land", "place", "important-label"].includes(p.renderKind)) return true;
+      const ownedBounds = [];
+      for (const candidate of complete) {
+        if (candidate.entry === origin.entry || compare(candidate, origin) <= 0 || candidate.z < 13) continue;
+        if (p.renderKind === "road" && candidate.z === 13
+          && !/^(motorway|trunk|primary|secondary|tertiary)(_link)?$/u.test(p.highway || p.featureClass)
+          && !p.bridge && !p.tunnel && !p.layerExplicit) continue;
+        // A returned source object owns all its derived geometry and labels.
+        if (candidate.entry.sourceIds.has(id)) return false;
+        // Absence only owns a completely covered geometry, never an unqueried
+        // edge, a partial response or a road class omitted by this zoom tier.
+        const bounds = featureBounds(feature), outer = candidate.bounds;
+        if (bounds.east - bounds.west <= 180 && bounds.west >= outer.west && bounds.east <= outer.east
+          && bounds.south >= outer.south && bounds.north <= outer.north) return false;
+        if (bounds.east - bounds.west <= 180 && outer.east >= bounds.west && outer.west <= bounds.east
+          && outer.north >= bounds.south && outer.south <= bounds.north) ownedBounds.push(outer);
+      }
+      // A complete union of current tiles can own a long road or river too.
+      // Any unqueried gap retains the old whole geometry.
+      if (ownedBounds.length > 1) {
+        const b = featureBounds(feature);
+        const latitudes = [...new Set([b.south,b.north,...ownedBounds.flatMap(rect => [rect.south,rect.north]
+          .filter(y => y > b.south && y < b.north))])].sort((a,b)=>a-b);
+        const probes = latitudes.length === 1 ? latitudes : latitudes.slice(1).map((y,i)=>(y+latitudes[i])/2);
+        const covered = probes.every(y => {
+          let east=b.west;
+          const strips=ownedBounds.filter(rect=>rect.south<=y&&rect.north>=y).sort((a,b)=>a.west-b.west);
+          for(const rect of strips){if(rect.west>east)return false;east=Math.max(east,rect.east);if(east>=b.east)return true;}
+          return false;
+        });
+        if (covered) return false;
+      }
+      return true;
+    };
+    return {compare, key, accepts};
   }
 
   function rebuildHuayuTerrainData(state) {
@@ -27233,7 +27363,8 @@
       `${sourceKind}:${key}@${entry.revision || 0}`).sort().join("|");
     if (inputSignature === state.terrainInputSignature) return;
     state.terrainInputSignature = inputSignature;
-    entries.sort((first, second) => (second.entry.loadedAt || 0) - (first.entry.loadedAt || 0))
+    const authority = huayuBasemapSourceAuthority(entries);
+    entries.sort((first, second) => authority.compare(second, first))
       .forEach(({sourceKind, key, entry}) => {
         let contributes = false;
         const [z, x, y] = String(key).split("/").map(Number);
@@ -27251,7 +27382,8 @@
             || properties.terrainContext === 1
             || ["water", "waterway"].includes(properties.renderKind);
           if (!terrainFeature) return;
-          const featureKey = String(feature.id
+          if (!authority.accepts(feature, {key, entry})) return;
+          const featureKey = ["water", "waterway"].includes(properties.renderKind) ? authority.key(feature) : String(feature.id
             || `${properties.osmType}:${properties.osmId}:${properties.renderKind}:${properties.reliefLevel || 0}`);
           if (seen.has(featureKey)) return;
           seen.add(featureKey);
@@ -27594,12 +27726,28 @@
       // Regional road tiles omit land, water and rail; those original layers
       // remain visible until the complete near-view basemap takes over.
       const roadOnly = glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM || state.roadOverview;
-      const replaced = nextEnabled && (!roadOnly || /^(highway-|bridge-)/u.test(layerId));
+      const majorRoadsOnly = state.activeTier !== "live" && state.snapshotTileKeys?.size
+        && [...state.snapshotTileKeys].every(key => Number(key.split("/")[0]) === 13);
+      const omittedMinor = majorRoadsOnly && /^(highway-(minor|path)|highway-name-(minor|path))/u.test(layerId);
+      const replaced = nextEnabled && !omittedMinor && (!roadOnly || /^(highway-|bridge-)/u.test(layerId));
       const visibility = replaced ? "none" : state.publishedLayerVisibility.get(layerId);
       if (glMap.getLayoutProperty(layerId, "visibility") !== visibility) {
         glMap.setLayoutProperty(layerId, "visibility", visibility);
       }
     });
+    const roadOnly = glMap.getZoom() < HUAYU_LIVE_BASEMAP_MIN_ZOOM || state.roadOverview;
+    const majorRoadsOnly = state.activeTier !== "live" && state.snapshotTileKeys?.size
+      && [...state.snapshotTileKeys].every(key => Number(key.split("/")[0]) === 13);
+    for (const [original, id] of [["highway-name-major", HUAYU_LIVE_BASEMAP_LAYERS.roadNameMajor],
+      ["highway-name-minor", HUAYU_LIVE_BASEMAP_LAYERS.roadNameMinor],
+      ["highway-name-path", HUAYU_LIVE_BASEMAP_LAYERS.roadNamePath],
+      ["waterway-name", HUAYU_LIVE_BASEMAP_LAYERS.waterwayName]]) {
+      if (!glMap.getLayer(id)) continue;
+      const omittedMinor = majorRoadsOnly && /^highway-name-(minor|path)$/u.test(original);
+      const visibility = nextEnabled && !omittedMinor && (!roadOnly || original.startsWith("highway-"))
+        ? state.publishedLayerVisibility.get(original) || "visible" : "none";
+      if (glMap.getLayoutProperty(id, "visibility") !== visibility) glMap.setLayoutProperty(id, "visibility", visibility);
+    }
     state.primaryActive = nextEnabled;
     syncHuayuSportsSnapshotLayers(glMap, state);
     if (window.HuayuBridgeModels) syncHuayuBridgeModels(glMap, state);
@@ -27916,7 +28064,7 @@
     if (tile.z < 13) {
       return `[out:json][timeout:45];(way["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"](${bbox});`
         + `way["highway"]["layer"](${bbox});way["highway"]["bridge"]["bridge"!="no"](${bbox});way["highway"]["tunnel"]["tunnel"!="no"](${bbox});)->.roads;`
-        + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;`;
+        + `node(w.roads)->.roadNodes;way(bn.roadNodes)["highway"]->.approaches;(.roads;.approaches;);out body geom;out count;`;
     }
     const highwaySelector = tile.z <= 13
       ? `["highway"~"^(motorway|trunk|primary|secondary|tertiary)(_link)?$"]` : `["highway"]`;
@@ -27947,7 +28095,7 @@
       + `(node["natural"~"^(peak|volcano)$"]["name"](${bbox});`
       + `node["amenity"="university"]["name"](${bbox});)->.basemapImportantLabels;`
       + `(.basemapWays;.basemapRelations;.basemapPlaces;${tile.z >= 15 ? ".basemapTrees;.basemapGardens;" : ""}.basemapImportantLabels;`
-      + `way(r.basemapRelations););out body geom;`;
+      + `way(r.basemapRelations););out body geom;out count;`;
   }
 
   function huayuTerrainTileQuery(tile) {
@@ -28063,6 +28211,21 @@
     } catch { /* Cache failure must not block live terrain. */ }
   }
 
+  function validateHuayuBasemapPayload(payload) {
+    if (payload?.remark || !Array.isArray(payload?.elements)
+      || !Number.isFinite(Date.parse(payload.osm3s?.timestamp_osm_base))) throw Error("incomplete_basemap_source");
+    const counts = payload.elements.filter(element => element.type === "count");
+    const elements = payload.elements.filter(element => element.type !== "count");
+    if (counts.length !== 1 || ["total", "nodes", "ways", "relations"].some(key => !/^\d+$/u.test(String(counts[0].tags?.[key] ?? "")))
+      || Number(counts[0].tags?.total) !== elements.length
+      || elements.some(element => !["node", "way", "relation"].includes(element.type)
+        || !Number.isSafeInteger(element.id) || element.id <= 0)
+      || new Set(elements.map(element => element.type + ":" + element.id)).size !== elements.length
+      || ["node", "way", "relation"].some(type => Number(counts[0].tags?.[type + "s"])
+        !== elements.filter(element => element.type === type).length)) throw Error("incomplete_basemap_count");
+    return payload;
+  }
+
   async function fetchHuayuLiveBasemapTile(tile, externalSignal) {
     const canUseTileApi = ["http:", "https:"].includes(window.location.protocol);
     if (canUseTileApi) {
@@ -28074,12 +28237,13 @@
       try {
         const response = await fetch(`/api/live-basemap/${tile.z}/${tile.x}/${tile.y}.json`, {
           headers: { Accept: "application/json" },
+          cache: "no-cache",
           signal: controller.signal,
         });
         apiResponded = response.status !== 404;
         if (response.ok) {
           const payload = await response.json();
-          if (!Array.isArray(payload?.elements)) throw new Error("INVALID_LIVE_BASEMAP_TILE");
+          validateHuayuBasemapPayload(payload);
           const cacheStatus = String(response.headers.get("X-OGF-Basemap-Cache") || "EDGE").toLocaleLowerCase();
           const fetchedAt = Date.parse(response.headers.get("X-OGF-Basemap-Fetched-At") || "");
           const defaultRefreshMs = tile.z <= HUAYU_LIVE_BASEMAP_SNAPSHOT_MAX_TILE_ZOOM
@@ -28105,7 +28269,7 @@
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
       body: `data=${encodeURIComponent(huayuLiveBasemapTileQuery(tile))}`,
     });
-    if (!Array.isArray(payload?.elements)) throw new Error("INVALID_LIVE_BASEMAP_TILE");
+    validateHuayuBasemapPayload(payload);
     return {
       payload,
       source: "direct-overpass",
@@ -28422,19 +28586,21 @@
     const features = [];
     const seen = new Set();
     let loadedAt = 0;
+    const renderEntries = [...renderKeys].map(key => ({key, entry:state.tileCache.get(key)})).filter(item => item.entry);
+    const authority = huayuBasemapSourceAuthority(renderEntries);
+    renderEntries.sort((a, b) => authority.compare(b, a));
     (state.terrainData?.features || []).forEach((feature) => {
-      const featureKey = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
+      const featureKey = authority.key(feature);
       if (seen.has(featureKey)) return;
       seen.add(featureKey);
       features.push(feature);
     });
-    renderKeys.forEach((key) => {
-      const entry = state.tileCache.get(key);
-      if (!entry) return;
+    renderEntries.forEach(({key, entry}) => {
       entry.lastUsed = Date.now();
       loadedAt = Math.max(loadedAt, entry.loadedAt || 0);
       (entry.data?.features || []).forEach((feature) => {
-        const featureKey = String(feature.id || `${feature.properties?.osmType}:${feature.properties?.osmId}`);
+        if (!authority.accepts(feature, {key, entry})) return;
+        const featureKey = authority.key(feature);
         if (seen.has(featureKey)) return;
         seen.add(featureKey);
         features.push(feature);
@@ -28547,9 +28713,19 @@
           if (!state.active) return;
           if (state.interacting) await waitForHuayuMapGestureEnd(state.glMap);
           if (!state.active) return;
+          const previous = state.tileCache.get(tile.key);
+          if (previous?.sourceTime > Date.parse(result.payload.osm3s.timestamp_osm_base)) {
+            // An older Overpass replica must not undo a later edit/deletion.
+            previous.refreshAt = Date.now() + 30000;
+            throw Error("basemap_source_time_regressed");
+          }
           state.failedTiles.delete(tile.key);
           const entry = {
             data: huayuLiveBasemapFeatureCollection(result.payload.elements),
+            sourceTime: Date.parse(result.payload.osm3s.timestamp_osm_base),
+            sourceIds: new Set(result.payload.elements.filter(element => element.type !== "count")
+              .map(element => `${element.type}:${element.id}`)),
+            verifiedComplete: true,
             trafficDemand: huayuTrafficDemandElements(result.payload.elements),
             // Simulation-only permissions. Keep the existing render factory,
             // model cache versions and source timestamps unchanged.

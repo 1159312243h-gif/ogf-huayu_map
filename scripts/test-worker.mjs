@@ -16,16 +16,22 @@ globalThis.caches = {
 const upstreamQueries = [];
 let failNextUpstream = false;
 let partialNextUpstream = false;
+let networkFailureNextUpstream = false;
+let failUpstreamCount = 0;
+let sourceTimeOverride;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options = {}) => {
-  if (String(url) !== "https://overpass.opengeofiction.net/api/interpreter") {
+  const target = new URL(String(url));
+  if (target.origin + target.pathname !== "https://overpass.opengeofiction.net/api/interpreter") {
     throw new Error(`Unexpected upstream URL: ${url}`);
   }
   const body = String(options.body || "");
-  const query = decodeURIComponent(body.replace(/^data=/u, ""));
+  const query = body ? decodeURIComponent(body.replace(/^data=/u, "")) : target.searchParams.get("data");
   upstreamQueries.push(query);
-  if (failNextUpstream) {
+  if (networkFailureNextUpstream) {networkFailureNextUpstream=false;throw new TypeError("fetch failed");}
+  if (failNextUpstream || failUpstreamCount > 0) {
     failNextUpstream = false;
+    failUpstreamCount = Math.max(0, failUpstreamCount - 1);
     return new Response("temporary overload", { status: 502 });
   }
   if (partialNextUpstream) {
@@ -35,7 +41,7 @@ globalThis.fetch = async (url, options = {}) => {
   }
   return new Response(JSON.stringify({
     version: 0.6,
-    ...(query.includes("out count;") ? {osm3s:{timestamp_osm_base:new Date().toISOString()}} : {}),
+    ...(query.includes("out count;") ? {osm3s:{timestamp_osm_base:sourceTimeOverride || new Date().toISOString()}} : {}),
     elements: [{ type: "node", id: 1, lat: 14.6, lon: 152.9, tags: { place: "town", name: "测试镇" } }, ...(query.includes("out count;") ? [{type:"count",tags:{nodes:"1",ways:"0",relations:"0",total:"1"}}] : [])],
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 };
@@ -64,7 +70,7 @@ try {
   assert.equal(first.headers.get("x-ogf-basemap-policy"), "snapshot-3h");
   assert.match(first.headers.get("cache-control") || "", /max-age=60/u);
   assert.ok(Number(first.headers.get("x-ogf-basemap-refresh-after")) > 10000);
-  assert.equal((await first.json()).elements.length, 1);
+  assert.equal((await first.json()).elements.length, 2, "the complete packet retains its one feature and one source count");
   assert.equal(upstreamQueries.length, 1);
   assert.match(upstreamQueries[0], /way\["highway"/u);
   assert.match(upstreamQueries[0], /motorway\|trunk\|primary\|secondary\|tertiary/u);
@@ -98,10 +104,10 @@ try {
   }));
   const stale = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
   assert.equal(stale.status, 200);
-  assert.equal(stale.headers.get("x-ogf-basemap-cache"), "STALE");
-  assert.ok(waitUntilPromises.length > 0, "stale snapshot should schedule a background refresh");
+  assert.equal(stale.headers.get("x-ogf-basemap-cache"), "REFRESH");
+  assert.equal(waitUntilPromises.length,0, "source refresh completes in the live request, independent of the platform background limit");
   await Promise.all(waitUntilPromises.splice(0));
-  assert.equal(upstreamQueries.length, 2, "stale snapshot should refresh in the background");
+  assert.equal(upstreamQueries.length, 2, "stale snapshot is revalidated before returning a fresh generation");
   const refreshed = await worker.fetch(new Request(liveUrl), { ASSETS: assets }, context);
   assert.equal(refreshed.headers.get("x-ogf-basemap-cache"), "HIT");
 
@@ -118,6 +124,21 @@ try {
   assert.match(upstreamQueries.at(-1), /node\["landuse"="flowerbed"\]/u);
   assert.ok([...cache.keys()].some(key=>key.includes("huayu-live-basemap-v9-garden-nodes")),
     "old near-detail payloads must not hide newly included garden nodes");
+
+  partialNextUpstream = true;
+  const partialBasemapPath = "https://example.test/api/live-basemap/15/30305/15040.json";
+  const partialBasemap = await worker.fetch(new Request(partialBasemapPath), {ASSETS:assets}, context);
+  assert.equal(partialBasemap.status, 502, "an HTTP 200 timeout must not replace a complete basemap");
+  assert.equal([...cache.keys()].some(key => key.includes("/live-basemap/15/30305/15040.json")), false);
+  const recoveredBasemap = await worker.fetch(new Request(partialBasemapPath), {ASSETS:assets}, context);
+  assert.equal(recoveredBasemap.status, 200);
+  assert.ok(recoveredBasemap.headers.get("X-OGF-Basemap-Source-Time"), "record actual OGF source time separately from fetch time");
+  networkFailureNextUpstream = true;
+  const beforeNetworkRecovery = upstreamQueries.length;
+  const networkRecoveredBasemap = await worker.fetch(new Request("https://example.test/api/live-basemap/15/30306/15040.json"), {ASSETS:assets}, context);
+  assert.equal(networkRecoveredBasemap.status,200,"a failed POST connection gets one bounded official GET read");
+  assert.equal(upstreamQueries.length,beforeNetworkRecovery + 2);
+  assert.equal(upstreamQueries.at(-1),upstreamQueries.at(-2),"method recovery must not change the source query");
 
   failNextUpstream = true;
   const beforeRetry = upstreamQueries.length;
@@ -377,12 +398,24 @@ try {
     const retained=cache.get(key),headers=new Headers(retained.headers);
     headers.set("X-OGF-Basemap-Fetched-At",new Date(Date.now()-4*60*60*1000).toISOString());
     cache.set(key,new Response(await retained.text(),{headers}));
-    failNextUpstream=true;
+    failUpstreamCount=2;
     const stale=await worker.fetch(new Request(url),{ASSETS:assets},context);
     assert.equal(stale.headers.get("x-ogf-basemap-cache"),"STALE");
     await Promise.all(waitUntilPromises.splice(0));
-    assert.equal((await stale.json()).elements.length,1,"regional refresh failures retain the complete roads");
+    assert.equal((await stale.json()).elements.length,2,"regional refresh failures retain the complete roads and their source count");
   }
+
+  const rollbackKey=[...cache.keys()].find(key=>key.includes("/live-basemap/15/30304/15040.json"));
+  const rollbackPrevious=cache.get(rollbackKey).clone(),rollbackHeaders=new Headers(rollbackPrevious.headers);
+  rollbackHeaders.set("X-OGF-Basemap-Fetched-At",new Date(Date.now()-5*60000).toISOString());
+  const rollbackBody=await rollbackPrevious.text();
+  cache.set(rollbackKey,new Response(rollbackBody,{headers:rollbackHeaders}));
+  sourceTimeOverride=new Date(Date.now()-3600000).toISOString();
+  const rollbackRead=await worker.fetch(new Request("https://example.test/api/live-basemap/15/30304/15040.json"),{ASSETS:assets},context);
+  sourceTimeOverride=undefined;
+  assert.equal(rollbackRead.headers.get("X-OGF-Basemap-Cache"),"STALE");
+  assert.equal(await rollbackRead.text(),rollbackBody,"older upstream replicas cannot replace newer complete geometry");
+  assert.equal(await cache.get(rollbackKey).clone().text(),rollbackBody);
 
   console.log(JSON.stringify({
     status: "passed",

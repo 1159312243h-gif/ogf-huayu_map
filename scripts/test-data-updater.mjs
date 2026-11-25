@@ -11,6 +11,8 @@ import "./test-updater-relay.mjs";
 import "./test-railway-refresh.mjs";
 import "./test-transit-deletions.mjs";
 import "./test-candidate-program.mjs";
+import "./test-basemap-source-refresh.mjs";
+import "./test-rail-builder-diagnostics.mjs";
 import { compareCounts, semanticHash, validateDataset, validateAll, readDatasetFile } from "./update-all-data.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

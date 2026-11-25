@@ -57,7 +57,7 @@ const context = vm.createContext({Date,Number,JSON,terrainOverlayEnabled:true,hu
   pumpHuayuTerrainTiles:() => {tileRequests++;},suspendHuayuTerrainTiles:() => {},
   window:{clearTimeout:() => {},setTimeout:() => 1},
 });
-install(["validateHuayuTerrainPreloadManifest","huayuTerrainPreloadManifestChunks",
+install(["huayuBasemapSourceAuthority","validateHuayuTerrainPreloadManifest","huayuTerrainPreloadManifestChunks",
   "validateHuayuTerrainPreload","validateHuayuTerrainPreloadChunk","loadHuayuTerrainPreloadChunks",
   "fetchHuayuTerrainPreloadChunk",
   "huayuTerrainPreloadCovers","rebuildHuayuTerrainData","loadHuayuTerrainPreload",

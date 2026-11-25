@@ -24,8 +24,12 @@ const freshById = new Map(fresh.filter(w=>!removedWayIds.has(w.id)).map(w=>[w.id
 combined.ways = combined.ways.map(w=>freshById.has(w[0]) ? compact(freshById.get(w[0])) : w);
 api.setRailwayData(process.argv.includes("--original") ? original : combined);
 const graph = api.getRailInfrastructureGraph(network);
-const selected = ["平章南","逻山","津川","苍湖风景区"]
-  .map(name=>network.stops.find(s=>s.name===name&&s.routes.some(r=>r.type==="train")));
+// These are optional diagnostic samples, never prerequisites for rebuilding
+// national infrastructure. Source deletions/renames must not stop all regions.
+const diagnosticNames = ["平章南","逻山","津川","苍湖风景区"];
+const selected = diagnosticNames
+  .map(name=>network.stops.find(s=>s.name===name&&s.routes.some(r=>r.type==="train"))).filter(Boolean);
+const missingDiagnosticStations = diagnosticNames.filter(name=>!selected.some(stop=>stop.name===name));
 const componentSizes = new Map();
 graph.components.forEach(c=>componentSizes.set(c,(componentSizes.get(c)||0)+1));
 const dist = (a,b)=>Math.hypot((a.lat-b.lat)*111320,(a.lon-b.lon)*111320*Math.cos(a.lat*Math.PI/180));
@@ -64,6 +68,7 @@ const connectivity = (limit,minAlignment)=>{
 };
 const components=new Set(projections.flatMap(p=>p.candidates.map(c=>c.component)));
 const report = {extraActualWays:extras.length,tracks:graph.lines.length,components:componentSizes.size,terminalNodes:ends.length,
+  missingDiagnosticStations,
   projections,nearSelectedComponents:candidates.filter(c=>components.has(c.fromComponent)||components.has(c.toComponent)).slice(0,35),
   trialConnectivity:[connectivity(300,0.5),connectivity(800,0.5),connectivity(2000,0.5),connectivity(800,-1)],
   fallStations:network.stops.filter(s=>s.name.includes("落花")).map(s=>({name:s.name,lat:s.lat,lon:s.lon})),

@@ -8,6 +8,7 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,15 +16,20 @@ jobs:
           node-version: 24
       - run: npm run check:data
         env:
-          DATA_MAX_AGE_HOURS: "12"
+          DATA_MAX_AGE_HOURS: "6"
       - if: always()
         run: npm run probe:live
         env:
           LIVE_BASEMAP_PROBE_ORIGIN: "https://ogf-atlas.pages.dev"
+      - name: Audit current source freshness in multiple countries
+        if: always()
+        run: node scripts/audit-basemap-freshness.mjs --zooms 15 --output .data-update/basemap-city-audit.json
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: data-freshness-report
-          path: data-freshness-report.json
+          path: |
+            data-freshness-report.json
+            .data-update/basemap-city-audit.json
           if-no-files-found: error
           retention-days: 14

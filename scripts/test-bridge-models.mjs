@@ -374,22 +374,38 @@ check("regional road ownership preserves original land, water and rail and resto
   const app = fs.readFileSync(new URL("../site/app.js", import.meta.url), "utf8");
   const start=app.indexOf("  function syncHuayuLiveBasemapPrimaryLayers(");
   const source=app.slice(start,app.indexOf("\n  function ",start+1));
-  const ids=["highway-primary","bridge-primary","water","landcover-wood","railway"];
+  const ids=["highway-primary","bridge-primary","water","landcover-wood","railway",
+    "highway-name-major","highway-name-minor","highway-name-path","waterway-name"];
   const visibility=new Map(ids.map(id=>[id,"visible"]));let zoom=11.5;
   const map={getZoom:()=>zoom,getLayer:()=>true,getLayoutProperty:id=>visibility.get(id),
     setLayoutProperty:(id,key,value)=>visibility.set(id,value)};
   const state={publishedLayerVisibility:new Map(),roadOverview:true};
   const context=vm.createContext({HUAYU_LIVE_BASEMAP_PRIMARY_VECTOR_LAYERS:ids,HUAYU_LIVE_BASEMAP_MIN_ZOOM:12.5,
     window:{},syncHuayuSportsSnapshotLayers(){},map,state});
+  vm.runInContext(app.match(/  const HUAYU_LIVE_BASEMAP_LAYERS = \{[^]*?\n  \};/u)[0],context);
   vm.runInContext(`${source}\nsyncHuayuLiveBasemapPrimaryLayers(map,state,true);`,context);
   assert.equal(visibility.get("highway-primary"),"none");assert.equal(visibility.get("bridge-primary"),"none");
-  for(const id of ids.slice(2))assert.equal(visibility.get(id),"visible");
+  for(const id of ["water","landcover-wood","railway","waterway-name"])assert.equal(visibility.get(id),"visible");
+  assert.equal(visibility.get("highway-name-major"),"none");
+  assert.equal(visibility.get("ogf-atlas-huayu-live-road-name-major"),"visible");
+  assert.equal(visibility.get("ogf-atlas-huayu-live-waterway-name"),"none");
   zoom=15;vm.runInContext("syncHuayuLiveBasemapPrimaryLayers(map,state,true);",context);
   assert.equal(visibility.get("water"),"visible","a retained road-only tier cannot hide water when zooming in");
   state.roadOverview=false;vm.runInContext("syncHuayuLiveBasemapPrimaryLayers(map,state,true);",context);
   assert.ok(ids.every(id=>visibility.get(id)==="none"));
+  assert.equal(visibility.get("ogf-atlas-huayu-live-waterway-name"),"visible");
   vm.runInContext("syncHuayuLiveBasemapPrimaryLayers(map,state,false);",context);
   assert.ok(ids.every(id=>visibility.get(id)==="visible"));
+  assert.equal(visibility.get("ogf-atlas-huayu-live-waterway-name"),"none");
+  assert.equal(visibility.get("ogf-atlas-huayu-live-road-name-major"),"none");
+  zoom=13;state.snapshotTileKeys=new Set(["13/1/1"]);state.activeTier="snapshot";
+  vm.runInContext("syncHuayuLiveBasemapPrimaryLayers(map,state,true);",context);
+  assert.equal(visibility.get("highway-name-minor"),"visible","major-road-only tiers keep unqueried minor names");
+  assert.equal(visibility.get("ogf-atlas-huayu-live-road-name-minor"),"none");
+  state.activeTier="live";
+  vm.runInContext("syncHuayuLiveBasemapPrimaryLayers(map,state,true);",context);
+  assert.equal(visibility.get("highway-name-minor"),"none","complete detail owns the same minor names");
+  assert.equal(visibility.get("ogf-atlas-huayu-live-road-name-minor"),"visible");
 });
 
 check("missing topology, tunnel, invalid data, duplicate tiles and reversed ways", () => {
