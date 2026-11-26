@@ -27,7 +27,7 @@ export function refreshDecision({generations,activeRuns,recentRun,now=Date.now()
   }
   return {...common,action:'dispatch',reason:'published-generation-overdue'};
 }
-export async function ensureDataRefresh({root,environment=process.env,fetcher=fetch,now=Date.now(),output}={}) {
+export async function ensureDataRefresh({root,environment=process.env,fetcher=fetch,now=Date.now(),output,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
   if(environment.GITHUB_REPOSITORY!==REPOSITORY||environment.GITHUB_REF!=='refs/heads/main')throw Error('Refresh watchdog is restricted to the production repository main branch');
   const token=environment.GITHUB_TOKEN;
   if(typeof token!=='string'||!token)throw Error('Workflow token unavailable');
@@ -44,8 +44,14 @@ export async function ensureDataRefresh({root,environment=process.env,fetcher=fe
   const prefix='/actions/workflows/'+WORKFLOW;
   const active=[];
   for(const status of ACTIVE){
-    const packet=await api(prefix+'/runs?branch=main&per_page=100&status='+status);
-    if(packet.total_count!==packet.workflow_runs.length)throw Error('Active workflow list was truncated');
+    const route=prefix+'/runs?branch=main&per_page=100&status='+status;
+    let packet;
+    for(let attempt=0;attempt<3;attempt++){
+      packet=await api(route);
+      if(packet.total_count===packet.workflow_runs.length)break;
+      if(attempt===2)throw Error('Active workflow list was truncated: '+status+' reported='+packet.total_count+' returned='+packet.workflow_runs.length);
+      await wait(1000*(attempt+1));
+    }
     for(const run of packet.workflow_runs){if(run.status!==status)throw Error('Active workflow status mismatch');active.push(run);}
   }
   const recent=await api(prefix+'/runs?branch=main&per_page=1');

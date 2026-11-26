@@ -39,6 +39,9 @@ const fetcher=async(input,init)=>{
  if(status)return Response.json({total_count:truncate?101:activeStatus===status?1:0,workflow_runs:activeStatus===status?[{...run,status}]:[]});
  return Response.json({total_count:300,workflow_runs:[run]});
 };
+let metadataReads=0;const metadataWaits=[];
+const recoveredMetadata=await ensureDataRefresh({root,environment,now,wait:async ms=>metadataWaits.push(ms),fetcher:async(input,init)=>{if(new URL(input).searchParams.get('status')==='queued'&&++metadataReads<3)return Response.json({total_count:1,workflow_runs:[]});return fetcher(input,init);}});
+assert.equal(recoveredMetadata.status,'dispatch-accepted');assert.deepEqual(metadataWaits,[1000,2000]);assert.equal(metadataReads,3,'same active-state read must become complete before a dispatch');requests.length=0;
 const output=path.join(root,'report.json');
 const passed=await ensureDataRefresh({root,environment,fetcher,now,output});
 assert.equal(passed.status,'dispatch-accepted');assert.equal(requests.filter(r=>r.method==='POST').length,1);
@@ -47,7 +50,7 @@ assert.equal(JSON.parse(await fs.readFile(output)).status,'dispatch-accepted');
 for(const g of old)assert.equal((JSON.parse(g.file.endsWith('.gz')?(await import('node:zlib')).gunzipSync(await fs.readFile(path.join(root,'site',g.file))).toString():await fs.readFile(path.join(root,'site',g.file),'utf8'))).generatedAt,g.generatedAt,'watchdog never rewrites data or acquisition dates');
 activeStatus='in_progress';requests.length=0;assert.equal((await ensureDataRefresh({root,environment,fetcher,now})).status,'waiting');assert.ok(!requests.some(r=>r.method==='POST'));
 activeStatus=null;await seed(fresh);requests.length=0;assert.equal((await ensureDataRefresh({root,environment,fetcher,now})).status,'current');assert.ok(!requests.some(r=>r.method==='POST'));
-await seed(old);truncate=true;requests.length=0;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/truncated/);assert.ok(!requests.some(r=>r.method==='POST'));
+await seed(old);truncate=true;requests.length=0;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now,wait:async()=>{}}),/truncated/);assert.ok(!requests.some(r=>r.method==='POST'));
 truncate=false;deny=true;requests.length=0;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/HTTP 403/);assert.ok(!requests.some(r=>r.method==='POST'));
 deny=false;dispatchStatus=500;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/HTTP 500/);
 requests.length=0;for(const env of [{...environment,GITHUB_REPOSITORY:'other/repo'},{...environment,GITHUB_REF:'refs/heads/other'},{...environment,GITHUB_TOKEN:''}])await assert.rejects(ensureDataRefresh({root,environment:env,fetcher,now}));assert.equal(requests.length,0);
