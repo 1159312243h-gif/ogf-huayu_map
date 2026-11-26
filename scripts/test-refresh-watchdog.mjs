@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import {promises as fs} from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {gzipSync} from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 import {datasetNames} from './update-all-data.mjs';
 import {refreshDecision,ensureDataRefresh} from './ensure-data-refresh.mjs';
-const root=await fs.mkdtemp(path.resolve('.data-update/watchdog-test-')),now=Date.parse('2026-11-26T12:00:00Z');
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'huayu-refresh-watchdog-')),now=Date.parse('2026-11-26T12:00:00Z');
 await fs.mkdir(path.join(root,'site'));
 const generation=(age)=>datasetNames.map(file=>({file,generatedAt:new Date(now-age).toISOString()}));
 const old=generation(7*3600000),fresh=generation(2*3600000);
