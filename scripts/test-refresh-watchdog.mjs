@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import {promises as fs} from 'node:fs';
+import path from 'node:path';
+import {gzipSync} from 'node:zlib';
+import {fileURLToPath} from 'node:url';
+import {datasetNames} from './update-all-data.mjs';
+import {refreshDecision,ensureDataRefresh} from './ensure-data-refresh.mjs';
+const root=await fs.mkdtemp(path.resolve('.data-update/watchdog-test-')),now=Date.parse('2026-11-26T12:00:00Z');
+await fs.mkdir(path.join(root,'site'));
+const generation=(age)=>datasetNames.map(file=>({file,generatedAt:new Date(now-age).toISOString()}));
+const old=generation(7*3600000),fresh=generation(2*3600000);
+const run={id:40,head_branch:'main',status:'completed',created_at:new Date(now-8*3600000).toISOString()};
+const decision=(values)=>refreshDecision({generations:old,activeRuns:[],recentRun:run,now,...values});
+assert.equal(decision({}).action,'dispatch','a missed three-hour trigger must recover');
+assert.equal(decision({generations:fresh}).action,'none');
+assert.equal(decision({generations:generation(3*3600000)}).action,'dispatch');
+for(const status of ['queued','in_progress','waiting','pending','requested']){
+ assert.equal(decision({activeRuns:[{...run,status}]}).action,'wait','do not duplicate or cancel an existing '+status+' run');
+ assert.equal(decision({recentRun:{...run,status}}).action,'wait','a run started between history reads must still prevent duplicate dispatch');
+}
+assert.equal(decision({recentRun:{...run,created_at:new Date(now-30*60000).toISOString()}}).reason,'one-hour-dispatch-cooldown');
+assert.equal(decision({recentRun:{...run,created_at:new Date(now-3600000).toISOString()}}).action,'dispatch');
+assert.equal(decision({generations:[...fresh.slice(1),old[0]]}).action,'dispatch','use the oldest of all seven snapshots');
+for(const generations of [old.slice(1),old.map(g=>({...g,generatedAt:'bad'})),old.map(g=>({...g,generatedAt:new Date(now+1000).toISOString()})),old.map(()=>old[0])])assert.throws(()=>decision({generations}),/Incomplete/);
+assert.throws(()=>decision({activeRuns:[{...run,head_branch:'other',status:'in_progress'}]}),/Invalid/);
+async function seed(generations){for(const g of generations){const body=JSON.stringify({generatedAt:g.generatedAt,sourceTime:'2026-11-26T04:30:00Z'});await fs.writeFile(path.join(root,'site',g.file),g.file.endsWith('.gz')?gzipSync(body):body);}}
+await seed(old);
+const environment={GITHUB_REPOSITORY:'1159312243h-gif/ogf-huayu_map',GITHUB_REF:'refs/heads/main',GITHUB_TOKEN:'test-only-secret'};
+const requests=[];
+let activeStatus=null,truncate=false,deny=false,dispatchStatus=204;
+const fetcher=async(input,init)=>{
+ const url=new URL(input);requests.push({url:url.href,method:init.method,body:init.body});
+ assert.equal(url.origin,'https://api.github.com');assert.ok(url.pathname.startsWith('/repos/1159312243h-gif/ogf-huayu_map/actions/workflows/data-refresh.yml/'));
+ assert.equal(init.redirect,'error');assert.equal(init.headers.Authorization,'Bearer test-only-secret');assert.ok(init.signal instanceof AbortSignal);
+ if(deny)return new Response(null,{status:403});
+ if(init.method==='POST'){assert.equal(url.pathname,'/repos/1159312243h-gif/ogf-huayu_map/actions/workflows/data-refresh.yml/dispatches');assert.deepEqual(JSON.parse(init.body),{ref:'main'});return new Response(null,{status:dispatchStatus});}
+ assert.equal(url.searchParams.get('branch'),'main');const status=url.searchParams.get('status');
+ if(status)return Response.json({total_count:truncate?101:activeStatus===status?1:0,workflow_runs:activeStatus===status?[{...run,status}]:[]});
+ return Response.json({total_count:300,workflow_runs:[run]});
+};
+const output=path.join(root,'report.json');
+const passed=await ensureDataRefresh({root,environment,fetcher,now,output});
+assert.equal(passed.status,'dispatch-accepted');assert.equal(requests.filter(r=>r.method==='POST').length,1);
+assert.doesNotMatch(JSON.stringify(passed),/test-only-secret/);assert.deepEqual(passed.generations,old);
+assert.equal(JSON.parse(await fs.readFile(output)).status,'dispatch-accepted');
+for(const g of old)assert.equal((JSON.parse(g.file.endsWith('.gz')?(await import('node:zlib')).gunzipSync(await fs.readFile(path.join(root,'site',g.file))).toString():await fs.readFile(path.join(root,'site',g.file),'utf8'))).generatedAt,g.generatedAt,'watchdog never rewrites data or acquisition dates');
+activeStatus='in_progress';requests.length=0;assert.equal((await ensureDataRefresh({root,environment,fetcher,now})).status,'waiting');assert.ok(!requests.some(r=>r.method==='POST'));
+activeStatus=null;await seed(fresh);requests.length=0;assert.equal((await ensureDataRefresh({root,environment,fetcher,now})).status,'current');assert.ok(!requests.some(r=>r.method==='POST'));
+await seed(old);truncate=true;requests.length=0;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/truncated/);assert.ok(!requests.some(r=>r.method==='POST'));
+truncate=false;deny=true;requests.length=0;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/HTTP 403/);assert.ok(!requests.some(r=>r.method==='POST'));
+deny=false;dispatchStatus=500;await assert.rejects(ensureDataRefresh({root,environment,fetcher,now}),/HTTP 500/);
+requests.length=0;for(const env of [{...environment,GITHUB_REPOSITORY:'other/repo'},{...environment,GITHUB_REF:'refs/heads/other'},{...environment,GITHUB_TOKEN:''}])await assert.rejects(ensureDataRefresh({root,environment:env,fetcher,now}));assert.equal(requests.length,0);
+const project=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
+const workflow=await fs.readFile(path.join(project,'.github/workflows/data-refresh-watchdog.yml'),'utf8');
+assert.match(workflow,/cron: "37 \* \* \* \*"/u);assert.match(workflow,/actions: write/u);assert.doesNotMatch(workflow,/contents: write|id-token: write|secrets\./u);
+assert.match(workflow,/workflow_run:/u);assert.match(workflow,/node scripts\/ensure-data-refresh\.mjs/u);
+assert.match(await fs.readFile(path.join(project,'.github/workflows/data-refresh.yml'),'utf8'),/cron: "17 \*\/3 \* \* \*"/u,'original three-hour complete workflow remains intact');
+console.log('Refresh watchdog passed: all seven real generation dates, overdue catch-up, active/queued/racing runs, cooldown, scoped dispatch, partial and denied history rejection, no data rewrite and unchanged full three-hour workflow.');
