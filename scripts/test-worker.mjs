@@ -19,6 +19,8 @@ let partialNextUpstream = false;
 let networkFailureNextUpstream = false;
 let failUpstreamCount = 0;
 let sourceTimeOverride;
+let releaseUpstream;
+let blockNextUpstream = false;
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, options = {}) => {
   const target = new URL(String(url));
@@ -28,6 +30,7 @@ globalThis.fetch = async (url, options = {}) => {
   const body = String(options.body || "");
   const query = body ? decodeURIComponent(body.replace(/^data=/u, "")) : target.searchParams.get("data");
   upstreamQueries.push(query);
+  if (blockNextUpstream) {blockNextUpstream=false;await new Promise(resolve=>{releaseUpstream=resolve;});}
   if (networkFailureNextUpstream) {networkFailureNextUpstream=false;throw new TypeError("fetch failed");}
   if (failNextUpstream || failUpstreamCount > 0) {
     failNextUpstream = false;
@@ -292,12 +295,39 @@ try {
   assert.equal(retainedStructure.headers.get("x-ogf-structure-cache"), "STALE");
   assert.equal(retainedStructure.headers.get("x-ogf-structure-refresh-after"), "30");
   await Promise.allSettled(waitUntilPromises.splice(0));
-  assert.equal(await cache.get(structureCacheKey).clone().text(), oldStructure, "failed background refresh retains complete structures");
+  assert.equal(await cache.get(structureCacheKey).clone().text(), oldStructure, "failed refresh retains complete structures");
   const beforeStructureRefresh = upstreamQueries.length;
-  await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context);
-  await Promise.all(waitUntilPromises.splice(0));
+  const currentStructure = await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context);
+  assert.equal(currentStructure.headers.get("x-ogf-structure-cache"), "MISS");
+  assert.equal(waitUntilPromises.length, 0, "structure refresh completes within the current request");
   assert.equal(upstreamQueries.length, beforeStructureRefresh + 1);
   assert.equal((await worker.fetch(new Request(structureUrl), {ASSETS:assets}, context)).headers.get("x-ogf-structure-cache"), "HIT");
+
+  // A response must remain pending while the source is pending; the last complete
+  // packet remains in cache, and success reaches this same reader.
+  const terrainCacheKey=[...cache.keys()].find(key=>key.includes('/terrain/9/473/235.json'));
+  for(const [url,key,suffix,seconds] of [[structureUrl,structureCacheKey,'Structure',121],
+    [terrainUrl,terrainCacheKey,'Terrain',10801]]){
+    await ageModel(key,seconds,suffix);
+    const oldBytes=await cache.get(key).clone().text();
+    blockNextUpstream=true;let settled=false;
+    const pending=worker.fetch(new Request(url),{ASSETS:assets},context).then(value=>{settled=true;return value;});
+    while(!releaseUpstream)await new Promise(resolve=>setTimeout(resolve,0));
+    await new Promise(resolve=>setTimeout(resolve,0));
+    assert.equal(settled,false,suffix+' must not return stale data before source completion');
+    assert.equal(waitUntilPromises.length,0,'no dependency on post-response background lifetime');
+    assert.equal(await cache.get(key).clone().text(),oldBytes,'retain the complete old packet while refreshing');
+    const release=releaseUpstream;releaseUpstream=null;release();
+    const updated=await pending;
+    assert.equal(updated.headers.get('X-OGF-'+suffix+'-Cache'),'MISS');
+    assert.equal(updated.headers.get('X-OGF-'+suffix+'-Age'),'0');
+    await ageModel(key,seconds,suffix);
+    const saved=cache.get(key).clone();partialNextUpstream=true;
+    const fallback=await worker.fetch(new Request(url),{ASSETS:assets},context);
+    assert.equal(fallback.headers.get('X-OGF-'+suffix+'-Cache'),'STALE');
+    assert.equal(fallback.headers.get('X-OGF-'+suffix+'-Refresh-After'),'30');
+    assert.equal(await cache.get(key).clone().text(),await saved.text());
+  }
 
   const invalidStructure = await worker.fetch(
     new Request("https://example.test/api/structures/16/60608/30072.json"), { ASSETS: assets }, context);
@@ -336,8 +366,8 @@ try {
     headers: retainedRailHeaders,
   }));
   const staleRailTransit = await worker.fetch(new Request(railTransitUrl), { ASSETS: assets }, context);
-  assert.equal(staleRailTransit.headers.get("x-ogf-transit-cache"), "STALE");
-  assert.ok(waitUntilPromises.length > 0, "stale transit tile should refresh in the background");
+  assert.equal(staleRailTransit.headers.get("x-ogf-transit-cache"), "MISS");
+  assert.equal(waitUntilPromises.length, 0, "expired transit data is delivered in the live request without the background timeout");
   await Promise.all(waitUntilPromises.splice(0));
   assert.equal(upstreamQueries.length, transitQueriesAfterMiss + 1);
 
@@ -419,7 +449,7 @@ try {
 
   console.log(JSON.stringify({
     status: "passed",
-    liveBasemapCache: "MISS/HIT/STALE/background-refresh",
+    liveBasemapCache: "MISS/HIT/STALE/request-refresh",
     liveBasemapZooms: [11, 12, 13, 14, 15],
     roadOverview: "z11-z12/3h/roads-and-connected-approaches",
     liveBasemapPolicies: { snapshot: "z13-z14/3h", detail: "z15/2m" },
@@ -428,9 +458,9 @@ try {
     buildingZooms: [11, 12, 13, 14, 15],
     buildingCache: "2m",
     structureZooms: [11, 12, 13, 14, 15],
-    structureCache: "MISS/HIT/STALE/background-refresh/2m",
+    structureCache: "MISS/HIT/STALE/request-refresh/2m",
     transitTileZooms: { rail: 10, bus: 12 },
-    transitCache: "MISS/HIT/STALE/background-refresh/3h",
+    transitCache: "MISS/HIT/STALE/request-refresh/3h",
   }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;

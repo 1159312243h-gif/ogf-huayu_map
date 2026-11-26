@@ -535,9 +535,14 @@ async function fetchStructureTile(request, context, z, x, y) {
     const fetchedAt = Date.parse(cached.headers.get("X-OGF-Structure-Fetched-At") || "");
     const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : Infinity;
     if (ageSeconds < STRUCTURE_REFRESH_SECONDS) return structureTileClientResponse(cached, "HIT");
-    const refresh = refreshStructureTile(cacheKey, z, x, y);
-    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
-    return structureTileClientResponse(cached, "STALE");
+    // Keep slow source reads in the request lifetime; a background-only refresh
+    // can be terminated before the original query deadline.
+    try {
+      const response = await refreshStructureTile(cacheKey, z, x, y);
+      return structureTileClientResponse(response.clone(), "MISS");
+    } catch {
+      return structureTileClientResponse(cached, "STALE");
+    }
   }
   try {
     const response = await refreshStructureTile(cacheKey, z, x, y);
@@ -816,9 +821,14 @@ async function fetchTerrainTile(request, context, z, x, y) {
     const fetchedAt = Date.parse(cached.headers.get("X-OGF-Terrain-Fetched-At") || "");
     const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : Infinity;
     if (ageSeconds < TERRAIN_REFRESH_SECONDS) return terrainTileClientResponse(cached, "HIT");
-    const refresh = refreshTerrainTile(cacheKey, z, x, y);
-    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
-    return terrainTileClientResponse(cached, "STALE");
+    // Keep slow source reads in the request lifetime; a background-only refresh
+    // can be terminated before the original query deadline.
+    try {
+      const response = await refreshTerrainTile(cacheKey, z, x, y);
+      return terrainTileClientResponse(response.clone(), "MISS");
+    } catch {
+      return terrainTileClientResponse(cached, "STALE");
+    }
   }
   try {
     const response = await refreshTerrainTile(cacheKey, z, x, y);
@@ -1294,9 +1304,14 @@ async function fetchTransitTile(request, context, kind, z, x, y) {
     const fetchedAt = Date.parse(cached.headers.get("X-OGF-Transit-Fetched-At") || "");
     const ageSeconds = Number.isFinite(fetchedAt) ? Math.max(0, (Date.now() - fetchedAt) / 1000) : Infinity;
     if (ageSeconds < TRANSIT_REFRESH_SECONDS) return transitTileClientResponse(cached, "HIT");
-    const refresh = refreshTransitTile(cacheKey, kind, z, x, y);
-    context.waitUntil(refresh.then(() => undefined).catch(() => undefined));
-    return transitTileClientResponse(cached, "STALE");
+    // Keep slow source reads in the request lifetime; a background-only refresh
+    // can be terminated before the original query deadline.
+    try {
+      const response = await refreshTransitTile(cacheKey, kind, z, x, y);
+      return transitTileClientResponse(response.clone(), "MISS");
+    } catch {
+      return transitTileClientResponse(cached, "STALE");
+    }
   }
   try {
     const response = await refreshTransitTile(cacheKey, kind, z, x, y);

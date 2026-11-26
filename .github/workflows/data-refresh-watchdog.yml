@@ -3,7 +3,7 @@ name: Catch up overdue data refreshes
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Production health check", "Data freshness audit", "Refresh brand catalog"]
+    workflows: ["Production health check", "Data freshness audit", "Refresh brand catalog", "Refresh transit and terrain data"]
     types: [completed]
     branches: [main]
   schedule:
