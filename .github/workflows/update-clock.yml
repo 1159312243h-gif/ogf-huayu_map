@@ -1,0 +1,46 @@
+name: Deploy independent update clock
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - workers/update-watchdog/**
+      - scripts/deploy-update-clock.mjs
+      - scripts/test-update-clock.mjs
+      - .github/workflows/update-clock.yml
+permissions:
+  contents: read
+concurrency:
+  group: ogf-atlas-update-clock-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/test-update-clock.mjs
+      - name: Deploy Cloudflare clock with encrypted dispatch credential
+        id: clock
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HUAYU_REFRESH_GITHUB_TOKEN: ${{ secrets.HUAYU_REFRESH_GITHUB_TOKEN }}
+        run: node scripts/deploy-update-clock.mjs
+      - name: Read actual clock status
+        env:
+          CLOCK_HEALTH_URL: ${{ steps.clock.outputs.health_url }}
+        run: |
+          node --input-type=module <<'NODE'
+          const r=await fetch(process.env.CLOCK_HEALTH_URL,{cache:'no-store',signal:AbortSignal.timeout(30000)});
+          if(!r.ok)throw Error('Clock health HTTP '+r.status);
+          const report=await r.json();
+          if(report.repository!=='1159312243h-gif/ogf-huayu_map'||report.workflow!=='data-refresh-watchdog.yml')throw Error('Clock identity mismatch');
+          console.log(JSON.stringify(report,null,2));
+          NODE

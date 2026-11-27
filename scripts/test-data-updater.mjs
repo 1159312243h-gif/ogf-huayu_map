@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./test-refresh-route-indexes.mjs";
+import "./test-catalogs-first.mjs";
+import "./test-update-clock.mjs";
 import "./test-update-recovery.mjs";
 import "./test-source-body-recovery.mjs";
 import "./test-terrain-request.mjs";

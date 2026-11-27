@@ -12,12 +12,15 @@ on:
       - scripts/test-scheduled-data-update.mjs
       - scripts/update-all-data.mjs
       - scripts/test-data-updater.mjs
+      - scripts/refresh-catalogs-first.mjs
+      - scripts/test-catalogs-first.mjs
       - scripts/data-update/builders/**
   schedule:
     - cron: "17 */3 * * *"
 
 permissions:
   contents: write
+  actions: write
   id-token: write
 
 concurrency:
@@ -29,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 170
     outputs:
-      changed: ${{ steps.commit.outputs.changed }}
+      changed: ${{ steps.commit.outputs.changed == 'true' || steps.catalogs.outputs.changed == 'true' }}
       commit: ${{ steps.commit.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +94,13 @@ jobs:
           npm run verify
           npm run test:data-update
           npm run data:update:check
+      - name: Refresh and publish catalogs before the long national rebuild
+        id: catalogs
+        continue-on-error: true
+        env:
+          OGF_UPDATER_RELAY: "1"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/refresh-catalogs-first.mjs
       - name: Check authenticated updater source route
         env:
           OGF_UPDATER_RELAY: "1"
@@ -141,6 +151,11 @@ jobs:
           git push origin HEAD:main
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Report any incomplete early catalog refresh
+        if: steps.catalogs.outcome == 'failure'
+        run: |
+          echo "::error::An early catalog refresh failed. Successful validated catalogs were published; failed catalogs retain their original data and dates."
+          exit 1
       - name: Save failed complete-update checkpoints
         if: failure() && steps.rebuild.outcome == 'failure'
         uses: actions/cache/save@v4
@@ -165,7 +180,7 @@ jobs:
 
   deploy:
     needs: refresh
-    if: needs.refresh.outputs.changed == 'true'
+    if: always() && !cancelled() && needs.refresh.outputs.changed == 'true'
     runs-on: ubuntu-latest
     environment: production
     concurrency:
