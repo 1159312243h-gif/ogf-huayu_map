@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {refreshCatalogsFirst,CATALOG_FILES,dispatchCatalogDeployment} from './refresh-catalogs-first.mjs';
+import {refreshCatalogsFirst,CATALOG_FILES,dispatchCatalogDeployment,execute} from './refresh-catalogs-first.mjs';
+const isolated=await execute(process.execPath,['-e',"process.stdout.write(process.env.OGF_UPDATER_RELAY)"],{capture:true,env:{OGF_UPDATER_RELAY:'0'}});assert.equal(isolated.text,'0','actual spawned checks receive isolated relay settings');
 const originalFiles=await Promise.all(CATALOG_FILES.map(async file=>[file,await readFile(new URL('../'+file,import.meta.url))]));
 async function exercise({failures=[],advanced=false,diff=1,publicationFailure=null}={}) {
  const commands=[],outputs=[];let result,error;
  try {result=await refreshCatalogsFirst({writeOutput:async text=>outputs.push(text),log:()=>{},dispatch:async()=>{commands.push('dispatch deploy.yml main');},run:async(command,args,options={})=>{
   commands.push(args.join(' '));
+  if(args[0]?.startsWith('scripts/')&&!args[0].includes('update-brand-catalog')&&!args[0].includes('update-admin-catalog'))assert.equal(options.env?.OGF_UPDATER_RELAY,'0','synthetic validation must not inherit live OIDC relay');
   if(failures.some(s=>args[0]?.endsWith(s))||publicationFailure&&args[0]===publicationFailure)throw Error('fixture failure');
   if(args[0]==='rev-parse')return {code:0,text:args[1]==='origin/main'&&advanced?'new-head':'base-head'};
   return {code:args[0]==='diff'&&args.includes('--quiet')?diff:0,text:''};

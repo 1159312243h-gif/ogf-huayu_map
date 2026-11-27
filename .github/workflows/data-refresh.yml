@@ -101,6 +101,14 @@ jobs:
           OGF_UPDATER_RELAY: "1"
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/refresh-catalogs-first.mjs
+      - name: Upload early catalog publication report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: early-catalog-report-${{ github.run_id }}
+          path: .data-update/early-catalog-report.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Check authenticated updater source route
         env:
           OGF_UPDATER_RELAY: "1"

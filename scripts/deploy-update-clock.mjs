@@ -13,7 +13,7 @@ async function api(route,method='GET',body) {
     headers:{Authorization:'Bearer '+TOKEN,...(!form?{'Content-Type':'application/json'}:{})},
     ...(body?{body:form?body:JSON.stringify(body)}:{})});
   const packet=await response.json().catch(()=>null);
-  if(!response.ok||!packet?.success)throw Error(`Scheduler deployment ${method} ${route} HTTP ${response.status}; codes=${packet?.errors?.map(e=>e.code).join(',')||'unknown'}`);
+  if(!response.ok||!packet?.success){const detail=JSON.stringify(packet?.errors||[]).split(TOKEN).join('[redacted]').split(GITHUB).join('[redacted]').split(ACCOUNT).join('[account]').slice(0,500);throw Error(`Scheduler deployment ${method} ${route} HTTP ${response.status}; errors=${detail}`);}
   return packet.result;
 }
 const databases=await api('/d1/database?per_page=100');

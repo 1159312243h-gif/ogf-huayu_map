@@ -5,9 +5,9 @@ import {fileURLToPath} from 'node:url';
 export const CATALOG_FILES=['site/brand-catalog.json','site/brand-search-index.json','site/huaxia-admin-catalog.json',
   'site/desktop-assets.json','site/app-cache-version.js','release/SHA256.txt'];
 const root=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
-function execute(command,args,{cwd=root,capture=false,allowed=[0]}={}) {
+export function execute(command,args,{cwd=root,capture=false,allowed=[0],env={}}={}) {
   return new Promise((resolve,reject)=>{
-    const child=spawn(command,args,{cwd,env:process.env,windowsHide:true,stdio:capture?['ignore','pipe','inherit']:'inherit'});
+    const child=spawn(command,args,{cwd,env:{...process.env,...env},windowsHide:true,stdio:capture?['ignore','pipe','inherit']:'inherit'});
     let text='';if(capture)child.stdout.on('data',chunk=>{text+=chunk;});
     child.on('error',reject);child.on('close',code=>allowed.includes(code)?resolve({code,text:text.trim()}):reject(Error(path.basename(args[0]||command)+' exited '+code)));
   });
@@ -26,13 +26,13 @@ export async function refreshCatalogsFirst({run=execute,dispatch=dispatchCatalog
   // Each original updater retains its own full-count, identity, shrinkage and atomic-file checks.
   for(const [key,test,script] of [['brands','test-brands.mjs','update-brand-catalog.mjs'],
     ['admins','test-admin-catalog.mjs','update-admin-catalog.mjs']]) {
-    try {await run(process.execPath,['scripts/'+test]);await run(process.execPath,['scripts/'+script]);outcomes[key]='success';}
+    try {await run(process.execPath,['scripts/'+test],{env:{OGF_UPDATER_RELAY:'0'}});await run(process.execPath,['scripts/'+script]);outcomes[key]='success';}
     catch {outcomes[key]='failure';log('::error::'+key+' catalog refresh failed; retaining its last complete files and original dates.');}
   }
   let changed=false;
   if(Object.values(outcomes).includes('success')) {
     for(const args of [['scripts/update-manifest.mjs'],['scripts/verify-package.mjs'],['scripts/test-data-updater.mjs'],
-      ['scripts/update-all-data.mjs','--check'],['scripts/check-data-freshness.mjs']])await run(process.execPath,args);
+      ['scripts/update-all-data.mjs','--check'],['scripts/check-data-freshness.mjs']])await run(process.execPath,args,{env:{OGF_UPDATER_RELAY:'0'}});
     await run('git',['fetch','origin','main']);
     const head=await run('git',['rev-parse','HEAD'],{capture:true}),latest=await run('git',['rev-parse','origin/main'],{capture:true});
     if(head.text!==latest.text)throw Error('Repository advanced during catalog refresh; refusing to overwrite current main');
@@ -52,5 +52,13 @@ export async function refreshCatalogsFirst({run=execute,dispatch=dispatchCatalog
   log(JSON.stringify(report));return report;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const result=await refreshCatalogsFirst();if(result.status!=='passed')process.exitCode=1;
+  let report;
+  try {report=await refreshCatalogsFirst();if(report.status!=='passed')process.exitCode=1;}
+  catch(error){report={status:'failed',error:String(error.message)};console.error(error.message);process.exitCode=1;}
+  const directory=path.join(root,'.data-update');await fs.mkdir(directory,{recursive:true});
+  const catalogs=[];for(const file of ['brand-catalog.json','huaxia-admin-catalog.json']){
+    const data=JSON.parse(await fs.readFile(path.join(root,'site',file),'utf8'));
+    catalogs.push({file,generatedAt:data.generatedAt||data.readAt,sourceTime:data.dbTimestamp||data.sourceTime});
+  }
+  await fs.writeFile(path.join(directory,'early-catalog-report.json'),JSON.stringify({...report,catalogs,checkedAt:new Date().toISOString()},null,2)+'\n');
 }
