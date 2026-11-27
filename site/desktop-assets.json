@@ -132,12 +132,12 @@
     },
     {
       "path": "brand-catalog.json",
-      "bytes": 7769317,
-      "sha256": "a4ad68f8420444ed49ba2db5e0b4c917d9a31dce8226064d75ad3ccb2b3b97ac",
+      "bytes": 7769753,
+      "sha256": "9fd7b9603d1cf0133290c41a939970c8c9b72d56174cf6c88d4c1a6feac8945d",
       "kind": "data",
-      "sourceTime": "2026-11-27T13:11:30Z",
-      "decodedBytes": 7769317,
-      "decodedSha256": "a4ad68f8420444ed49ba2db5e0b4c917d9a31dce8226064d75ad3ccb2b3b97ac"
+      "sourceTime": "2026-11-27T16:59:50Z",
+      "decodedBytes": 7769753,
+      "decodedSha256": "9fd7b9603d1cf0133290c41a939970c8c9b72d56174cf6c88d4c1a6feac8945d"
     },
     {
       "path": "brand-data.js",
@@ -216,12 +216,12 @@
     },
     {
       "path": "brand-search-index.json",
-      "bytes": 3730083,
-      "sha256": "d5327b7706f203ffccfcf3b2661f267481a3463bbe72257ab10b6943f8ba0c05",
+      "bytes": 3730318,
+      "sha256": "fd75bac9e09964eb08d3fd09ee207247db876128b3fb6f3d1800084162e1c243",
       "kind": "data",
-      "sourceTime": "2026-11-27T13:11:30Z",
-      "decodedBytes": 3730083,
-      "decodedSha256": "d5327b7706f203ffccfcf3b2661f267481a3463bbe72257ab10b6943f8ba0c05"
+      "sourceTime": "2026-11-27T16:59:50Z",
+      "decodedBytes": 3730318,
+      "decodedSha256": "fd75bac9e09964eb08d3fd09ee207247db876128b3fb6f3d1800084162e1c243"
     },
     {
       "path": "bridge-models.js",
@@ -286,11 +286,11 @@
     {
       "path": "huaxia-admin-catalog.json",
       "bytes": 391389,
-      "sha256": "204917be749cb4b4393b3cfb1083bc84b053caac79d0fa95063a4dc7dbd76b5b",
+      "sha256": "008858de0df0f5e768c4d0ebb59028c2143bdcc761c67124152248997146dd0f",
       "kind": "data",
-      "sourceTime": "2026-11-27T13:11:30Z",
+      "sourceTime": "2026-11-27T16:59:50Z",
       "decodedBytes": 391389,
-      "decodedSha256": "204917be749cb4b4393b3cfb1083bc84b053caac79d0fa95063a4dc7dbd76b5b"
+      "decodedSha256": "008858de0df0f5e768c4d0ebb59028c2143bdcc761c67124152248997146dd0f"
     },
     {
       "path": "huayu-basemap-sample.png",
