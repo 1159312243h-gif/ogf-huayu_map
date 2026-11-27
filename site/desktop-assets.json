@@ -133,11 +133,11 @@
     {
       "path": "brand-catalog.json",
       "bytes": 7769317,
-      "sha256": "d0882b96c21506ca0b7f18619bf9c9b2d99ab4877ec57764bde79b0acb713ce4",
+      "sha256": "a4ad68f8420444ed49ba2db5e0b4c917d9a31dce8226064d75ad3ccb2b3b97ac",
       "kind": "data",
-      "sourceTime": "2026-11-27T12:13:28Z",
+      "sourceTime": "2026-11-27T13:11:30Z",
       "decodedBytes": 7769317,
-      "decodedSha256": "d0882b96c21506ca0b7f18619bf9c9b2d99ab4877ec57764bde79b0acb713ce4"
+      "decodedSha256": "a4ad68f8420444ed49ba2db5e0b4c917d9a31dce8226064d75ad3ccb2b3b97ac"
     },
     {
       "path": "brand-data.js",
@@ -217,11 +217,11 @@
     {
       "path": "brand-search-index.json",
       "bytes": 3730083,
-      "sha256": "696c6cac25751261547ac10fc75792a65a8306cb52bea1a3c735448190248890",
+      "sha256": "d5327b7706f203ffccfcf3b2661f267481a3463bbe72257ab10b6943f8ba0c05",
       "kind": "data",
-      "sourceTime": "2026-11-27T12:13:28Z",
+      "sourceTime": "2026-11-27T13:11:30Z",
       "decodedBytes": 3730083,
-      "decodedSha256": "696c6cac25751261547ac10fc75792a65a8306cb52bea1a3c735448190248890"
+      "decodedSha256": "d5327b7706f203ffccfcf3b2661f267481a3463bbe72257ab10b6943f8ba0c05"
     },
     {
       "path": "bridge-models.js",
@@ -286,11 +286,11 @@
     {
       "path": "huaxia-admin-catalog.json",
       "bytes": 391389,
-      "sha256": "2d15b4358f1d47be1214aec71d2c6c02389189788768c8c1886c048a50a0f752",
+      "sha256": "204917be749cb4b4393b3cfb1083bc84b053caac79d0fa95063a4dc7dbd76b5b",
       "kind": "data",
-      "sourceTime": "2026-11-27T12:13:28Z",
+      "sourceTime": "2026-11-27T13:11:30Z",
       "decodedBytes": 391389,
-      "decodedSha256": "2d15b4358f1d47be1214aec71d2c6c02389189788768c8c1886c048a50a0f752"
+      "decodedSha256": "204917be749cb4b4393b3cfb1083bc84b053caac79d0fa95063a4dc7dbd76b5b"
     },
     {
       "path": "huayu-basemap-sample.png",
