@@ -14,7 +14,7 @@ function createMapAgentContract() {
   const defs=[
     ["get_capabilities","查看当前版本可用功能。连接设置支持 Chat Completions、Responses、Claude、Gemini；仅对话模式不发送工具，模型不能更改接口或密钥。新增功能必须同步本清单；不能承诺未接入的操作。",object({}),"read"],
     ["get_app_status","读取当前实际客户端类型、是否以应用窗口运行、安装提示可用性、系统文件保存支持及实际本地资源版本；桌面及Android可从安装包加载，主屏幕版仅在完整缓存就绪后报告离线程序可用；公开快照保留原始日期，联网检查新版并共用网站账号；共享内容仍从实时API按原入口读取。不会自动安装、下载、读取本机文件或泄露账号与密钥；iOS签名、商店发布及完整离线地图不由此工具完成。",object({}),"read"],
-    ["get_map_context","读取当前地图视窗和用户选中的公开地图物体，返回可复用 ref。不会读取收藏、家庭地址或私人贴图。",object({}),"read"],
+    ["get_map_context","读取当前地图视窗和用户选中的公开地图物体，返回可复用 ref。三维建筑的扩大视野与本机缓存由原地图自动管理，本工具不固定或下载全部模型。不会读取收藏、家庭地址或私人贴图。",object({}),"read"],
     ["search_places","通过现有 OGF 搜索查找地点、行政区、坐标或附近设施；同名行政区优先。搜索先读名称和位置，定位时按原始编号补齐完整几何。结果有来源及 ref；重名须交由用户选择。",object({query:string(160)},["query"]),"read"],
     ["locate_place","使用搜索或地图上下文返回的 ref 定位真实物体并显示详情，不接受模型编造的坐标。",object({ref:string(40)},["ref"]),"view"],
     ["prepare_navigation","将两个已查询地点填入现有导航。可选 departureAt 为含时区的 ISO 出发时间；开始规划后优先匹配可赶上的共享班次，缺失段保留默认方案。只准备起终点，用户在导航页开始计算；不能声称已得到路线或耗时。",object({originRef:string(40),destinationRef:string(40),mode:enumOf(["driving","walking","cycling","transit","rail","airport"]),departureAt:string(40)},["originRef","destinationRef","mode"]),"view"],

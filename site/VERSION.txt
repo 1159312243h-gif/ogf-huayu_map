@@ -1,4 +1,14 @@
 华域地图 v9.0
+Release date: 2026-11-28
+Cloudflare Pages project: ogf-atlas
+Build: 9.0-building-range-v1
+Changed: bounded 65-degree building query camera, one-ring perspective loading, up to 64 active tiles and 128 resident tiles / 24 MiB estimated geometry; complete nearby rectangles appear before the wider view finishes. Original 90-degree display camera, roofs, wall colours, shadows, source age and two-minute refresh remain.
+Clients: shared program update for existing 9.0.3 desktop, Android and iOS/iPadOS home-screen clients; complete resource verification and reopen required. No new native runtime or installer, and no all-device physical validation is claimed.
+Previous complete data snapshots and original source timestamps are preserved. Source checks, commit and deployment are verified separately.
+
+Previous build metadata:
+
+华域地图 v9.0
 Release date: 2026-11-24
 Cloudflare Pages project: ogf-atlas
 Build: 9.0-transit-source-refresh-v1

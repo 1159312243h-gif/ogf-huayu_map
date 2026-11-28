@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="preload" as="script" href="./leaflet.js" fetchpriority="high" />
-    <link rel="preload" as="script" href="./app.js?v=9.0-basemap-source-refresh-v1" fetchpriority="high" />
+    <link rel="preload" as="script" href="./app.js?v=9.0-building-range-v1" fetchpriority="high" />
     <script async src="./map-startup.js?v=9.0-web-startup-v1"></script>
     <meta name="theme-color" content="#ffffff" />
     <link rel="icon" href="./app-icons/icon-192.png" />
@@ -1293,6 +1293,9 @@
               <p>华域建筑会根据原始地图中有效的颜色、墙体／屋顶材质和 <code>roof:shape</code> 显示屋顶。支持水平、山墙、高差山墙、单坡、庑殿、半庑殿、单侧庑殿、单侧半庑殿、孟莎、复式、歇山、攒尖、十字脊、锯齿、蝴蝶、尖顶、圆穹、洋葱和弯隆，共 19 种。倾斜近景可查看立体形态，水平式保留平顶；缺少标签、不支持的形状、带孔或不适用的复杂轮廓保留原有模型，不根据名称猜测。</p>
               <p><code>roof:orientation=along</code> 让屋脊沿建筑长边，<code>across</code> 沿短边；<code>roof:direction</code> 优先指定坡面向下的方位，0° 为北、90° 为东，单坡的相反方向会真正交换高低边。未标方向时按轮廓稳定定向，不因拖动或转动地图改变；曲线顶沿真实凸轮廓适配。形状细节缺少标注时是制图示意，墙面和山墙仍使用墙色，坡面独立使用屋顶色；屋顶与日照阴影使用同一几何。</p>
               <p>半庑殿半山墙式 <code>roof:shape=half-hipped</code> 也支持上述换向。如果要用 <code>along/across</code>，请先移除已有的 <code>roof:direction</code>，否则仍以有效方向角为准。以南北／东西对齐的矩形建筑为例：<code>roof:direction=0</code> 或 <code>N</code> 对应东西向屋脊，<code>90</code> 或 <code>E</code> 对应南北向屋脊。方向角用于在原轮廓的两组边之间选向，不会把整个屋面任意旋转出建筑范围；对称半庑殿改成相反方位（如 0°→180°）外观相同。修改后需等待上游同步及当前区域的两分钟建模检查，在倾斜近景中查看。</p>
+              </div></details><details class="help-step"><summary>三维建筑视野与缓存</summary><div>
+              <p>倾斜浏览时会多加载一圈周边建筑，附近完整分块先显示，远处逐步补齐。已访问的周边模型继续保留，来回移动优先复用；更远的区域保存在本机缓存中，返回时按原始数据年龄核对。</p>
+              <p>精细建筑每次最多读取64块，显示中最多保留128块及约24 MiB几何数据；密集区域会缩小完整窗口，远处保留基础建筑。建筑内存缓存最多256块／48 MiB，建筑与结构物等共用的持久缓存最多1024块／256 MiB，按使用情况及原三小时保留期限淘汰，不是无限离线保存。两分钟更新检查不变，缓存命中不延长源数据有效期，失败保留已显示的完整模型；浏览器拒绝或清理存储时继续联网读取。</p>
               </div></details><details class="help-step"><summary>光影与日照</summary><div>
               <p>“设置 → 光影与日照”默认开启“跟随现实时间”：按设备所在时区读取当前日期和钟表时间，每分钟更新光照与建筑阴影；跨日自动更新日期，重新打开页面或从后台返回时立即对时。设备时间作为虚构地图的日照参考，太阳方向仍按地图当前纬度估算，不推断虚构城市的真实时区。</p>
               <p>可以选择“手动预览”，也可直接修改日期、时间、拖动滑块，或点击今天／季节日期／清晨正午傍晚快捷按钮，系统会固定在你选择的时刻。手动模式按当地太阳时模拟，12:00 表示太阳正午，不等同于北京时间。点击“回到现实时间”，或重新选择“跟随现实时间”，会同时恢复当前日期、时间及持续自动跟随。环境亮度和明暗对比可分别调节，夜间采用中性弱光。同一日期在南北半球自然呈现不同季节。</p>
@@ -1533,7 +1536,7 @@
     <script defer src="./map-agent-providers.js?v=9.0-provider-compat-v2"></script>
     <script defer src="./map-agent-tools.js?v=9.0-simple-ui-v1"></script>
     <script defer src="./transit-station-data.js?v=references-13"></script>
-    <script defer src="./app.js?v=9.0-basemap-source-refresh-v1"></script>
+    <script defer src="./app.js?v=9.0-building-range-v1"></script>
     <script defer src="./traffic-surfaces.js?v=9.0-render-performance-v1"></script>
     <script defer src="./traffic-protocol.js?v=8.0-traffic-auto-render-v5"></script>
     <script defer src="./traffic-camera.js?v=8.0-auto-structure-lanes-v1"></script>

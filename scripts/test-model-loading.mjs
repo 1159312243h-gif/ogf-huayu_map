@@ -246,9 +246,11 @@ assert.equal(answer.error, undefined, "denied storage must not prevent rendering
 const selection = vm.createContext({clamp:(value, min, max) => Math.min(max, Math.max(min, value)),
   HUAYU_LIVE_BUILDING_MIN_TILE_ZOOM:11, HUAYU_LIVE_BUILDING_MAX_TILE_ZOOM:15,HUAYU_MODEL_VIEW_TILE_LIMIT:32,
   huayuAdministrativeQueryBounds:map=>map.getBounds()});
+for (const name of ["HUAYU_BUILDING_VIEW_TILE_LIMIT","HUAYU_BUILDING_RESIDENT_TILE_LIMIT","HUAYU_BUILDING_SOURCE_BYTES"])
+  vm.runInContext(source.match(new RegExp(`  const ${name} = [^;]+;`,"u"))[0],selection);
 for (const name of ["huayuLiveBuildingTileZoom", "huayuLiveBuildingTileAt", "huayuLiveBuildingVisibleTiles",
   "huayuLiveBuildingTileBounds","huayuModelEntryBytes","huayuModelTileWindow","huayuModelWindowTiles",
-  "huayuModelDetailView","huayuModelDetailTiles","selectHuayuModelTiles","rememberHuayuModelTileCost","huayuModelCoverage","huayuModelFeatureInside"])
+  "huayuModelDetailView","huayuModelDetailTiles","selectHuayuModelTiles","huayuModelReadyTiles","rememberHuayuModelTileCost","huayuModelCoverage","huayuModelFeatureInside"])
   vm.runInContext(declaration(name), selection);
 const bounds = {west:155.9, east:156.3, south:11.95, north:12.2};
 const coarse = selection.huayuLiveBuildingTileZoom({getZoom:() => 11});
@@ -285,6 +287,49 @@ detailState.tileCache.clear();
 selection.rememberHuayuModelTileCost(detailState,focus.key,{cacheBytes:20*1024*1024});
 assert.equal(selection.huayuModelDetailTiles(camera,detailState,12*1024*1024).length,0,
   "an oversized near tile stays on the native fallback instead of reloading in a loop");
+
+// Expanded building coverage is a separate policy; structure budgets above
+// stay unchanged. Test the actual constants instead of a second copy.
+const buildingBytes=vm.runInContext("HUAYU_BUILDING_SOURCE_BYTES",selection);
+const wideState={modelKind:"building",tileCache:new Map()};
+const wide=selection.huayuModelDetailTiles(camera,wideState,buildingBytes);
+assert.ok(wide.length>32 && wide.length<=64,"a large building view covers more complete tiles within the new bound");
+assert.ok(wide.some(tile=>tile.key===focus.key));
+let queryPitch;
+const focusBounds=selection.huayuLiveBuildingTileBounds(focus);
+const tiny={west:focusBounds.west+.001,east:focusBounds.east-.001,
+  south:focusBounds.south+.001,north:focusBounds.north-.001};
+const pitched={...camera,getBounds:()=>tiny,getPitch:()=>90,
+  transform:{clone:()=>({setPitch:value=>{queryPitch=value;},getBounds:()=>tiny})}};
+const buffered=selection.huayuModelDetailTiles(pitched,wideState,buildingBytes);
+assert.equal(queryPitch,65,"only the bounded query camera changes; the real 90 degree camera is untouched");
+assert.equal(pitched.getPitch(),90);
+assert.equal(buffered.length,9,"perspective preloads one surrounding ring even at close zoom");
+selection.huayuModelDetailTiles(pitched,detailState,4*1024*1024);
+assert.equal(queryPitch,50,"structure query camera retains its existing policy");
+const denseWide={...wideState,tileCache:new Map(wide.map(tile=>[tile.key,{cacheBytes:1024*1024}]))};
+const budgeted=selection.huayuModelDetailTiles(camera,denseWide,buildingBytes);
+assert.ok(budgeted.length<=24);
+assert.equal(selection.huayuModelWindowTiles(selection.huayuModelTileWindow(budgeted.map(t=>t.key))).length,budgeted.length);
+
+// New far tiles never delay a whole nearby window or create ownership holes.
+const progressive={...wideState,detailView:camera,tileCache:new Map([[focus.key,{cacheBytes:1024}]])};
+let near=selection.huayuModelReadyTiles(progressive,buffered.map(tile=>tile.key));
+assert.deepEqual([...near],[focus.key]);
+for(const tile of buffered)if(tile.x===focus.x)progressive.tileCache.set(tile.key,{cacheBytes:1024});
+near=selection.huayuModelReadyTiles(progressive,buffered.map(tile=>tile.key));
+assert.equal(near.length,3);
+assert.equal(selection.huayuModelWindowTiles(selection.huayuModelTileWindow(near)).length,near.length);
+for(const tile of buffered)progressive.tileCache.set(tile.key,{cacheBytes:1024});
+assert.equal(selection.huayuModelReadyTiles(progressive,buffered.map(tile=>tile.key)).length,9);
+progressive.tileCache.delete(focus.key);
+assert.equal(selection.huayuModelReadyTiles(progressive,buffered.map(tile=>tile.key)).length,0,
+  "unloaded focus retains the previous complete snapshot rather than selecting scattered far tiles");
+const dateLineKeys=["15/32767/16000","15/0/16000","15/1/16000"];
+const dateLineCenter=selection.huayuLiveBuildingTileBounds({z:15,x:0,y:16000});
+const dateLineState={detailView:{getCenter:()=>({lng:(dateLineCenter.west+dateLineCenter.east)/2,
+  lat:(dateLineCenter.south+dateLineCenter.north)/2})},tileCache:new Map(dateLineKeys.map(key=>[key,{}]))};
+assert.equal(selection.huayuModelReadyTiles(dateLineState,dateLineKeys).length,3);
 const wrapped=selection.huayuModelCoverage(["15/32767/16000","15/0/16000"]);
 assert.equal(wrapped.coordinates.length,2,"ownership wraps at the date line without claiming the whole world");
 const coverage={type:"MultiPolygon",coordinates:[[[[0,0],[2,0],[2,2],[0,2],[0,0]]]]};
@@ -412,8 +457,10 @@ const residency=vm.createContext({HUAYU_LIVE_BUILDING_TILE_CACHE_LIMIT:256,
   applyHuayuStructures:()=>commits++,updateHuayuLiveBuildingDiagnostics:()=>{},
   updateHuayuStructureDiagnostics:()=>{},syncHuayuLiveBuildingPrimaryLayers:()=>{},
   clearHuayuLiveBuildingPrimarySync:()=>{}});
+vm.runInContext(source.match(/  const HUAYU_BUILDING_RESIDENT_TILE_LIMIT = [^;]+;/u)[0],residency);
+residency.clamp=selection.clamp;
 for(const name of ["huayuModelEntryBytes","huayuModelTileWindow","huayuModelWindowTiles","huayuModelCoverage",
-  "huayuLiveBuildingTileBounds","huayuModelFeatureInside","huayuModelResidentTiles","pruneHuayuModelTileCache",
+  "huayuLiveBuildingTileAt","huayuLiveBuildingTileBounds","huayuModelFeatureInside","huayuModelReadyTiles","huayuModelResidentTiles","pruneHuayuModelTileCache",
   "pruneHuayuLiveBuildingTileCache","pruneHuayuStructureTileCache",
   "mergeHuayuLiveBuildingTiles","mergeHuayuStructureTiles"]) vm.runInContext(declaration(name),residency);
 // Count source submissions, including the production no-op on an unchanged revision.
@@ -475,6 +522,63 @@ residency.touchHuayuModelTiles("building",touched,[{key:"tile"}],70000);
 residency.touchHuayuModelTiles("building",touched,[{key:"tile"}],70001);
 assert.equal(touches.length,1,"frequent camera movements must not rewrite disk metadata continuously");
 assert.equal(touched.tileCache.get("tile").cachedAt,1000,"LRU use must not change source data age");
+
+residency.HUAYU_BUILDING_SOURCE_BYTES=buildingBytes;
+const retainedWindow={modelKind:"building",tileCache:new Map(),renderRevision:0,appliedRevision:-1,
+  glMap:{},pendingTiles:new Map(),queuedTileKeys:new Set(),dataReady:false,snapshotReady:false};
+for(let x=96;x<=104;x++)for(let y=96;y<=104;y++)
+  retainedWindow.tileCache.set(`15/${x}/${y}`,tileEntry(1));
+retainedWindow.visibleTileKeys=new Set(["15/100/100"]);
+residency.mergeHuayuLiveBuildingTiles(retainedWindow);
+assert.equal(retainedWindow.renderTileRevisions.size,49,"three visited rings remain displayed instead of just one");
+const retainedData=retainedWindow.data,retainedRevision=retainedWindow.renderRevision;
+retainedWindow.visibleTileKeys=new Set(["15/103/100"]);
+residency.mergeHuayuLiveBuildingTiles(retainedWindow);
+retainedWindow.visibleTileKeys=new Set(["15/100/100"]);
+residency.mergeHuayuLiveBuildingTiles(retainedWindow);
+assert.equal(retainedWindow.renderRevision,retainedRevision,"returning within the resident window does not re-upload geometry");
+assert.equal(retainedWindow.data,retainedData);
+
+const staged={...retainedWindow,renderTileRevisions:undefined,renderSignature:"",tileCache:new Map([
+  ["15/100/100",tileEntry(1)]]),visibleTileKeys:new Set(["15/100/100","15/101/100"])};
+residency.mergeHuayuLiveBuildingTiles(staged);
+assert.equal(staged.snapshotReady,true);
+assert.equal(staged.coverageReady,false,"a complete nearby window is not advertised as the whole requested view");
+assert.equal(staged.status,"expanding");
+const stagedData=staged.data;
+staged.tileCache.clear();residency.mergeHuayuLiveBuildingTiles(staged);
+assert.equal(staged.data,stagedData,"a failed outer expansion does not clear the displayed whole window");
+
+const a="15/100/100",b="15/101/100",recent=tileEntry(1,2),old=tileEntry(1,1);
+old.loadedAt=1000;recent.loadedAt=2000;
+recent.data.features[0].properties.wallColor="#e9cfa9";
+const updatedNeighbours={...staged,tileCache:new Map([[a,old],[b,recent]]),
+  visibleTileKeys:new Set([b]),renderSignature:"",renderTileRevisions:undefined};
+residency.mergeHuayuLiveBuildingTiles(updatedNeighbours);
+assert.equal(updatedNeighbours.data.features[0].properties.wallColor,"#e9cfa9",
+  "retained old neighbours cannot override the newest wall and roof properties for a duplicate source ID");
+// The omitted footprint is entirely in the newly complete active tile.
+recent.loadedAt=3000;recent.revision++;recent.data.features=[];
+old.data.features[0].geometry=tileEntry(1).data.features[0].geometry;
+updatedNeighbours.visibleTileKeys=new Set([a]);
+updatedNeighbours.tileCache.set(a,{...recent,data:{features:[]}});
+updatedNeighbours.tileCache.set(b,old);
+residency.mergeHuayuLiveBuildingTiles(updatedNeighbours);
+assert.equal(updatedNeighbours.data.features.length,0,"cached neighbours do not revive buildings omitted by a newer complete window");
+
+const residentBudget={modelKind:"building",tileCache:new Map()};
+const allKeys=[];
+for(let x=90;x<110;x++)for(let y=90;y<110;y++){
+  const key=`15/${x}/${y}`;if(x>=96&&x<104&&y>=96&&y<104)allKeys.push(key);
+  residentBudget.tileCache.set(key,tileEntry(1));
+}
+const residentKeys=residency.huayuModelResidentTiles(residentBudget,allKeys,buildingBytes);
+assert.ok(residentKeys.length<=128);
+assert.equal(residency.huayuModelWindowTiles(residency.huayuModelTileWindow(residentKeys)).length,residentKeys.length);
+residentBudget.tileCache.set(a,tileEntry(1,1,buildingBytes+1));
+assert.equal(residency.huayuModelResidentTiles(residentBudget,[a],buildingBytes),null,
+  "expanded residency still rejects an oversized whole tile");
+assert.match(source,/modelKind: "building"/u,"the real building controller enables the expanded policy");
 // Track the real controller in each view. Overhead camera synchronization
 // emits artificial MapLibre gesture pairs that must not trigger data commits.
 const emitter=()=>{
