@@ -61,3 +61,39 @@ assert.match(workflow,/contents: read/);assert.doesNotMatch(workflow,/actions: w
 assert.match(workflow,/secrets\.HUAYU_REFRESH_GITHUB_TOKEN/);
 sql.close();
 console.log('Independent clock passed: actual SQLite cross-invocation lease, fixed repository/workflow/main, GitHub cooldown and race checks, bounded incomplete-history retries, private-error redaction, scheduled work lifetime and public mutation rejection.');
+
+// Exercise the actual multipart deployment request against a free-plan API fixture.
+const {deployUpdateClock}=await import('./deploy-update-clock.mjs');
+const deployEnvironment={CLOUDFLARE_ACCOUNT_ID:'fixture-account',CLOUDFLARE_API_TOKEN:'fixture-cloudflare-secret',HUAYU_REFRESH_GITHUB_TOKEN:'fixture-github-secret'};
+const deploymentCalls=[],deploymentOutputs=[];
+const deployFetcher=async(url,init)=>{
+ const parsed=new URL(url);assert.equal(parsed.origin,'https://api.cloudflare.com');assert.ok(parsed.pathname.startsWith('/client/v4/accounts/fixture-account/'));
+ assert.equal(init.headers.Authorization,'Bearer fixture-cloudflare-secret');assert.equal(init.redirect,'error');
+ deploymentCalls.push({path:parsed.pathname,method:init.method});
+ const suffix=parsed.pathname.replace('/client/v4/accounts/fixture-account','');
+ if(suffix==='/d1/database')return Response.json({success:true,result:[{name:'ogf-atlas-update-clock',uuid:'clock-db'}]});
+ if(suffix==='/d1/database/clock-db/query'){assert.equal(JSON.parse(init.body).sql,SCHEMA);return Response.json({success:true,result:[]});}
+ if(suffix==='/workers/scripts/ogf-atlas-update-clock'){
+   assert.ok(init.body instanceof FormData);const metadata=JSON.parse(init.body.get('metadata'));
+   if('limits' in metadata)return Response.json({success:false,errors:[{code:100328,message:'CPU limits are not supported for the Free plan.'}]},{status:400});
+   assert.equal(metadata.main_module,'worker.mjs');assert.equal(metadata.compatibility_date,'2026-11-26');
+   assert.deepEqual(metadata.bindings,[{type:'d1',name:'DB',id:'clock-db'},{type:'secret_text',name:'GITHUB_DISPATCH_TOKEN',text:'fixture-github-secret'}]);
+   assert.equal(await init.body.get('worker.mjs').text(),'fixture worker source');
+   return Response.json({success:true,result:{}});
+ }
+ if(suffix==='/workers/scripts/ogf-atlas-update-clock/subdomain'){assert.deepEqual(JSON.parse(init.body),{enabled:true});return Response.json({success:true,result:{}});}
+ if(suffix==='/workers/scripts/ogf-atlas-update-clock/schedules'){assert.deepEqual(JSON.parse(init.body),[{cron:'*/5 * * * *'}]);return Response.json({success:true,result:[]});}
+ if(suffix==='/workers/subdomain')return Response.json({success:true,result:{subdomain:'fixture-clock'}});
+ throw Error('Unexpected deployment endpoint');
+};
+const deployed=await deployUpdateClock({environment:deployEnvironment,fetcher:deployFetcher,readSource:async()=> 'fixture worker source',writeOutput:async value=>deploymentOutputs.push(value)});
+assert.equal(deployed.status,'deployed');assert.equal(deployed.healthUrl,'https://ogf-atlas-update-clock.fixture-clock.workers.dev/health');
+assert.deepEqual(deploymentOutputs,['health_url='+deployed.healthUrl+'\n']);assert.equal(deploymentCalls.length,6);
+assert.doesNotMatch(JSON.stringify(deployed),/fixture-cloudflare-secret|fixture-github-secret/);
+let deniedCalls=0;
+await assert.rejects(deployUpdateClock({environment:deployEnvironment,fetcher:async(url,init)=>{
+ deniedCalls++;if(url.endsWith('/workers/scripts/ogf-atlas-update-clock'))return Response.json({success:false,errors:[{message:'No access fixture-cloudflare-secret fixture-github-secret fixture-account'}]},{status:403});
+ return deployFetcher(url,init);
+},readSource:async()=> 'fixture worker source',writeOutput:async()=>assert.fail('Denied deployment cannot report a health URL')}),error=>/HTTP 403/.test(error.message)&&!error.message.includes('fixture-cloudflare-secret')&&!error.message.includes('fixture-github-secret'));
+assert.equal(deniedCalls,3,'permission failure must stop before activation and schedules');
+console.log('Clock deployment passed: actual multipart upload uses free-plan defaults, preserves database/secret bindings and schedule, and never claims deployment or reveals credentials after denial.');
